@@ -4,7 +4,12 @@ function loadreel() { document.getElementById("iclip").contentWindow.location.re
 function loadreelMotion() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/221680172'); }
 function loadreelAuteur() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/222615801'); }
 function loadreelEdit() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/223073667'); }
-function loadvprodreel() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/206606382'); }
+function loadvprodreel() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/206470572'); }
+function loadpoverview() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/276642241'); }
+function loadpsafety() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/???'); }
+function loadpqaqc() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/276648903'); }
+function loadchapman() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/268707281'); }
+function loadskupien() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/???'); }
 function loaddtrouble() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/187179788');
 	var textboxA = document.getElementById('containerA'); textboxB = document.createElement("div"); textboxB.setAttribute("id", "containerB"); var text = document.createElement("div"); text.innerHTML = document.getElementById("clip_dtrouble").innerHTML; textboxA.appendChild(textboxB); textboxB.appendChild(text); }
 function loadmj() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/215070721');
@@ -21,7 +26,7 @@ function loadgmiracle() { document.getElementById("iclip").contentWindow.locatio
 	var textboxA = document.getElementById('containerA'); textboxB = document.createElement("div"); textboxB.setAttribute("id", "containerB"); var text = document.createElement("div"); text.innerHTML = document.getElementById("clip_genero").innerHTML; textboxA.appendChild(textboxB); textboxB.appendChild(text); }
 function loadgshelter() { document.getElementById("iclip").contentWindow.location.replace('https://www.youtube.com/embed/okOxyDmrhOI?wmode=opaque&rel=0');
 	var textboxA = document.getElementById('containerA'); textboxB = document.createElement("div"); textboxB.setAttribute("id", "containerB"); var text = document.createElement("div"); text.innerHTML = document.getElementById("clip_genero").innerHTML; textboxA.appendChild(textboxB); textboxB.appendChild(text); }
-function loaddinta() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/215069896');
+function loaddinta() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/210501724/d222b22040');
 	var textboxA = document.getElementById('containerA'); textboxB = document.createElement("div"); textboxB.setAttribute("id", "containerB"); var text = document.createElement("div"); text.innerHTML = document.getElementById("clip_dinta").innerHTML; textboxA.appendChild(textboxB); textboxB.appendChild(text); }
 function loadgilda() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/164183476');
 	var textboxA = document.getElementById('containerA'); textboxB = document.createElement("div"); textboxB.setAttribute("id", "containerB"); var text = document.createElement("div"); text.innerHTML = document.getElementById("clip_gilda").innerHTML; textboxA.appendChild(textboxB); textboxB.appendChild(text); }
@@ -51,9 +56,9 @@ function loadstears() { document.getElementById("iclip").contentWindow.location.
 	var textboxA = document.getElementById('containerA'); textboxB = document.createElement("div"); textboxB.setAttribute("id", "containerB"); var text = document.createElement("div"); text.innerHTML = document.getElementById("clip_stears").innerHTML; textboxA.appendChild(textboxB); textboxB.appendChild(text); }
 function loadovg() { document.getElementById("iclip").contentWindow.location.replace('https://www.youtube.com/embed/IUuKoerKGf8?wmode=opaque&rel=0');
 	var textboxA = document.getElementById('containerA'); textboxB = document.createElement("div"); textboxB.setAttribute("id", "containerB"); var text = document.createElement("div"); text.innerHTML = document.getElementById("clip_ovg").innerHTML; textboxA.appendChild(textboxB); textboxB.appendChild(text); }
-function loadmylife() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/215069662');
+function loadmylife() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/245253456');
 	var textboxA = document.getElementById('containerA'); textboxB = document.createElement("div"); textboxB.setAttribute("id", "containerB"); var text = document.createElement("div"); text.innerHTML = document.getElementById("clip_mylife").innerHTML; textboxA.appendChild(textboxB); textboxB.appendChild(text); }
-function loadfrontALZ() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/219133709');
+function loadfrontALZ() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/272599768');
 	var textboxA = document.getElementById('containerA'); textboxB = document.createElement("div"); textboxB.setAttribute("id", "containerB"); var text = document.createElement("div"); text.innerHTML = document.getElementById("clip_frontALZ").innerHTML; textboxA.appendChild(textboxB); textboxB.appendChild(text); }
 function loadenlisted() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/204599979');
 	var textboxA = document.getElementById('containerA'); textboxB = document.createElement("div"); textboxB.setAttribute("id", "containerB"); var text = document.createElement("div"); text.innerHTML = document.getElementById("clip_enlisted").innerHTML; textboxA.appendChild(textboxB); textboxB.appendChild(text); }
