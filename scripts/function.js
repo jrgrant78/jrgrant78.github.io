@@ -9,7 +9,7 @@ function loadpoverview() { document.getElementById("iclip").contentWindow.locati
 function loadpsafety() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/???'); }
 function loadpqaqc() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/276648903'); }
 function loadchapman() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/268707281'); }
-function loadskupien() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/???'); }
+function loadskupien() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/276875507'); }
 function loaddtrouble() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/187179788');
 	var textboxA = document.getElementById('containerA'); textboxB = document.createElement("div"); textboxB.setAttribute("id", "containerB"); var text = document.createElement("div"); text.innerHTML = document.getElementById("clip_dtrouble").innerHTML; textboxA.appendChild(textboxB); textboxB.appendChild(text); }
 function loadmj() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/215070721');
