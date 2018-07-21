@@ -100,11 +100,13 @@ function openTabA(evt, tabNameA) { var iA, tabcontentA, tablinksA; tabcontentA =
 function scheduleCheck() {
     if (document.getElementById('scheduleYes').checked) {
         document.getElementById('ifSchedule').style.display = 'block';
-		document.getElementById('ifSchedule').setAttribute("required","");
+		document.getElementById('datecheck').setAttribute("required","");
+		document.getElementById('timecheck').setAttribute("required","");
     }
     else {
 		document.getElementById('ifSchedule').style.display = 'none';
-		document.getElementById('ifSchedule').removeAttribute("required","");
+		document.getElementById('datecheck').removeAttribute("required","");
+		document.getElementById('timecheck').removeAttribute("required","");
 	}
 
 }
