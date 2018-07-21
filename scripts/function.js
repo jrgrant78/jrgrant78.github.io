@@ -95,3 +95,16 @@ function openTabA(evt, tabNameA) { var iA, tabcontentA, tablinksA; tabcontentA =
 	tablinksA = document.getElementsByClassName("tablinksA");
 	for (iA = 0; iA < tablinksA.length; iA++) { tablinksA[iA].className = tablinksA[iA].className.replace(" active", ""); }
 	document.getElementById(tabNameA).style.display = "block"; evt.currentTarget.className += " active"; }
+
+/* Contact Schedule */
+function scheduleCheck() {
+    if (document.getElementById('scheduleYes').checked) {
+        document.getElementById('ifSchedule').style.display = 'block';
+		document.getElementById('ifSchedule').setAttribute("required","");
+    }
+    else {
+		document.getElementById('ifSchedule').style.display = 'none';
+		document.getElementById('ifSchedule').removeAttribute("required","");
+	}
+
+}
