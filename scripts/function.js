@@ -108,5 +108,11 @@ function scheduleCheck() {
 		document.getElementById('datecheck').removeAttribute("required");
 		document.getElementById('timecheck').removeAttribute("required");
 	}
+document.getElementById('scheduleReset').onclick = function() {
+        document.getElementById('ifSchedule').style.display = 'block';
+		document.getElementById('datecheck').setAttribute("required", "");
+		document.getElementById('timecheck').setAttribute("required", "");
+
+}
 
 }
