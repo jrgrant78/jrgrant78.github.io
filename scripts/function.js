@@ -1,3 +1,41 @@
+/* Main Menu (mobile) */
+function mobileBarFunction(x) { x.classList.toggle("change");
+	var y = document.getElementById('MmenuHide'); if (y.style.display === 'block') { y.style.display = 'none'; } else { y.style.display = "block"; } }
+
+/* About Tabs */
+function openTabA(evt, tabNameA) { var iA, tabcontentA, tablinksA; tabcontentA = document.getElementsByClassName("tabcontentA");
+	for (iA = 0; iA < tabcontentA.length; iA++) { tabcontentA[iA].style.display = "none"; }
+	tablinksA = document.getElementsByClassName("tablinksA");
+	for (iA = 0; iA < tablinksA.length; iA++) { tablinksA[iA].className = tablinksA[iA].className.replace(" active", ""); }
+	document.getElementById(tabNameA).style.display = "block"; evt.currentTarget.className += " active"; }
+
+/* Contact Schedule */
+function scheduleCheck() {
+    if (document.getElementById('scheduleYes').checked) {
+        document.getElementById('ifSchedule').style.display = 'block';
+		document.getElementById('datecheck').setAttribute("required", "");
+		document.getElementById('timecheck').setAttribute("required", ""); }
+    else {
+		document.getElementById('ifSchedule').style.display = 'none';
+		document.getElementById('datecheck').removeAttribute("required");
+		document.getElementById('timecheck').removeAttribute("required"); }
+	document.getElementById('scheduleReset').onclick = function() {
+        document.getElementById('ifSchedule').style.display = 'block';
+		document.getElementById('datecheck').setAttribute("required", "");
+		document.getElementById('timecheck').setAttribute("required", ""); } }
+
+function scrollToStart(){ document.getElementById("start").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function scrollToHome(){ document.getElementById("home").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function scrollToIntro(){ document.getElementById("intro").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function scrollToServices(){ document.getElementById("services").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function scrollToAbout(){ document.getElementById("about").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function scrollToClients(){ document.getElementById("clients").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+
+function navSelector(e) {
+	var elems = document.querySelector(".active");
+	if(elems !==null){ elems.classList.remove("active"); }
+	e.target.className = "active"; }
+
 /* Load Video Clip */
 function loadreel() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/51395401');
 	var textboxA = document.getElementById('containerA'); textboxB = document.createElement("div"); textboxB.setAttribute("id", "containerB"); var text = document.createElement("div"); text.innerHTML = document.getElementById("clip_reel").innerHTML; textboxA.appendChild(textboxB); textboxB.appendChild(text); }
@@ -84,35 +122,3 @@ function loadboblo() { document.getElementById("iclip").contentWindow.location.r
 	var textboxA = document.getElementById('containerA'); textboxB = document.createElement("div"); textboxB.setAttribute("id", "containerB"); var text = document.createElement("div"); text.innerHTML = document.getElementById("clip_boblo").innerHTML; textboxA.appendChild(textboxB); textboxB.appendChild(text); }
 function clearframe() { document.getElementById("iclip").contentWindow.location.replace('about:blank');	var elem = document.getElementById("containerB"); elem.parentNode.removeChild(elem); }
 function goback() { history.go(-1); }
-
-/* Main Menu (mobile) */
-function mobileBarFunction(x) { x.classList.toggle("change");
-	var y = document.getElementById('MmenuHide'); if (y.style.display === 'block') { y.style.display = 'none'; } else { y.style.display = "block"; } }
-
-/* About Tabs */
-function openTabA(evt, tabNameA) { var iA, tabcontentA, tablinksA; tabcontentA = document.getElementsByClassName("tabcontentA");
-	for (iA = 0; iA < tabcontentA.length; iA++) { tabcontentA[iA].style.display = "none"; }
-	tablinksA = document.getElementsByClassName("tablinksA");
-	for (iA = 0; iA < tablinksA.length; iA++) { tablinksA[iA].className = tablinksA[iA].className.replace(" active", ""); }
-	document.getElementById(tabNameA).style.display = "block"; evt.currentTarget.className += " active"; }
-
-/* Contact Schedule */
-function scheduleCheck() {
-    if (document.getElementById('scheduleYes').checked) {
-        document.getElementById('ifSchedule').style.display = 'block';
-		document.getElementById('datecheck').setAttribute("required", "");
-		document.getElementById('timecheck').setAttribute("required", "");
-    }
-    else {
-		document.getElementById('ifSchedule').style.display = 'none';
-		document.getElementById('datecheck').removeAttribute("required");
-		document.getElementById('timecheck').removeAttribute("required");
-	}
-document.getElementById('scheduleReset').onclick = function() {
-        document.getElementById('ifSchedule').style.display = 'block';
-		document.getElementById('datecheck').setAttribute("required", "");
-		document.getElementById('timecheck').setAttribute("required", "");
-
-}
-
-}
