@@ -1,13 +1,16 @@
 /* Main Menu (mobile) */
 function mobileBarFunction(x) { x.classList.toggle("change");
-	var y = document.getElementById('MmenuHide'); if (y.style.display === 'block') { y.style.display = 'none'; } else { y.style.display = "block"; } }
+	var y = document.getElementById('MmenuHide');
+	if (y.style.display === 'block') { y.style.display = 'none'; } else { y.style.display = "block"; } }
 
-/* About Tabs */
-function openTabA(evt, tabNameA) { var iA, tabcontentA, tablinksA; tabcontentA = document.getElementsByClassName("tabcontentA");
-	for (iA = 0; iA < tabcontentA.length; iA++) { tabcontentA[iA].style.display = "none"; }
-	tablinksA = document.getElementsByClassName("tablinksA");
-	for (iA = 0; iA < tablinksA.length; iA++) { tablinksA[iA].className = tablinksA[iA].className.replace(" active", ""); }
-	document.getElementById(tabNameA).style.display = "block"; evt.currentTarget.className += " active"; }
+function navSelector(e) {
+	var y = document.getElementById('MmenuHide');
+	var elems = document.querySelector(".active");
+	if(elems !==null){ elems.classList.remove("active"); }
+	e.target.className = "active";
+	if (y.style.display === 'block') {
+		y.style.display = 'none'; document.getElementById("menutoggle").classList.toggle("change"); }
+	else { y.style.display = "block"; document.getElementById("menutoggle").classList.toggle("change"); } }
 
 /* Contact Schedule */
 function scheduleCheck() {
@@ -30,11 +33,6 @@ function scrollToIntro(){ document.getElementById("intro").scrollIntoView({ beha
 function scrollToServices(){ document.getElementById("services").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToAbout(){ document.getElementById("about").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToClients(){ document.getElementById("clients").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-
-function navSelector(e) {
-	var elems = document.querySelector(".active");
-	if(elems !==null){ elems.classList.remove("active"); }
-	e.target.className = "active"; }
 
 /* Load Video Clip */
 function loadreel() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/51395401');
