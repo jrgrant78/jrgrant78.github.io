@@ -4,6 +4,11 @@ function mobileBarFunction(x) { x.classList.toggle("change");
 	if (y.style.display === 'block') { y.style.display = 'none'; } else { y.style.display = "block"; } }
 
 function navSelector(e) {
+	var elems = document.querySelector(".active");
+	if(elems !==null){ elems.classList.remove("active"); }
+	e.target.className = "active"; }
+
+function navSelectorM(e) {
 	var y = document.getElementById('MmenuHide');
 	var elems = document.querySelector(".active");
 	if(elems !==null){ elems.classList.remove("active"); }
