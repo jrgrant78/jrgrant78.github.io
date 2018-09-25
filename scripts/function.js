@@ -32,8 +32,8 @@ function scheduleCheck() {
 		document.getElementById('datecheck').setAttribute("required", "");
 		document.getElementById('timecheck').setAttribute("required", ""); } }
 
-function scrollToStart(){ document.getElementById("start").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToHome(){ document.getElementById("home").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function scrollToStart(){ document.getElementById("start").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToIntro(){ document.getElementById("intro").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToServices(){ document.getElementById("services").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToAbout(){ document.getElementById("about").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
