@@ -4,13 +4,14 @@ function mobileBarFunction(x) { x.classList.toggle("change");
 	if (y.style.display === 'block') { y.style.display = 'none'; } else { y.style.display = "block"; } }
 
 function navSelector(e) {
-	var y = document.getElementById('MmenuHide');
+	var y = document.getElementById("MmenuHide");
+	var x = document.getElementById("menutoggle");
 	var elems = document.querySelector(".active");
 	if(elems !==null){ elems.classList.remove("active"); }
 	e.target.className = "active";
-	if (y.style.display === 'block') {
-		y.style.display = 'none'; document.getElementById("menutoggle").classList.toggle("change"); }
-	else { y.style.display = "block"; document.getElementById("menutoggle").classList.toggle("change"); } }
+	if (x.style.display === "block") {
+		if (y.style.display === "block") { y.style.display = "none"; x.classList.toggle("change"); }
+		else { y.style.display = "block"; x.classList.toggle("change"); } } }
 
 /* Contact Schedule */
 function scheduleCheck() {
