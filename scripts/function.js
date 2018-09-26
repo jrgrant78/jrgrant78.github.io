@@ -1,17 +1,24 @@
 /* Main Menu (mobile) */
 function mobileBarFunction(x) { x.classList.toggle("change");
-	var y = document.getElementById('MmenuHide');
-	if (y.style.display === 'block') { y.style.display = 'none'; } else { y.style.display = "block"; } }
+	var y = document.getElementById('MmenuHide'); if (y.style.display === 'block') { y.style.display = 'none'; } else { y.style.display = "block"; } }
+
+function scrollToHome(){ document.getElementById("home").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function scrollToStart(){ document.getElementById("start").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function scrollToIntro(){ document.getElementById("intro").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function scrollToServices(){ document.getElementById("services").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function scrollToAbout(){ document.getElementById("about").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function scrollToClients(){ document.getElementById("clients").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 
 function navSelector(e) {
-	var y = document.getElementById("MmenuHide");
-	var x = document.getElementById("menutoggle");
 	var elems = document.querySelector(".active");
 	if(elems !==null){ elems.classList.remove("active"); }
-	e.target.className = "active";
-	if (x.style.display === "block") {
-		if (y.style.display === "block") { y.style.display = "none"; x.classList.toggle("change"); }
-		else { y.style.display = "block"; x.classList.toggle("change"); } } }
+	e.target.className = "active"; }
+
+function navSelectorM(e) {
+	var y = document.getElementById("MmenuHide");
+	var x = document.getElementById("menutoggle");
+	if (y.style.display === "block") { y.style.display = "none"; x.classList.toggle("change"); }
+	else { y.style.display = "block"; x.classList.toggle("change"); } }
 
 /* Contact Schedule */
 function scheduleCheck() {
@@ -27,13 +34,6 @@ function scheduleCheck() {
         document.getElementById('ifSchedule').style.display = 'block';
 		document.getElementById('datecheck').setAttribute("required", "");
 		document.getElementById('timecheck').setAttribute("required", ""); } }
-
-function scrollToHome(){ document.getElementById("home").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-function scrollToStart(){ document.getElementById("start").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-function scrollToIntro(){ document.getElementById("intro").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-function scrollToServices(){ document.getElementById("services").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-function scrollToAbout(){ document.getElementById("about").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-function scrollToClients(){ document.getElementById("clients").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 
 /* Load Video Clip */
 function loadreel() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/51395401');
