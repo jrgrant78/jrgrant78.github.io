@@ -1,6 +1,6 @@
 /* Main Menu (mobile) */
 function mobileBarFunction(x) { x.classList.toggle("change");
-	var y = document.getElementById('MmenuHide'); if (y.style.display === 'block') { y.style.display = 'none'; } else { y.style.display = "block"; } }
+	var y = document.getElementById('MmenuHide'); if (y.style.display === 'block') { y.style.display = 'none'; x.classList.remove("visible"); } else { y.style.display = "block"; x.classList.add("visible"); } }
 
 function scrollToHome(){ document.getElementById("home").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToStart(){ document.getElementById("start").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
@@ -12,13 +12,12 @@ function scrollToClients(){ document.getElementById("clients").scrollIntoView({ 
 function navSelector(e) {
 	var elems = document.querySelector(".active");
 	if(elems !==null){ elems.classList.remove("active"); }
-	e.target.className = "active"; }
-
-function navSelectorM(e) {
+	e.target.className = "active";
 	var y = document.getElementById("MmenuHide");
 	var x = document.getElementById("menutoggle");
-	if (y.style.display === "block") { y.style.display = "none"; x.classList.toggle("change"); }
-	else { y.style.display = "block"; x.classList.toggle("change"); } }
+	if (x.classList.contains("visible")) {
+		if (y.style.display === "block") { y.style.display = "none"; x.classList.toggle("change"); }
+		else { y.style.display = "block"; x.classList.toggle("change"); } } }
 
 /* Contact Schedule */
 function scheduleCheck() {
