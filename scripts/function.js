@@ -30,7 +30,55 @@ function scheduleCheck() {
 	document.getElementById('scheduleReset').onclick = function() {
         document.getElementById('ifSchedule').style.display = 'block';
 		document.getElementById('datecheck').setAttribute("required", "");
-		document.getElementById('timecheck').setAttribute("required", ""); } }
+		document.getElementById('timecheck').setAttribute("required", "");
+		document.getElementById('questionnaire').style.display = 'none';
+		document.getElementById('ifEntity').style.display = 'none'; } }
+
+function newClient() {
+	if (document.getElementById("questionnaire").style.display === "block") { document.getElementById("questionnaire").style.display = "none" }
+	else { document.getElementById("questionnaire").style.display = "block" } }
+
+function entityCheck() {
+    if (document.getElementById('entityOther').checked) {
+        document.getElementById('ifEntity').style.display = 'inline-block'; }
+    else {
+		document.getElementById('ifEntity').style.display = 'none'; } }
+
+function typeCheck() {
+    if (document.getElementById('typeOther').checked) {
+        document.getElementById('ifType').style.display = 'inline-block'; }
+    else {
+		document.getElementById('ifType').style.display = 'none'; } }
+
+function actionCheck() {
+    if (document.getElementById('actionOther').checked) {
+        document.getElementById('ifAction').style.display = 'inline-block'; }
+    else {
+		document.getElementById('ifAction').style.display = 'none'; } }
+
+function toneCheck() {
+    if (document.getElementById('toneOther').checked) {
+        document.getElementById('ifTone').style.display = 'inline-block'; }
+    else {
+		document.getElementById('ifTone').style.display = 'none'; } }
+
+function customCheck() {
+    if (document.getElementById('customYes').checked) {
+        document.getElementById('ifCustom').style.display = 'block'; }
+    else {
+		document.getElementById('ifCustom').style.display = 'none'; } }
+
+function audioCheck() {
+    if (document.getElementById('audioYes').checked) {
+        document.getElementById('audioProvider').style.display = 'block'; }
+    else {
+		document.getElementById('audioProvider').style.display = 'none'; } }
+
+function showingCheck() {
+    if (document.getElementById('showingOther').checked) {
+        document.getElementById('ifShowing').style.display = 'inline-block'; }
+    else {
+		document.getElementById('ifShowing').style.display = 'none'; } }
 
 /* Load Video Clip */
 function loadreel() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/51395401');
