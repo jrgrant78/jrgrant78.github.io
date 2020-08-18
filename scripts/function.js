@@ -5,7 +5,7 @@ function scrollToHome(){ document.getElementById("home").scrollIntoView({ behavi
 function scrollToStart(){ document.getElementById("start").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToIntro(){ document.getElementById("intro").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 /* function scrollToServices(){ document.getElementById("services").scrollIntoView({ behavior: 'smooth', block: 'start' }); } */
-function scrollToServices(){ window.scrollTo({ top: 0, behavior: 'smooth' }); }
+function scrollToServices(){ document.getElementById("services").scrollTo({ top: 0, behavior: 'smooth' }); }
 function scrollToAbout(){ document.getElementById("about").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToClients(){ document.getElementById("clients").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function navSelector(e) {
