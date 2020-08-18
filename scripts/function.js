@@ -4,7 +4,7 @@ function mobileBarFunction(x) { x.classList.toggle("change");
 function scrollToHome(){ document.getElementById("home").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToStart(){ document.getElementById("start").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToIntro(){ document.getElementById("intro").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-function scrollToServices(){ document.getElementById("services").scrollIntoView({ behavior: 'smooth' }).preventDefault(); }
+function scrollToServices(){ document.getElementById("services").scrollIntoView({ behavior: 'smooth' }); }
 function scrollToAbout(){ document.getElementById("about").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToClients(){ document.getElementById("clients").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function navSelector(e) {
