@@ -334,7 +334,7 @@ var itemTable = new function () {
             // ADD NEW VALUE TO header ARRAY.
             for (i = 1; i < this.col.length; i++) {
                 var td = tab.getElementsByTagName("td")[i];
-                if (td.childNodes[0].tagName == 'SELECT' || td.childNodes[0].getAttribute('name') == 'item' || td.childNodes[0].getAttribute('name') == 'size' || td.childNodes[0].getAttribute('name') == 'color' || td.childNodes[0].getAttribute('name') == 'design' || td.childNodes[0].getAttribute('type') == 'text') {      // CHECK IF ELEMENT IS A TEXTBOX OR SELECT.
+                if (td.childNodes[0].tagName == 'SELECT' || td.childNodes[0].getAttribute('name') == 'design' || td.childNodes[0].getAttribute('type') == 'text') {      // CHECK IF ELEMENT IS A TEXTBOX OR SELECT.
                     var txtVal = td.childNodes[0].value;
                     if ((itemList.selectedIndex == 1 && colorList.selectedIndex != 0) || (itemList.selectedIndex == 2) || (itemList.selectedIndex != 0 && sizeList.selectedIndex != 0 && colorList.selectedIndex != 0)) {
                         if (customtxt.value != '') { itemCost.textContent = "$"+(costArray[sizeList.selectedIndex]+7); totalCost.textContent = "$"+Math.round((total += (costArray[sizeList.selectedIndex]+7)/6)); }
