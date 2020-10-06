@@ -83,7 +83,7 @@ var itemTable = new function () {
                 // ADD TABLE HEADER.
                 var th = document.createElement('th');
                 th.innerHTML = this.col[h].replace('_', ' ');
-                th.setAttribute('style', 'background-color: white; border-radius: 10px; color: black;padding-left: 5px; padding-right: 5px;');
+                th.setAttribute('style', 'background-color: white; border-radius: 10px; color: black; font-weight: bold; text-align: center; padding-left: 5px; padding-right: 5px;');
                 tr.appendChild(th);
             }
 
