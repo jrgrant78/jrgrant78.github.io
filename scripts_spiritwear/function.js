@@ -341,6 +341,7 @@ var itemTable = new function () {
                         else { itemCost.textContent = "$"+costArray[sizeList.selectedIndex]; totalCost.textContent = "$"+Math.round((total += costArray[sizeList.selectedIndex]/6)); }
                         costString.setAttribute('value', itemCost.textContent);
                         obj[this.col[i]] = txtVal.trim();
+						itemList.setAttribute('name', 'item');
                     }
                     else {
                         obj = '';
