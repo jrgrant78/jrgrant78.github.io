@@ -49,6 +49,7 @@ var itemTable = new function () {
 
     var costArray = [0];
     var itemCost = document.createElement("string");
+	itemCost.setAttribute('name', 'itemcost');
     itemCost.textContent = "$"+costArray[itemList.selectedIndex];
     var costString = document.createElement('input');
     costString.setAttribute('type', 'text');
@@ -170,8 +171,8 @@ var itemTable = new function () {
                     var radioB = document.createElement('input');
                     radioA.setAttribute('type', 'radio');
                     radioB.setAttribute('type', 'radio');
-                    radioA.setAttribute('name', 'designIGNORE');
-                    radioB.setAttribute('name', 'designIGNORE');
+                    radioA.setAttribute('name', 'design');
+                    radioB.setAttribute('name', 'design');
                     radioA.setAttribute('value', 'A');
                     radioB.setAttribute('value', 'B');
                     var labelA = document.createElement('label');
@@ -187,7 +188,7 @@ var itemTable = new function () {
                     radioB.setAttribute("onclick", "radioClick()");
                     var designString = document.createElement('input');
                     designString.setAttribute('type', 'text');
-                    designString.setAttribute('name', 'design');
+//                    designString.setAttribute('name', 'design');
                     designString.setAttribute('value', 'A');
                     designString.style.display = "none";
                     radioClick = function() {
