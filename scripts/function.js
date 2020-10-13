@@ -11,7 +11,7 @@ function scrollToAbout(){ document.getElementById("about").scrollIntoView({ beha
 function scrollToClients(){ document.getElementById("clients").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 */
 
-const navlink = document.querySelectorAll(".navbar a");
+const navlink = document.querySelectorAll(".menu a");
 navlink.forEach(elems => elems.addEventListener("click", smoothscroll));
 function smoothscroll(event){
 	event.preventDefault();
