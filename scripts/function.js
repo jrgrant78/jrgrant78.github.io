@@ -1,20 +1,14 @@
 /* Navigation */
 function mobileBarFunction(x) { x.classList.toggle("change");
 	var y = document.getElementById('MmenuHide'); if (y.style.display === 'block') { y.style.display = 'none'; x.classList.remove("visible"); } else { y.style.display = "block"; x.classList.add("visible"); } }
+/*
 function scrollToHome(){ document.getElementById("home").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToStart(){ document.getElementById("start").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToIntro(){ document.getElementById("intro").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToServices(){ document.getElementById("services").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToAbout(){ document.getElementById("about").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToClients(){ document.getElementById("clients").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-
-// Apply event handlers. Example of firing the scrolling mechanism.
-document.getElementById('introClick').addEventListener('click', doScrolling.bind(null, '#intro', 1000))
-document.getElementById('homeClick').addEventListener('click', doScrolling.bind(null, '#home', 1500))
-document.getElementById('clientsClick').addEventListener('click', doScrolling.bind(null, '#clients', 4000))
-
-
-
+*/
 
 function navSelector(e) {
 	var elems = document.querySelector(".active");
