@@ -49,9 +49,9 @@ function doScrolling(element, duration) {
 }
 
 // Apply event handlers. Example of firing the scrolling mechanism.
-document.getElementById('scrollMid').addEventListener('click', doScrolling.bind(null, '#intro', 1000))
-document.getElementById('scrollTop').addEventListener('click', doScrolling.bind(null, '#home', 1500))
-document.getElementById('scrollBot').addEventListener('click', doScrolling.bind(null, '#clients', 4000))
+document.getElementById('introClick').addEventListener('click', doScrolling.bind(null, '#intro', 1000))
+document.getElementById('homeClick').addEventListener('click', doScrolling.bind(null, '#home', 1500))
+document.getElementById('clientsClick').addEventListener('click', doScrolling.bind(null, '#clients', 4000))
 
 
 
