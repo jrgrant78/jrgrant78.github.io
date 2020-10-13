@@ -12,7 +12,7 @@ function scrollToClients(){ document.getElementById("clients").scrollIntoView({ 
 */
 
 const navlink = document.querySelectorAll(".navbar a");
-navlink.forEach(elem => elem.addEventListener("click", smoothscroll));
+navlink.forEach(elems => elems.addEventListener("click", smoothscroll));
 function smoothscroll(event){
 	event.preventDefault();
 	const targetId = event.currentTarget.getAttribute("href");
