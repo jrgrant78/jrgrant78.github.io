@@ -1,3 +1,6 @@
+import { smoothscroll } from 'smoothscroll-polyfill';
+smoothscroll.polyfill();
+
 /* Navigation */
 function mobileBarFunction(x) { x.classList.toggle("change");
 	var y = document.getElementById('MmenuHide'); if (y.style.display === 'block') { y.style.display = 'none'; x.classList.remove("visible"); } else { y.style.display = "block"; x.classList.add("visible"); } }
