@@ -1,7 +1,7 @@
 var itemTable = new function () {
 
     // AN ARRAY OF JSON OBJECTS WITH VALUES.
-    this.header = [{ "#": "", "Item:": "", "Size:": "", "Color:": "", "Design:": "", "Customization ($7):": "", "Cost:": "" }]
+    this.header = [{ "#": "", "Item:": "", "Size:": "", "Color:": "", "Design:": "", "Customization (add $7):": "", "Cost:": "" }]
     this.col = [];
 
     var itemArray = ["-- select an item --", "Cotton Knit Face Mask", "Tie-Die Face Mask", "Ladies Organic Short Sleeve Tee", "Short Sleeve Tee", "Youth Pullover Hoodie", "Pullover Hoodie", "Youth Full Zip Hoodie", "Full Zip Hoodie", "Youth Sponge Fleece Crew Sweat", "Adult Sponge Fleece Crew Sweat",
@@ -303,9 +303,13 @@ var itemTable = new function () {
         // DELETE DATA.
         this.Delete = function (oButton) {
             var activeRow = oButton.parentNode.parentNode.rowIndex;
-            totalCost.textContent = "$"+(total-=activeRow);
-            this.header.splice((activeRow), 1);    // DELETE THE ACTIVE ROW.
-            this.createTable();                         // REFRESH THE TABLE.
+			var costStr = document.getElementById('itemsTable').rows[activeRow].cells[6].innerHTML;
+			var costRep = costStr.replace('$', '');
+			total -= costRep;
+			total = Math.round(total * 100) / 100;
+            totalCost.textContent = "$" + total;
+            this.header.splice((activeRow), 1); // DELETE THE ACTIVE ROW.
+			this.createTable(); // REFRESH THE TABLE.
         };
 
 /*
@@ -344,7 +348,7 @@ var itemTable = new function () {
                     }
                     else {
                         obj = '';
-                        alert('All fields are required!');
+                        alert("All applicable fields are required!");
                         break;
                     }
                 }
@@ -354,11 +358,11 @@ var itemTable = new function () {
             if (Object.keys(obj).length > 0) {      // CHECK IF OBJECT IS NOT EMPTY.
                 this.header.push(obj);             // PUSH (ADD) DATA TO THE JSON ARRAY.
                 this.createTable();                 // REFRESH THE TABLE.
+				itemList.selectedIndex = 0;
+				customtxt.value = '';
+				itemList.click();
+				sizeList.click();
             }
-            itemList.selectedIndex = 0;
-            customtxt.value = '';
-            itemList.click();
-            sizeList.click();
         }
 
     itemList.onclick = function() {
