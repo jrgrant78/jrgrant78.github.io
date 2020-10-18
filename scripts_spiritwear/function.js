@@ -7,7 +7,7 @@ var itemTable = new function () {
     var itemArray = ["-- select an item --", "Cotton Knit Face Mask", "Tie-Die Face Mask", "Ladies Organic Short Sleeve Tee", "Short Sleeve Tee", "Youth Pullover Hoodie", "Pullover Hoodie", "Youth Full Zip Hoodie", "Full Zip Hoodie", "Youth Sponge Fleece Crew Sweat", "Adult Sponge Fleece Crew Sweat",
                     "Tie-Die All-In-One Lounger", "Short Sleeve Tie-Dye", "Youth Tie-Die Hooded Sweat", "Adult Tie-Dye Hooded Sweat", "Youth Long Sleeve Tie-Dye", "Adult Long Sleeve Tie-Dye", "Flannel Pants", "Blanket"];
     var itemList = document.createElement("select");
-    itemList.setAttribute('name', 'item');
+    itemList.setAttribute('name', 'Item');
     for (var i = 0; i < itemArray.length; i++) {
         var itemOption = document.createElement("option");
         itemOption.setAttribute("value", itemArray[i]);
@@ -19,7 +19,7 @@ var itemTable = new function () {
 
     var sizeArray = ["-- select a size --", "No item selected"];
     var sizeList = document.createElement("select");
-    sizeList.setAttribute('name', 'size');
+    sizeList.setAttribute('name', 'Size');
     for (var s = 0; s < sizeArray.length; s++) {
         var sizeOption = document.createElement("option");
         sizeOption.setAttribute("value", sizeArray[s]);
@@ -31,7 +31,7 @@ var itemTable = new function () {
 
     var colorArray = ["-- select a color --", "No item selected"];
     var colorList = document.createElement("select");
-    colorList.setAttribute('name', 'color');
+    colorList.setAttribute('name', 'Color');
     for (var c = 0; c < colorArray.length; c++) {
         var colorOption = document.createElement("option");
         colorOption.setAttribute("value", colorArray[c]);
@@ -43,22 +43,22 @@ var itemTable = new function () {
 
     var customtxt = document.createElement("input");
     customtxt.setAttribute('type', 'text');
-    customtxt.setAttribute('name', 'customization');
+    customtxt.setAttribute('name', 'Customization');
     customtxt.setAttribute('value', '');
     customtxt.setAttribute("placeholder", "Custom Name ($7)");
 
     var costArray = [0];
     var itemCost = document.createElement("string");
-	itemCost.setAttribute('name', 'itemcost');
+	itemCost.setAttribute('name', 'Item_Cost');
     itemCost.textContent = "$"+costArray[itemList.selectedIndex];
     var costString = document.createElement('input');
     costString.setAttribute('type', 'text');
-    costString.setAttribute('name', 'cost');
+    costString.setAttribute('name', 'Total_Cost');
     costString.setAttribute('value', itemCost.textContent);
     costString.style.display = "none";
     var total = 0;
     var totalCost = document.createElement("string");
-    totalCost.setAttribute('name', 'totalcost');
+    totalCost.setAttribute('name', 'TotalCost');
     totalCost.textContent = "$"+total;
     totalCost.setAttribute('style', 'color: yellow;');
 
@@ -171,8 +171,8 @@ var itemTable = new function () {
                     var radioB = document.createElement('input');
                     radioA.setAttribute('type', 'radio');
                     radioB.setAttribute('type', 'radio');
-                    radioA.setAttribute('name', 'design');
-                    radioB.setAttribute('name', 'design');
+                    radioA.setAttribute('name', 'Design');
+                    radioB.setAttribute('name', 'Design');
                     radioA.setAttribute('value', 'A');
                     radioB.setAttribute('value', 'B');
                     var labelA = document.createElement('label');
