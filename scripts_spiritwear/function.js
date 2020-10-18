@@ -344,6 +344,7 @@ var itemTable = new function () {
                         if (customtxt.value != '') { itemCost.textContent = "$"+(costArray[sizeList.selectedIndex]+7); totalCost.textContent = "$"+Math.round((total += (costArray[sizeList.selectedIndex]+7)/6)); }
                         else { itemCost.textContent = "$"+costArray[sizeList.selectedIndex]; totalCost.textContent = "$"+Math.round((total += costArray[sizeList.selectedIndex]/6)); }
                         costString.setAttribute('value', itemCost.textContent);
+						td.childNodes[0].setAttribute('name', txtVal);
                         obj[this.col[i]] = txtVal.trim();
                     }
                     else {
