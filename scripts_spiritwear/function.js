@@ -91,6 +91,7 @@ var itemTable = new function () {
             // CREATE A TABLE.
             var table = document.createElement('table');
             table.setAttribute('id', 'itemsTable');     // SET TABLE ID.
+			table.setAttribute('name', 'Items');
             table.style.width = "100%";
             var tr = table.insertRow(-1);               // CREATE A ROW (FOR HEADER).
 
