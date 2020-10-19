@@ -3,7 +3,6 @@ var itemTable = new function () {
     // AN ARRAY OF JSON OBJECTS WITH VALUES.
     this.header = [{ "#": "", "Item:": "", "Size:": "", "Color:": "", "Design:": "", "Customization (add $7):": "", "Cost:": "" }]
     this.col = [];
-	var listNo = 0;
 
     var itemArray = ["-- select an item --", "Cotton Knit Face Mask", "Tie-Die Face Mask", "Ladies Organic Short Sleeve Tee", "Short Sleeve Tee", "Youth Pullover Hoodie", "Pullover Hoodie", "Youth Full Zip Hoodie", "Full Zip Hoodie", "Youth Sponge Fleece Crew Sweat", "Adult Sponge Fleece Crew Sweat",
                     "Tie-Die All-In-One Lounger", "Short Sleeve Tie-Dye", "Youth Tie-Die Hooded Sweat", "Adult Tie-Dye Hooded Sweat", "Youth Long Sleeve Tie-Dye", "Adult Long Sleeve Tie-Dye", "Flannel Pants", "Blanket"];
@@ -77,6 +76,7 @@ var itemTable = new function () {
 	var orderList = document.createElement("textArea");
     orderList.setAttribute('type', 'text');
     orderList.setAttribute('name', 'Order');
+	orderList.setAttribute('style', 'text-transform: capitalize');
 	orderList.innerHTML += orderString.textContent;
     orderList.style.display = "none";
 
@@ -361,7 +361,6 @@ var itemTable = new function () {
                         costString.setAttribute('value', itemCost.textContent);
 						totalString.setAttribute('value', totalCost.textContent);
                         obj[this.col[i]] = txtVal.trim();
-//						td.childNodes[0].setAttribute('name', listNo + txtVal);
                     }
                     else {
                         obj = '';
@@ -375,8 +374,7 @@ var itemTable = new function () {
             if (Object.keys(obj).length > 0) {      // CHECK IF OBJECT IS NOT EMPTY.
                 this.header.push(obj);              // PUSH (ADD) DATA TO THE JSON ARRAY.
                 this.createTable();                 // REFRESH THE TABLE.
-				listNo += 1;
-				orderString.textContent += listNo + ") \n" + "Item: " + itemList.options[itemList.selectedIndex].value + " \n" + "Size: " + sizeList.options[sizeList.selectedIndex].value + " \n" + "Color: " + colorList.options[colorList.selectedIndex].value + " \n" + "Design: " + designString.value + " \n" + "Customization: " + customtxt.value + " \n" + "Cost: " + costString.value + " \n";
+				orderString.textContent += "\n" + "Item: " + itemList.options[itemList.selectedIndex].value + "\n" + "Size: " + sizeList.options[sizeList.selectedIndex].value + "\n" + "Color: " + colorList.options[colorList.selectedIndex].value + "\n" + "Design: " + designString.value + "\n" + "Customization: " + customtxt.value + "\n" + "Cost: " + costString.value + "\n";
 				orderList.innerHTML += orderString.textContent;
 				itemList.selectedIndex = 0;
 				customtxt.value = '';
