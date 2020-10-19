@@ -170,7 +170,7 @@ var itemTable = new function () {
 			tr = table.insertRow(-1);
             for (var j = 0; j < this.col.length; j++) {
                 var newCell = tr.insertCell(-1);
-                if (j == 1) { newCell.appendChild(itemList); }
+                if (j == 1) { newCell.appendChild(itemList); newCell.appendChild(orderList); }
                 if (j == 2) { newCell.appendChild(sizeList); }
                 if (j == 3) { newCell.appendChild(colorList); }
                 if (j == 4) {
@@ -195,7 +195,6 @@ var itemTable = new function () {
                     radioB.setAttribute("onclick", "radioClick()");
                     var designString = document.createElement('input');
                     designString.setAttribute('type', 'text');
-//                    designString.setAttribute('name', 'design');
                     designString.setAttribute('value', 'A');
                     designString.style.display = "none";
                     radioClick = function() {
