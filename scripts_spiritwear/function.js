@@ -376,7 +376,7 @@ var itemTable = new function () {
                 this.header.push(obj);              // PUSH (ADD) DATA TO THE JSON ARRAY.
                 this.createTable();                 // REFRESH THE TABLE.
 				listNo += 1;
-				orderString.textContent += listNo + ") %0D%0A" + "Item: " + itemList.options[itemList.selectedIndex].value + "%0D%0A" + "Size: " + sizeList.options[sizeList.selectedIndex].value + "%0D%0A" + "Color: " + colorList.options[colorList.selectedIndex].value + "%0D%0A" + "Design: " + designString.value + "%0D%0A" + "Customization: " + customtxt.value + "%0D%0A" + "Cost: " + costString.value + "%0D%0A%0D%0A";
+				orderString.textContent += listNo + ") \n" + document.write("<br>") + "Item: " + itemList.options[itemList.selectedIndex].value + " \n" + document.write("<br>") + "Size: " + sizeList.options[sizeList.selectedIndex].value + " \n" + document.write("<br>") + "Color: " + colorList.options[colorList.selectedIndex].value + " \n" + document.write("<br>") + "Design: " + designString.value + " \n" + document.write("<br>") + "Customization: " + customtxt.value + " \n" + document.write("<br>") + "Cost: " + costString.value + " \n" + document.write("<br>") + document.write("<br>");
 				orderList.setAttribute('value', orderString.textContent);
 				itemList.selectedIndex = 0;
 				customtxt.value = '';
