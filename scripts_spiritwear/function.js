@@ -65,7 +65,7 @@ var itemTable = new function () {
     totalCost.setAttribute('style', 'color: yellow;');
     var totalString = document.createElement('input');
     totalString.setAttribute('type', 'text');
-    totalString.setAttribute('name', 'Total Cost');
+    totalString.setAttribute('name', 'Total_Cost');
     totalString.setAttribute('value', totalCost.textContent);
     totalString.style.display = "none";
 
