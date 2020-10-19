@@ -74,10 +74,10 @@ var itemTable = new function () {
 	orderString.setAttribute('name', 'Order_String');
     orderString.textContent = "";
     orderString.style.display = "none";
-	var orderList = document.createElement("input");
+	var orderList = document.createElement("textArea");
     orderList.setAttribute('type', 'text');
     orderList.setAttribute('name', 'Order');
-    orderList.setAttribute('value', orderString.textContent);
+	orderList.innerHTML += orderString.textContent;
     orderList.style.display = "none";
 
         this.createTable = function () {
@@ -377,7 +377,7 @@ var itemTable = new function () {
                 this.createTable();                 // REFRESH THE TABLE.
 				listNo += 1;
 				orderString.textContent += listNo + ") \n" + "Item: " + itemList.options[itemList.selectedIndex].value + " \n" + "Size: " + sizeList.options[sizeList.selectedIndex].value + " \n" + "Color: " + colorList.options[colorList.selectedIndex].value + " \n" + "Design: " + designString.value + " \n" + "Customization: " + customtxt.value + " \n" + "Cost: " + costString.value + " \n";
-				orderList.setAttribute('value', orderString.textContent);
+				orderList.innerHTML += orderString.textContent;
 				itemList.selectedIndex = 0;
 				customtxt.value = '';
 				itemList.click();
