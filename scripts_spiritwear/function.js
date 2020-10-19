@@ -49,7 +49,6 @@ var itemTable = new function () {
 
     var customtxt = document.createElement("input");
     customtxt.setAttribute('type', 'text');
-    customtxt.setAttribute('name', 'Customization');
     customtxt.setAttribute('value', '');
     customtxt.setAttribute("placeholder", "Custom Name ($7)");
 
@@ -58,7 +57,6 @@ var itemTable = new function () {
     itemCost.textContent = "$"+costArray[itemList.selectedIndex];
     var costString = document.createElement('input');
     costString.setAttribute('type', 'text');
-    costString.setAttribute('name', 'Item_Cost');
     costString.setAttribute('value', itemCost.textContent);
     costString.style.display = "none";
     var total = 0;
@@ -375,7 +373,7 @@ var itemTable = new function () {
                 this.header.push(obj);              // PUSH (ADD) DATA TO THE JSON ARRAY.
                 this.createTable();                 // REFRESH THE TABLE.
 				listNo += 1;
-				orderString.textContent += listNo + ") \n" + "Item: " + itemList.selectedIndex.toString + " \n" + "Size: " + sizeList.selectedIndex.toString + " \n" + "Color: " + colorList.selectedIndex.toString + " \n" + "Design: " + designString.value + " \n" + "Customization: " + customtxt.value + " \n" + "Cost: " + costString.value + " \n";
+				orderString.textContent += listNo + ") \n" + "Item: " + itemList.selectedIndex.textContent + " \n" + "Size: " + sizeList.selectedIndex.textContent + " \n" + "Color: " + colorList.selectedIndex.textContent + " \n" + "Design: " + designString.value + " \n" + "Customization: " + customtxt.value + " \n" + "Cost: " + costString.value + " \n";
 				orderList.setAttribute('value', orderString.textContent);
 				itemList.selectedIndex = 0;
 				customtxt.value = '';
