@@ -376,7 +376,7 @@ var itemTable = new function () {
                 this.header.push(obj);              // PUSH (ADD) DATA TO THE JSON ARRAY.
                 this.createTable();                 // REFRESH THE TABLE.
 				listNo += 1;
-				orderString.textContent += listNo + ") <br>" + "Item: " + itemList.options[itemList.selectedIndex].value + "<br>" + "Size: " + sizeList.options[sizeList.selectedIndex].value + "<br>" + "Color: " + colorList.options[colorList.selectedIndex].value + "<br>" + "Design: " + designString.value + "<br>" + "Customization: " + customtxt.value + "<br>" + "Cost: " + costString.value + "<br><br>";
+				orderString.textContent += listNo + ") %0D%0A" + "Item: " + itemList.options[itemList.selectedIndex].value + "%0D%0A" + "Size: " + sizeList.options[sizeList.selectedIndex].value + "%0D%0A" + "Color: " + colorList.options[colorList.selectedIndex].value + "%0D%0A" + "Design: " + designString.value + "%0D%0A" + "Customization: " + customtxt.value + "%0D%0A" + "Cost: " + costString.value + "%0D%0A%0D%0A";
 				orderList.setAttribute('value', orderString.textContent);
 				itemList.selectedIndex = 0;
 				customtxt.value = '';
