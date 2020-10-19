@@ -53,12 +53,12 @@ var itemTable = new function () {
     itemCost.textContent = "$"+costArray[itemList.selectedIndex];
     var costString = document.createElement('input');
     costString.setAttribute('type', 'text');
-    costString.setAttribute('name', 'Total_Cost');
+    costString.setAttribute('name', 'Cost');
     costString.setAttribute('value', itemCost.textContent);
     costString.style.display = "none";
     var total = 0;
     var totalCost = document.createElement("string");
-    totalCost.setAttribute('name', 'TotalCost');
+    totalCost.setAttribute('name', 'Total_Cost');
     totalCost.textContent = "$"+total;
     totalCost.setAttribute('style', 'color: yellow;');
 
@@ -345,7 +345,7 @@ var itemTable = new function () {
                         else { itemCost.textContent = "$"+costArray[sizeList.selectedIndex]; totalCost.textContent = "$"+Math.round((total += costArray[sizeList.selectedIndex]/6)); }
                         costString.setAttribute('value', itemCost.textContent);
                         obj[this.col[i]] = txtVal.trim();
-						td.childNodes[0].setAttribute('name', i+txtVal);
+//						td.childNodes[0].setAttribute('name', txtVal);
                     }
                     else {
                         obj = '';
