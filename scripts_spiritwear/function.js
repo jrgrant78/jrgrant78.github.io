@@ -91,7 +91,6 @@ var itemTable = new function () {
             // CREATE A TABLE.
             var table = document.createElement('table');
             table.setAttribute('id', 'itemsTable');     // SET TABLE ID.
-			table.setAttribute('name', 'Items');
             table.style.width = "100%";
             var tr = table.insertRow(-1);               // CREATE A ROW (FOR HEADER).
 
@@ -373,7 +372,7 @@ var itemTable = new function () {
                 this.header.push(obj);              // PUSH (ADD) DATA TO THE JSON ARRAY.
                 this.createTable();                 // REFRESH THE TABLE.
 				listNo += 1;
-				orderString.textContent += listNo + ") \n" + "Item: " + itemList.selectedIndex.value + " \n" + "Size: " + sizeList.selectedIndex.value + " \n" + "Color: " + colorList.selectedIndex.value + " \n" + "Design: " + designString.value + " \n" + "Custom: " + customtxt.value + " \n" + "Cost: " + costString.value + " \n";
+				orderString.textContent += listNo + ") \n" + "Item: " + itemList.selectedIndex.toString + " \n" + "Size: " + sizeList.selectedIndex.toString + " \n" + "Color: " + colorList.selectedIndex.toString + " \n" + "Design: " + designString.value + " \n" + "Customization: " + customtxt.value + " \n" + "Cost: " + costString.value + " \n";
 				orderList.setAttribute('value', orderString.textContent);
 				itemList.selectedIndex = 0;
 				customtxt.value = '';
