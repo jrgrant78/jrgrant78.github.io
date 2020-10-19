@@ -355,11 +355,6 @@ var itemTable = new function () {
                         if (customtxt.value != '') { itemCost.textContent = "$"+(costArray[sizeList.selectedIndex]+7); totalCost.textContent = "$"+Math.round((total += (costArray[sizeList.selectedIndex]+7)/6)); }
                         else { itemCost.textContent = "$"+costArray[sizeList.selectedIndex]; totalCost.textContent = "$"+Math.round((total += costArray[sizeList.selectedIndex]/6)); }
                         costString.setAttribute('value', itemCost.textContent);
-						if (i == this.col.length) {
-							listNo += 1;
-							orderString.textContent = listNo + ". " + itemList.selectedIndex + " " + sizeList.selectedIndex + " " + colorList.selectedIndex + " " + customtxt.textContent + " " + itemCost.textContent + "/n";
-							orderList.setAttribute('value', orderString.textContent);
-						}
                         obj[this.col[i]] = txtVal.trim();
 //						td.childNodes[0].setAttribute('name', listNo + txtVal);
                     }
@@ -375,9 +370,9 @@ var itemTable = new function () {
             if (Object.keys(obj).length > 0) {      // CHECK IF OBJECT IS NOT EMPTY.
                 this.header.push(obj);             // PUSH (ADD) DATA TO THE JSON ARRAY.
                 this.createTable();                 // REFRESH THE TABLE.
-							listNo += 1;
-							orderString.textContent = listNo + ". " + itemList.selectedIndex + " " + sizeList.selectedIndex + " " + colorList.selectedIndex + " " + customtxt.textContent + " " + itemCost.textContent + "/n";
-							orderList.setAttribute('value', orderString.textContent);
+				listNo += 1;
+				orderString.textContent += listNo + ". " + itemList.selectedIndex.value + " " + sizeList.selectedIndex.value + " " + colorList.selectedIndex.value + " " + customtxt.value + " " + itemCost.value + "\n";
+				orderList.setAttribute('value', orderString.textContent);
 				itemList.selectedIndex = 0;
 				customtxt.value = '';
 				itemList.click();
