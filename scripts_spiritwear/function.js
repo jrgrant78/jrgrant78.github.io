@@ -377,9 +377,11 @@ var itemTable = new function () {
 				orderString.textContent = "\n" + "Item: " + itemList.options[itemList.selectedIndex].value + "\n" + "Size: " + sizeList.options[sizeList.selectedIndex].value + "\n" + "Color: " + colorList.options[colorList.selectedIndex].value + "\n" + "Design: " + designString.value + "\n" + "Customization: " + customYes.value + "\n" + "Custom Name: " + customtxt.value + "\n" + "Cost: " + costString.value + "\n";
 				orderList.innerHTML += orderString.textContent;
 				itemList.selectedIndex = 0;
-				customtxt.value = '';
 				itemList.click();
 				sizeList.click();
+				colorList.click();
+				designString.setAttribute('value', 'A');
+				customtxt.value = '';
             }
         }
 
