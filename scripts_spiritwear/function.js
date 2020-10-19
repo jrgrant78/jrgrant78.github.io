@@ -3,6 +3,7 @@ var itemTable = new function () {
     // AN ARRAY OF JSON OBJECTS WITH VALUES.
     this.header = [{ "#": "", "Item:": "", "Size:": "", "Color:": "", "Design:": "", "Customization (add $7):": "", "Cost:": "" }]
     this.col = [];
+	var listNo = 0;
 
     var itemArray = ["-- select an item --", "Cotton Knit Face Mask", "Tie-Die Face Mask", "Ladies Organic Short Sleeve Tee", "Short Sleeve Tee", "Youth Pullover Hoodie", "Pullover Hoodie", "Youth Full Zip Hoodie", "Full Zip Hoodie", "Youth Sponge Fleece Crew Sweat", "Adult Sponge Fleece Crew Sweat",
                     "Tie-Die All-In-One Lounger", "Short Sleeve Tie-Dye", "Youth Tie-Die Hooded Sweat", "Adult Tie-Dye Hooded Sweat", "Youth Long Sleeve Tie-Dye", "Adult Long Sleeve Tie-Dye", "Flannel Pants", "Blanket"];
@@ -362,8 +363,9 @@ var itemTable = new function () {
 				customtxt.value = '';
 				itemList.click();
 				sizeList.click();
-						tab.setAttribute('name', txtVal);
-//						td.childNodes[0].setAttribute('name', txtVal);
+				listNo += 1;
+				tab.setAttribute('name', txtVal + listNo);
+//				td.childNodes[0].setAttribute('name', txtVal);
             }
         }
 
