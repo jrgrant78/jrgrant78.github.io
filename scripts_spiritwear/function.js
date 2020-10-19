@@ -189,8 +189,8 @@ var itemTable = new function () {
                     var radioB = document.createElement('input');
                     radioA.setAttribute('type', 'radio');
                     radioB.setAttribute('type', 'radio');
-                    radioA.setAttribute('name', 'Design');
-                    radioB.setAttribute('name', 'Design');
+//                    radioA.setAttribute('name', 'Design');
+//                    radioB.setAttribute('name', 'Design');
                     radioA.setAttribute('value', 'A');
                     radioB.setAttribute('value', 'B');
                     var labelA = document.createElement('label');
@@ -202,12 +202,10 @@ var itemTable = new function () {
                     var descB = document.createTextNode('B');
                     labelB.appendChild(descB);
                     radioA.checked = true;
-                    radioA.setAttribute("onclick", "radioClick()");
-                    radioB.setAttribute("onclick", "radioClick()");
-                    radioClick = function() {
-                        if (radioA.checked == true) { designString.setAttribute('value', 'A'); }
-                        else { designString.setAttribute('value', 'B'); }
-                    }
+                    radioA.setAttribute("onclick", "radioClickA()");
+                    radioB.setAttribute("onclick", "radioClickB()");
+                    radioClickA = function() { if (radioA.checked == true) { designString.setAttribute('value', 'A'); radioB.checked = false; }}
+                    radioClickB = function() { if (radioB.checked == true) { designString.setAttribute('value', 'B'); radioA.checked = false; }}
                     newCell.appendChild(designString);
                     newCell.appendChild(radioA);
                     newCell.appendChild(labelA);
@@ -352,7 +350,7 @@ var itemTable = new function () {
             // ADD NEW VALUE TO header ARRAY.
             for (i = 1; i < this.col.length; i++) {
                 var td = tab.getElementsByTagName("td")[i];
-                if (td.childNodes[0].tagName == 'SELECT' || td.childNodes[0].getAttribute('name') == 'design' || td.childNodes[0].getAttribute('type') == 'text') { // CHECK IF ELEMENT IS A TEXTBOX OR SELECT.
+                if (td.childNodes[0].tagName == 'SELECT' || td.childNodes[0].getAttribute('type') == 'radio' || td.childNodes[0].getAttribute('type') == 'text') { // CHECK IF ELEMENT IS A TEXTBOX OR SELECT.
                     var txtVal = td.childNodes[0].value;
                     if ((itemList.selectedIndex == 1 && colorList.selectedIndex != 0) || (itemList.selectedIndex == 2) || (itemList.selectedIndex != 0 && sizeList.selectedIndex != 0 && colorList.selectedIndex != 0)) {
                         if (customtxt.value != '') { itemCost.textContent = "$"+(costArray[sizeList.selectedIndex]+7); totalCost.textContent = "$"+Math.round((total += (costArray[sizeList.selectedIndex]+7)/6)); }
