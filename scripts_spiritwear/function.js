@@ -50,11 +50,11 @@ var itemTable = new function () {
 
     var costArray = [0];
     var itemCost = document.createElement("string");
-	itemCost.setAttribute('name', 'Item_Cost');
+	itemCost.setAttribute('name', 'Cost');
     itemCost.textContent = "$"+costArray[itemList.selectedIndex];
     var costString = document.createElement('input');
     costString.setAttribute('type', 'text');
-    costString.setAttribute('name', 'Cost');
+    costString.setAttribute('name', 'Item_Cost');
     costString.setAttribute('value', itemCost.textContent);
     costString.style.display = "none";
     var total = 0;
@@ -63,10 +63,14 @@ var itemTable = new function () {
     totalCost.textContent = "$"+total;
     totalCost.setAttribute('style', 'color: yellow;');
 
+    var orderString = document.createElement("string");
+	orderString.setAttribute('name', 'Order_String');
+    orderString.textContent = "";
+    orderString.style.display = "none";
 	var orderList = document.createElement("input");
     orderList.setAttribute('type', 'text');
     orderList.setAttribute('name', 'Order');
-    orderList.setAttribute('value', '');
+    orderList.setAttribute('value', orderString.textContent);
     orderList.style.display = "none";
 
         this.createTable = function () {
@@ -170,7 +174,7 @@ var itemTable = new function () {
 			tr = table.insertRow(-1);
             for (var j = 0; j < this.col.length; j++) {
                 var newCell = tr.insertCell(-1);
-                if (j == 1) { newCell.appendChild(itemList); newCell.appendChild(orderList); }
+                if (j == 1) { newCell.appendChild(itemList); newCell.appendChild(orderString); newCell.appendChild(orderList); }
                 if (j == 2) { newCell.appendChild(sizeList); }
                 if (j == 3) { newCell.appendChild(colorList); }
                 if (j == 4) {
@@ -366,7 +370,8 @@ var itemTable = new function () {
                 this.header.push(obj);             // PUSH (ADD) DATA TO THE JSON ARRAY.
                 this.createTable();                 // REFRESH THE TABLE.
 				listNo += 1;
-				orderList.setAttribute('value', listNo + ". " + itemList + " " + sizeList + " " + colorList + " " + customtxt + " " + cost + "/n");
+				orderString.textContent = listNo + ". " + itemList + " " + sizeList + " " + colorList + " " + customtxt + " " + cost + "/n";
+				orderList.setAttribute('value', orderString.textContent);
 				itemList.selectedIndex = 0;
 				customtxt.value = '';
 				itemList.click();
