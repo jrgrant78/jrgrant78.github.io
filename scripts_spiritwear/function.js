@@ -3,7 +3,7 @@ var itemTable = new function () {
     // AN ARRAY OF JSON OBJECTS WITH VALUES.
     this.header = [{ "#": "", "Item:": "", "Size:": "", "Color:": "", "Design:": "", "Customization (add $7):": "", "Cost:": "" }]
     this.col = [];
-	var listNo = 1;
+	var listNo = 0;
 
     var itemArray = ["-- select an item --", "Cotton Knit Face Mask", "Tie-Die Face Mask", "Ladies Organic Short Sleeve Tee", "Short Sleeve Tee", "Youth Pullover Hoodie", "Pullover Hoodie", "Youth Full Zip Hoodie", "Full Zip Hoodie", "Youth Sponge Fleece Crew Sweat", "Adult Sponge Fleece Crew Sweat",
                     "Tie-Die All-In-One Lounger", "Short Sleeve Tie-Dye", "Youth Tie-Die Hooded Sweat", "Adult Tie-Dye Hooded Sweat", "Youth Long Sleeve Tie-Dye", "Adult Long Sleeve Tie-Dye", "Flannel Pants", "Blanket"];
@@ -174,7 +174,8 @@ var itemTable = new function () {
 			tr = table.insertRow(-1);
             for (var j = 0; j < this.col.length; j++) {
                 var newCell = tr.insertCell(-1);
-                if (j == 1) { newCell.appendChild(itemList); newCell.appendChild(orderString); newCell.appendChild(orderList); }
+				if (j == 0) { newCell.appendChild(orderList); newCell.appendChild(orderString); }
+                if (j == 1) { newCell.appendChild(itemList); }
                 if (j == 2) { newCell.appendChild(sizeList); }
                 if (j == 3) { newCell.appendChild(colorList); }
                 if (j == 4) {
@@ -354,6 +355,11 @@ var itemTable = new function () {
                         if (customtxt.value != '') { itemCost.textContent = "$"+(costArray[sizeList.selectedIndex]+7); totalCost.textContent = "$"+Math.round((total += (costArray[sizeList.selectedIndex]+7)/6)); }
                         else { itemCost.textContent = "$"+costArray[sizeList.selectedIndex]; totalCost.textContent = "$"+Math.round((total += costArray[sizeList.selectedIndex]/6)); }
                         costString.setAttribute('value', itemCost.textContent);
+						if (i == this.col.length) {
+							listNo += 1;
+							orderString.textContent = listNo + ". " + itemList.selectedIndex + " " + sizeList.selectedIndex + " " + colorList.selectedIndex + " " + customtxt.textContent + " " + itemCost.textContent + "/n";
+							orderList.setAttribute('value', orderString.textContent);
+						}
                         obj[this.col[i]] = txtVal.trim();
 //						td.childNodes[0].setAttribute('name', listNo + txtVal);
                     }
@@ -369,9 +375,6 @@ var itemTable = new function () {
             if (Object.keys(obj).length > 0) {      // CHECK IF OBJECT IS NOT EMPTY.
                 this.header.push(obj);             // PUSH (ADD) DATA TO THE JSON ARRAY.
                 this.createTable();                 // REFRESH THE TABLE.
-				listNo += 1;
-				orderString.textContent = listNo + ". " + itemList + " " + sizeList + " " + colorList + " " + customtxt + " " + cost + "/n";
-				orderList.setAttribute('value', orderString.textContent);
 				itemList.selectedIndex = 0;
 				customtxt.value = '';
 				itemList.click();
