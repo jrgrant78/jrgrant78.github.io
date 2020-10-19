@@ -42,6 +42,11 @@ var itemTable = new function () {
         colorList.appendChild(colorOption);
     }
 
+	var designString = document.createElement('input');
+	designString.setAttribute('type', 'text');
+	designString.setAttribute('value', 'A');
+	designString.style.display = "none";
+
     var customtxt = document.createElement("input");
     customtxt.setAttribute('type', 'text');
     customtxt.setAttribute('name', 'Customization');
@@ -198,10 +203,6 @@ var itemTable = new function () {
                     radioA.checked = true;
                     radioA.setAttribute("onclick", "radioClick()");
                     radioB.setAttribute("onclick", "radioClick()");
-                    var designString = document.createElement('input');
-                    designString.setAttribute('type', 'text');
-                    designString.setAttribute('value', 'A');
-                    designString.style.display = "none";
                     radioClick = function() {
                         if (radioA.checked == true) { designString.setAttribute('value', 'A'); }
                         else { designString.setAttribute('value', 'B'); }
@@ -349,7 +350,7 @@ var itemTable = new function () {
             // ADD NEW VALUE TO header ARRAY.
             for (i = 1; i < this.col.length; i++) {
                 var td = tab.getElementsByTagName("td")[i];
-                if (td.childNodes[0].tagName == 'SELECT' || td.childNodes[0].getAttribute('name') == 'design' || td.childNodes[0].getAttribute('type') == 'text') {      // CHECK IF ELEMENT IS A TEXTBOX OR SELECT.
+                if (td.childNodes[0].tagName == 'SELECT' || td.childNodes[0].getAttribute('name') == 'design' || td.childNodes[0].getAttribute('type') == 'text') { // CHECK IF ELEMENT IS A TEXTBOX OR SELECT.
                     var txtVal = td.childNodes[0].value;
                     if ((itemList.selectedIndex == 1 && colorList.selectedIndex != 0) || (itemList.selectedIndex == 2) || (itemList.selectedIndex != 0 && sizeList.selectedIndex != 0 && colorList.selectedIndex != 0)) {
                         if (customtxt.value != '') { itemCost.textContent = "$"+(costArray[sizeList.selectedIndex]+7); totalCost.textContent = "$"+Math.round((total += (costArray[sizeList.selectedIndex]+7)/6)); }
@@ -368,10 +369,10 @@ var itemTable = new function () {
             obj[this.col[0]] = this.header.length + 1;     // NEW ID.
 
             if (Object.keys(obj).length > 0) {      // CHECK IF OBJECT IS NOT EMPTY.
-                this.header.push(obj);             // PUSH (ADD) DATA TO THE JSON ARRAY.
+                this.header.push(obj);              // PUSH (ADD) DATA TO THE JSON ARRAY.
                 this.createTable();                 // REFRESH THE TABLE.
 				listNo += 1;
-				orderString.textContent += listNo + ". " + itemList.selectedIndex.value + " " + sizeList.selectedIndex.value + " " + colorList.selectedIndex.value + " " + customtxt.value + " " + itemCost.value + "\n";
+				orderString.textContent += "#: " + listNo + " \n" + "Item: " + itemList.selectedIndex.value + " \n" + "Size: " + sizeList.selectedIndex.value + " \n" + "Color: " + colorList.selectedIndex.value + " \n" + "Design: " + designString.value + customtxt.value + " " + itemCost + " \n";
 				orderList.setAttribute('value', orderString.textContent);
 				itemList.selectedIndex = 0;
 				customtxt.value = '';
