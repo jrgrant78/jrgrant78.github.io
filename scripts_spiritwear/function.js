@@ -374,7 +374,10 @@ var itemTable = new function () {
             if (Object.keys(obj).length > 0) {      // CHECK IF OBJECT IS NOT EMPTY.
                 this.header.push(obj);              // PUSH (ADD) DATA TO THE JSON ARRAY.
                 this.createTable();                 // REFRESH THE TABLE.
-				orderString.textContent += "\n" + "Item: " + itemList.options[itemList.selectedIndex].value + "\n" + "Size: " + sizeList.options[sizeList.selectedIndex].value + "\n" + "Color: " + colorList.options[colorList.selectedIndex].value + "\n" + "Design: " + designString.value + "\n" + "Customization: " + customtxt.value + "\n" + "Cost: " + costString.value + "\n";
+				var customYes = document.createElement('input');
+				if (customtxt != '') { customYes.setAttribute('value', 'Yes'); }
+				else { customYes.setAttribute('value', 'No'); }
+				orderString.textContent += "\n" + "Item: " + itemList.options[itemList.selectedIndex].value + "\n" + "Size: " + sizeList.options[sizeList.selectedIndex].value + "\n" + "Color: " + colorList.options[colorList.selectedIndex].value + "\n" + "Design: " + designString.value + "\n" + "Customization: " + customYes.value + "\n" + "Custom Name: " + customtxt.value + "\n" + "Cost: " + costString.value + "\n";
 				orderList.innerHTML += orderString.textContent;
 				itemList.selectedIndex = 0;
 				customtxt.value = '';
