@@ -346,6 +346,9 @@ var itemTable = new function () {
                         else { itemCost.textContent = "$"+costArray[sizeList.selectedIndex]; totalCost.textContent = "$"+Math.round((total += costArray[sizeList.selectedIndex]/6)); }
                         costString.setAttribute('value', itemCost.textContent);
                         obj[this.col[i]] = txtVal.trim();
+						listNo += 1;
+						tab.setAttribute('name', td + listNo);
+//						td.childNodes[0].setAttribute('name', txtVal);
                     }
                     else {
                         obj = '';
@@ -363,9 +366,6 @@ var itemTable = new function () {
 				customtxt.value = '';
 				itemList.click();
 				sizeList.click();
-				listNo += 1;
-				tab.setAttribute('name', txtVal + listNo);
-//				td.childNodes[0].setAttribute('name', txtVal);
             }
         }
 
