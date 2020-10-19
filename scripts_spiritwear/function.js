@@ -352,7 +352,6 @@ var itemTable = new function () {
                         else { itemCost.textContent = "$"+costArray[sizeList.selectedIndex]; totalCost.textContent = "$"+Math.round((total += costArray[sizeList.selectedIndex]/6)); }
                         costString.setAttribute('value', itemCost.textContent);
                         obj[this.col[i]] = txtVal.trim();
-    orderList.setAttribute('value', listNo + ". " + item + " " + size + " " + color + " " + customName + " " + cost + "/n");
 //						td.childNodes[0].setAttribute('name', listNo + txtVal);
                     }
                     else {
@@ -368,6 +367,7 @@ var itemTable = new function () {
                 this.header.push(obj);             // PUSH (ADD) DATA TO THE JSON ARRAY.
                 this.createTable();                 // REFRESH THE TABLE.
 				listNo += 1;
+				orderList.setAttribute('value', listNo + ". " + itemList + " " + sizeList + " " + colorList + " " + customtxt + " " + cost + "/n");
 				itemList.selectedIndex = 0;
 				customtxt.value = '';
 				itemList.click();
