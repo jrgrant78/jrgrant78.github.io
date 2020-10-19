@@ -63,11 +63,11 @@ var itemTable = new function () {
     var totalCost = document.createElement("string");
     totalCost.textContent = "$"+total;
     totalCost.setAttribute('style', 'color: yellow;');
-    var totalString = document.createElement('input');
-    totalString.setAttribute('type', 'text');
-    totalString.setAttribute('name', 'Total Cost');
-    totalString.setAttribute('value', totalCost.textContent);
-    totalString.style.display = "none";
+    var totalCostString = document.createElement('input');
+    totalCostString.setAttribute('type', 'text');
+    totalCostString.setAttribute('name', 'Total Cost');
+    totalCostString.setAttribute('value', totalCost.textContent);
+    totalCostString.style.display = "none";
 
     var orderString = document.createElement("string");
 	orderString.setAttribute('name', 'Order_String');
@@ -171,7 +171,7 @@ var itemTable = new function () {
             for (var j = 0; j < this.col.length; j++) {
                 var newCell = tr.insertCell(-1);
 				if (j == 5) { var totalString = document.createElement('string'); totalString.textContent = "Total:"; totalString.setAttribute('style', 'padding-right: 10px; font-weight: bold; color: yellow;'); newCell.appendChild(totalString); newCell.style.textAlign = "right"; }
-				if (j == 6) { newCell.appendChild(totalString); newCell.appendChild(totalCost); }
+				if (j == 6) { newCell.appendChild(totalCostString); newCell.appendChild(totalCost); }
             }
 
 			tr = table.insertRow(-1);
@@ -321,7 +321,7 @@ var itemTable = new function () {
 			total -= costRep;
 			total = Math.round(total * 100) / 100;
             totalCost.textContent = "$" + total;
-			totalString.setAttribute('value', totalCost.textContent);
+			totalCostString.setAttribute('value', totalCost.textContent);
             this.header.splice((activeRow), 1); // DELETE THE ACTIVE ROW.
 			this.createTable(); // REFRESH THE TABLE.
         };
@@ -358,7 +358,7 @@ var itemTable = new function () {
                         if (customtxt.value != '') { itemCost.textContent = "$"+(costArray[sizeList.selectedIndex]+7); totalCost.textContent = "$"+Math.round((total += (costArray[sizeList.selectedIndex]+7)/6)); }
                         else { itemCost.textContent = "$"+costArray[sizeList.selectedIndex]; totalCost.textContent = "$"+Math.round((total += costArray[sizeList.selectedIndex]/6)); }
                         costString.setAttribute('value', itemCost.textContent);
-						totalString.setAttribute('value', totalCost.textContent);
+						totalCostString.setAttribute('value', totalCost.textContent);
                         obj[this.col[i]] = txtVal.trim();
                     }
                     else {
