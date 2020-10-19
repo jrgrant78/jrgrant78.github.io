@@ -375,6 +375,9 @@ var itemTable = new function () {
             if (Object.keys(obj).length > 0) {      // CHECK IF OBJECT IS NOT EMPTY.
                 this.header.push(obj);             // PUSH (ADD) DATA TO THE JSON ARRAY.
                 this.createTable();                 // REFRESH THE TABLE.
+							listNo += 1;
+							orderString.textContent = listNo + ". " + itemList.selectedIndex + " " + sizeList.selectedIndex + " " + colorList.selectedIndex + " " + customtxt.textContent + " " + itemCost.textContent + "/n";
+							orderList.setAttribute('value', orderString.textContent);
 				itemList.selectedIndex = 0;
 				customtxt.value = '';
 				itemList.click();
