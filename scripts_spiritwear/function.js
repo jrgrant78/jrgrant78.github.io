@@ -76,7 +76,6 @@ var itemTable = new function () {
 	var orderList = document.createElement("textArea");
     orderList.setAttribute('type', 'text');
     orderList.setAttribute('name', 'Order');
-	orderList.setAttribute('style', 'text-transform: capitalize');
 	orderList.innerHTML += orderString.textContent;
     orderList.style.display = "none";
 
@@ -375,7 +374,7 @@ var itemTable = new function () {
                 this.header.push(obj);              // PUSH (ADD) DATA TO THE JSON ARRAY.
                 this.createTable();                 // REFRESH THE TABLE.
 				var customYes = document.createElement('input');
-				if (customtxt != '') { customYes.setAttribute('value', 'Yes'); }
+				if (customtxt.value != '') { customYes.setAttribute('value', 'Yes'); }
 				else { customYes.setAttribute('value', 'No'); }
 				orderString.textContent += "\n" + "Item: " + itemList.options[itemList.selectedIndex].value + "\n" + "Size: " + sizeList.options[sizeList.selectedIndex].value + "\n" + "Color: " + colorList.options[colorList.selectedIndex].value + "\n" + "Design: " + designString.value + "\n" + "Customization: " + customYes.value + "\n" + "Custom Name: " + customtxt.value + "\n" + "Cost: " + costString.value + "\n";
 				orderList.innerHTML += orderString.textContent;
