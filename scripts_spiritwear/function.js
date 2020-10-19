@@ -321,6 +321,7 @@ var itemTable = new function () {
 			total -= costRep;
 			total = Math.round(total * 100) / 100;
             totalCost.textContent = "$" + total;
+			totalString.setAttribute('value', totalCost.textContent);
             this.header.splice((activeRow), 1); // DELETE THE ACTIVE ROW.
 			this.createTable(); // REFRESH THE TABLE.
         };
@@ -357,6 +358,7 @@ var itemTable = new function () {
                         if (customtxt.value != '') { itemCost.textContent = "$"+(costArray[sizeList.selectedIndex]+7); totalCost.textContent = "$"+Math.round((total += (costArray[sizeList.selectedIndex]+7)/6)); }
                         else { itemCost.textContent = "$"+costArray[sizeList.selectedIndex]; totalCost.textContent = "$"+Math.round((total += costArray[sizeList.selectedIndex]/6)); }
                         costString.setAttribute('value', itemCost.textContent);
+						totalString.setAttribute('value', totalCost.textContent);
                         obj[this.col[i]] = txtVal.trim();
 //						td.childNodes[0].setAttribute('name', listNo + txtVal);
                     }
