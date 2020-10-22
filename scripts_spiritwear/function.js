@@ -50,7 +50,7 @@ var itemTable = new function () {
     this.col = [];
 
     var itemArray = ["-- select an item --", "Cotton Knit Face Mask", "Tie-Die Face Mask", "Ladies Organic Short Sleeve Tee", "Short Sleeve Tee", "Youth Pullover Hoodie", "Pullover Hoodie", "Youth Full Zip Hoodie", "Full Zip Hoodie", "Youth Sponge Fleece Crew Sweat", "Adult Sponge Fleece Crew Sweat",
-                    "Tie-Die All-In-One Lounger", "Short Sleeve Tie-Dye", "Youth Tie-Die Hooded Sweat", "Adult Tie-Dye Hooded Sweat", "Youth Long Sleeve Tie-Dye", "Adult Long Sleeve Tie-Dye", "Flannel Pants", "Blanket"];
+                    "Youth Tie-Die All-In-One Lounger", "Short Sleeve Tie-Dye", "Youth Tie-Die Hooded Sweat", "Adult Tie-Dye Hooded Sweat", "Youth Long Sleeve Tie-Dye", "Adult Long Sleeve Tie-Dye", "Flannel Pants", "Fleece Sweatshirt Blanket"];
     var itemList = document.createElement("select");
     for (var i = 0; i < itemArray.length; i++) {
         var itemOption = document.createElement("option");
@@ -284,7 +284,7 @@ var itemTable = new function () {
             div.appendChild(table);    // ADD THE TABLE TO THE WEB PAGE.
 
             var addNote = document.createElement("string");
-            addNote.setAttribute('style', 'font-style: italic; color: yellow;');
+            addNote.setAttribute('style', 'font-style: italic; color: yellow; text-transform: initial;');
             addNote.textContent = "NOTE: Please be sure to click 'ADD' after selecting each item prior to 'CHECKOUT' to properly add item to order.";
             div.appendChild(addNote);
         };
@@ -392,7 +392,7 @@ var itemTable = new function () {
                 var td = tab.getElementsByTagName("td")[i];
                 if (td.childNodes[0].tagName == 'SELECT' || td.childNodes[0].getAttribute('type') == 'radio' || td.childNodes[0].getAttribute('type') == 'text') { // CHECK IF ELEMENT IS A TEXTBOX OR SELECT.
                     var txtVal = td.childNodes[0].value;
-                    if ((itemList.selectedIndex == 1 && colorList.selectedIndex != 0) || (itemList.selectedIndex == 2) || (itemList.selectedIndex != 0 && sizeList.selectedIndex != 0 && colorList.selectedIndex != 0)) {
+                    if ((itemList.selectedIndex == 1 && colorList.selectedIndex != 0) || (itemList.selectedIndex == 2) || (itemList.selectedIndex == 18 && colorList.selectedIndex != 0) || (itemList.selectedIndex != 0 && sizeList.selectedIndex != 0 && colorList.selectedIndex != 0)) {
                         if (customtxt.value != '') { itemCost.textContent = "$"+(costArray[sizeList.selectedIndex]+7); totalCost.textContent = "$"+Math.round((total += (costArray[sizeList.selectedIndex]+7)/6)); }
                         else { itemCost.textContent = "$"+costArray[sizeList.selectedIndex]; totalCost.textContent = "$"+Math.round((total += costArray[sizeList.selectedIndex]/6)); }
                         costString.setAttribute('value', itemCost.textContent);
@@ -433,24 +433,24 @@ var itemTable = new function () {
 			costArray = [0, 0];
         }
         if (itemList.selectedIndex == 1) {
-            sizeArray = ["-- N/A --", "-- N/A --"];
+            sizeArray = ['7"W x 5"H'];
             colorArray = ["-- select a color --", "Red", "Navy", "Royal", "Silver", "White", "Charcoal", "Black"];
-			costArray = [0, 0];
+			costArray = [7];
         }
         if (itemList.selectedIndex == 2) {
-            sizeArray = ["-- N/A --", "-- N/A --"];
-            colorArray = ["-- N/A --", "-- N/A --"];
-			costArray = [0, 0];
+            sizeArray = ['7"W x 5"H'];
+            colorArray = ["Tie-Die"];
+			costArray = [10];
         }
         if (itemList.selectedIndex == 3) {
             sizeArray = ["-- select a size --", "-- Ladies Sizes --", "S", "M", "L", "XL", "XXL", "XXXL"];
             colorArray = ["-- select a color --", "Iris", "Surf", "Meteorite", "Wassabi", "Charcoal", "Navy", "Blossom", "Sage"];
-			costArray = [0, 0, 20, 20, 20, 20, 21, 22];
+			costArray = [0, 0, 18, 18, 18, 18, 19, 20];
         }
         if (itemList.selectedIndex == 4) {
             sizeArray = ["-- select a size --", "-- Youth Sizes --", "YS", "YM", "YL", "YXL", "-- Adult Sizes --", "S", "M", "L", "XL", "XXL", "XXXL"];
             colorArray = ["-- select a color --", "Oxford", "Heather Green", "Heather Red", "Teal", "Orange", "Purple"];
-			costArray = [0, 0, 15, 15, 15, 15, 0, 16, 16, 16, 16, 17, 18];
+			costArray = [0, 0, 13, 13, 13, 13, 0, 14, 14, 14, 14, 15, 16];
         }
         if (itemList.selectedIndex == 5) {
             sizeArray = ["-- select a size --", "-- Youth Sizes --", "YS", "YM", "YL", "YXL"];
@@ -464,7 +464,7 @@ var itemTable = new function () {
         }
         if (itemList.selectedIndex == 7) {
             sizeArray = ["-- select a size --", "-- Youth Sizes --", "YS", "YM", "YL", "YXL"];
-            colorArray = ["-- select a color --", "Forest", "Lt. Blue", "Royal", "Navy", "Steel", "Maroon", "White"];
+            colorArray = ["-- select a color --", "Forest", "Lt. Blue", "Royal", "White", "Navy", "Steel", "Maroon"];
 			costArray = [0, 0, 31, 31, 31, 31];
         }
         if (itemList.selectedIndex == 8) {
@@ -475,22 +475,22 @@ var itemTable = new function () {
         if (itemList.selectedIndex == 9) {
             sizeArray = ["-- select a size --", "-- Youth Sizes --", "YS", "YM", "YL"];
             colorArray = ["-- select a color --", "Deep Heather", "Heather Navy", "Red"];
-			costArray = [0, 0, 0, 0, 0];
+			costArray = [0, 0, 30, 30, 30];
         }
         if (itemList.selectedIndex == 10) {
             sizeArray = ["-- select a size --", "-- Adult Sizes --", "XS", "S", "M", "L", "XL", "XXL"];
             colorArray = ["-- select a color --", "Red", "Grey Triblend", "Heather Forest", "Heather Navy", "Royal", "Cardinal Triblend"];
-			costArray = [0, 0, 0, 0, 0, 0, 0, 0];
+			costArray = [0, 0, 32, 32, 32, 32, 32, 34];
         }
         if (itemList.selectedIndex == 11) {
-            sizeArray = ["-- select a size --", "-- Youth Sizes --", "YXS", "YS", "YM", "YL", "YXL", "-- Adult Sizes --", "XS", "S/M", "L/XL", "XXL"];
-            colorArray = ["-- N/A --"];
-			costArray = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            sizeArray = ["-- select a size --", "-- Youth Sizes --", "YXS", "YS", "YM", "YL", "YXL"];
+            colorArray = ["Tie-Die"];
+			costArray = [0, 0, 60, 60, 60, 60, 60];
         }
         if (itemList.selectedIndex == 12) {
             sizeArray = ["-- select a size --", "-- Youth Sizes --", "YS", "YM", "YL", "-- Adult Sizes --", "S", "M", "L", "XL", "XXL", "XXXL"];
             colorArray = ["-- select a color --", "Carnival", "Karma", "Festival", "Wild Spider", "Woodstock"];
-			costArray = [0, 0, 20, 20, 20, 0, 21, 21, 21, 21, 22, 23];
+			costArray = [0, 0, 18, 18, 18, 0, 19, 19, 19, 19, 20, 21];
         }
         if (itemList.selectedIndex == 13) {
             sizeArray = ["-- select a size --", "-- Youth Sizes --", "YS", "YM", "YL"];
@@ -505,12 +505,12 @@ var itemTable = new function () {
         if (itemList.selectedIndex == 15) {
             sizeArray = ["-- select a size --", "-- Youth Sizes --", "YS", "YM", "YL"];
             colorArray = ["-- select a color --", "Barbedos", "Saturn", "Flouswirl", "Neon Rainbow", "Floublue/Pink", "Minty Rainbow"];
-			costArray = [0, 0, 0, 0, 0];
+			costArray = [0, 0, 26, 26, 26];
         }
         if (itemList.selectedIndex == 16) {
             sizeArray = ["-- select a size --", "-- Adult Sizes --", "S", "M", "L", "XL", "XXL", "XXXL"];
             colorArray = ["-- select a color --", "Blur Jerry", "Saturn", "Reactive Rainbow", "Black Spider", "Purple Spider", "Pink Spider"];
-			costArray = [0, 0, 0, 0, 0, 0, 0, 0];
+			costArray = [0, 0, 27, 27, 27, 27, 28, 29];
         }
         if (itemList.selectedIndex == 17) {
             sizeArray = ["-- select a size --", "-- Youth Sizes --", "YS", "YM", "YL", "-- Adult Sizes --", "S", "M", "L", "XL", "XXL"];
@@ -518,19 +518,22 @@ var itemTable = new function () {
 			costArray = [0, 0, 27, 27, 27, 0, 28, 28, 28, 28, 30];
         }
         if (itemList.selectedIndex == 18) {
-            sizeArray = ["-- N/A --", "-- N/A --"];
-            colorArray = ["-- N/A --", "-- N/A --"];
-			costArray = [0, 0];
+            sizeArray = ['50" x 60"'];
+            colorArray = ["-- select a color --", "Carolina Blue", "Navy", "Royal", "Athletic Heather", "Dark Green", "Gold", "Black", "Neon Pink", "Red"];
+			costArray = [22];
         }
-        itemCost.textContent = "$0";
+		if (itemList.selectedIndex == 1) { itemCost.textContent = "$7"; }
+		else if (itemList.selectedIndex == 2) { itemCost.textContent = "$10"; }
+		else if (itemList.selectedIndex == 18) { itemCost.textContent = "$22"; }
+        else { itemCost.textContent = "$0"; }
 
         for (var s = 0; s < sizeArray.length; s++) {
             var sizeOption = document.createElement("option");
             sizeOption.setAttribute("value", sizeArray[s]);
             sizeOption.text = sizeArray[s];
             if (itemList.selectedIndex == 4) { if (s == 0 || s == 1 || s == 6) { sizeOption.disabled = true; } }
-            else if (itemList.selectedIndex == 11) { if (s == 0 || s == 1 || s == 7) { sizeOption.disabled = true; } }
             else if (itemList.selectedIndex == 12) { if (s == 0 || s == 1 || s == 5) { sizeOption.disabled = true; } }
+			else if (itemList.selectedIndex == 1 || itemList.selectedIndex == 2 || itemList.selectedIndex == 18) { if (s == 0) { sizeOption.disabled = false; } }
             else { if (s == 0 || s == 1) { sizeOption.disabled = true; } }
             sizeList.selectedIndex = 0;
             sizeList.appendChild(sizeOption);
@@ -540,6 +543,7 @@ var itemTable = new function () {
             colorOption.setAttribute("value", colorArray[c]);
             colorOption.text = colorArray[c];
             if (itemList.selectedIndex == 0) { if (c == 0 || c == 1) { colorOption.disabled = true; } }
+			else if (itemList.selectedIndex == 2) { colorOption.disabled = false; }
             else if (c == 0) { colorOption.disabled = true; }
             colorList.selectedIndex = 0;
             colorList.appendChild(colorOption);
