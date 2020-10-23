@@ -83,9 +83,31 @@ var itemTable = new function () {
         colorList.appendChild(colorOption);
     }
 
+	var radioA = document.createElement('input');
+	var radioB = document.createElement('input');
+	radioA.setAttribute('type', 'radio');
+	radioB.setAttribute('type', 'radio');
+	radioA.setAttribute('value', 'A');
+	radioB.setAttribute('value', 'B');
+	var labelA = document.createElement('label');
+	labelA.htmlFor = 'radioA';
+	var descA = document.createTextNode('A');
+	labelA.appendChild(descA);
+	var labelB = document.createElement('label');
+	labelB.htmlFor = 'radioB';
+	var descB = document.createTextNode('B');
+	labelB.appendChild(descB);
+	radioA.setAttribute("onclick", "radioClickA()");
+	radioB.setAttribute("onclick", "radioClickB()");
+	radioClickA = function() { if (radioA.checked == true) { designString.setAttribute('value', 'A'); radioB.checked = false; }}
+	radioClickB = function() { if (radioB.checked == true) { designString.setAttribute('value', 'B'); radioA.checked = false; }}
+	var PP = document.createElement('string');
+	PP.textContent = "Peace Panda";
+	PP.setAttribute('style', 'display: none;');
+
 	var designString = document.createElement('input');
 	designString.setAttribute('type', 'text');
-	designString.setAttribute('value', 'A');
+	designString.setAttribute('value', '');
 	designString.style.display = "none";
 
     var customtxt = document.createElement("input");
@@ -227,30 +249,12 @@ var itemTable = new function () {
                 if (j == 2) { newCell.appendChild(sizeList); }
                 if (j == 3) { newCell.appendChild(colorList); }
                 if (j == 4) {
-                    var radioA = document.createElement('input');          // RADIO BUTTONS
-                    var radioB = document.createElement('input');
-                    radioA.setAttribute('type', 'radio');
-                    radioB.setAttribute('type', 'radio');
-                    radioA.setAttribute('value', 'A');
-                    radioB.setAttribute('value', 'B');
-                    var labelA = document.createElement('label');
-                    labelA.htmlFor = 'radioA';
-                    var descA = document.createTextNode('A');
-                    labelA.appendChild(descA);
-                    var labelB = document.createElement('label');
-                    labelB.htmlFor = 'radioB';
-                    var descB = document.createTextNode('B');
-                    labelB.appendChild(descB);
-                    radioA.checked = true;
-                    radioA.setAttribute("onclick", "radioClickA()");
-                    radioB.setAttribute("onclick", "radioClickB()");
-                    radioClickA = function() { if (radioA.checked == true) { designString.setAttribute('value', 'A'); radioB.checked = false; }}
-                    radioClickB = function() { if (radioB.checked == true) { designString.setAttribute('value', 'B'); radioA.checked = false; }}
                     newCell.appendChild(designString);
                     newCell.appendChild(radioA);
                     newCell.appendChild(labelA);
                     newCell.appendChild(radioB);
                     newCell.appendChild(labelB);
+					newCell.appendChild(PP);
                 }
                 if (j == 5) {
                     newCell.appendChild(customtxt);
@@ -392,7 +396,7 @@ var itemTable = new function () {
                 var td = tab.getElementsByTagName("td")[i];
                 if (td.childNodes[0].tagName == 'SELECT' || td.childNodes[0].getAttribute('type') == 'radio' || td.childNodes[0].getAttribute('type') == 'text') { // CHECK IF ELEMENT IS A TEXTBOX OR SELECT.
                     var txtVal = td.childNodes[0].value;
-                    if ((itemList.selectedIndex == 1 && colorList.selectedIndex != 0) || (itemList.selectedIndex == 2) || (itemList.selectedIndex == 18 && colorList.selectedIndex != 0) || (itemList.selectedIndex != 0 && sizeList.selectedIndex != 0 && colorList.selectedIndex != 0)) {
+                    if ((itemList.selectedIndex == 1 && colorList.selectedIndex != 0 && designString.value == 'Peace Panda') || (itemList.selectedIndex == 2 && designString.value == 'Peace Panda') || (itemList.selectedIndex == 18 && colorList.selectedIndex != 0 && designString.value != '') || (itemList.selectedIndex != 0 && sizeList.selectedIndex != 0 && colorList.selectedIndex != 0 && designString.value != '')) {
                         if (customtxt.value != '') { itemCost.textContent = "$"+(costArray[sizeList.selectedIndex]+7); totalCost.textContent = "$"+Math.round((total += (costArray[sizeList.selectedIndex]+7)/6)); }
                         else { itemCost.textContent = "$"+costArray[sizeList.selectedIndex]; totalCost.textContent = "$"+Math.round((total += costArray[sizeList.selectedIndex]/6)); }
                         costString.setAttribute('value', itemCost.textContent);
@@ -418,7 +422,9 @@ var itemTable = new function () {
 				itemList.click();
 				sizeList.click();
 				colorList.click();
-				designString.setAttribute('value', 'A');
+				designString.setAttribute('value', '');
+				radioA.checked = false;
+				radioB.checked = false;
 				customtxt.value = '';
 				itemCost.textContent = "$0";
             }
@@ -435,11 +441,13 @@ var itemTable = new function () {
         if (itemList.selectedIndex == 1) {
             sizeArray = ['7"W x 5"H'];
             colorArray = ["-- select a color --", "Red", "Navy", "Royal", "Silver", "White", "Charcoal", "Black"];
+			designString.setAttribute('value', 'Peace Panda');
 			costArray = [7];
         }
         if (itemList.selectedIndex == 2) {
             sizeArray = ['7"W x 5"H'];
             colorArray = ["Tie-Die"];
+			designString.setAttribute('value', 'Peace Panda');
 			costArray = [10];
         }
         if (itemList.selectedIndex == 3) {
@@ -526,6 +534,21 @@ var itemTable = new function () {
 		else if (itemList.selectedIndex == 2) { itemCost.textContent = "$10"; }
 		else if (itemList.selectedIndex == 18) { itemCost.textContent = "$22"; }
         else { itemCost.textContent = "$0"; }
+		
+		if (itemList.selectedIndex == 1 || itemList.selectedIndex == 2) {
+			radioA.setAttribute('style', 'display: none;');
+			labelA.setAttribute('style', 'display: none;');
+			radioB.setAttribute('style', 'display: none;');
+			labelB.setAttribute('style', 'display: none;');
+			PP.setAttribute('style', 'display: inline-block;');
+		}
+		else {
+			PP.setAttribute('style', 'display: none;');
+			radioA.setAttribute('style', 'display: inline-block;');
+			labelA.setAttribute('style', 'display: inline-block;');
+			radioB.setAttribute('style', 'display: inline-block;');
+			labelB.setAttribute('style', 'display: inline-block;');
+		}
 
         for (var s = 0; s < sizeArray.length; s++) {
             var sizeOption = document.createElement("option");
