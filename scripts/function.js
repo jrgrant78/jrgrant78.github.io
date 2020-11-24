@@ -7,8 +7,9 @@ function scrollToStart(){ document.getElementById("start").scrollIntoView({ beha
 function scrollToIntro(){ document.getElementById("intro").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToServices(){ document.getElementById("services").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToAbout(){ document.getElementById("about").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-function scrollToWorkflow(){ document.getElementById("workflow").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToWhy(){ document.getElementById("why").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function scrollToWorkflow(){ document.getElementById("workflow").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function scrollToPricing(){ document.getElementById("pricing").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToClients(){ document.getElementById("clients").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 
 function navSelector(e) {
