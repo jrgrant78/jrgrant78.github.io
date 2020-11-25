@@ -1,81 +1,96 @@
-export class ScrollSpy {
-  constructor(menu, options = {}) {
-    if (!menu) {
-      throw new Error('First argument is query selector to your navigation.')
+var ScrollSpy = (function()
+ {
+    var elements = {};
+
+    function init()
+    {
+        if (document.addEventListener)
+        {
+            document.addEventListener("touchmove", handleScroll, false);
+            document.addEventListener("scroll", handleScroll, false);
+        }
+        else if (window.attachEvent)
+        {
+            window.attachEvent("onscroll", handleScroll);
+        }
     }
 
-    if (typeof options !== 'object') {
-      throw new Error('Second argument must be instance of Object.')
+    function spyOn(domElement)
+    {
+        var element = {};
+        element['domElement'] = domElement;
+        element['isInViewPort'] = true;
+        elements[domElement.id] = element;
     }
 
-    let defaultOptions = {
-      sectionClass: '.scrollspy',
-      menuActiveTarget: 'li > a',
-      offset: 0,
-      hrefAttribute: 'href',
-      activeClass: 'active',
-      scrollContainer: ''
+    function handleScroll()
+    {
+        var currentViewPosition = document.documentElement.scrollTop ? document.documentElement.scrollTop: document.body.scrollTop;
+
+        for (var i in elements) {
+            var element = elements[i];
+            var elementPosition = getPositionOfElement(element.domElement);
+
+            var usableViewPosition = currentViewPosition;
+            if (element.isInViewPort == false)
+            {
+                usableViewPosition -= element.domElement.clientHeight;
+            }
+
+            if (usableViewPosition > elementPosition)
+            {
+                fireOutOfSightEvent(element.domElement);
+                element.isInViewPort = false;
+            }
+            else if (element.isInViewPort == false)
+            {
+                fireBackInSightEvent(element.domElement);
+                element.isInViewPort = true;
+            }
+        };
     }
 
-    this.menuList = menu instanceof HTMLElement ? menu : document.querySelector(menu)
-    this.options = Object.assign({}, defaultOptions, options)
-    
-    if(this.options.scrollContainer) {
-      this.scroller = this.options.scrollContainer instanceof HTMLElement ? this.options.scrollContainer : document.querySelector(this.options.scrollContainer)
-    } else {
-      this.scroller = window
+    function fireOutOfSightEvent(domElement)
+    {
+        fireEvent('ScrollSpyOutOfSight', domElement);
     }
 
-    this.sections = document.querySelectorAll(this.options.sectionClass)
-    
-    this.listen();
-  }
-
-  listen() {
-    this.scroller.addEventListener('scroll', () => this.onScroll())
-  }
-
-  onScroll() {
-    const section = this.getSectionInView()
-    const menuItem = this.getMenuItemBySection(section)
-
-    if (menuItem) {
-      this.removeCurrentActive({ ignore: menuItem })
-      this.setActive(menuItem)
+    function fireBackInSightEvent(domElement)
+    {
+        fireEvent('ScrollSpyBackInSight', domElement);
     }
-  }
 
-  getMenuItemBySection(section) {
-    if (!section) return
-    const sectionId = section.getAttribute('id')
-    return this.menuList.querySelector(`[${this.options.hrefAttribute}="#${sectionId}"]`)
-  }
-
-  getSectionInView() {
-    for (let i = 0; i < this.sections.length; i++) {
-      const startAt = this.sections[i].offsetTop
-      const endAt = startAt + this.sections[i].offsetHeight
-      let currentPosition = (document.documentElement.scrollTop || document.body.scrollTop) + this.options.offset
-
-      if(this.options.scrollContainer) {
-        currentPosition = (this.scroller.scrollTop) + this.options.offset
-      }
-
-      const isInView = currentPosition > startAt && currentPosition <= endAt
-      if (isInView) return this.sections[i]
+    function fireEvent(eventName, domElement)
+    {
+        if (document.createEvent)
+        {
+            var event = document.createEvent('HTMLEvents');
+            event.initEvent(eventName, true, true);
+            event.data = domElement;
+            document.dispatchEvent(event);
+        }
+        else if (document.createEventObject)
+        {
+            var event = document.createEventObject();
+            event.data = domElement
+            event.expando = eventName;
+            document.fireEvent('onpropertychange', event);
+        }
     }
-  }
 
-  setActive(activeItem) {
-    const isActive = activeItem.classList.contains(this.options.activeClass)
-    if (!isActive) activeItem.classList.add(this.options.activeClass)
-  }
+    function getPositionOfElement(domElement)
+    {
+        var pos = 0;
+        while (domElement != null)
+        {
+            pos += domElement.offsetTop;
+            domElement = domElement.offsetParent;
+        }
+        return pos;
+    }
 
-  removeCurrentActive({ ignore }) {
-    const { hrefAttribute, menuActiveTarget, activeClass } = this.options
-    const items = `${menuActiveTarget}.${activeClass}:not([${hrefAttribute}="${ignore.getAttribute(hrefAttribute)}"])`
-    const menuItems = this.menuList.querySelectorAll(items)
-
-    menuItems.forEach((item) => item.classList.remove(this.options.activeClass))
-  }
-}
+    return {
+        init: init,
+        spyOn: spyOn
+    };
+});
