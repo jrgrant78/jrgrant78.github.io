@@ -1,11 +1,5 @@
 window.onload = function () {
-	scrollSpy("document.getElementById('nav')", {
-	  sectionSelector: 'section',
-	  targetSelector: 'a',
-	  offset: 0, // in pixels
-	  hrefAttribute: 'href',
-	  activeClass: 'active',
-	});
+	scrollSpy('#menu')
 }
 
 /* Navigation */
