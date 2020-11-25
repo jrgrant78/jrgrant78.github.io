@@ -1,10 +1,6 @@
-window.onload = function () {
-	scrollSpy('#menu')
-}
-
 /* Navigation */
 function mobileBarFunction(x) { x.classList.toggle("change");
-	var y = document.getElementById('MmenuHide'); if (y.style.display === 'block') { y.style.display = 'none'; x.classList.remove("visible"); } else { y.style.display = "block"; x.classList.add("visible"); } }
+	var y = document.getElementById('menu'); if (y.style.display === 'block') { y.style.display = 'none'; x.classList.remove("visible"); } else { y.style.display = "block"; x.classList.add("visible"); } }
 
 function scrollToHome(){ document.getElementById("home").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToStart(){ document.getElementById("start").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
@@ -20,7 +16,7 @@ function navSelector(e) {
 	var elems = document.querySelector(".active");
 	if(elems !==null){ elems.classList.remove("active"); }
 	e.target.className = "active";
-	var y = document.getElementById("MmenuHide");
+	var y = document.getElementById("menu");
 	var x = document.getElementById("menutoggle");
 	if (x.classList.contains("visible")) {
 		if (y.style.display === "block") { y.style.display = "none"; x.classList.toggle("change"); }
