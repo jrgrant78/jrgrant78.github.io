@@ -1,4 +1,4 @@
-let menuSection = document.querySelectorAll('menu li');
+let menuSection = document.querySelectorAll('nav li');
 
 // for clickable event
 menuSection.forEach(v=> {
