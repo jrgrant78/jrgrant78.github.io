@@ -1,3 +1,4 @@
+/*
 let menuSection = document.querySelectorAll('menu li');
 
 // for clickable event
@@ -9,6 +10,7 @@ menuSection.forEach(v=> {
 		},300)
 	})
 })
+*/
 
 // for window scrolldown event
 window.onscroll = (()=> {
