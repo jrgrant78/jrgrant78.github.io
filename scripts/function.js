@@ -1,3 +1,28 @@
+let menuSection = document.querySelectorAll('menu li');
+
+// for clickable event
+menuSection.forEach(v=> {
+	v.onclick = (()=> {
+		setTimeout(()=> {
+			menuSection.forEach(j=> j.classList.remove('active'))
+			v.classList.add('active')
+		},300)
+	})
+})
+
+// for window scrolldown event
+window.onscroll = (()=> {
+	let mainSection = document.querySelectorAll('main section');
+
+	mainSection.forEach((v,i)=> {
+		let rect = v.getBoundingClientRect().y
+		if(rect < window.innerHeight-200){
+			menuSection.forEach(v=> v.classList.remove('active'))
+			menuSection[i].classList.add('active')
+		}
+	})
+})
+
 /* Navigation */
 function mobileBarFunction(x) { x.classList.toggle("change");
 	var y = document.getElementById('menu'); if (y.style.display === 'block') { y.style.display = 'none'; x.classList.remove("visible"); } else { y.style.display = "block"; x.classList.add("visible"); } }
