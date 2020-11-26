@@ -1,3 +1,4 @@
+/*
 let menuSection = document.querySelectorAll('nav li');
 
 // for clickable event
@@ -22,6 +23,7 @@ window.onscroll = (()=> {
 		}
 	})
 })
+*/
 
 /* Navigation */
 function mobileBarFunction(x) { x.classList.toggle("change");
