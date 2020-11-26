@@ -3,10 +3,8 @@ let menuSection = document.querySelectorAll('menu li');
 // for clickable event
 menuSection.forEach(v=> {
 	v.onclick = (()=> {
-		setTimeout(()=> {
 		menuSection.forEach(j=> j.classList.remove('active'))
 		v.classList.add('active')
-		},300)
 	})
 })
 
