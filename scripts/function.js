@@ -1,3 +1,25 @@
+let menuSection = document.querySelectorAll('menu li');
+
+// for clickable event
+menuSection.forEach(v=> {
+	v.onclick = (()=> {
+		menuSection.forEach(j=> j.classList.remove('active'))
+		v.classList.add('active')
+	})
+})
+
+// for window scrolldown event
+window.onscroll = (()=> {
+	let mainSection = document.querySelectorAll('wrapper section');
+
+	mainSection.forEach((v,i)=> {
+		let rect = v.getBoundingClientRect().y
+		if(rect < window.innerHeight-200){
+			menuSection.forEach(v=> v.classList.remove('active'))
+			menuSection[i].classList.add('active')
+		}
+	})
+})
 
 /* Navigation */
 function mobileBarFunction(x) { x.classList.toggle("change");
