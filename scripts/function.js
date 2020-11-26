@@ -6,7 +6,7 @@ menuSection.forEach(v=> {
 		setTimeout(()=> {
 			menuSection.forEach(j=> j.classList.remove('active'))
 			v.classList.add('active')
-		},300)
+		},0)
 	})
 })
 
