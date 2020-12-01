@@ -26,9 +26,6 @@ function mobileBarFunction(x) { x.classList.toggle("change");
 	var y = document.getElementById('menu'); if (y.style.display === 'block') { y.style.display = 'none'; x.classList.remove("visible"); } else { y.style.display = "block"; x.classList.add("visible"); } }
 
 function navSelector(e) {
-//	var elems = document.querySelector(".active");
-//	if(elems !==null){ elems.classList.remove("active"); }
-//	e.target.className = "active";
 	var y = document.getElementById("menu");
 	var x = document.getElementById("menutoggle");
 	if (x.classList.contains("visible")) {
