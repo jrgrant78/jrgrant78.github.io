@@ -1,21 +1,7 @@
 let menuSection = document.querySelectorAll('menu li');
 
-// for window scrolldown event
-window.onscroll = (()=> {
-	let mainSection = document.querySelectorAll('wrapper section');
-	mainSection.forEach((v,i)=> {
-		let rect = v.getBoundingClientRect().y;
-		if (rect < window.innerHeight-200) {
-			menuSection.forEach(v=> v.classList.remove('active'));
-			menuSection[i].classList.add('active');
-		}
-	});
-});
-
 /* Navigation */
 function mobileBarFunction(x) { x.classList.toggle("change"); var y = document.getElementById('menu'); if (y.style.display === 'block') { y.style.display = 'none'; x.classList.remove("visible"); } else { y.style.display = "block"; x.classList.add("visible"); } }
-
-menuSection.forEach(v=> { v.onclick = (()=> { menuSection.forEach(j=> j.classList.remove('active')); v.classList.add('active'); }); });
 
 function navSelector() {
 	var y = document.getElementById("menu");
@@ -32,6 +18,8 @@ function scrollToWhy(){ document.getElementById("why").scrollIntoView({ behavior
 function scrollToWorkflow(){ document.getElementById("workflow").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToPricing(){ document.getElementById("pricing").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToClients(){ document.getElementById("clients").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+
+menuSection.forEach(v=> { v.onclick = (()=> { menuSection.forEach(j=> j.classList.remove('active')); v.classList.add('active'); }); });
 
 /* Contact Schedule */
 function scheduleCheck() {
