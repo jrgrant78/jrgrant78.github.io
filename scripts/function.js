@@ -1,13 +1,4 @@
-/*
 let menuSection = document.querySelectorAll('menu li');
-
-// for clickable event
-menuSection.forEach(v=> {
-	v.onclick = (()=> {
-		menuSection.forEach(j=> j.classList.remove('active'))
-		v.classList.add('active')
-	})
-})
 
 // for window scrolldown event
 window.onscroll = (()=> {
@@ -21,10 +12,26 @@ window.onscroll = (()=> {
 		}
 	})
 })
-*/
+
 /* Navigation */
 function mobileBarFunction(x) { x.classList.toggle("change");
 	var y = document.getElementById('menu'); if (y.style.display === 'block') { y.style.display = 'none'; x.classList.remove("visible"); } else { y.style.display = "block"; x.classList.add("visible"); } }
+
+function navSelector(e) {
+//	var elems = document.querySelector(".active");
+//	if(elems !==null){ elems.classList.remove("active"); }
+//	e.target.className = "active";
+	menuSection.forEach(v=> {
+		v.onclick = (()=> {
+			menuSection.forEach(j=> j.classList.remove('active'))
+			v.classList.add('active')
+		})
+	})
+	var y = document.getElementById("menu");
+	var x = document.getElementById("menutoggle");
+	if (x.classList.contains("visible")) {
+		if (y.style.display === "block") { y.style.display = "none"; x.classList.toggle("change"); }
+		else { y.style.display = "block"; x.classList.toggle("change"); } } }
 
 function scrollToHome(){ document.getElementById("home").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToIntro(){ document.getElementById("intro").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
@@ -34,16 +41,6 @@ function scrollToWhy(){ document.getElementById("why").scrollIntoView({ behavior
 function scrollToWorkflow(){ document.getElementById("workflow").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToPricing(){ document.getElementById("pricing").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToClients(){ document.getElementById("clients").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-
-function navSelector(e) {
-//	var elems = document.querySelector(".active");
-//	if(elems !==null){ elems.classList.remove("active"); }
-//	e.target.className = "active";
-	var y = document.getElementById("menu");
-	var x = document.getElementById("menutoggle");
-	if (x.classList.contains("visible")) {
-		if (y.style.display === "block") { y.style.display = "none"; x.classList.toggle("change"); }
-		else { y.style.display = "block"; x.classList.toggle("change"); } } }
 
 /* Contact Schedule */
 function scheduleCheck() {
