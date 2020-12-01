@@ -17,7 +17,7 @@ function mobileBarFunction(x) { x.classList.toggle("change"); var y = document.g
 
 menuSection.forEach(v=> { v.onclick = (()=> { menuSection.forEach(j=> j.classList.remove('active')); v.classList.add('active'); }); });
 
-function navSelector(e) {
+function navSelector() {
 	var y = document.getElementById("menu");
 	var x = document.getElementById("menutoggle");
 	if (x.classList.contains("visible")) {
