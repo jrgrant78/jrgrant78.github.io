@@ -1,16 +1,11 @@
 let menuSection = document.querySelectorAll('menu li');
+let mainSection = document.querySelectorAll('wrapper section');
 
 // for clickable event
-menuSection.forEach(v=> {
-	v.onclick = (()=> {
-		menuSection.forEach(j=> j.classList.remove('active'))
-		v.classList.add('active')
-	})
-})
+menuSection.forEach(v=> { v.onclick = (()=> { menuSection.forEach(j=> j.classList.remove('active')) v.classList.add('active') }) })
 
 // for window scrolldown event
 window.onscroll = (()=> {
-	let mainSection = document.querySelectorAll('wrapper section');
 
 	mainSection.forEach((v,i)=> {
 		let rect = v.getBoundingClientRect().y
@@ -22,15 +17,16 @@ window.onscroll = (()=> {
 })
 
 /* Navigation */
-function mobileBarFunction(x) { x.classList.toggle("change");
-	var y = document.getElementById('menu'); if (y.style.display === 'block') { y.style.display = 'none'; x.classList.remove("visible"); } else { y.style.display = "block"; x.classList.add("visible"); } }
+function mobileBarFunction(x) { x.classList.toggle("change"); var y = document.getElementById('menu'); if (y.style.display === 'block') { y.style.display = 'none'; x.classList.remove("visible"); } else { y.style.display = "block"; x.classList.add("visible"); } }
 
 function navSelector(e) {
 	var y = document.getElementById("menu");
 	var x = document.getElementById("menutoggle");
 	if (x.classList.contains("visible")) {
 		if (y.style.display === "block") { y.style.display = "none"; x.classList.toggle("change"); }
-		else { y.style.display = "block"; x.classList.toggle("change"); } } }
+		else { y.style.display = "block"; x.classList.toggle("change"); }
+	}
+}
 
 function scrollToHome(){ document.getElementById("home").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToIntro(){ document.getElementById("intro").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
