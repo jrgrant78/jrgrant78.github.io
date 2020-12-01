@@ -22,6 +22,7 @@ function navSelector() {
 		if (y.style.display === "block") { y.style.display = "none"; x.classList.toggle("change"); }
 		else { y.style.display = "block"; x.classList.toggle("change"); } } }
 
+/*
 function scrollToHome(){ document.getElementById("home").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToIntro(){ document.getElementById("intro").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToServices(){ document.getElementById("services").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
@@ -30,6 +31,7 @@ function scrollToWhy(){ document.getElementById("why").scrollIntoView({ behavior
 function scrollToWorkflow(){ document.getElementById("workflow").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToPricing(){ document.getElementById("pricing").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function scrollToClients(){ document.getElementById("clients").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+*/
 
 menuSection.forEach(v=> { v.onclick = (()=> { menuSection.forEach(j=> j.classList.remove('active')); v.classList.add('active'); }); });
 
