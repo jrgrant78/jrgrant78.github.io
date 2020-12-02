@@ -37,7 +37,6 @@ window.onscroll = (()=> {
 		}
 	});
 });
-*/
 
 // add smooth scrolling to all links (jquery)
 var $root = $('html, body, wrapper, section');
@@ -48,6 +47,27 @@ $('menu a').on('click', function(event) {
 		$root.stop().animate({ scrollTop: $(hash).offset().top-60 + $(root).scrollTop() - $(root).offset().top }, 'slow');
 	}
 });
+*/
+
+$('.menuTags')
+	// Remove links that don't actually link to anything
+	.not('[href="#"]')
+	.not('[href="#0"]')
+	.click(function(event) {
+		// On-page links
+		if (location.pathname.replace(/^\//, '') == this.pathname.replace(/^\//, '') && location.hostname == this.hostname){
+			// Figure out element to scroll to
+			var target = $(this.hash);
+			target = target.length ? target : $('[name=' + this.hash.slice(1) + ']');
+			// Does a scroll target exist?
+			if (target.length) {
+				// Only prevent default if animation is actually gonna happen
+				event.preventDefault();
+				var $currScrollTop = $("wrapper").scrollTop();
+				$('wrapper').animate({ scrollTop: $currScrollTop + target.position().top - $('wrapper').position().top }, 'slow');
+			}
+		}
+	});
 
 
 
