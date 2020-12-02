@@ -31,10 +31,8 @@ $('.menuTags').not('[href="#"]').not('[href="#0"]').click(function(event) {
 $('wrapper').bind('scroll', function() {
 	var currentTop = $('wrapper').scrollTop();
 	var elems = $('.scrollspy');
-	var target = $(this.hash);
 	elems.each(function(index){
 		var elemTop 	= ($(this).offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top - 1);
-		if (target == $('#home')) { elemTop += 1; }
 		var elemBottom 	= elemTop + $(this).height();
 		if(currentTop >= elemTop && currentTop <= elemBottom){
 			var id 		= $(this).attr('id');
