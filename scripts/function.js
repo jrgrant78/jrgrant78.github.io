@@ -29,6 +29,26 @@ window.onscroll = (()=> {
 });
 */
 
+// smooth scrolling (jquery)
+$('.menuTags')
+	// Remove links that don't actually link to anything
+	.not('[href="#"]')
+	.not('[href="#0"]')
+	.click(function(event) {
+		// On-page links
+		if (location.pathname.replace(/^\//, '') == this.pathname.replace(/^\//, '') && location.hostname == this.hostname){
+			// Figure out element to scroll to
+			var target = $(this.hash);
+			target = target.length ? target : $('[name=' + this.hash.slice(1) + ']');
+			// Does a scroll target exist?
+			if (target.length) {
+				// Only prevent default if animation is actually gonna happen
+				event.preventDefault();
+				$('wrapper').stop().animate({ scrollTop: target.offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top }, 500, function() {});
+			}
+		}
+	});
+
 // scrollspy
 var lastId,
 	topMenu = $("#menu"),
@@ -60,26 +80,6 @@ $('wrapper').scroll(function(){
 			.end().filter("[href='#"+id+"']").parent().addClass("active");
 	}
 });
-
-// add smooth scrolling to all links (jquery)
-$('.menuTags')
-	// Remove links that don't actually link to anything
-	.not('[href="#"]')
-	.not('[href="#0"]')
-	.click(function(event) {
-		// On-page links
-		if (location.pathname.replace(/^\//, '') == this.pathname.replace(/^\//, '') && location.hostname == this.hostname){
-			// Figure out element to scroll to
-			var target = $(this.hash);
-			target = target.length ? target : $('[name=' + this.hash.slice(1) + ']');
-			// Does a scroll target exist?
-			if (target.length) {
-				// Only prevent default if animation is actually gonna happen
-				event.preventDefault();
-				$('wrapper').stop().animate({ scrollTop: target.offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top }, 500, function() {});
-			}
-		}
-	});
 
 
 
