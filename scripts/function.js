@@ -1,19 +1,32 @@
-// Add smooth scrolling to all links
-var $root = $('wrapper');
-$('menu a').on('click', function(event) {
-	if (this.hash !== "") {
-		event.preventDefault();
-		var hash = this.hash;
-		$root.stop().animate({ scrollTop: $(hash).offset().top-60 }, 'slow');
-//		$('wrapper').stop().scrollTop: $(hash).offset().top-60;
-	}
-});
+/* NAVIGATION */
 
-/* Navigation */
-let menuSection = document.querySelectorAll('menu li');
+// change mobile menu X state
+function mobileBarFunction(x) { x.classList.toggle("change"); var y = document.getElementById('menu'); if (y.style.display === 'block') { y.style.display = 'none'; x.classList.remove("visible"); } else { y.style.display = "block"; x.classList.add("visible"); } }
+
+// show & hide mobile menu
+function navSelector() {
+	var y = document.getElementById("menu");
+	var x = document.getElementById("menutoggle");
+	if (x.classList.contains("visible")) {
+		if (y.style.display === "block") { y.style.display = "none"; x.classList.toggle("change"); }
+		else { y.style.display = "block"; x.classList.toggle("change"); } } }
 
 /*
-// for window scrolldown event
+// add smooth scrolling to all links
+document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+	anchor.addEventListener('click', function (e) {
+		e.preventDefault();
+		document.querySelector(this.getAttribute('href')).scrollIntoView({ behavior: 'smooth', block: 'start' });
+	});
+});
+*/
+
+// make clicked link active
+let menuSection = document.querySelectorAll('menu li');
+menuSection.forEach(v=> { v.onclick = (()=> { menuSection.forEach(j=> j.classList.remove('active')); v.classList.add('active'); }); });
+
+/*
+// scrollspy
 window.onscroll = (()=> {
 	let mainSection = document.querySelectorAll('wrapper section');
 	mainSection.forEach((v,i)=> {
@@ -26,27 +39,21 @@ window.onscroll = (()=> {
 });
 */
 
-function mobileBarFunction(x) { x.classList.toggle("change"); var y = document.getElementById('menu'); if (y.style.display === 'block') { y.style.display = 'none'; x.classList.remove("visible"); } else { y.style.display = "block"; x.classList.add("visible"); } }
-
-function navSelector() {
-	var y = document.getElementById("menu");
-	var x = document.getElementById("menutoggle");
-	if (x.classList.contains("visible")) {
-		if (y.style.display === "block") { y.style.display = "none"; x.classList.toggle("change"); }
-		else { y.style.display = "block"; x.classList.toggle("change"); } } }
-
-/*
-document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-	anchor.addEventListener('click', function (e) {
-		e.preventDefault();
-		document.querySelector(this.getAttribute('href')).scrollIntoView({ behavior: 'smooth', block: 'start' });
-	});
+// add smooth scrolling to all links (jquery)
+var $root = $('wrapper');
+$('menu a').on('click', function(event) {
+	if (this.hash !== "") {
+		event.preventDefault();
+		var hash = this.hash;
+		$root.stop().animate({ scrollTop: $(hash).offset().top-60 }, 'slow');
+//		$('wrapper').stop().scrollTop: $(hash).offset().top-60;
+	}
 });
-*/
 
-menuSection.forEach(v=> { v.onclick = (()=> { menuSection.forEach(j=> j.classList.remove('active')); v.classList.add('active'); }); });
 
-/* Contact Schedule */
+
+/* CONTACT FORM */
+
 function scheduleCheck() {
     if (document.getElementById('scheduleYes').checked) {
         document.getElementById('ifSchedule').style.display = 'block';
@@ -109,7 +116,9 @@ function showingCheck() {
     else {
 		document.getElementById('ifShowing').style.display = 'none'; } }
 
-/* Load Video Clip */
+
+
+/* VIDEO CLIPS (portfolio page) */
 function loadreel() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/51395401');
 	var textboxA = document.getElementById('containerA'); textboxB = document.createElement("div"); textboxB.setAttribute("id", "containerB"); var text = document.createElement("div"); text.innerHTML = document.getElementById("clip_reel").innerHTML; textboxA.appendChild(textboxB); textboxB.appendChild(text); }
 function loadreelMotion() { document.getElementById("iclip").contentWindow.location.replace('https://player.vimeo.com/video/221680172'); }
