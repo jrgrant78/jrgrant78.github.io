@@ -18,7 +18,7 @@ menuSection.forEach(v=> { v.onclick = (()=> { menuSection.forEach(j=> j.classLis
 /*
 // scrollspy
 window.onscroll = (()=> {
-	let mainSection = document.querySelectorAll('wrapper section');
+	let mainSection = document.querySelectorAll('wrapper');
 	mainSection.forEach((v,i)=> {
 		let rect = v.getBoundingClientRect().y;
 		if (rect < window.innerHeight-200) {
@@ -30,7 +30,7 @@ window.onscroll = (()=> {
 */
 
 // smooth scrolling (jquery)
-$('.menuTags')
+$('.menuTags') {
 	// Remove links that don't actually link to anything
 	.not('[href="#"]')
 	.not('[href="#0"]')
@@ -48,40 +48,7 @@ $('.menuTags')
 			}
 		}
 	});
-
-/*
-// scrollspy
-var lastId,
-	topMenu = $("#menu"),
-	topMenuHeight = topMenu.outerHeight()+15,
-	// All list items
-	menuItems = topMenu.find("a"),
-	// Anchors corresponding to menu items
-	scrollItems = menuItems.map(function(){
-		var item = $($(this).attr("href"));
-		if (item.length) { return item; }
-	});
-$('wrapper').scroll(function(){
-	// Get container scroll position
-	var fromTop = $(this).scrollTop()+topMenuHeight;
-
-	// Get id of current scroll item
-	var cur = scrollItems.map(function(){
-		if ($(this).offset().top < fromTop) return this;
-	});
-	// Get the id of the current element
-	cur = cur[cur.length-1];
-	var id = cur && cur.length ? cur[0].id : "";
-
-	if (lastId !== id) {
-		lastId = id;
-		// Set/remove active class
-		menuItems
-			.parent().removeClass("active")
-			.end().filter("[href='#"+id+"']").parent().addClass("active");
-	}
-});
-*/
+}
 
 // scrollspy (jquery)
 $('wrapper').bind('scroll', function() {
