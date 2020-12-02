@@ -43,10 +43,10 @@ $('.menuTags').not('[href="#"]').not('[href="#0"]').click(function(event) {
 
 // scrollspy (jquery)
 $('wrapper').bind('scroll', function() {
-	var currentTop = $('wrapper').scrollTop() - $('wrapper').offset().top;
+	var currentTop = $('wrapper').scrollTop();
 	var elems = $('.scrollspy');
 	elems.each(function(index){
-		var elemTop 	= $(this).offset().top;
+		var elemTop 	= ($(this).offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top);
 		var elemBottom 	= elemTop + $(this).height();
 		if(currentTop >= elemTop && currentTop <= elemBottom){
 			var id 		= $(this).attr('id');
