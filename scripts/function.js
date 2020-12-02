@@ -32,9 +32,7 @@ $('wrapper').bind('scroll', function() {
 	var currentTop = $('wrapper').scrollTop();
 	var elems = $('.scrollspy');
 	elems.each(function(index){
-		var elemTop 	= ($(this).offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top - 1);
-		var elemBottom 	= elemTop + $(this).height();
-		if (currentTop < $('#intro')) {
+		if (currentTop < $('#intro').scrollTop()) {
 			var navElem = $('#home');
 			navElem.parent().addClass('active').siblings().removeClass('active');
 		}
