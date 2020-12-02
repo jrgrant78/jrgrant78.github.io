@@ -38,7 +38,7 @@ $('wrapper').bind('scroll', function() {
 			var navElem = $('#home');
 			navElem.parent().addClass('active').siblings().removeClass('active');
 		}
-		if (currentTop >= elemTop && currentTop <= elemBottom){
+		else if (currentTop >= elemTop && currentTop <= elemBottom){
 			var id 		= $(this).attr('id');
 			var navElem = $('a[href="#' + id+ '"]');
 			navElem.parent().addClass('active').siblings().removeClass('active');
