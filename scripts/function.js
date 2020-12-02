@@ -34,7 +34,12 @@ $('wrapper').bind('scroll', function() {
 	elems.each(function(index){
 		var elemTop 	= ($(this).offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top - 1);
 		var elemBottom 	= elemTop + $(this).height();
-		if(currentTop >= elemTop && currentTop <= elemBottom){
+		if (currentTop < $('#intro')) {
+			var id 		= $(this).attr('id');
+			var navElem = $('#home');
+			navElem.parent().addClass('active').siblings().removeClass('active');
+		}
+		if (currentTop >= elemTop && currentTop <= elemBottom){
 			var id 		= $(this).attr('id');
 			var navElem = $('a[href="#' + id+ '"]');
 			navElem.parent().addClass('active').siblings().removeClass('active');
