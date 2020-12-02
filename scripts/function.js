@@ -1,10 +1,3 @@
-document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-	anchor.addEventListener('click', function (e) {
-		e.preventDefault();
-		document.querySelector(this.getAttribute('href')).scrollIntoView({ behavior: 'smooth' });
-	});
-});
-
 /* Navigation */
 let menuSection = document.querySelectorAll('menu li');
 
@@ -32,14 +25,12 @@ function navSelector() {
 		else { y.style.display = "block"; x.classList.toggle("change"); } } }
 
 /*
-function scrollToHome(){ document.getElementById("home").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-function scrollToIntro(){ document.getElementById("intro").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-function scrollToServices(){ document.getElementById("services").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-function scrollToAbout(){ document.getElementById("about").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-function scrollToWhy(){ document.getElementById("why").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-function scrollToWorkflow(){ document.getElementById("workflow").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-function scrollToPricing(){ document.getElementById("pricing").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-function scrollToClients(){ document.getElementById("clients").scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+	anchor.addEventListener('click', function (e) {
+		e.preventDefault();
+		document.querySelector(this.getAttribute('href')).scrollIntoView({ behavior: 'smooth', block: 'start' });
+	});
+});
 */
 
 menuSection.forEach(v=> { v.onclick = (()=> { menuSection.forEach(j=> j.classList.remove('active')); v.classList.add('active'); }); });
