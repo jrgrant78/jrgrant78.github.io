@@ -27,7 +27,6 @@ window.onscroll = (()=> {
 		}
 	});
 });
-*/
 
 // Cache selectors
 var lastId,
@@ -62,6 +61,7 @@ $(window).scroll(function(){
 			.end().filter("[href='#"+id+"']").parent().addClass("active");
 	}
 });
+*/
 
 // add smooth scrolling to all links (jquery)
 $('.menuTags')
