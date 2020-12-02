@@ -1,6 +1,7 @@
 /* Navigation */
 let menuSection = document.querySelectorAll('menu li');
 
+/*
 // for window scrolldown event
 window.onscroll = (()=> {
 	let mainSection = document.querySelectorAll('wrapper section');
@@ -12,6 +13,7 @@ window.onscroll = (()=> {
 		}
 	});
 });
+*/
 
 function mobileBarFunction(x) { x.classList.toggle("change"); var y = document.getElementById('menu'); if (y.style.display === 'block') { y.style.display = 'none'; x.classList.remove("visible"); } else { y.style.display = "block"; x.classList.add("visible"); } }
 
