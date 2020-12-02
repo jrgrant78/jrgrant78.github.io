@@ -44,7 +44,7 @@ $('.menuTags')
 			if (target.length) {
 				// Only prevent default if animation is actually gonna happen
 				event.preventDefault();
-				$('wrapper').stop().animate({ scrollTop: target.offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top }, 'slow', function() {});
+				$('wrapper').stop().animate({ scrollTop: target.offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top }, 0, function() {});
 			}
 		}
 	});
