@@ -33,7 +33,7 @@ $('wrapper').bind('scroll', function() {
 	var elems = $('.scrollspy');
 	elems.each(function(index){
 		var elemTop 	= ($(this).offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top);
-		var elemBottom 	= (elemTop + $(this).height() - 1);
+		var elemBottom 	= (elemTop + $(this).height() + 1);
 		if (currentTop >= elemTop && currentTop <= elemBottom){
 			var id 		= $(this).attr('id');
 			var navElem = $('a[href="#' + id+ '"]');
