@@ -45,9 +45,8 @@ $('menu a').on('click', function(event) {
 	if (this.hash !== "") {
 		event.preventDefault();
 		var hash = this.hash;
-		$root.stop().animate({ scrollTop: $(hash).offset().top-60 }, 'slow');
+		$root.stop().animate({ scrollTop: $(hash).offset().top-60 + $(root).scrollTop() - $(root).offset().top }, 'slow');
 	}
-	event.stopPropagation();
 });
 
 
