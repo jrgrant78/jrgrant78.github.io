@@ -15,20 +15,6 @@ function navSelector() {
 let menuSection = document.querySelectorAll('menu li');
 menuSection.forEach(v=> { v.onclick = (()=> { menuSection.forEach(j=> j.classList.remove('active')); v.classList.add('active'); }); });
 
-/*
-// scrollspy
-window.onscroll = (()=> {
-	let mainSection = document.querySelectorAll('wrapper');
-	mainSection.forEach((v,i)=> {
-		let rect = v.getBoundingClientRect().y;
-		if (rect < window.innerHeight-200) {
-			menuSection.forEach(v=> v.classList.remove('active'));
-			menuSection[i].classList.add('active');
-		}
-	});
-});
-*/
-
 // smooth scrolling (jquery)
 $('.menuTags').not('[href="#"]').not('[href="#0"]').click(function(event) {
 	if (location.pathname.replace(/^\//, '') == this.pathname.replace(/^\//, '') && location.hostname == this.hostname){
@@ -46,7 +32,7 @@ $('wrapper').bind('scroll', function() {
 	var currentTop = $('wrapper').scrollTop();
 	var elems = $('.scrollspy');
 	elems.each(function(index){
-		var elemTop 	= ($(this).offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top - 30);
+		var elemTop 	= ($(this).offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top);
 		var elemBottom 	= elemTop + $(this).height();
 		if(currentTop >= elemTop && currentTop <= elemBottom){
 			var id 		= $(this).attr('id');
