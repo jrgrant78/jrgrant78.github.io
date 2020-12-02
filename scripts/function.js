@@ -63,8 +63,7 @@ $('.menuTags')
 			if (target.length) {
 				// Only prevent default if animation is actually gonna happen
 				event.preventDefault();
-				var $currScrollTop = $("wrapper").scrollTop();
-				$('wrapper').animate({ scrollTop: $currScrollTop + target.position().top - $('wrapper').position().top }, 'slow');
+				$('wrapper').stop().animate({ scrollTop: target.offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top }, 1000, function() {});
 			}
 		}
 	});
