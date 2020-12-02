@@ -11,16 +11,6 @@ function navSelector() {
 		if (y.style.display === "block") { y.style.display = "none"; x.classList.toggle("change"); }
 		else { y.style.display = "block"; x.classList.toggle("change"); } } }
 
-/*
-// add smooth scrolling to all links
-document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-	anchor.addEventListener('click', function (e) {
-		e.preventDefault();
-		document.querySelector(this.getAttribute('href')).scrollIntoView({ behavior: 'smooth', block: 'start' });
-	});
-});
-*/
-
 // make clicked link active
 let menuSection = document.querySelectorAll('menu li');
 menuSection.forEach(v=> { v.onclick = (()=> { menuSection.forEach(j=> j.classList.remove('active')); v.classList.add('active'); }); });
@@ -37,18 +27,9 @@ window.onscroll = (()=> {
 		}
 	});
 });
-
-// add smooth scrolling to all links (jquery)
-var $root = $('html, body, wrapper, section');
-$('menu a').on('click', function(event) {
-	if (this.hash !== "") {
-		event.preventDefault();
-		var hash = this.hash;
-		$root.stop().animate({ scrollTop: $(hash).offset().top-60 + $(root).scrollTop() - $(root).offset().top }, 'slow');
-	}
-});
 */
 
+// add smooth scrolling to all links (jquery)
 $('.menuTags')
 	// Remove links that don't actually link to anything
 	.not('[href="#"]')
