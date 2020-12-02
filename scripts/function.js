@@ -34,7 +34,7 @@ $('wrapper').bind('scroll', function() {
 	elems.each(function(index){
 		var elemTop 	= ($(this).offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top - 1);
 		var elemBottom 	= elemTop + $(this).height();
-		if ((currentTop >= elemTop && currentTop <= elemBottom) || currentTop == $('#home')){
+		if ((currentTop >= elemTop && currentTop <= elemBottom) || currentTop == $('#home').position()){
 			var id 		= $(this).attr('id');
 			var navElem = $('a[href="#' + id+ '"]');
 			navElem.parent().addClass('active').siblings().removeClass('active');
