@@ -35,7 +35,6 @@ $('wrapper').bind('scroll', function() {
 		var elemTop 	= ($(this).offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top - 1);
 		var elemBottom 	= elemTop + $(this).height();
 		if (currentTop < $('#intro')) {
-			var id 		= $(this).attr('id');
 			var navElem = $('#home');
 			navElem.parent().addClass('active').siblings().removeClass('active');
 		}
