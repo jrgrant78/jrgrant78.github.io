@@ -1,14 +1,13 @@
-			// Add smooth scrolling to all links
-			var $root = $('wrapper');
-			$('a').on('click', function(event) {
-				if (this.hash !== "") {
-					event.preventDefault();
-					var hash = this.hash;
-					$root.stop().animate({ scrollTop: $(hash).offset().top-60 }, 'slow');
-//					$('wrapper').stop().scrollTop: $(hash).offset().top-60;
-				}
-			});
-
+// Add smooth scrolling to all links
+var $root = $('wrapper');
+$('menu a').on('click', function(event) {
+	if (this.hash !== "") {
+		event.preventDefault();
+		var hash = this.hash;
+		$root.stop().animate({ scrollTop: $(hash).offset().top-60 }, 'slow');
+//		$('wrapper').stop().scrollTop: $(hash).offset().top-60;
+	}
+});
 
 /* Navigation */
 let menuSection = document.querySelectorAll('menu li');
