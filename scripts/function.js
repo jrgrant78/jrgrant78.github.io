@@ -43,7 +43,7 @@ $('.menuTags').not('[href="#"]').not('[href="#0"]').click(function(event) {
 
 // scrollspy (jquery)
 $('wrapper').bind('scroll', function() {
-	var currentTop = $('wrapper').scrollTop();
+	var currentTop = $(this.hash).offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top;
 	var elems = $('.scrollspy');
 	elems.each(function(index){
 		var elemTop 	= $(this).offset().top;
