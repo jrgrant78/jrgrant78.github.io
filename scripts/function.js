@@ -39,6 +39,7 @@ window.onscroll = (()=> {
 });
 */
 
+/*
 // add smooth scrolling to all links (jquery)
 var $root = $('wrapper');
 $('menu a').on('click', function(event) {
@@ -49,6 +50,7 @@ $('menu a').on('click', function(event) {
 //		$('wrapper').stop().scrollTop: $(hash).offset().top-60;
 	}
 });
+*/
 
 
 
