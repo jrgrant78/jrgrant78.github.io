@@ -27,8 +27,9 @@ window.onscroll = (()=> {
 		}
 	});
 });
+*/
 
-// Cache selectors
+// scrollspy
 var lastId,
 	topMenu = $("#menu"),
 	topMenuHeight = topMenu.outerHeight()+15,
@@ -39,9 +40,7 @@ var lastId,
 		var item = $($(this).attr("href"));
 		if (item.length) { return item; }
 	});
-
-// Bind to scroll
-$(window).scroll(function(){
+$('wrapper').scroll(function(){
 	// Get container scroll position
 	var fromTop = $(this).scrollTop()+topMenuHeight;
 
@@ -61,7 +60,6 @@ $(window).scroll(function(){
 			.end().filter("[href='#"+id+"']").parent().addClass("active");
 	}
 });
-*/
 
 // add smooth scrolling to all links (jquery)
 $('.menuTags')
