@@ -32,13 +32,9 @@ $('wrapper').bind('scroll', function() {
 	var currentTop = $('wrapper').scrollTop();
 	var elems = $('.scrollspy');
 	elems.each(function(index){
-		var elemTop 	= ($(this).offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top - 1);
-		var elemBottom 	= elemTop + $(this).height();
-		if (currentTop < $('#intro').scrollTop()) {
-			var navElem = $('#home');
-			navElem.parent().addClass('active').siblings().removeClass('active');
-		}
-		else if (currentTop >= elemTop && currentTop <= elemBottom){
+		var elemTop 	= ($(this).offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top);
+		var elemBottom 	= elemTop + $(this).height() - 1;
+		if (currentTop >= elemTop && currentTop <= elemBottom){
 			var id 		= $(this).attr('id');
 			var navElem = $('a[href="#' + id+ '"]');
 			navElem.parent().addClass('active').siblings().removeClass('active');
