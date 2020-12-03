@@ -33,8 +33,7 @@ $('wrapper').bind('scroll', function() {
 	var elems = $('.scrollspy');
 	elems.each(function(index){
 		var elemTop 	= ($(this).offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top);
-		if (currentTop < $('#intro').offset().top) { elemTop = elemTop; }
-		else { elemTop -= 1; }
+		if (currentTop >= $('#intro').offset().top) { elemTop -= 1; }
 		var elemBottom 	= elemTop + $(this).height();
 		if (currentTop >= elemTop && currentTop <= elemBottom){
 			var id 		= $(this).attr('id');
