@@ -33,7 +33,7 @@ $('wrapper').bind('scroll', function() {
 	var elems = $('.scrollspy');
 	elems.each(function(index){
 		if (currentTop < $('#intro').offset().top) { var elemTop 	= ($(this).offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top); }
-		else if (currentTop >= $('#intro').offset().top) { var elemTop = ($(this).offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top - 1); }
+		else { var elemTop = ($(this).offset().top + $('wrapper').scrollTop() - $('wrapper').offset().top - 1); }
 		var elemBottom 	= elemTop + $(this).height();
 		if (currentTop >= elemTop && currentTop <= elemBottom){
 			var id 		= $(this).attr('id');
