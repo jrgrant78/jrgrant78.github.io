@@ -127,9 +127,9 @@ function deliverableCheck() {
 		document.getElementById('deliverableDCP').removeAttribute('required');
 		document.getElementById('deliverableDisc').removeAttribute('required'); }
 	else if (!document.getElementById('deliverableDigital').checked && !document.getElementById('deliverableDCP').checked && !document.getElementById('deliverableDisc').checked) {
-		document.getElementById('deliverableDigital').setAttribute('required');
-		document.getElementById('deliverableDCP').setAttribute('required');
-		document.getElementById('deliverableDisc').setAttribute('required'); } }
+		document.getElementById('deliverableDigital').setAttribute('required', '');
+		document.getElementById('deliverableDCP').setAttribute('required', '');
+		document.getElementById('deliverableDisc').setAttribute('required', ''); } }
 
 
 
