@@ -127,9 +127,11 @@ function handleChecks() {
 	else { return true; } }
 
 function deliverableCheck() {
-	if (document.getElementsByName('Where will the video be shown?').checked) {
-		document.getElementsByName('Where will the video be shown?').removeAttribute('required'); }
-	else { document.getElementsByName('Where will the video be shown?').setAttribute('required'); } }
+	if (document.getElementById('deliverableDigital').checked || document.getElementById('deliverableDCP').checked || document.getElementById('deliverableDisc').checked) {
+		document.getElementById('deliverableDigital').removeAttribute('required');
+		document.getElementById('deliverableDCP').removeAttribute('required');
+		document.getElementById('deliverableDisc').removeAttribute('required');
+	} }
 /*	if (document.getElementById('deliverableDigital').checked || document.getElementById('deliverableDCP').checked || document.getElementById('deliverableDisc').checked) {
 		document.getElementById('deliverableDigital').removeAttribute('required'); }
 	else if (document.getElementById('deliverableDigital').checked==false && document.getElementById('deliverableDCP').checked==false && document.getElementById('deliverableDisc').checked==false) {
