@@ -97,6 +97,12 @@ function customCheck() {
     else {
 		document.getElementById('ifCustom').style.display = 'none'; } }
 
+function voCheck() {
+    if (document.getElementById('voYes').checked) {
+        document.getElementById('voProvider').style.display = 'block'; }
+    else {
+		document.getElementById('voProvider').style.display = 'none'; } }
+
 function audioCheck() {
     if (document.getElementById('audioYes').checked) {
         document.getElementById('audioProvider').style.display = 'block'; }
