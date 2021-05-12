@@ -121,21 +121,15 @@ function showingCheck() {
 		document.getElementById('ifShowing').style.display = 'none';
 		document.getElementById('ifShowing').value = ''; } }
 
-function handleChecks() {
-	var check_data = new FormData(document.querySelector("form"));
-    if(!check_data.has("Where will the video be shown?")) { return false; }
-	else { return true; } }
-
 function deliverableCheck() {
 	if (document.getElementById('deliverableDigital').checked || document.getElementById('deliverableDCP').checked || document.getElementById('deliverableDisc').checked) {
 		document.getElementById('deliverableDigital').removeAttribute('required');
 		document.getElementById('deliverableDCP').removeAttribute('required');
-		document.getElementById('deliverableDisc').removeAttribute('required');
-	} }
-/*	if (document.getElementById('deliverableDigital').checked || document.getElementById('deliverableDCP').checked || document.getElementById('deliverableDisc').checked) {
-		document.getElementById('deliverableDigital').removeAttribute('required'); }
-	else if (document.getElementById('deliverableDigital').checked==false && document.getElementById('deliverableDCP').checked==false && document.getElementById('deliverableDisc').checked==false) {
-		document.getElementById('deliverableDigital').setAttribute('required'); } }
+		document.getElementById('deliverableDisc').removeAttribute('required'); }
+	else if (!document.getElementById('deliverableDigital').checked && !document.getElementById('deliverableDCP').checked && !document.getElementById('deliverableDisc').checked) {
+		document.getElementById('deliverableDigital').setAttribute('required');
+		document.getElementById('deliverableDCP').setAttribute('required');
+		document.getElementById('deliverableDisc').setAttribute('required'); } }
 
 
 
