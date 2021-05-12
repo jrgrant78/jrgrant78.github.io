@@ -48,14 +48,14 @@ $('wrapper').bind('scroll', function() {
 /* CONTACT FORM */
 
 function scheduleCheck() {
-    if (document.getElementById('scheduleYes').checked) {
-        document.getElementById('ifSchedule').style.display = 'block';
-		document.getElementById('datecheck').setAttribute("required", "");
-		document.getElementById('timecheck').setAttribute("required", ""); }
-    else {
+    if (document.getElementById('scheduleNo').checked) {
 		document.getElementById('ifSchedule').style.display = 'none';
 		document.getElementById('datecheck').removeAttribute("required");
 		document.getElementById('timecheck').removeAttribute("required"); }
+    else if (document.getElementById('scheduleYes').checked) {
+        document.getElementById('ifSchedule').style.display = 'block';
+		document.getElementById('datecheck').setAttribute("required", "");
+		document.getElementById('timecheck').setAttribute("required", ""); }
 	document.getElementById('scheduleReset').onclick = function() {
         document.getElementById('ifSchedule').style.display = 'block';
 		document.getElementById('datecheck').setAttribute("required", "");
