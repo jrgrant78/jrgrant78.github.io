@@ -115,21 +115,16 @@ function audioCheck() {
 		document.getElementById('audioProvider').style.display = 'none'; } }
 
 function showingCheck() {
-	if (document.getElementById('showingTelevision').checked || document.getElementById('showingFestival').checked || document.getElementById('showingTheatre').checked || document.getElementById('showingWebsite').checked || document.getElementById('showingSocial').checked || document.getElementById('showingEmail').checked || document.getElementById('showingOther').checked) {
-		document.getElementById('ShowingTelevision').removeAttribute('required'); }
-	else if (document.getElementById('showingTelevision').checked==false && document.getElementById('showingFestival').checked==false && document.getElementById('showingTheatre').checked==false && document.getElementById('showingWebsite').checked==false && document.getElementById('showingSocial').checked==false && document.getElementById('showingEmail').checked==false && document.getElementById('showingOther').checked==false) {
-		document.getElementById('showingTelevision').setAttribute('required'); }
 	if (document.getElementById('showingOther').checked) {
-        document.getElementById('ifShowing').style.display = 'inline-block'; }
-    else {
+		document.getElementById('ifShowing').style.display = 'inline-block'; }
+	else {
 		document.getElementById('ifShowing').style.display = 'none';
 		document.getElementById('ifShowing').value = ''; } }
 
-function deliverableCheck() {
-	if (document.getElementById('deliverableDigital').checked || document.getElementById('deliverableDCP').checked || document.getElementById('deliverableDisc').checked) {
-		document.getElementById('deliverableDigital').removeAttribute('required'); }
-	else if (document.getElementById('deliverableDigital').checked==false && document.getElementById('deliverableDCP').checked==false && document.getElementById('deliverableDisc').checked==false) {
-		document.getElementById('deliverableDigital').setAttribute('required'); } }
+function handleChecks() {
+	var check_data = new FormData(document.querySelector("form"));
+    if(!check_data.has("Where will the video be shown?")) { return false; }
+	else { return true; } }
 
 
 
