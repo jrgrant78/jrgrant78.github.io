@@ -115,6 +115,22 @@ function audioCheck() {
 		document.getElementById('audioProvider').style.display = 'none'; } }
 
 function showingCheck() {
+	if (document.getElementById('showingTelevision').checked || document.getElementById('showingFestival').checked || document.getElementById('showingTheatre').checked || document.getElementById('showingWebsite').checked || document.getElementById('showingSocial').checked || document.getElementById('showingEmail').checked || document.getElementById('showingOther').checked) {
+		document.getElementById('showingTelevision').removeAttribute('required');
+		document.getElementById('showingFestival').removeAttribute('required');
+		document.getElementById('showingTheatre').removeAttribute('required');
+		document.getElementById('showingWebsite').removeAttribute('required');
+		document.getElementById('showingSocial').removeAttribute('required');
+		document.getElementById('showingEmail').removeAttribute('required');
+		document.getElementById('showingOther').removeAttribute('required'); }
+	else if (!document.getElementById('showingTelevision').checked && !document.getElementById('showingFestival').checked && !document.getElementById('showingTheatre').checked && !document.getElementById('showingWebsite').checked && !document.getElementById('showingSocial').checked && !document.getElementById('showingEmail').checked && !document.getElementById('showingOther').checked) {
+		document.getElementById('showingTelevision').setAttribute('required', '');
+		document.getElementById('showingFestival').setAttribute('required', '');
+		document.getElementById('showingTheatre').setAttribute('required', '');
+		document.getElementById('showingWebsite').setAttribute('required', '');
+		document.getElementById('showingSocial').setAttribute('required', '');
+		document.getElementById('showingEmail').setAttribute('required', '');
+		document.getElementById('showingOther').setAttribute('required', ''); }
 	if (document.getElementById('showingOther').checked) {
 		document.getElementById('ifShowing').style.display = 'inline-block'; }
 	else {
