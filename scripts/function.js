@@ -71,7 +71,8 @@ function entityCheck() {
     if (document.getElementById('entityOther').checked) {
         document.getElementById('ifEntity').style.display = 'inline-block'; }
     else {
-		document.getElementById('ifEntity').style.display = 'none'; } }
+		document.getElementById('ifEntity').style.display = 'none';
+		document.getElementById('ifEntity').value = ''; } }
 
 function typeCheck() {
     if (document.getElementById('typeOther').checked) {
