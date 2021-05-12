@@ -78,25 +78,29 @@ function typeCheck() {
     if (document.getElementById('typeOther').checked) {
         document.getElementById('ifType').style.display = 'inline-block'; }
     else {
-		document.getElementById('ifType').style.display = 'none'; } }
+		document.getElementById('ifType').style.display = 'none';
+		document.getElementById('ifType').value = ''; } }
 
 function actionCheck() {
     if (document.getElementById('actionOther').checked) {
         document.getElementById('ifAction').style.display = 'inline-block'; }
     else {
-		document.getElementById('ifAction').style.display = 'none'; } }
+		document.getElementById('ifAction').style.display = 'none';
+		document.getElementById('ifAction').value = ''; } }
 
 function toneCheck() {
     if (document.getElementById('toneOther').checked) {
         document.getElementById('ifTone').style.display = 'inline-block'; }
     else {
-		document.getElementById('ifTone').style.display = 'none'; } }
+		document.getElementById('ifTone').style.display = 'none';
+		document.getElementById('ifTone').value = ''; } }
 
 function customCheck() {
     if (document.getElementById('customYes').checked) {
         document.getElementById('ifCustom').style.display = 'block'; }
     else {
-		document.getElementById('ifCustom').style.display = 'none'; } }
+		document.getElementById('ifCustom').style.display = 'none';
+		document.getElementById('ifCustom').value = ''; } }
 
 function voCheck() {
     if (document.getElementById('voYes').checked) {
@@ -114,7 +118,8 @@ function showingCheck() {
     if (document.getElementById('showingOther').checked) {
         document.getElementById('ifShowing').style.display = 'inline-block'; }
     else {
-		document.getElementById('ifShowing').style.display = 'none'; } }
+		document.getElementById('ifShowing').style.display = 'none';
+		document.getElementById('ifShowing').value = ''; } }
 
 
 
