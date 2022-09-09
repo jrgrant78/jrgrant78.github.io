@@ -1,3 +1,5 @@
+window.onload = function() { document.getElementsByClassName("curYear").innerHTML = new Date().getFullYear(); }
+
 /* NAVIGATION */
 
 // change mobile menu X state
