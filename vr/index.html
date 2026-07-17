@@ -87,7 +87,7 @@
         <!-- Consistent Icon Row Interface Setup -->
         <div class="btn-toolbar">
             <button id="scanBtn" class="btn-scan" title="Scan Surroundings">⛶</button>
-            <button id="gyroBtn" class="btn-gyro" title="Enable Gyro & Walk Look">🕧</button>
+            <button id="gyroBtn" class="btn-gyro" title="Enable Gyro & Lens Tracking">🕧</button>
             <button id="clearBtn" class="btn-clear" title="Clear Scene & Reset View">🗑</button>
         </div>
 
@@ -100,30 +100,24 @@
 
     <!-- On-Screen Debug Console Overlay for Mobile Diagnostics -->
     <div id="debugPanel">
-        Cam: Initializing... | Sensors: Inactive
+        Cam: Initializing... | Lens Tracking: Inactive
     </div>
 
     <canvas id="canvas3d"></canvas>
 
     <script>
-        // =========================================================================
-        // LOCOMOTION CALIBRATION CONFIG BLOCK
-        // Tune these variables below to perfectly match your environment and stride
-        // =========================================================================
-        const STEP_FORCE_THRESHOLD = 1.5; // Lowered (was 2.4). Lower = hyper-sensitive steps; Higher = requires hard stomping.
-        const STEP_COOLDOWN_WINDOW = 300; // Lowered (was 380). Minimum milliseconds allowed between physical step triggers.
-        const DISTANCE_PER_STEP    = 1.6; // Increased (was 0.55). How many virtual units/meters you leap forward per stride.
-        // =========================================================================
-
         let scene, camera, renderer, controls;
         let videoElement, localStream;
         let gyroActive = false;
         const worldGroup = new THREE.Group();
 
-        // Step Counter Locomotion Tracking States
-        let lastStepTime = 0;
-        let totalStepsDetected = 0;
-        
+        // Lens-Odometry Computer Vision Parameters
+        let visionCanvas, visionContext;
+        let previousFrameData = null;
+        let lastVisionTime = 0;
+        const VISION_SAMPLE_RATE = 80; // Run lens evaluation matrix every 80ms to conserve mobile power
+        const TRACK_SENSITIVITY = 0.45; // Scaling factor translating pixel movement into virtual space metrics
+
         // Unified UI Diagnostic State Container
         let telemetryState = {
             alpha: 0, beta: 0, gamma: 0,
@@ -172,6 +166,12 @@
 
             scene.add(worldGroup);
 
+            // Initialize background visual analytics buffers
+            visionCanvas = document.createElement('canvas');
+            visionCanvas.width = 160; // Low resolution processing bounds guarantees high mobile performance
+            visionCanvas.height = 120;
+            visionContext = visionCanvas.getContext('2d');
+
             window.addEventListener('resize', onWindowResize);
             document.getElementById('scanBtn').addEventListener('click', captureAndScanFrame);
             document.getElementById('gyroBtn').addEventListener('click', toggleSensorsFunctionality);
@@ -206,13 +206,13 @@
                     audio: false
                 });
                 videoElement.srcObject = localStream;
-                debugLog.innerText = "Cam: Environmental Lens Active | Sensors: Inactive";
+                debugLog.innerText = "Cam: Environmental Lens Active | Lens Tracking: Inactive";
             } catch (err) {
                 console.warn("Targeted rear camera failed. Fallback active...", err);
                 try {
                     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                     videoElement.srcObject = localStream;
-                    debugLog.innerText = "Cam: Default/Webcam Fallback Active | Sensors: Inactive";
+                    debugLog.innerText = "Cam: Default/Webcam Fallback Active | Lens Tracking: Inactive";
                 } catch (fallbackErr) {
                     console.error("All camera pathways blocked:", fallbackErr);
                     debugLog.innerText = "Cam: Access Denied";
@@ -226,7 +226,6 @@
         async function captureAndScanFrame() {
             const descDiv = document.getElementById('aiDescription');
             const statusDiv = document.getElementById('status');
-
             const userEnteredKey = document.getElementById('apiKeyField').value.trim();
 
             if (!userEnteredKey || userEnteredKey === "") {
@@ -396,13 +395,12 @@
 
             if (gyroActive) {
                 window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
-                window.removeEventListener('devicemotion', handleAccelerometerMotionInput);
                 gyroActive = false;
                 const gyroBtn = document.getElementById('gyroBtn');
                 gyroBtn.classList.remove('btn-active');
             }
 
-            totalStepsDetected = 0;
+            previousFrameData = null;
             telemetryState.x = 0; telemetryState.y = 5; telemetryState.z = 15;
             
             initOrbitControls();
@@ -412,20 +410,20 @@
             controls.target.set(0, 0, 0);
             controls.update();
 
-            document.getElementById('debugPanel').innerText = "Cam: Ready | Sensors: Inactive";
+            document.getElementById('debugPanel').innerText = "Cam: Ready | Lens Tracking: Inactive";
             const descDiv = document.getElementById('aiDescription');
             descDiv.style.color = "#aaa";
             descDiv.innerText = "Virtual world reset.\nAim camera and tap ⛶ to scan.";
         }
 
-        // 7. Hardware Permission Layer
+        // 7. Core Tracking Framework Controls
         function toggleSensorsFunctionality() {
             const btn = document.getElementById('gyroBtn');
             
             if (gyroActive) {
                 window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
-                window.removeEventListener('devicemotion', handleAccelerometerMotionInput);
                 gyroActive = false;
+                previousFrameData = null;
                 
                 initOrbitControls();
                 camera.position.set(0, 5, 15);
@@ -434,24 +432,13 @@
                 controls.update();
 
                 btn.classList.remove('btn-active');
-                document.getElementById('debugPanel').innerText = "Cam: Ready | Sensors: Inactive";
+                document.getElementById('debugPanel').innerText = "Cam: Ready | Lens Tracking: Inactive";
             } else {
                 if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                     DeviceOrientationEvent.requestPermission()
                         .then(orientState => {
                             if (orientState === 'granted') {
-                                if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-                                    DeviceMotionEvent.requestPermission()
-                                        .then(motionState => {
-                                            if (motionState === 'granted') {
-                                                activateTrackingSensors(btn);
-                                            } else {
-                                                alert("Locomotion Tracking permission denied by system.");
-                                            }
-                                        }).catch(err => console.error(err));
-                                } else {
-                                    activateTrackingSensors(btn);
-                                }
+                                activateTrackingSensors(btn);
                             } else {
                                 alert("Orientation tracking permission denied by system.");
                             }
@@ -468,15 +455,15 @@
                 controls = null;
             }
 
-            lastStepTime = performance.now();
+            previousFrameData = null;
+            lastVisionTime = performance.now();
             window.addEventListener('deviceorientation', handleGyroscopeMotionInput, true);
-            window.addEventListener('devicemotion', handleAccelerometerMotionInput, true);
             
             gyroActive = true;
             btnElement.classList.add('btn-active');
         }
 
-        // Handle Rotational Input
+        // Handle Rotational Input via Gyroscope
         function handleGyroscopeMotionInput(event) {
             if (!gyroActive) return;
 
@@ -494,30 +481,95 @@
             setObjectQuaternion(camera.quaternion, alpha, beta, gamma, orient);
         }
 
-        // Handle Pedometer Step-Detection
-        function handleAccelerometerMotionInput(event) {
-            if (!gyroActive) return;
+        // --- NEW COMPUTER VISION MECHANIC: Lens-Odometry Processing Matrix ---
+        // Measures changes in visual data directly through the device camera lens
+        function processLensOdometryTracking() {
+            if (!gyroActive || !videoElement || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) return;
 
-            const accel = event.acceleration;
-            if (!accel || accel.x === null || accel.y === null || accel.z === null) return;
+            const now = performance.now();
+            if (now - lastVisionTime < VISION_SAMPLE_RATE) return;
+            lastVisionTime = now;
 
-            let magnitude = Math.sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z);
-            let now = performance.now();
+            // Render miniature snapshot capture frame to hidden vision layout matrix
+            visionContext.drawImage(videoElement, 0, 0, visionCanvas.width, visionCanvas.height);
+            const currentFrameData = visionContext.getImageData(0, 0, visionCanvas.width, visionCanvas.height).data;
 
-            // Check if user has taken a physical step forward or walked in place
-            if (magnitude > STEP_FORCE_THRESHOLD && (now - lastStepTime) > STEP_COOLDOWN_WINDOW) {
-                lastStepTime = now;
-                totalStepsDetected++;
+            if (previousFrameData) {
+                let deltaX = 0;
+                let deltaY = 0;
+                let samplePointsCount = 0;
 
-                let forwardVector = new THREE.Vector3(0, 0, -1);
-                forwardVector.applyQuaternion(camera.quaternion);
-                
-                forwardVector.y = 0; 
-                forwardVector.normalize();
+                // Scan 9 distinct matrix coordinate nodes across the screen landscape
+                const gridStepsX = [40, 80, 120];
+                const gridStepsY = [30, 60, 90];
+                const searchRadius = 6; 
 
-                // Uses the updated DISTANCE_PER_STEP scaling parameter
-                camera.position.addScaledVector(forwardVector, DISTANCE_PER_STEP);
+                for (let sx of gridStepsX) {
+                    for (let sy of gridStepsY) {
+                        let bestMatchX = 0;
+                        let bestMatchY = 0;
+                        let minDifference = Infinity;
+
+                        // Target anchor brightness metrics
+                        const anchorIdx = (sy * visionCanvas.width + sx) * 4;
+                        const anchorBrightness = (currentFrameData[anchorIdx] + currentFrameData[anchorIdx+1] + currentFrameData[anchorIdx+2]) / 3;
+
+                        // Localized patch search array evaluation
+                        for (let ox = -searchRadius; ox <= searchRadius; ox++) {
+                            for (let oy = -searchRadius; oy <= searchRadius; oy++) {
+                                const px = sx + ox;
+                                const py = sy + oy;
+
+                                if (px >= 0 && px < visionCanvas.width && py >= 0 && py < visionCanvas.height) {
+                                    const prevIdx = (py * visionCanvas.width + px) * 4;
+                                    const prevBrightness = (previousFrameData[prevIdx] + previousFrameData[prevIdx+1] + previousFrameData[prevIdx+2]) / 3;
+                                    
+                                    const currentDifference = Math.abs(anchorBrightness - prevBrightness);
+                                    if (currentDifference < minDifference) {
+                                        minDifference = currentDifference;
+                                        bestMatchX = ox;
+                                        bestMatchY = oy;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Filter static blocks or contrast dead zones
+                        if (minDifference < 45) {
+                            deltaX += bestMatchX;
+                            deltaY += bestMatchY;
+                            samplePointsCount++;
+                        }
+                    }
+                }
+
+                // If visual features are tracked, translate pixel shift to spatial movement vectors
+                if (samplePointsCount > 0) {
+                    const avgShiftX = (deltaX / samplePointsCount);
+                    const avgShiftY = (deltaY / samplePointsCount);
+
+                    // Dead-zone calculation to lock out compression artifact noise
+                    if (Math.abs(avgShiftX) > 0.1 || Math.abs(avgShiftY) > 0.1) {
+                        let movementVector = new THREE.Vector3();
+                        
+                        // Map horizontal lens shifts to local X strafe translations
+                        movementVector.x = -avgShiftX * TRACK_SENSITIVITY;
+                        // Map vertical lens shifts to local Z forward/backward locomotion translations
+                        movementVector.z = avgShiftY * TRACK_SENSITIVITY;
+
+                        // Project the movement relative to the current camera viewing angle
+                        movementVector.applyQuaternion(camera.quaternion);
+                        
+                        // Lock translations strictly to a flat architectural plane
+                        movementVector.y = 0;
+
+                        // Update spatial camera properties
+                        camera.position.add(movementVector);
+                    }
+                }
             }
+
+            previousFrameData = currentFrameData;
 
             telemetryState.x = camera.position.x;
             telemetryState.y = camera.position.y;
@@ -530,11 +582,14 @@
             
             if (controls) {
                 controls.update(); 
+            } else {
+                // Keep the visual tracking engine processing frame loops synchronized with rendering passes
+                processLensOdometryTracking();
             }
 
             if (gyroActive) {
                 document.getElementById('debugPanel').innerText = 
-                    `Pos: [${telemetryState.x.toFixed(1)}, ${telemetryState.z.toFixed(1)}] | Steps: ${totalStepsDetected} | Ang: B:${telemetryState.beta.toFixed(0)} G:${telemetryState.gamma.toFixed(0)}`;
+                    `Spatial Pos: [${telemetryState.x.toFixed(1)}, ${telemetryState.z.toFixed(1)}] | Telemetry Track: Active`;
             }
             
             renderer.render(scene, camera);
