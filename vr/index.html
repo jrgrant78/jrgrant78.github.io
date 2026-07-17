@@ -106,6 +106,16 @@
     <canvas id="canvas3d"></canvas>
 
     <script>
+        // =========================================================================
+        // LENS ODOMETRY TUNING MATRIX
+        // Fine-tune these variables to change how fast or sharp physical tracking acts
+        // =========================================================================
+        const TRACK_SENSITIVITY = 0.95; // Increased (was 0.38). Virtual units leaped forward per pixel shift.
+        const NOISE_DEADZONE    = 0.22; // Lowered (was 0.40). Lower = hyper-sensitive to tiny moves; Higher = blocks out subtle jitter.
+        const MOTION_DAMPING    = 0.22; // Increased (was 0.12). LERP speed response weight. Higher = snappier, less lag.
+        const VISION_SAMPLE_RATE = 50;  // Milliseconds between camera frame structural analysis cuts.
+        // =========================================================================
+
         let scene, camera, renderer, controls;
         let videoElement, localStream;
         let gyroActive = false;
@@ -115,8 +125,6 @@
         let visionCanvas, visionContext;
         let previousFrameData = null;
         let lastVisionTime = 0;
-        const VISION_SAMPLE_RATE = 50; // High speed refresh (50ms) maps movements smoothly
-        const TRACK_SENSITIVITY = 0.38; // Translates visual shifts safely into 3D units
         
         // Physics Damping Parameters to mitigate camera drift
         let targetVelocity = new THREE.Vector3();
@@ -172,7 +180,7 @@
 
             // Setup dedicated, ultra-low resolution tracking buffer canvas
             visionCanvas = document.createElement('canvas');
-            visionCanvas.width = 120; // 120x90 matrix reduces frame parsing overhead
+            visionCanvas.width = 120; 
             visionCanvas.height = 90;
             visionContext = visionCanvas.getContext('2d');
 
@@ -491,7 +499,7 @@
             setObjectQuaternion(camera.quaternion, alpha, beta, gamma, orient);
         }
 
-        // --- STABILIZED OPTICAL FLOW LENS ODOMETRY ---
+        // --- DRIFT-RESISTANT HIGH-SENSITIVITY LENS ODOMETRY ---
         function processLensOdometryTracking() {
             if (!gyroActive || !videoElement || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) return;
 
@@ -508,7 +516,6 @@
                 let deltaY = 0;
                 let samplePointsCount = 0;
 
-                // Evaluate standard spatial grid nodes across screen surface
                 const gridStepsX = [30, 60, 90];
                 const gridStepsY = [25, 45, 65];
                 const searchRadius = 5; 
@@ -519,8 +526,7 @@
                         const anchorBrightness = (currentFrameData[anchorIdx] + currentFrameData[anchorIdx+1] + currentFrameData[anchorIdx+2]) / 3;
                         const zeroPrevBrightness = (previousFrameData[anchorIdx] + previousFrameData[anchorIdx+1] + previousFrameData[anchorIdx+2]) / 3;
                         
-                        // TECHNIQUE 1: Zero-Motion Anchor (Hysteresis)
-                        // Artificially prioritizes staying still to lock out sensor grain noise
+                        // Prioritizes staying still to anchor stationary noise grain loop locks
                         let minDifference = Math.abs(anchorBrightness - zeroPrevBrightness) * 0.4; 
                         let bestMatchX = 0;
                         let bestMatchY = 0;
@@ -537,8 +543,6 @@
                                     const prevBrightness = (previousFrameData[prevIdx] + previousFrameData[prevIdx+1] + previousFrameData[prevIdx+2]) / 3;
                                     
                                     const currentDifference = Math.abs(anchorBrightness - prevBrightness);
-                                    
-                                    // Distance Penalty Layer checks noise spikes
                                     const distancePenalty = (ox * ox + oy * oy) * 0.18;
                                     const evaluatedScore = currentDifference + distancePenalty;
 
@@ -551,7 +555,6 @@
                             }
                         }
 
-                        // Low contrast texture rejection door
                         if (minDifference < 35) {
                             deltaX += bestMatchX;
                             deltaY += bestMatchY;
@@ -560,22 +563,21 @@
                     }
                 }
 
-                // Default reset value to standard state
                 targetVelocity.set(0, 0, 0);
 
                 if (samplePointsCount > 0) {
                     const avgShiftX = (deltaX / samplePointsCount);
                     const avgShiftY = (deltaY / samplePointsCount);
 
-                    // Dead-zone check to permanently filter out micro hand tremors
-                    if (Math.abs(avgShiftX) > 0.4 || Math.abs(avgShiftY) > 0.4) {
+                    // Uses the updated and lower NOISE_DEADZONE filter limit parameters
+                    if (Math.abs(avgShiftX) > NOISE_DEADZONE || Math.abs(avgShiftY) > NOISE_DEADZONE) {
                         let directionVector = new THREE.Vector3();
+                        // Applies the updated high scaling factors
                         directionVector.x = -avgShiftX * TRACK_SENSITIVITY;
                         directionVector.z = avgShiftY * TRACK_SENSITIVITY;
 
-                        // Align visual shift with current camera direction
                         directionVector.applyQuaternion(camera.quaternion);
-                        directionVector.y = 0; // Lock elevation strictly flat
+                        directionVector.y = 0; 
 
                         targetVelocity.copy(directionVector);
                     }
@@ -594,11 +596,9 @@
             } else {
                 processLensOdometryTracking();
 
-                // TECHNIQUE 2: Physics Interpolation Damping
-                // Smoothly blends velocities to eliminate jerky movement and phantom drifts
-                currentVelocity.lerp(targetVelocity, 0.12); 
+                // Blends vectors smoothly using the exposed MOTION_DAMPING calibration factor
+                currentVelocity.lerp(targetVelocity, MOTION_DAMPING); 
                 
-                // Only move camera if velocity is high enough to pass a minimal threshold
                 if (currentVelocity.lengthSq() > 0.0001) {
                     camera.position.add(currentVelocity);
                 } else {
@@ -612,7 +612,7 @@
 
             if (gyroActive) {
                 document.getElementById('debugPanel').innerText = 
-                    `Spatial Pos: [${telemetryState.x.toFixed(1)}, ${telemetryState.z.toFixed(1)}] | Lens Tracking: Stable`;
+                    `Spatial Pos: [${telemetryState.x.toFixed(1)}, ${telemetryState.z.toFixed(1)}] | Lens Tracking: Active`;
             }
             
             renderer.render(scene, camera);
