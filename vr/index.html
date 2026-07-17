@@ -115,8 +115,8 @@
         let visionCanvas, visionContext;
         let previousFrameData = null;
         let lastVisionTime = 0;
-        const VISION_SAMPLE_RATE = 80; // Run lens evaluation matrix every 80ms to conserve mobile power
-        const TRACK_SENSITIVITY = 0.45; // Scaling factor translating pixel movement into virtual space metrics
+        const VISION_SAMPLE_RATE = 60; // Sample at 60ms intervals for responsive tracking updates
+        const TRACK_SENSITIVITY = 0.55; // Translation velocity multiplier
 
         // Unified UI Diagnostic State Container
         let telemetryState = {
@@ -168,7 +168,7 @@
 
             // Initialize background visual analytics buffers
             visionCanvas = document.createElement('canvas');
-            visionCanvas.width = 160; // Low resolution processing bounds guarantees high mobile performance
+            visionCanvas.width = 160; 
             visionCanvas.height = 120;
             visionContext = visionCanvas.getContext('2d');
 
@@ -481,8 +481,7 @@
             setObjectQuaternion(camera.quaternion, alpha, beta, gamma, orient);
         }
 
-        // --- NEW COMPUTER VISION MECHANIC: Lens-Odometry Processing Matrix ---
-        // Measures changes in visual data directly through the device camera lens
+        // --- UPGRADED DRIFT-RESISTANT OPTICAL FLOW CORE ---
         function processLensOdometryTracking() {
             if (!gyroActive || !videoElement || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) return;
 
@@ -490,7 +489,7 @@
             if (now - lastVisionTime < VISION_SAMPLE_RATE) return;
             lastVisionTime = now;
 
-            // Render miniature snapshot capture frame to hidden vision layout matrix
+            // Sample camera feed array frame matrices
             visionContext.drawImage(videoElement, 0, 0, visionCanvas.width, visionCanvas.height);
             const currentFrameData = visionContext.getImageData(0, 0, visionCanvas.width, visionCanvas.height).data;
 
@@ -499,24 +498,29 @@
                 let deltaY = 0;
                 let samplePointsCount = 0;
 
-                // Scan 9 distinct matrix coordinate nodes across the screen landscape
                 const gridStepsX = [40, 80, 120];
                 const gridStepsY = [30, 60, 90];
                 const searchRadius = 6; 
 
                 for (let sx of gridStepsX) {
                     for (let sy of gridStepsY) {
-                        let bestMatchX = 0;
-                        let bestMatchY = 0;
-                        let minDifference = Infinity;
-
-                        // Target anchor brightness metrics
+                        
+                        // FIX: Calculate baseline difference at exact index (0,0 offset) first
                         const anchorIdx = (sy * visionCanvas.width + sx) * 4;
                         const anchorBrightness = (currentFrameData[anchorIdx] + currentFrameData[anchorIdx+1] + currentFrameData[anchorIdx+2]) / 3;
+                        
+                        const zeroPrevBrightness = (previousFrameData[anchorIdx] + previousFrameData[anchorIdx+1] + previousFrameData[anchorIdx+2]) / 3;
+                        
+                        // Force baseline to zero-motion state 
+                        let minDifference = Math.abs(anchorBrightness - zeroPrevBrightness);
+                        let bestMatchX = 0;
+                        let bestMatchY = 0;
 
-                        // Localized patch search array evaluation
+                        // Evaluate shifting window blocks
                         for (let ox = -searchRadius; ox <= searchRadius; ox++) {
                             for (let oy = -searchRadius; oy <= searchRadius; oy++) {
+                                if (ox === 0 && oy === 0) continue; // Baseline zero-motion already processed
+
                                 const px = sx + ox;
                                 const py = sy + oy;
 
@@ -525,8 +529,14 @@
                                     const prevBrightness = (previousFrameData[prevIdx] + previousFrameData[prevIdx+1] + previousFrameData[prevIdx+2]) / 3;
                                     
                                     const currentDifference = Math.abs(anchorBrightness - prevBrightness);
-                                    if (currentDifference < minDifference) {
-                                        minDifference = currentDifference;
+                                    
+                                    // FIX: Distance Penalty Multiplier Layer suppresses pixel compression noise
+                                    const distancePenalty = (Math.abs(ox) + Math.abs(oy)) * 0.25;
+                                    const evaluatedScore = currentDifference + distancePenalty;
+
+                                    // Only select new offset if it strictly beats center-weighted zero baseline parameters
+                                    if (evaluatedScore < minDifference) {
+                                        minDifference = evaluatedScore;
                                         bestMatchX = ox;
                                         bestMatchY = oy;
                                     }
@@ -534,8 +544,8 @@
                             }
                         }
 
-                        // Filter static blocks or contrast dead zones
-                        if (minDifference < 45) {
+                        // Filter low contrast textures
+                        if (minDifference < 40) {
                             deltaX += bestMatchX;
                             deltaY += bestMatchY;
                             samplePointsCount++;
@@ -543,27 +553,20 @@
                     }
                 }
 
-                // If visual features are tracked, translate pixel shift to spatial movement vectors
                 if (samplePointsCount > 0) {
                     const avgShiftX = (deltaX / samplePointsCount);
                     const avgShiftY = (deltaY / samplePointsCount);
 
-                    // Dead-zone calculation to lock out compression artifact noise
-                    if (Math.abs(avgShiftX) > 0.1 || Math.abs(avgShiftY) > 0.1) {
+                    // FIX: Expanded dead-zone threshold blocks out video noise when stationary
+                    if (Math.abs(avgShiftX) > 0.35 || Math.abs(avgShiftY) > 0.35) {
                         let movementVector = new THREE.Vector3();
                         
-                        // Map horizontal lens shifts to local X strafe translations
                         movementVector.x = -avgShiftX * TRACK_SENSITIVITY;
-                        // Map vertical lens shifts to local Z forward/backward locomotion translations
                         movementVector.z = avgShiftY * TRACK_SENSITIVITY;
 
-                        // Project the movement relative to the current camera viewing angle
                         movementVector.applyQuaternion(camera.quaternion);
-                        
-                        // Lock translations strictly to a flat architectural plane
-                        movementVector.y = 0;
+                        movementVector.y = 0; // Maintain vertical elevation baseline constraints
 
-                        // Update spatial camera properties
                         camera.position.add(movementVector);
                     }
                 }
@@ -583,7 +586,6 @@
             if (controls) {
                 controls.update(); 
             } else {
-                // Keep the visual tracking engine processing frame loops synchronized with rendering passes
                 processLensOdometryTracking();
             }
 
