@@ -107,13 +107,13 @@
 
     <script>
         // =========================================================================
-        // HIGH-GAIN LOCOMOTION TUNING MATRIX
-        // Exposing absolute control limits to maximize step translation velocities
+        // BALANCED RE-CALIBRATED TUNING CONFIG
+        // Exposing safe, damp-weighted parameters to achieve controlled room travel
         // =========================================================================
-        const TRACK_SENSITIVITY = 6.5;  // Massively Increased (was 0.95). Amplifies movement multiplier.
-        const NOISE_DEADZONE    = 0.15; // Lowered (was 0.22). Immediately catches subtle, slow shifts.
-        const MOTION_DAMPING    = 0.45; // Increased (was 0.22). Instant response, stripping tracking lag.
-        const VISION_SAMPLE_RATE = 40;  // Increased capture rate (40ms updates) to snap onto rapid strides.
+        const TRACK_SENSITIVITY = 1.65; // Sane scaling factor preventing runaway velocity spikes
+        const NOISE_DEADZONE    = 0.28; // Filters out sensor pixel artifacts completely
+        const MOTION_DAMPING    = 0.18; // Heavy-grease interpolator to smooth physical strides
+        const VISION_SAMPLE_RATE = 50;  // Frame rate separation gap in milliseconds
         // =========================================================================
 
         let scene, camera, renderer, controls;
@@ -129,6 +129,10 @@
         // Physics Damping Parameters to mitigate camera drift
         let targetVelocity = new THREE.Vector3();
         let currentVelocity = new THREE.Vector3();
+
+        // Rotation Tracker Sensor-Fusion States
+        let isActivelyRotating = false;
+        let prevRawAlpha = 0, prevRawBeta = 0, prevRawGamma = 0;
 
         // Unified UI Diagnostic State Container
         let telemetryState = {
@@ -178,7 +182,7 @@
 
             scene.add(worldGroup);
 
-            // Setup dedicated, low resolution tracking buffer canvas
+            // Setup dedicated tracking buffer canvas
             visionCanvas = document.createElement('canvas');
             visionCanvas.width = 120; 
             visionCanvas.height = 90;
@@ -415,6 +419,7 @@
             previousFrameData = null;
             targetVelocity.set(0,0,0);
             currentVelocity.set(0,0,0);
+            isActivelyRotating = false;
             telemetryState.x = 0; telemetryState.y = 5; telemetryState.z = 15;
             
             initOrbitControls();
@@ -440,6 +445,7 @@
                 previousFrameData = null;
                 targetVelocity.set(0,0,0);
                 currentVelocity.set(0,0,0);
+                isActivelyRotating = false;
                 
                 initOrbitControls();
                 camera.position.set(0, 5, 15);
@@ -474,6 +480,7 @@
             previousFrameData = null;
             targetVelocity.set(0,0,0);
             currentVelocity.set(0,0,0);
+            isActivelyRotating = false;
             lastVisionTime = performance.now();
             window.addEventListener('deviceorientation', handleGyroscopeMotionInput, true);
             
@@ -489,6 +496,22 @@
             const beta = (event.beta !== null && !isNaN(event.beta)) ? THREE.MathUtils.degToRad(event.beta) : 0;
             const gamma = (event.gamma !== null && !isNaN(event.gamma)) ? THREE.MathUtils.degToRad(event.gamma) : 0;
 
+            // --- SENSOR MUTING CORE ENGINE ---
+            // Measures delta orientation shifts. If angular changes pass the filter gating, 
+            // the system flag flags true to immediately mute the translation odometry tracker loops.
+            const rotationThreshold = 0.55; 
+            if (Math.abs(event.alpha - prevRawAlpha) > rotationThreshold || 
+                Math.abs(event.beta - prevRawBeta) > rotationThreshold || 
+                Math.abs(event.gamma - prevRawGamma) > rotationThreshold) {
+                isActivelyRotating = true;
+            } else {
+                isActivelyRotating = false;
+            }
+
+            prevRawAlpha = event.alpha || 0;
+            prevRawBeta = event.beta || 0;
+            prevRawGamma = event.gamma || 0;
+
             const screenAngle = (window.screen && window.screen.orientation && !isNaN(window.screen.orientation.angle)) ? window.screen.orientation.angle : (window.orientation || 0);
             const orient = THREE.MathUtils.degToRad(screenAngle);
 
@@ -499,9 +522,16 @@
             setObjectQuaternion(camera.quaternion, alpha, beta, gamma, orient);
         }
 
-        // --- UPGRADED WIDE-WINDOW LENS ODOMETRY PIPELINE ---
+        // --- STABILIZED COMPENSATED LENS ODOMETRY ---
         function processLensOdometryTracking() {
             if (!gyroActive || !videoElement || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) return;
+
+            // ABSOLUTE MUTING SAFETIES: If device is rotating, instantly purge velocity registers and drop out
+            if (isActivelyRotating) {
+                targetVelocity.set(0, 0, 0);
+                previousFrameData = null; // Flush matching arrays to prevent visual tracking cross-talk
+                return;
+            }
 
             const now = performance.now();
             if (now - lastVisionTime < VISION_SAMPLE_RATE) return;
@@ -518,8 +548,8 @@
                 const gridStepsX = [30, 60, 90];
                 const gridStepsY = [25, 45, 65];
                 
-                // UPGRADE: Expanded search boundary clears the speed ceiling for rapid user strides
-                const searchRadius = 14; 
+                // Tightened search radius limits rapid noise leaps
+                const searchRadius = 6; 
 
                 for (let sx of gridStepsX) {
                     for (let sy of gridStepsY) {
@@ -543,9 +573,7 @@
                                     const prevBrightness = (previousFrameData[prevIdx] + previousFrameData[prevIdx+1] + previousFrameData[prevIdx+2]) / 3;
                                     
                                     const currentDifference = Math.abs(anchorBrightness - prevBrightness);
-                                    
-                                    // Balanced exponential decay curve to keep dynamic range stability
-                                    const distancePenalty = (ox * ox + oy * oy) * 0.08;
+                                    const distancePenalty = (ox * ox + oy * oy) * 0.15;
                                     const evaluatedScore = currentDifference + distancePenalty;
 
                                     if (evaluatedScore < minDifference) {
@@ -610,8 +638,9 @@
             }
 
             if (gyroActive) {
+                let trackingStatusText = isActivelyRotating ? "Muted (Panning)" : "Stable";
                 document.getElementById('debugPanel').innerText = 
-                    `Spatial Pos: [${telemetryState.x.toFixed(1)}, ${telemetryState.z.toFixed(1)}] | Lens Tracking: Active`;
+                    `Spatial Pos: [${telemetryState.x.toFixed(1)}, ${telemetryState.z.toFixed(1)}] | Lens Tracking: ${trackingStatusText}`;
             }
             
             renderer.render(scene, camera);
