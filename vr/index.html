@@ -87,7 +87,7 @@
         <!-- Consistent Icon Row Interface Setup -->
         <div class="btn-toolbar">
             <button id="scanBtn" class="btn-scan" title="Scan Surroundings">⛶</button>
-            <button id="gyroBtn" class="btn-gyro" title="Enable Gyro & Lens Tracking">🕧</button>
+            <button id="gyroBtn" class="btn-gyro" title="Enable Gyro & Inertial Walk">🕧</button>
             <button id="clearBtn" class="btn-clear" title="Clear Scene & Reset View">🗑</button>
         </div>
 
@@ -100,21 +100,20 @@
 
     <!-- On-Screen Debug Console Overlay for Mobile Diagnostics -->
     <div id="debugPanel">
-        Cam: Initializing... | Lens Tracking: Inactive
+        Cam: Initializing... | Sensors: Inactive
     </div>
 
     <canvas id="canvas3d"></canvas>
 
     <script>
         // =========================================================================
-        // BALANCED RE-CALIBRATED TUNING CONFIG
-        // Exposing safe, damp-weighted parameters to achieve controlled room travel
+        // PURE HARDWARE INERTIAL TUNING BLOCK
         // =========================================================================
-        const TRACK_SENSITIVITY = 1.25; // Controlled travel units multiplier
-        const NOISE_DEADZONE    = 0.35; // Increased filter ceiling cuts down random video noise
-        const MOTION_DAMPING    = 0.20; // Smooth velocity damping factor
-        const VISION_SAMPLE_RATE = 50;  // Frame processing interval in milliseconds
-        const MAX_VELOCITY_CLAMP = 0.45; // Hard ceiling prevents camera from racing away
+        const ACCEL_GAIN       = 0.35; // Amplifies your physical pushes into virtual space
+        const ACCEL_DEADZONE   = 0.30; // Filters out micro hand tremors and desk vibrations
+        const SPIN_KILL_LIMIT  = 14.0; // Rotation velocity ceiling (degrees/sec). Lower = stricter isolation.
+        const SLIDE_FRICTION   = 0.85; // Inertial coasting brake force. Lower = stops faster.
+        const MAX_SPEED_CEILING = 0.60; // Absolute safety governor preventing runaway speeds
         // =========================================================================
 
         let scene, camera, renderer, controls;
@@ -122,16 +121,9 @@
         let gyroActive = false;
         const worldGroup = new THREE.Group();
 
-        // Lens-Odometry Stability Parameters
-        let visionCanvas, visionContext;
-        let previousFrameData = null;
-        let lastVisionTime = 0;
-        
-        // Physics Damping Parameters to mitigate camera drift
+        // Physics Engine Vectors
         let targetVelocity = new THREE.Vector3();
         let currentVelocity = new THREE.Vector3();
-
-        // Hardware-level rotation rate muting flags
         let hardwareActivelySpinning = false;
 
         // Unified UI Diagnostic State Container
@@ -182,12 +174,6 @@
 
             scene.add(worldGroup);
 
-            // Setup tracking buffer canvas
-            visionCanvas = document.createElement('canvas');
-            visionCanvas.width = 120; 
-            visionCanvas.height = 90;
-            visionContext = visionCanvas.getContext('2d');
-
             window.addEventListener('resize', onWindowResize);
             document.getElementById('scanBtn').addEventListener('click', captureAndScanFrame);
             document.getElementById('gyroBtn').addEventListener('click', toggleSensorsFunctionality);
@@ -222,13 +208,13 @@
                     audio: false
                 });
                 videoElement.srcObject = localStream;
-                debugLog.innerText = "Cam: Environmental Lens Active | Lens Tracking: Inactive";
+                debugLog.innerText = "Cam: Environmental Lens Active | Sensors: Inactive";
             } catch (err) {
                 console.warn("Targeted rear camera failed. Fallback active...", err);
                 try {
                     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                     videoElement.srcObject = localStream;
-                    debugLog.innerText = "Cam: Default/Webcam Fallback Active | Lens Tracking: Inactive";
+                    debugLog.innerText = "Cam: Default/Webcam Fallback Active | Sensors: Inactive";
                 } catch (fallbackErr) {
                     console.error("All camera pathways blocked:", fallbackErr);
                     debugLog.innerText = "Cam: Access Denied";
@@ -411,13 +397,12 @@
 
             if (gyroActive) {
                 window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
-                window.removeEventListener('devicemotion', handleHardwareSpinDetection);
+                window.removeEventListener('devicemotion', handleHardwareInertialSensors);
                 gyroActive = false;
                 const gyroBtn = document.getElementById('gyroBtn');
                 gyroBtn.classList.remove('btn-active');
             }
 
-            previousFrameData = null;
             targetVelocity.set(0,0,0);
             currentVelocity.set(0,0,0);
             hardwareActivelySpinning = false;
@@ -430,7 +415,7 @@
             controls.target.set(0, 0, 0);
             controls.update();
 
-            document.getElementById('debugPanel').innerText = "Cam: Ready | Lens Tracking: Inactive";
+            document.getElementById('debugPanel').innerText = "Cam: Ready | Sensors: Inactive";
             const descDiv = document.getElementById('aiDescription');
             descDiv.style.color = "#aaa";
             descDiv.innerText = "Virtual world reset.\nAim camera and tap ⛶ to scan.";
@@ -442,9 +427,8 @@
             
             if (gyroActive) {
                 window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
-                window.removeEventListener('devicemotion', handleHardwareSpinDetection);
+                window.removeEventListener('devicemotion', handleHardwareInertialSensors);
                 gyroActive = false;
-                previousFrameData = null;
                 targetVelocity.set(0,0,0);
                 currentVelocity.set(0,0,0);
                 hardwareActivelySpinning = false;
@@ -456,7 +440,7 @@
                 controls.update();
 
                 btn.classList.remove('btn-active');
-                document.getElementById('debugPanel').innerText = "Cam: Ready | Lens Tracking: Inactive";
+                document.getElementById('debugPanel').innerText = "Cam: Ready | Sensors: Inactive";
             } else {
                 if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                     DeviceOrientationEvent.requestPermission()
@@ -467,7 +451,7 @@
                                         if(motionState === 'granted') {
                                             activateTrackingSensors(btn);
                                         } else {
-                                            alert("Motion permission required for stabilization tracking.");
+                                            alert("Motion permission required for isolated translation tracking.");
                                         }
                                     });
                                 } else {
@@ -489,36 +473,17 @@
                 controls = null;
             }
 
-            previousFrameData = null;
             targetVelocity.set(0,0,0);
             currentVelocity.set(0,0,0);
             hardwareActivelySpinning = false;
-            lastVisionTime = performance.now();
             window.addEventListener('deviceorientation', handleGyroscopeMotionInput, true);
-            window.addEventListener('devicemotion', handleHardwareSpinDetection, true);
+            window.addEventListener('devicemotion', handleHardwareInertialSensors, true);
             
             gyroActive = true;
             btnElement.classList.add('btn-active');
         }
 
-        // High-Frequency Realtime Spin Muter
-        function handleHardwareSpinDetection(event) {
-            if (!gyroActive || !event.rotationRate) return;
-            
-            // Reads raw instantaneous sensor rates (degrees per second)
-            // If phone is actively turning, instantly drop translation frames to eliminate velocity bursts
-            const spinThreshold = 12.0; 
-            const r = event.rotationRate;
-            
-            if (Math.abs(r.alpha) > spinThreshold || Math.abs(r.beta) > spinThreshold || Math.abs(r.gamma) > spinThreshold) {
-                hardwareActivelySpinning = true;
-                targetVelocity.set(0,0,0);
-            } else {
-                hardwareActivelySpinning = false;
-            }
-        }
-
-        // Handle Rotational View Setup
+        // Handle Rotational View Matrix Changes via Gyroscope
         function handleGyroscopeMotionInput(event) {
             if (!gyroActive) return;
 
@@ -536,100 +501,53 @@
             setObjectQuaternion(camera.quaternion, alpha, beta, gamma, orient);
         }
 
-        // --- STABILIZED ADVANCED OPTICAL FLOW ENGINE ---
-        function processLensOdometryTracking() {
-            if (!gyroActive || !videoElement || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) return;
+        // --- NEW ISOLATED HARDWARE INERTIAL LOCOMOTION ENGINE ---
+        function handleHardwareInertialSensors(event) {
+            if (!gyroActive) return;
 
-            // Immediately discard tracking calculation loops if user is actively spinning the camera frame
-            if (hardwareActivelySpinning) {
-                previousFrameData = null; // Flush old image context array data
+            const r = event.rotationRate;
+            const accel = event.acceleration; // Pure user-driven force (gravity removed by device hardware)
+            
+            if (!r || !accel || accel.x === null || accel.z === null) return;
+
+            // 1. HIGH-FREQUENCY GYROSCOPE MUTING CORE
+            // If the phone registers rotational speeds beyond the gate ceiling, 
+            // the accelerometer input is completely cut to prevent translation spikes during panning.
+            if (Math.abs(r.alpha || 0) > SPIN_KILL_LIMIT || 
+                Math.abs(r.beta || 0) > SPIN_KILL_LIMIT || 
+                Math.abs(r.gamma || 0) > SPIN_KILL_LIMIT) {
+                hardwareActivelySpinning = true;
+                targetVelocity.set(0, 0, 0);
                 return;
             }
+            hardwareActivelySpinning = false;
 
-            const now = performance.now();
-            if (now - lastVisionTime < VISION_SAMPLE_RATE) return;
-            lastVisionTime = now;
+            // 2. ISOLATED ACCELEROMETER PIPELINE
+            // Extract raw chassis forces (Z = forward/back, X = left/right strafe)
+            let ax = accel.x;
+            let az = accel.z;
 
-            visionContext.drawImage(videoElement, 0, 0, visionCanvas.width, visionCanvas.height);
-            const currentFrameData = visionContext.getImageData(0, 0, visionCanvas.width, visionCanvas.height).data;
+            // Pass values through a strict noise floor filter to trap micro hand jitter
+            if (Math.abs(ax) < ACCEL_DEADZONE) ax = 0;
+            if (Math.abs(az) < ACCEL_DEADZONE) az = 0;
 
-            if (previousFrameData) {
-                let deltaX = 0;
-                let deltaY = 0;
-                let samplePointsCount = 0;
+            if (ax !== 0 || az !== 0) {
+                // Map device local force directions to Three.js orientation space
+                // -az pushes forward out into the virtual scene grid layout
+                let localForceVector = new THREE.Vector3(ax, 0, -az);
+                
+                // Align user's physical movement axis with the current viewing direction
+                localForceVector.applyQuaternion(camera.quaternion);
+                localForceVector.y = 0; // Prevent translation from drifting into the sky or floor
+                localForceVector.normalize();
 
-                const gridStepsX = [30, 60, 90];
-                const gridStepsY = [25, 45, 65];
-                const searchRadius = 5; 
-
-                for (let sx of gridStepsX) {
-                    for (let sy of gridStepsY) {
-                        const anchorIdx = (sy * visionCanvas.width + sx) * 4;
-                        const anchorBrightness = (currentFrameData[anchorIdx] + currentFrameData[anchorIdx+1] + currentFrameData[anchorIdx+2]) / 3;
-                        const zeroPrevBrightness = (previousFrameData[anchorIdx] + previousFrameData[anchorIdx+1] + previousFrameData[anchorIdx+2]) / 3;
-                        
-                        // Strict zero-motion baseline anchor (Hysteresis model)
-                        let minDifference = Math.abs(anchorBrightness - zeroPrevBrightness) * 0.35; 
-                        let bestMatchX = 0;
-                        let bestMatchY = 0;
-
-                        for (let ox = -searchRadius; ox <= searchRadius; ox++) {
-                            for (let oy = -searchRadius; oy <= searchRadius; oy++) {
-                                if (ox === 0 && oy === 0) continue; 
-
-                                const px = sx + ox;
-                                const py = sy + oy;
-
-                                if (px >= 0 && px < visionCanvas.width && py >= 0 && py < visionCanvas.height) {
-                                    const prevIdx = (py * visionCanvas.width + px) * 4;
-                                    const prevBrightness = (previousFrameData[prevIdx] + previousFrameData[prevIdx+1] + previousFrameData[prevIdx+2]) / 3;
-                                    
-                                    const currentDifference = Math.abs(anchorBrightness - prevBrightness);
-                                    const distancePenalty = (ox * ox + oy * oy) * 0.22;
-                                    const evaluatedScore = currentDifference + distancePenalty;
-
-                                    if (evaluatedScore < minDifference) {
-                                        minDifference = evaluatedScore;
-                                        bestMatchX = ox;
-                                        bestMatchY = oy;
-                                    }
-                                }
-                            }
-                        }
-
-                        if (minDifference < 30) {
-                            deltaX += bestMatchX;
-                            deltaY += bestMatchY;
-                            samplePointsCount++;
-                        }
-                    }
-                }
-
-                targetVelocity.set(0, 0, 0);
-
-                if (samplePointsCount > 0) {
-                    const avgShiftX = (deltaX / samplePointsCount);
-                    const avgShiftY = (deltaY / samplePointsCount);
-
-                    // Recheck boundaries using the tighter NOISE_DEADZONE window checks
-                    if (Math.abs(avgShiftX) > NOISE_DEADZONE || Math.abs(avgShiftY) > NOISE_DEADZONE) {
-                        
-                        // SANITY CEILING CHECK: Discard extreme mathematical jumps entirely
-                        if (Math.abs(avgShiftX) < 4.0 && Math.abs(avgShiftY) < 4.0) {
-                            let directionVector = new THREE.Vector3();
-                            directionVector.x = -avgShiftX * TRACK_SENSITIVITY;
-                            directionVector.z = avgShiftY * TRACK_SENSITIVITY;
-
-                            directionVector.applyQuaternion(camera.quaternion);
-                            directionVector.y = 0; 
-
-                            targetVelocity.copy(directionVector);
-                        }
-                    }
-                }
+                // Generate impulse push strength proportional to physical momentum force
+                let forceMagnitude = Math.sqrt(ax * ax + az * az) * ACCEL_GAIN;
+                targetVelocity.copy(localForceVector).setLength(forceMagnitude);
+            } else {
+                // Apply drag friction when there is no physical user translation force
+                targetVelocity.multiplyScalar(SLIDE_FRICTION);
             }
-
-            previousFrameData = currentFrameData;
         }
 
         // 8. Unified Frame Animation Engine Loop
@@ -639,16 +557,16 @@
             if (controls) {
                 controls.update(); 
             } else {
-                processLensOdometryTracking();
+                // Interpolate velocities smoothly to remove harsh telemetry spikes
+                currentVelocity.lerp(targetVelocity, 0.25);
 
-                currentVelocity.lerp(targetVelocity, MOTION_DAMPING); 
-                
-                // GOVERNOR STEP: Apply absolute distance velocity length clamping 
-                if (currentVelocity.length() > MAX_VELOCITY_CLAMP) {
-                    currentVelocity.setLength(MAX_VELOCITY_CLAMP);
+                // Apply the absolute velocity governor ceiling cap
+                if (currentVelocity.length() > MAX_SPEED_CEILING) {
+                    currentVelocity.setLength(MAX_SPEED_CEILING);
                 }
 
-                if (currentVelocity.lengthSq() > 0.0001) {
+                // If movement passes minimal float ceilings, update the active position matrix coordinates
+                if (currentVelocity.lengthSq() > 0.00001) {
                     camera.position.add(currentVelocity);
                 } else {
                     currentVelocity.set(0, 0, 0);
@@ -660,9 +578,9 @@
             }
 
             if (gyroActive) {
-                let statusMsg = hardwareActivelySpinning ? "MUTED (Spinning)" : "Tracking Active";
+                let diagnosticMessage = hardwareActivelySpinning ? "MUTED (Turning View)" : "Inertial Engine Ready";
                 document.getElementById('debugPanel').innerText = 
-                    `Spatial Pos: [${telemetryState.x.toFixed(1)}, ${telemetryState.z.toFixed(1)}] | Lens Status: ${statusMsg}`;
+                    `Pos: [${telemetryState.x.toFixed(1)}, ${telemetryState.z.toFixed(1)}] | Hardware state: ${diagnosticMessage}`;
             }
             
             renderer.render(scene, camera);
