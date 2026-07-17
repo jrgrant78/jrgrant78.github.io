@@ -14,11 +14,37 @@
         #cameraWindow { position: absolute; top: 10px; right: 10px; z-index: 10; width: 120px; height: 90px; border: 2px solid #00e5ff; border-radius: 6px; overflow: hidden; background: #000; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
         #cameraFeed { width: 100%; height: 100%; object-fit: cover; }
         
-        /* UI Element Layout Styles */
-        button { width: 100%; background: #222; color: #fff; border: 1px solid #444; padding: 10px; margin-top: 8px; border-radius: 6px; box-sizing: border-box; font-weight: bold; font-size: 0.9em; -webkit-tap-highlight-color: transparent; }
-        .btn-scan { background: #00e5ff; color: #000; border: none; }
-        .btn-gyro { background: #ff007f; color: #fff; border: none; }
-        .btn-active { opacity: 0.6; box-shadow: inset 0 3px 5px rgba(0,0,0,0.5); }
+        /* Consistent Icon Toolbar Grid Layout */
+        .btn-toolbar { display: flex; gap: 8px; margin-top: 10px; width: 100%; }
+        
+        /* Highly Consistent Icon Sizing Sheet */
+        button { 
+            flex: 1; 
+            aspect-ratio: 1; /* Guarantees matching square shapes */
+            background: #1a1a24; 
+            color: #fff; 
+            border: 2px solid #444; 
+            padding: 0; 
+            margin: 0; 
+            border-radius: 8px; 
+            box-sizing: border-box; 
+            font-size: 1.4em; /* Uniform visibility scales */
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            -webkit-tap-highlight-color: transparent; 
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        /* Color Coordination Borders */
+        .btn-scan { color: #00e5ff; border-color: #00e5ff; }
+        .btn-gyro { color: #ff007f; border-color: #ff007f; }
+        .btn-clear { color: #ffab00; border-color: #ffab00; }
+        
+        /* Uniform Active States */
+        .btn-active { background: #ff007f !important; color: #fff !important; box-shadow: inset 0 3px 6px rgba(0,0,0,0.6); }
+        
         #status { color: #ffab00; font-weight: bold; margin-top: 10px; font-size: 0.8em; display: none; }
         #aiDescription { margin-top: 10px; font-size: 0.75em; color: #aaa; max-height: 100px; overflow-y: auto; background: #15151f; padding: 6px; border-radius: 4px; border: 1px solid #222; white-space: pre-wrap; }
         
@@ -41,10 +67,14 @@
 
     <!-- UI Overlay Layout Controls -->
     <div id="controls">
-        <h4 style="margin: 0 0 5px 0; color: #00e5ff; text-align: center;">Spatial Sculptor Mobile</h4>
+        <h4 style="margin: 0 0 5px 0; color: #00e5ff; text-align: center;">Spatial Sculptor</h4>
         
-        <button id="scanBtn" class="btn-scan">Scan Surroundings</button>
-        <button id="gyroBtn" class="btn-gyro">Enable Gyro Look</button>
+        <!-- Consistent Icon Row Interface Setup -->
+        <div class="btn-toolbar">
+            <button id="scanBtn" class="btn-scan" title="Scan Surroundings">⛶</button>
+            <button id="gyroBtn" class="btn-gyro" title="Enable Gyro Look">🕧</button>
+            <button id="clearBtn" class="btn-clear" title="Clear Scene & Reset View">🗑</button>
+        </div>
         
         <div id="status">Analyzing live frame parameters...</div>
         <div id="aiDescription">Loading setup configurations...</div>
@@ -58,7 +88,7 @@
     <canvas id="canvas3d"></canvas>
 
     <script>
-        let GEMINI_API_KEY = ""; // Dynamic target filled asynchronously on startup
+        let GEMINI_API_KEY = ""; 
 
         let scene, camera, renderer, controls;
         let videoElement, localStream;
@@ -70,7 +100,7 @@
             const zee = new THREE.Vector3( 0, 0, 1 );
             const euler = new THREE.Euler();
             const q0 = new THREE.Quaternion();
-            const q1 = new THREE.Quaternion( - Math.sqrt( 0.5 ), 0, 0, Math.sqrt( 0.5 ) ); // - PI/2 around the x-axis
+            const q1 = new THREE.Quaternion( - Math.sqrt( 0.5 ), 0, 0, Math.sqrt( 0.5 ) ); 
 
             return function ( quaternion, alpha, beta, gamma, orient ) {
                 euler.set( beta, alpha, - gamma, 'YXZ' ); 
@@ -80,7 +110,7 @@
             };
         })();
 
-        // 2. Initial WebXR Framework Sandbox Initialization
+        // 2. Initial Framework Sandbox Initialization
         async function init3D() {
             const canvas = document.getElementById('canvas3d');
             scene = new THREE.Scene();
@@ -93,7 +123,6 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-            // Setup Touch Drag Controls as fallback when Gyro is toggled off
             initOrbitControls();
 
             // Environmental Grid Matrix
@@ -101,7 +130,6 @@
             grid.position.y = -3;
             scene.add(grid);
 
-            // Facet Enhancing Illumination Vectors
             scene.add(new THREE.AmbientLight(0xffffff, 0.5));
             const light = new THREE.DirectionalLight(0xffffff, 0.9);
             light.position.set(10, 30, 15);
@@ -109,12 +137,11 @@
 
             scene.add(worldGroup);
 
-            // Bind Event Listeners
             window.addEventListener('resize', onWindowResize);
             document.getElementById('scanBtn').addEventListener('click', captureAndScanFrame);
             document.getElementById('gyroBtn').addEventListener('click', toggleGyroscopeFunctionality);
+            document.getElementById('clearBtn').addEventListener('click', clearSceneAndResetView);
 
-            // Request Configuration and Hardware Modules
             await loadConfig();
             initRearCameraStreamGracefully();
             animate();
@@ -126,8 +153,6 @@
             controls.dampingFactor = 0.05;
         }
 
-        // --- NEW CONFIG LOADER MECHANIC ---
-        // Asynchronously fetches config.json from your local server directory
         async function loadConfig() {
             const descDiv = document.getElementById('aiDescription');
             try {
@@ -142,15 +167,15 @@
                     throw new Error("Key missing. Please edit config.json and insert your API key.");
                 }
                 
-                descDiv.innerText = "Ready to scan surroundings! Move device and tap Scan.";
+                descDiv.innerText = "Ready to scan surroundings! Move device and tap ⛶.";
             } catch (err) {
                 console.error("Initialization warning:", err);
                 descDiv.style.color = "#ffab00";
-                descDiv.innerText = `Config Notice:\n${err.message}\n\nRunning locally requires a server (e.g. Live Server or Python) for CORS security policies.`;
+                descDiv.innerText = `Config Notice:\n${err.message}\n\nRunning locally requires a server directory path layout setup.`;
             }
         }
 
-        // 3. Hardware Access Pipeline: Highly Resilient Stream Capture
+        // 3. Hardware Access Pipeline
         async function initRearCameraStreamGracefully() {
             videoElement = document.getElementById('cameraFeed');
             const descDiv = document.getElementById('aiDescription');
@@ -185,11 +210,11 @@
             }
         }
 
-        // 4. Canvas Snapshot Capture + Generative Content Conversion Pipeline
+        // 4. Canvas Snapshot Capture + AI Generation
         async function captureAndScanFrame() {
             const descDiv = document.getElementById('aiDescription');
             if (!GEMINI_API_KEY) {
-                alert("API Key missing! Make sure config.json is in the same folder as this HTML file, is formatted correctly, and your local server is active.");
+                alert("API Key missing! Make sure config.json is in the same folder as this HTML file.");
                 return;
             }
             if (!videoElement || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) {
@@ -264,7 +289,6 @@
                             const serverMessage = errorJson.error?.message || "";
                             
                             if (response.status === 429 || response.status === 503 || serverMessage.toLowerCase().includes("high demand")) {
-                                console.warn(`Server busy on ${currentModel}. Retrying backoff inside ${backoffDelay}ms...`);
                                 await new Promise(res => setTimeout(res, backoffDelay));
                                 attemptsLeft--;
                                 backoffDelay *= 2;
@@ -301,7 +325,6 @@
                 }
 
                 if (pipelineSuccess) break;
-                console.warn(`Model path ${currentModel} exhausted. Progressing down the routing array...`);
             }
 
             if (!pipelineSuccess) {
@@ -342,6 +365,38 @@
             });
         }
 
+        // --- NEW PIPELINE MECHANIC: 🗑 Clear Scene & Reset View ---
+        function clearSceneAndResetView() {
+            // Wipes out old meshes from the screen space and calls garbage collection
+            while(worldGroup.children.length > 0) {
+                const child = worldGroup.children[0];
+                if(child.geometry) child.geometry.dispose();
+                if(child.material) child.material.dispose();
+                worldGroup.remove(child);
+            }
+
+            // Safely detach gyroscope matrix event listener tracking if active
+            if (gyroActive) {
+                window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
+                gyroActive = false;
+                const gyroBtn = document.getElementById('gyroBtn');
+                gyroBtn.classList.remove('btn-active');
+            }
+
+            // Remount controls safely and force clean projection update
+            initOrbitControls();
+            camera.position.set(0, 5, 15);
+            camera.rotation.set(0, 0, 0);
+            camera.quaternion.set(0, 0, 0, 1);
+            controls.target.set(0, 0, 0);
+            controls.update();
+
+            document.getElementById('debugPanel').innerText = "Cam: Ready | Gyro: Inactive";
+            const descDiv = document.getElementById('aiDescription');
+            descDiv.style.color = "#aaa";
+            descDiv.innerText = "Virtual world reset. Move camera frame and tap ⛶ to scan surroundings.";
+        }
+
         // 6. Gyroscope Orientation Tracking Control Mechanics
         function toggleGyroscopeFunctionality() {
             const btn = document.getElementById('gyroBtn');
@@ -355,10 +410,10 @@
                 
                 camera.position.set(0, 5, 15);
                 camera.rotation.set(0, 0, 0);
+                camera.quaternion.set(0, 0, 0, 1);
                 controls.update();
 
                 btn.classList.remove('btn-active');
-                btn.innerText = "Enable Gyro Look";
                 debugLog.innerText = "Cam: Ready | Gyro: Inactive";
             } else {
                 if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -386,7 +441,6 @@
             window.addEventListener('deviceorientation', handleGyroscopeMotionInput, true);
             gyroActive = true;
             btnElement.classList.add('btn-active');
-            btnElement.innerText = "Disable Gyro Look";
         }
 
         function handleGyroscopeMotionInput(event) {
