@@ -161,18 +161,18 @@
                     throw new Error(`config.json file not found (HTTP ${response.status})`);
                 }
                 const data = await response.json();
-                GEMINI_API_KEY = data.GEMINI_API_KEY;
+                GEMINI_API_KEY = data.GEMINI_API_KEY ? data.GEMINI_API_KEY.trim() : "";
                 
-                if (!GEMINI_API_KEY || GEMINI_API_KEY === "YOUR_ACTUAL_API_KEY_HERE") {
-                    throw new Error("Key missing. Please edit config.json and insert your API key.");
+                if (!GEMINI_API_KEY || GEMINI_API_KEY === "" || GEMINI_API_KEY.includes("YOUR_ACTUAL_API_KEY")) {
+                    throw new Error("Key is blank or invalid inside config.json.");
                 }
                 
-                // Formatted on its own distinct line
+                descDiv.style.color = "#aaa";
                 descDiv.innerText = "Ready to scan scene!\nAim camera and tap ⛶ to scan.";
             } catch (err) {
                 console.error("Initialization warning:", err);
                 descDiv.style.color = "#ffab00";
-                descDiv.innerText = `Config Notice:\n${err.message}\n\nRunning locally requires a server directory path layout setup.`;
+                descDiv.innerText = `Configuration Warning:\n${err.message}\n\nAim camera and tap ⛶ to scan.`;
             }
         }
 
@@ -214,16 +214,21 @@
         // 4. Canvas Snapshot Capture + AI Generation
         async function captureAndScanFrame() {
             const descDiv = document.getElementById('aiDescription');
-            if (!GEMINI_API_KEY) {
-                alert("API Key missing! Make sure config.json is in the same folder as this HTML file.");
+            const statusDiv = document.getElementById('status');
+
+            // --- LOCAL AUTHENTICATION BLOCK FILTER ---
+            // Intercepts and blocks invalid payloads locally before wasting server processing passes
+            if (!GEMINI_API_KEY || GEMINI_API_KEY === "" || GEMINI_API_KEY.includes("YOUR_ACTUAL_API_KEY")) {
+                descDiv.style.color = "#ff3333";
+                descDiv.innerText = "Authentication Halt:\nInvalid key file configuration details.\n\nAim camera and tap ⛶ to scan.";
                 return;
             }
+
             if (!videoElement || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) {
                 alert("Camera feed stream is not active yet.");
                 return;
             }
 
-            const statusDiv = document.getElementById('status');
             statusDiv.style.display = 'block';
 
             const hiddenCanvas = document.createElement('canvas');
@@ -330,7 +335,7 @@
 
             if (!pipelineSuccess) {
                 descDiv.style.color = "#ff3333";
-                descDiv.innerText = `Scan Processing Failure:\nAll available cloud routes are throttled or busy right now.\nDetails: ${finalErrorMessage}`;
+                descDiv.innerText = `Scan Processing Failure:\n${finalErrorMessage}\n\nAim camera and tap ⛶ to scan.`;
             }
             statusDiv.style.display = 'none';
         }
@@ -392,7 +397,6 @@
             document.getElementById('debugPanel').innerText = "Cam: Ready | Gyro: Inactive";
             const descDiv = document.getElementById('aiDescription');
             descDiv.style.color = "#aaa";
-            // Formatted on its own distinct line
             descDiv.innerText = "Virtual world reset.\nAim camera and tap ⛶ to scan.";
         }
 
