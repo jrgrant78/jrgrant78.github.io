@@ -106,6 +106,15 @@
     <canvas id="canvas3d"></canvas>
 
     <script>
+        // =========================================================================
+        // LOCOMOTION CALIBRATION CONFIG BLOCK
+        // Tune these variables below to perfectly match your environment and stride
+        // =========================================================================
+        const STEP_FORCE_THRESHOLD = 1.5; // Lowered (was 2.4). Lower = hyper-sensitive steps; Higher = requires hard stomping.
+        const STEP_COOLDOWN_WINDOW = 300; // Lowered (was 380). Minimum milliseconds allowed between physical step triggers.
+        const DISTANCE_PER_STEP    = 1.6; // Increased (was 0.55). How many virtual units/meters you leap forward per stride.
+        // =========================================================================
+
         let scene, camera, renderer, controls;
         let videoElement, localStream;
         let gyroActive = false;
@@ -409,7 +418,7 @@
             descDiv.innerText = "Virtual world reset.\nAim camera and tap ⛶ to scan.";
         }
 
-        // 7. Sequential Hardware Permission Layer
+        // 7. Hardware Permission Layer
         function toggleSensorsFunctionality() {
             const btn = document.getElementById('gyroBtn');
             
@@ -427,7 +436,6 @@
                 btn.classList.remove('btn-active');
                 document.getElementById('debugPanel').innerText = "Cam: Ready | Sensors: Inactive";
             } else {
-                // SEQUENTIAL AUTHORIZATION RESOLUTION: Forces explicit linear order execution paths
                 if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                     DeviceOrientationEvent.requestPermission()
                         .then(orientState => {
@@ -486,19 +494,14 @@
             setObjectQuaternion(camera.quaternion, alpha, beta, gamma, orient);
         }
 
-        // --- UPGRADED: Pedometer Step-Detection Core Integration ---
+        // Handle Pedometer Step-Detection
         function handleAccelerometerMotionInput(event) {
             if (!gyroActive) return;
 
             const accel = event.acceleration;
             if (!accel || accel.x === null || accel.y === null || accel.z === null) return;
 
-            // Calculate total linear kinetic energy magnitude vector passing through the chassis
             let magnitude = Math.sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z);
-            
-            // Locomotion tuning variables
-            const STEP_FORCE_THRESHOLD = 2.4; // m/s^2 spike threshold matching a walking gate stride
-            const STEP_COOLDOWN_WINDOW = 380; // Minimum milliseconds required between physical step registrations
             let now = performance.now();
 
             // Check if user has taken a physical step forward or walked in place
@@ -506,16 +509,14 @@
                 lastStepTime = now;
                 totalStepsDetected++;
 
-                // Extract directional look vectors matching current camera tracking angles
                 let forwardVector = new THREE.Vector3(0, 0, -1);
                 forwardVector.applyQuaternion(camera.quaternion);
                 
-                // Pin locomotion to a flat plane (prevents steps from altering vertical altitude elevation)
                 forwardVector.y = 0; 
                 forwardVector.normalize();
 
-                // Advance camera coordinates forward by a set distance scale per stride (e.g., 0.55 meters)
-                camera.position.addScaledVector(forwardVector, 0.55);
+                // Uses the updated DISTANCE_PER_STEP scaling parameter
+                camera.position.addScaledVector(forwardVector, DISTANCE_PER_STEP);
             }
 
             telemetryState.x = camera.position.x;
@@ -531,7 +532,6 @@
                 controls.update(); 
             }
 
-            // Centralized display update loop prevents UI flickering
             if (gyroActive) {
                 document.getElementById('debugPanel').innerText = 
                     `Pos: [${telemetryState.x.toFixed(1)}, ${telemetryState.z.toFixed(1)}] | Steps: ${totalStepsDetected} | Ang: B:${telemetryState.beta.toFixed(0)} G:${telemetryState.gamma.toFixed(0)}`;
