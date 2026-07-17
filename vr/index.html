@@ -111,12 +111,16 @@
         let gyroActive = false;
         const worldGroup = new THREE.Group();
 
-        // Lens-Odometry Computer Vision Parameters
+        // Lens-Odometry Stability Parameters
         let visionCanvas, visionContext;
         let previousFrameData = null;
         let lastVisionTime = 0;
-        const VISION_SAMPLE_RATE = 60; // Sample at 60ms intervals for responsive tracking updates
-        const TRACK_SENSITIVITY = 0.55; // Translation velocity multiplier
+        const VISION_SAMPLE_RATE = 50; // High speed refresh (50ms) maps movements smoothly
+        const TRACK_SENSITIVITY = 0.38; // Translates visual shifts safely into 3D units
+        
+        // Physics Damping Parameters to mitigate camera drift
+        let targetVelocity = new THREE.Vector3();
+        let currentVelocity = new THREE.Vector3();
 
         // Unified UI Diagnostic State Container
         let telemetryState = {
@@ -166,10 +170,10 @@
 
             scene.add(worldGroup);
 
-            // Initialize background visual analytics buffers
+            // Setup dedicated, ultra-low resolution tracking buffer canvas
             visionCanvas = document.createElement('canvas');
-            visionCanvas.width = 160; 
-            visionCanvas.height = 120;
+            visionCanvas.width = 120; // 120x90 matrix reduces frame parsing overhead
+            visionCanvas.height = 90;
             visionContext = visionCanvas.getContext('2d');
 
             window.addEventListener('resize', onWindowResize);
@@ -401,6 +405,8 @@
             }
 
             previousFrameData = null;
+            targetVelocity.set(0,0,0);
+            currentVelocity.set(0,0,0);
             telemetryState.x = 0; telemetryState.y = 5; telemetryState.z = 15;
             
             initOrbitControls();
@@ -424,6 +430,8 @@
                 window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
                 gyroActive = false;
                 previousFrameData = null;
+                targetVelocity.set(0,0,0);
+                currentVelocity.set(0,0,0);
                 
                 initOrbitControls();
                 camera.position.set(0, 5, 15);
@@ -456,6 +464,8 @@
             }
 
             previousFrameData = null;
+            targetVelocity.set(0,0,0);
+            currentVelocity.set(0,0,0);
             lastVisionTime = performance.now();
             window.addEventListener('deviceorientation', handleGyroscopeMotionInput, true);
             
@@ -481,7 +491,7 @@
             setObjectQuaternion(camera.quaternion, alpha, beta, gamma, orient);
         }
 
-        // --- UPGRADED DRIFT-RESISTANT OPTICAL FLOW CORE ---
+        // --- STABILIZED OPTICAL FLOW LENS ODOMETRY ---
         function processLensOdometryTracking() {
             if (!gyroActive || !videoElement || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) return;
 
@@ -489,7 +499,7 @@
             if (now - lastVisionTime < VISION_SAMPLE_RATE) return;
             lastVisionTime = now;
 
-            // Sample camera feed array frame matrices
+            // Extract small frame arrays
             visionContext.drawImage(videoElement, 0, 0, visionCanvas.width, visionCanvas.height);
             const currentFrameData = visionContext.getImageData(0, 0, visionCanvas.width, visionCanvas.height).data;
 
@@ -498,28 +508,26 @@
                 let deltaY = 0;
                 let samplePointsCount = 0;
 
-                const gridStepsX = [40, 80, 120];
-                const gridStepsY = [30, 60, 90];
-                const searchRadius = 6; 
+                // Evaluate standard spatial grid nodes across screen surface
+                const gridStepsX = [30, 60, 90];
+                const gridStepsY = [25, 45, 65];
+                const searchRadius = 5; 
 
                 for (let sx of gridStepsX) {
                     for (let sy of gridStepsY) {
-                        
-                        // FIX: Calculate baseline difference at exact index (0,0 offset) first
                         const anchorIdx = (sy * visionCanvas.width + sx) * 4;
                         const anchorBrightness = (currentFrameData[anchorIdx] + currentFrameData[anchorIdx+1] + currentFrameData[anchorIdx+2]) / 3;
-                        
                         const zeroPrevBrightness = (previousFrameData[anchorIdx] + previousFrameData[anchorIdx+1] + previousFrameData[anchorIdx+2]) / 3;
                         
-                        // Force baseline to zero-motion state 
-                        let minDifference = Math.abs(anchorBrightness - zeroPrevBrightness);
+                        // TECHNIQUE 1: Zero-Motion Anchor (Hysteresis)
+                        // Artificially prioritizes staying still to lock out sensor grain noise
+                        let minDifference = Math.abs(anchorBrightness - zeroPrevBrightness) * 0.4; 
                         let bestMatchX = 0;
                         let bestMatchY = 0;
 
-                        // Evaluate shifting window blocks
                         for (let ox = -searchRadius; ox <= searchRadius; ox++) {
                             for (let oy = -searchRadius; oy <= searchRadius; oy++) {
-                                if (ox === 0 && oy === 0) continue; // Baseline zero-motion already processed
+                                if (ox === 0 && oy === 0) continue; 
 
                                 const px = sx + ox;
                                 const py = sy + oy;
@@ -530,11 +538,10 @@
                                     
                                     const currentDifference = Math.abs(anchorBrightness - prevBrightness);
                                     
-                                    // FIX: Distance Penalty Multiplier Layer suppresses pixel compression noise
-                                    const distancePenalty = (Math.abs(ox) + Math.abs(oy)) * 0.25;
+                                    // Distance Penalty Layer checks noise spikes
+                                    const distancePenalty = (ox * ox + oy * oy) * 0.18;
                                     const evaluatedScore = currentDifference + distancePenalty;
 
-                                    // Only select new offset if it strictly beats center-weighted zero baseline parameters
                                     if (evaluatedScore < minDifference) {
                                         minDifference = evaluatedScore;
                                         bestMatchX = ox;
@@ -544,8 +551,8 @@
                             }
                         }
 
-                        // Filter low contrast textures
-                        if (minDifference < 40) {
+                        // Low contrast texture rejection door
+                        if (minDifference < 35) {
                             deltaX += bestMatchX;
                             deltaY += bestMatchY;
                             samplePointsCount++;
@@ -553,30 +560,29 @@
                     }
                 }
 
+                // Default reset value to standard state
+                targetVelocity.set(0, 0, 0);
+
                 if (samplePointsCount > 0) {
                     const avgShiftX = (deltaX / samplePointsCount);
                     const avgShiftY = (deltaY / samplePointsCount);
 
-                    // FIX: Expanded dead-zone threshold blocks out video noise when stationary
-                    if (Math.abs(avgShiftX) > 0.35 || Math.abs(avgShiftY) > 0.35) {
-                        let movementVector = new THREE.Vector3();
-                        
-                        movementVector.x = -avgShiftX * TRACK_SENSITIVITY;
-                        movementVector.z = avgShiftY * TRACK_SENSITIVITY;
+                    // Dead-zone check to permanently filter out micro hand tremors
+                    if (Math.abs(avgShiftX) > 0.4 || Math.abs(avgShiftY) > 0.4) {
+                        let directionVector = new THREE.Vector3();
+                        directionVector.x = -avgShiftX * TRACK_SENSITIVITY;
+                        directionVector.z = avgShiftY * TRACK_SENSITIVITY;
 
-                        movementVector.applyQuaternion(camera.quaternion);
-                        movementVector.y = 0; // Maintain vertical elevation baseline constraints
+                        // Align visual shift with current camera direction
+                        directionVector.applyQuaternion(camera.quaternion);
+                        directionVector.y = 0; // Lock elevation strictly flat
 
-                        camera.position.add(movementVector);
+                        targetVelocity.copy(directionVector);
                     }
                 }
             }
 
             previousFrameData = currentFrameData;
-
-            telemetryState.x = camera.position.x;
-            telemetryState.y = camera.position.y;
-            telemetryState.z = camera.position.z;
         }
 
         // 8. Unified Frame Animation Engine Loop
@@ -587,11 +593,26 @@
                 controls.update(); 
             } else {
                 processLensOdometryTracking();
+
+                // TECHNIQUE 2: Physics Interpolation Damping
+                // Smoothly blends velocities to eliminate jerky movement and phantom drifts
+                currentVelocity.lerp(targetVelocity, 0.12); 
+                
+                // Only move camera if velocity is high enough to pass a minimal threshold
+                if (currentVelocity.lengthSq() > 0.0001) {
+                    camera.position.add(currentVelocity);
+                } else {
+                    currentVelocity.set(0, 0, 0);
+                }
+
+                telemetryState.x = camera.position.x;
+                telemetryState.y = camera.position.y;
+                telemetryState.z = camera.position.z;
             }
 
             if (gyroActive) {
                 document.getElementById('debugPanel').innerText = 
-                    `Spatial Pos: [${telemetryState.x.toFixed(1)}, ${telemetryState.z.toFixed(1)}] | Telemetry Track: Active`;
+                    `Spatial Pos: [${telemetryState.x.toFixed(1)}, ${telemetryState.z.toFixed(1)}] | Lens Tracking: Stable`;
             }
             
             renderer.render(scene, camera);
