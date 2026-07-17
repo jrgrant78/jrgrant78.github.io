@@ -107,13 +107,13 @@
 
     <script>
         // =========================================================================
-        // LENS ODOMETRY TUNING MATRIX
-        // Fine-tune these variables to change how fast or sharp physical tracking acts
+        // HIGH-GAIN LOCOMOTION TUNING MATRIX
+        // Exposing absolute control limits to maximize step translation velocities
         // =========================================================================
-        const TRACK_SENSITIVITY = 0.95; // Increased (was 0.38). Virtual units leaped forward per pixel shift.
-        const NOISE_DEADZONE    = 0.22; // Lowered (was 0.40). Lower = hyper-sensitive to tiny moves; Higher = blocks out subtle jitter.
-        const MOTION_DAMPING    = 0.22; // Increased (was 0.12). LERP speed response weight. Higher = snappier, less lag.
-        const VISION_SAMPLE_RATE = 50;  // Milliseconds between camera frame structural analysis cuts.
+        const TRACK_SENSITIVITY = 6.5;  // Massively Increased (was 0.95). Amplifies movement multiplier.
+        const NOISE_DEADZONE    = 0.15; // Lowered (was 0.22). Immediately catches subtle, slow shifts.
+        const MOTION_DAMPING    = 0.45; // Increased (was 0.22). Instant response, stripping tracking lag.
+        const VISION_SAMPLE_RATE = 40;  // Increased capture rate (40ms updates) to snap onto rapid strides.
         // =========================================================================
 
         let scene, camera, renderer, controls;
@@ -178,7 +178,7 @@
 
             scene.add(worldGroup);
 
-            // Setup dedicated, ultra-low resolution tracking buffer canvas
+            // Setup dedicated, low resolution tracking buffer canvas
             visionCanvas = document.createElement('canvas');
             visionCanvas.width = 120; 
             visionCanvas.height = 90;
@@ -499,7 +499,7 @@
             setObjectQuaternion(camera.quaternion, alpha, beta, gamma, orient);
         }
 
-        // --- DRIFT-RESISTANT HIGH-SENSITIVITY LENS ODOMETRY ---
+        // --- UPGRADED WIDE-WINDOW LENS ODOMETRY PIPELINE ---
         function processLensOdometryTracking() {
             if (!gyroActive || !videoElement || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) return;
 
@@ -507,7 +507,6 @@
             if (now - lastVisionTime < VISION_SAMPLE_RATE) return;
             lastVisionTime = now;
 
-            // Extract small frame arrays
             visionContext.drawImage(videoElement, 0, 0, visionCanvas.width, visionCanvas.height);
             const currentFrameData = visionContext.getImageData(0, 0, visionCanvas.width, visionCanvas.height).data;
 
@@ -518,7 +517,9 @@
 
                 const gridStepsX = [30, 60, 90];
                 const gridStepsY = [25, 45, 65];
-                const searchRadius = 5; 
+                
+                // UPGRADE: Expanded search boundary clears the speed ceiling for rapid user strides
+                const searchRadius = 14; 
 
                 for (let sx of gridStepsX) {
                     for (let sy of gridStepsY) {
@@ -526,7 +527,6 @@
                         const anchorBrightness = (currentFrameData[anchorIdx] + currentFrameData[anchorIdx+1] + currentFrameData[anchorIdx+2]) / 3;
                         const zeroPrevBrightness = (previousFrameData[anchorIdx] + previousFrameData[anchorIdx+1] + previousFrameData[anchorIdx+2]) / 3;
                         
-                        // Prioritizes staying still to anchor stationary noise grain loop locks
                         let minDifference = Math.abs(anchorBrightness - zeroPrevBrightness) * 0.4; 
                         let bestMatchX = 0;
                         let bestMatchY = 0;
@@ -543,7 +543,9 @@
                                     const prevBrightness = (previousFrameData[prevIdx] + previousFrameData[prevIdx+1] + previousFrameData[prevIdx+2]) / 3;
                                     
                                     const currentDifference = Math.abs(anchorBrightness - prevBrightness);
-                                    const distancePenalty = (ox * ox + oy * oy) * 0.18;
+                                    
+                                    // Balanced exponential decay curve to keep dynamic range stability
+                                    const distancePenalty = (ox * ox + oy * oy) * 0.08;
                                     const evaluatedScore = currentDifference + distancePenalty;
 
                                     if (evaluatedScore < minDifference) {
@@ -569,10 +571,8 @@
                     const avgShiftX = (deltaX / samplePointsCount);
                     const avgShiftY = (deltaY / samplePointsCount);
 
-                    // Uses the updated and lower NOISE_DEADZONE filter limit parameters
                     if (Math.abs(avgShiftX) > NOISE_DEADZONE || Math.abs(avgShiftY) > NOISE_DEADZONE) {
                         let directionVector = new THREE.Vector3();
-                        // Applies the updated high scaling factors
                         directionVector.x = -avgShiftX * TRACK_SENSITIVITY;
                         directionVector.z = avgShiftY * TRACK_SENSITIVITY;
 
@@ -596,7 +596,6 @@
             } else {
                 processLensOdometryTracking();
 
-                // Blends vectors smoothly using the exposed MOTION_DAMPING calibration factor
                 currentVelocity.lerp(targetVelocity, MOTION_DAMPING); 
                 
                 if (currentVelocity.lengthSq() > 0.0001) {
