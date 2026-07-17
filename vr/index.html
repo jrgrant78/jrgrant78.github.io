@@ -87,7 +87,7 @@
         <!-- Consistent Icon Row Interface Setup -->
         <div class="btn-toolbar">
             <button id="scanBtn" class="btn-scan" title="Scan Surroundings">⛶</button>
-            <button id="gyroBtn" class="btn-gyro" title="Enable Gyro Look">🕧</button>
+            <button id="gyroBtn" class="btn-gyro" title="Enable Gyro & Walk Look">🕧</button>
             <button id="clearBtn" class="btn-clear" title="Clear Scene & Reset View">🗑</button>
         </div>
 
@@ -100,7 +100,7 @@
 
     <!-- On-Screen Debug Console Overlay for Mobile Diagnostics -->
     <div id="debugPanel">
-        Cam: Initializing... | Gyro: Inactive
+        Cam: Initializing... | Sensors: Inactive
     </div>
 
     <canvas id="canvas3d"></canvas>
@@ -110,6 +110,10 @@
         let videoElement, localStream;
         let gyroActive = false;
         const worldGroup = new THREE.Group();
+
+        // Positional Tracking Variables
+        let walkVelocity = new THREE.Vector3();
+        let lastTimestamp = performance.now();
 
         // 1. Device Orientation Quaternion Mathematics Helper
         const setObjectQuaternion = (function () {
@@ -155,7 +159,7 @@
 
             window.addEventListener('resize', onWindowResize);
             document.getElementById('scanBtn').addEventListener('click', captureAndScanFrame);
-            document.getElementById('gyroBtn').addEventListener('click', toggleGyroscopeFunctionality);
+            document.getElementById('gyroBtn').addEventListener('click', toggleSensorsFunctionality);
             document.getElementById('clearBtn').addEventListener('click', clearSceneAndResetView);
 
             initRearCameraStreamGracefully();
@@ -187,13 +191,13 @@
                     audio: false
                 });
                 videoElement.srcObject = localStream;
-                debugLog.innerText = "Cam: Environmental Lens Active | Gyro: Inactive";
+                debugLog.innerText = "Cam: Environmental Lens Active | Sensors: Inactive";
             } catch (err) {
                 console.warn("Targeted rear camera failed. Fallback active...", err);
                 try {
                     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                     videoElement.srcObject = localStream;
-                    debugLog.innerText = "Cam: Default/Webcam Fallback Active | Gyro: Inactive";
+                    debugLog.innerText = "Cam: Default/Webcam Fallback Active | Sensors: Inactive";
                 } catch (fallbackErr) {
                     console.error("All camera pathways blocked:", fallbackErr);
                     debugLog.innerText = "Cam: Access Denied";
@@ -208,7 +212,6 @@
             const descDiv = document.getElementById('aiDescription');
             const statusDiv = document.getElementById('status');
 
-            // Reads values dynamically from the new UI text input element
             const userEnteredKey = document.getElementById('apiKeyField').value.trim();
 
             if (!userEnteredKey || userEnteredKey === "") {
@@ -378,11 +381,13 @@
 
             if (gyroActive) {
                 window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
+                window.removeEventListener('devicemotion', handleAccelerometerMotionInput);
                 gyroActive = false;
                 const gyroBtn = document.getElementById('gyroBtn');
                 gyroBtn.classList.remove('btn-active');
             }
 
+            walkVelocity.set(0, 0, 0);
             initOrbitControls();
             camera.position.set(0, 5, 15);
             camera.rotation.set(0, 0, 0);
@@ -390,21 +395,23 @@
             controls.target.set(0, 0, 0);
             controls.update();
 
-            document.getElementById('debugPanel').innerText = "Cam: Ready | Gyro: Inactive";
+            document.getElementById('debugPanel').innerText = "Cam: Ready | Sensors: Inactive";
             const descDiv = document.getElementById('aiDescription');
             descDiv.style.color = "#aaa";
             descDiv.innerText = "Virtual world reset.\nAim camera and tap ⛶ to scan.";
         }
 
-        // 7. Gyroscope Orientation Tracking Control Mechanics
-        function toggleGyroscopeFunctionality() {
+        // 7. Combined Sensor Layout (Gyroscope + Accelerometer) Control Mechanics
+        function toggleSensorsFunctionality() {
             const btn = document.getElementById('gyroBtn');
             const debugLog = document.getElementById('debugPanel');
             
             if (gyroActive) {
                 window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
+                window.removeEventListener('devicemotion', handleAccelerometerMotionInput);
                 gyroActive = false;
                 
+                walkVelocity.set(0, 0, 0);
                 initOrbitControls();
                 
                 camera.position.set(0, 5, 15);
@@ -413,35 +420,50 @@
                 controls.update();
 
                 btn.classList.remove('btn-active');
-                debugLog.innerText = "Cam: Ready | Gyro: Inactive";
+                debugLog.innerText = "Cam: Ready | Sensors: Inactive";
             } else {
+                // Dual iOS and Web Standard Authorization Blocks
+                let permissionsToRequest = [];
                 if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                    DeviceOrientationEvent.requestPermission()
-                        .then(permissionState => {
-                            if (permissionState === 'granted') {
-                                activateGyroControls(btn);
+                    permissionsToRequest.push(DeviceOrientationEvent.requestPermission());
+                }
+                if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                    permissionsToRequest.push(DeviceMotionEvent.requestPermission());
+                }
+
+                if (permissionsToRequest.length > 0) {
+                    Promise.all(permissionsToRequest)
+                        .then(statuses => {
+                            if (statuses.every(state => state === 'granted')) {
+                                activateTrackingSensors(btn);
                             } else {
-                                alert("Orientation access blocked by mobile system constraints.");
+                                alert("Sensor permissions blocked by system hardware settings.");
                             }
                         })
                         .catch(err => console.error(err));
                 } else {
-                    activateGyroControls(btn);
+                    activateTrackingSensors(btn);
                 }
             }
         }
 
-        function activateGyroControls(btnElement) {
+        function activateTrackingSensors(btnElement) {
             if (controls) {
                 controls.dispose();
                 controls = null;
             }
 
+            walkVelocity.set(0, 0, 0);
+            lastTimestamp = performance.now();
+
             window.addEventListener('deviceorientation', handleGyroscopeMotionInput, true);
+            window.addEventListener('devicemotion', handleAccelerometerMotionInput, true);
+            
             gyroActive = true;
             btnElement.classList.add('btn-active');
         }
 
+        // Handle Rotational Input
         function handleGyroscopeMotionInput(event) {
             if (!gyroActive) return;
 
@@ -452,20 +474,60 @@
             const screenAngle = (window.screen && window.screen.orientation && !isNaN(window.screen.orientation.angle)) ? window.screen.orientation.angle : (window.orientation || 0);
             const orient = THREE.MathUtils.degToRad(screenAngle);
 
-            const debugAlpha = (event.alpha !== null && event.alpha !== undefined) ? event.alpha.toFixed(1) : '0';
-            const debugBeta = (event.beta !== null && event.beta !== undefined) ? event.beta.toFixed(1) : '0';
-            const debugGamma = (event.gamma !== null && event.gamma !== undefined) ? event.gamma.toFixed(1) : '0';
-            document.getElementById('debugPanel').innerText = `A: ${debugAlpha} | B: ${debugBeta} | G: ${debugGamma}`;
-
             setObjectQuaternion(camera.quaternion, alpha, beta, gamma, orient);
+        }
+
+        // Handle Positional Input (Walk Tracking Layer)
+        function handleAccelerometerMotionInput(event) {
+            if (!gyroActive) return;
+
+            // Extract pure linear forces (excluding static gravity constants)
+            const accel = event.acceleration;
+            if (!accel || accel.x === null || accel.y === null || accel.z === null) return;
+
+            const now = performance.now();
+            let dt = (now - lastTimestamp) / 1000;
+            lastTimestamp = now;
+
+            // Enforce small bounds ceiling to lock out standard hand jitter or tremors
+            const threshold = 0.25;
+            let ax = Math.abs(accel.x) > threshold ? accel.x : 0;
+            let ay = Math.abs(accel.y) > threshold ? accel.y : 0;
+            let az = Math.abs(accel.z) > threshold ? accel.z : 0;
+
+            // Map standard phone coordinate axis directions to Three.js camera frames
+            // Linear acceleration mapping: Z runs inverse to forward locomotion
+            let deviceSpaceForce = new THREE.Vector3(ax, ay, -az);
+
+            // Project device-space direction against our current view quaternion angle
+            deviceSpaceForce.applyQuaternion(camera.quaternion);
+
+            // Keep the user bound to flat horizontal planes while walking (Damp vertical shift spikes)
+            deviceSpaceForce.y *= 0.05;
+
+            // Speed up velocity parameters based on incoming delta passes
+            walkVelocity.addScaledVector(deviceSpaceForce, dt * 1.5);
+
+            // Apply friction decay rules to stop infinite sliding loops when user stands still
+            walkVelocity.multiplyScalar(0.88);
+
+            // Apply physical step position translations to Three.js camera matrix tracking coordinates
+            camera.position.addScaledVector(walkVelocity, dt);
+
+            // Update user diagnostic panel readout metrics
+            document.getElementById('debugPanel').innerText = `X: ${camera.position.x.toFixed(1)} | Y: ${camera.position.y.toFixed(1)} | Z: ${camera.position.z.toFixed(1)}`;
         }
 
         // 8. Frame Animation Engine Loop
         function animate() {
             requestAnimationFrame(animate);
-            if (controls) {
-                controls.update(); 
+            
+            // Protect delta time timestamps from ballooning if tracking loops sit inactive
+            if (!gyroActive) {
+                lastTimestamp = performance.now();
+                if (controls) controls.update(); 
             }
+            
             renderer.render(scene, camera);
         }
 
