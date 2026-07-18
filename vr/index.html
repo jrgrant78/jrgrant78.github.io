@@ -7,6 +7,22 @@
     <style>
         body { margin: 0; padding: 0; overflow: hidden; font-family: sans-serif; background: #0b0b0f; color: #fff; }
         
+        /* Absolute Alignment Backdrop Layer for Matrix Verification */
+        #backdropOverlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+            display: none;
+            background-position: center;
+            background-size: cover;
+            background-repeat: no-repeat;
+            opacity: 0.45;
+            pointer-events: none;
+        }
+
         /* Main Controls Container pinned symmetrically with matching left/right margins */
         #controls { 
             position: absolute; 
@@ -79,7 +95,7 @@
             background: #000; 
             box-shadow: 0 4px 15px rgba(0,0,0,0.5); 
             box-sizing: border-box;
-            position: relative; /* Enabled absolute coordination overlays for dual-source management */
+            position: relative;
         }
         #cameraFeed { width: 100%; height: 100%; object-fit: cover; display: block; }
         
@@ -96,7 +112,6 @@
             color: #88889c;
         }
         
-        /* Absolute Pinned Bottom-Left Corner Source Indicator Toggle Button */
         #sourceToggleBtn {
             position: absolute;
             bottom: 4px;
@@ -141,20 +156,25 @@
         button.action-btn svg { display: block; }
         
         /* Precise CSS Color Mappings targeting high-specificity button elements */
-        button.btn-scan { color: #00e676; border-color: #00e676; } /* Capture: Green */
-        button.btn-gyro { color: #ffea00; border-color: #ffea00; } /* Gyro: Yellow */
-        button.btn-clear { color: #ff1744; border-color: #ff1744; } /* Trash: Red */
+        button.btn-scan { color: #00e676; border-color: #00e676; } 
+        button.btn-gyro { color: #ffea00; border-color: #ffea00; } 
+        button.btn-clear { color: #ff1744; border-color: #ff1744; } 
         
-        /* Active Gyro State Toggle */
-        .btn-active { background: #ffea00 !important; color: #0b0b0f !important; box-shadow: inset 0 3px 6px rgba(0,0,0,0.6); }
-        
-        .key-input {
+        /* Interactive Input Alignment Structure */
+        .input-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 12px;
             width: 100%;
+        }
+        .key-input {
+            flex: 1;
             background: #111116;
             color: #fff;
             border: 1px solid #444;
             padding: 8px;
-            margin-top: 12px;
+            margin-top: 0 !important;
             border-radius: 6px;
             box-sizing: border-box;
             font-size: 0.8em;
@@ -162,18 +182,45 @@
         }
         .key-input:focus { border-color: #00e5ff; }
 
+        /* Alignment Backdrop Toggle Control */
+        button.btn-overlay {
+            width: 32px;
+            height: 32px;
+            flex-shrink: 0;
+            color: #ffffff;
+            border: 1px solid #444;
+            background: #1a1a24;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            padding: 0;
+            transition: all 0.2s ease;
+            -webkit-tap-highlight-color: transparent;
+        }
+        button.btn-overlay svg { display: block; pointer-events: none; }
+        
+        /* System-Wide Toggled Operational States */
+        .btn-active { background: #ffea00 !important; color: #0b0b0f !important; box-shadow: inset 0 3px 6px rgba(0,0,0,0.6); }
+        button.btn-overlay.overlay-engaged { background: #00e5ff !important; color: #0b0b0f !important; border-color: #00e5ff !important; }
+
         #status { color: #ffab00; font-weight: bold; margin-top: 10px; font-size: 0.8em; display: none; }
         #aiDescription { margin-top: 10px; font-size: 0.75em; color: #aaa; max-height: 150px; overflow-y: auto; background: #15151f; padding: 6px; border-radius: 4px; border: 1px solid #222; white-space: pre-wrap; line-height: 1.4; }
         
         #debugPanel { position: absolute; bottom: 10px; left: 10px; right: 10px; z-index: 10; background: rgba(0,0,0,0.85); padding: 8px; border-radius: 4px; font-family: monospace; font-size: 0.75em; color: #00ffcc; border: 1px solid #222; pointer-events: none; }
         
-        #canvas3d { width: 100vw; height: 100vh; display: block; }
+        /* Layered Z-Indices Mapping Context Above Viewport Plane */
+        #canvas3d { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; display: block; z-index: 2; pointer-events: auto; }
     </style>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
+
+    <!-- Transparent Backing Canvas references this asset layer directly -->
+    <div id="backdropOverlay"></div>
 
     <div id="controls">
         <div class="upper-deck">
@@ -214,7 +261,6 @@
                 </div>
             </div>
             
-            <!-- Upgraded Dual-Source Interface Node -->
             <div id="cameraWindow">
                 <video id="cameraFeed" autoplay playsinline muted></video>
                 <img id="libraryPreview" alt="Device selection display element">
@@ -233,10 +279,19 @@
         </div>
         
         <div id="lowerContent">
-            <!-- Hidden Hardware Handlers -->
-            <input type="file" id="fileInput" accept="image/*" style="display: none;">
-            <input type="password" id="apiKeyField" class="key-input" placeholder="Enter Gemini API Key...">
+            <!-- Restructured API/Overlay Execution Matrix Row -->
+            <div class="input-row">
+                <input type="password" id="apiKeyField" class="key-input" placeholder="Enter Gemini API Key...">
+                <button id="overlayToggleBtn" class="btn-overlay" title="Toggle Backdrop Reference Overlay">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                        <polyline points="2 17 12 22 22 17"></polyline>
+                        <polyline points="2 12 12 17 22 12"></polyline>
+                    </svg>
+                </button>
+            </div>
             
+            <input type="file" id="fileInput" accept="image/*" style="display: none;">
             <div id="status">Analyzing live frame parameters...</div>
             <div id="aiDescription">Ready to scan scene!<br>Aim camera and tap capture button to scan.</div>
         </div>
@@ -265,8 +320,11 @@
         let hardwareActivelySpinning = false;
         let scanInProgress = false;
 
-        // Pipeline Mode Tracker ('camera' | 'library')
         let dynamicInputSourceMode = 'camera';
+        
+        // Alignment Asset State Trackers
+        let scannedBackdropDataUrl = null;
+        let backdropOverlayActive = false;
 
         let telemetryState = {
             alpha: 0, beta: 0, gamma: 0,
@@ -291,7 +349,6 @@
             </svg>
         `;
 
-        // Dynamic Source Icon Assertions
         const ICON_CAMERA_SVG = `
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
@@ -373,12 +430,12 @@
         function init3D() {
             const canvas = document.getElementById('canvas3d');
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x0a0a0f);
 
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.set(telemetryState.x, telemetryState.y, telemetryState.z);
 
-            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            // Upgraded Renderer Instance supporting Clear-Pass Alpha Masking
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -412,11 +469,13 @@
             document.getElementById('clearBtn').addEventListener('click', clearSceneAndResetView);
             document.getElementById('uiToggleBtn').addEventListener('click', toggleControlPanelsVisibility);
             
-            // Dual-Source Bindings
             document.getElementById('sourceToggleBtn').addEventListener('click', toggleInputSourceMode);
             document.getElementById('folderPlaceholder').addEventListener('click', triggerDeviceFileBrowser);
             document.getElementById('libraryPreview').addEventListener('click', triggerDeviceFileBrowser);
             document.getElementById('fileInput').addEventListener('change', handleDeviceFileSelection);
+
+            // Alignment Engine Switch Binding
+            document.getElementById('overlayToggleBtn').addEventListener('click', toggleSpatialBackdropOverlay);
 
             initRearCameraStreamGracefully();
 
@@ -430,7 +489,28 @@
             animate();
         }
 
-        // --- PIPELINE SOURCE INTERCHANGE COMPILER ---
+        // --- MANAGING SPATIAL ALIGNMENT BACKDROP OVERLAYS ---
+        function toggleSpatialBackdropOverlay() {
+            const btn = document.getElementById('overlayToggleBtn');
+            const overlayLayer = document.getElementById('backdropOverlay');
+            const desc = document.getElementById('aiDescription');
+
+            if (backdropOverlayActive) {
+                backdropOverlayActive = false;
+                btn.classList.remove('overlay-engaged');
+                overlayLayer.style.display = 'none';
+            } else {
+                if (!scannedBackdropDataUrl) {
+                    desc.innerHTML = "<span style='color: #ffab00;'>Alignment Error:</span><br>No captured matrix frame found. Execute a scene scan first.";
+                    return;
+                }
+                backdropOverlayActive = true;
+                btn.classList.add('overlay-engaged');
+                overlayLayer.style.backgroundImage = `url(${scannedBackdropDataUrl})`;
+                overlayLayer.style.display = 'block';
+            }
+        }
+
         function toggleInputSourceMode(e) {
             if(e) e.stopPropagation();
             
@@ -556,9 +636,7 @@
 
             const hiddenCanvas = document.createElement('canvas');
             const ctx = hiddenCanvas.getContext('2d');
-            let base64Image = "";
 
-            // Dynamic Asset Extraction Layer Check
             if (dynamicInputSourceMode === 'camera') {
                 if (!videoElement || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) {
                     alert("Camera feed stream is initializing.");
@@ -578,7 +656,14 @@
                 ctx.drawImage(libraryImg, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
             }
             
-            base64Image = hiddenCanvas.toDataURL('image/jpeg').split(',')[1];
+            // Capture full resolution image for structural background overlays
+            scannedBackdropDataUrl = hiddenCanvas.toDataURL('image/jpeg');
+            const base64Image = scannedBackdropDataUrl.split(',')[1];
+
+            // If an overlay was active from a previous scan, live-update its texture context
+            if (backdropOverlayActive) {
+                document.getElementById('backdropOverlay').style.backgroundImage = `url(${scannedBackdropDataUrl})`;
+            }
 
             scanInProgress = true;
             scanBtn.disabled = true;
@@ -944,7 +1029,6 @@
                 telemetryState.x = camera.position.x; telemetryState.z = camera.position.z;
             }
             
-            // Sync UI Telemetry Display Node
             document.getElementById('debugPanel').innerText = `Source: ${dynamicInputSourceMode.toUpperCase()} | Cam Coord: X:${telemetryState.x.toFixed(1)} Z:${telemetryState.z.toFixed(1)} | Sensors: ${gyroActive ? 'Active' : 'Inactive'}`;
             
             renderer.render(scene, camera);
