@@ -7,7 +7,7 @@
     <style>
         body { margin: 0; padding: 0; overflow: hidden; font-family: sans-serif; background: #0b0b0f; color: #fff; }
         
-        /* Main Controls Container aligned to the top, level with the camera window */
+        /* Main Controls Container aligned level with the top screen bounds */
         #controls { 
             position: absolute; 
             top: 10px; 
@@ -17,11 +17,28 @@
             padding: 12px; 
             border-radius: 8px; 
             border: 1px solid #333; 
-            width: 220px; 
+            width: 360px; 
             box-shadow: 0 4px 25px rgba(0,0,0,0.8); 
+            transition: width 0.2s ease;
+            box-sizing: border-box;
         }
         
-        /* Flexbox Header Row configuration inside the container box */
+        /* Flexbox Wrapper housing the control core alongside the camera feed */
+        .upper-deck {
+            display: flex;
+            gap: 12px;
+            align-items: stretch;
+            width: 100%;
+        }
+
+        /* Direct Vertical Layout Column for the tracking and action panels */
+        .control-core {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            flex-grow: 1;
+        }
+
         .header-row { 
             display: flex; 
             align-items: center; 
@@ -29,7 +46,6 @@
             width: 100%;
         }
 
-        /* Toggle Button configured inline inside the control box header */
         #uiToggleBtn { 
             width: 32px; 
             height: 32px; 
@@ -48,11 +64,20 @@
         }
         #uiToggleBtn:active { transform: scale(0.95); }
         
-        /* Small Upper-Right Camera View Window level with the controls */
-        #cameraWindow { position: absolute; top: 10px; right: 10px; z-index: 10; width: 120px; height: 90px; border: 2px solid #00e5ff; border-radius: 6px; overflow: hidden; background: #000; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-        #cameraFeed { width: 100%; height: 100%; object-fit: cover; }
+        /* Embedded Camera Window scaling dynamically inside the main dashboard box */
+        #cameraWindow { 
+            aspect-ratio: 4 / 3;
+            height: auto;
+            flex-shrink: 0;
+            border: 2px solid #00e5ff; 
+            border-radius: 6px; 
+            overflow: hidden; 
+            background: #000; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5); 
+        }
+        #cameraFeed { width: 100%; height: 100%; object-fit: cover; display: block; }
         
-        .btn-toolbar { display: flex; gap: 8px; margin-top: 10px; width: 100%; }
+        .btn-toolbar { display: flex; gap: 8px; width: 100%; margin: 0; }
         
         button.action-btn { 
             flex: 1; 
@@ -106,25 +131,30 @@
 </head>
 <body>
 
-    <div id="cameraWindow">
-        <video id="cameraFeed" autoplay playsinline muted></video>
-    </div>
-
     <div id="controls">
-        <!-- Integrated Header Row with Left-Aligned Eye Toggle Button -->
-        <div class="header-row">
-            <button id="uiToggleBtn" title="Toggle UI Controls">👁</button>
-            <h4 style="margin: 0; color: #00e5ff; font-size: 0.95em; letter-spacing: 0.5px; flex-grow: 1; text-align: left;">Spatial Sculptor</h4>
+        <!-- Flex Assembly containing the primary configuration layouts -->
+        <div class="upper-deck">
+            <div class="control-core">
+                <div class="header-row">
+                    <button id="uiToggleBtn" title="Toggle UI Controls">👁</button>
+                    <h4 style="margin: 0; color: #00e5ff; font-size: 0.95em; letter-spacing: 0.5px; flex-grow: 1; text-align: left;">Spatial Sculptor</h4>
+                </div>
+                
+                <div class="btn-toolbar" id="toolbarNode">
+                    <button id="scanBtn" class="action-btn btn-scan" title="Scan Surroundings">⛶</button>
+                    <button id="gyroBtn" class="action-btn btn-gyro" title="Enable Gyro & Inertial Walk">🕧</button>
+                    <button id="clearBtn" class="action-btn btn-clear" title="Clear Scene & Reset View">🗑</button>
+                </div>
+            </div>
+            
+            <!-- Unified Internal Camera Window Node -->
+            <div id="cameraWindow">
+                <video id="cameraFeed" autoplay playsinline muted></video>
+            </div>
         </div>
         
-        <!-- Toggle Target Content Sub-Container Node -->
-        <div id="controlsContent">
-            <div class="btn-toolbar">
-                <button id="scanBtn" class="action-btn btn-scan" title="Scan Surroundings">⛶</button>
-                <button id="gyroBtn" class="action-btn btn-gyro" title="Enable Gyro & Inertial Walk">🕧</button>
-                <button id="clearBtn" class="action-btn btn-clear" title="Clear Scene & Reset View">🗑</button>
-            </div>
-
+        <!-- Extensible Low-Deck Description Metrics Display Container -->
+        <div id="lowerContent">
             <input type="password" id="apiKeyField" class="key-input" placeholder="Enter Gemini API Key...">
             
             <div id="status">Analyzing live frame parameters...</div>
@@ -228,24 +258,30 @@
             animate();
         }
 
-        // --- SUB-CONTAINER SELECTIVE INTERACTION VISIBILITY TOGGLER ---
+        // --- INTERNAL INTERACTION CONTAINER RE-ALIGNMENT VISIBILITY TOGGLER ---
         function toggleControlPanelsVisibility() {
-            const contentBlock = document.getElementById('controlsContent');
+            const toolbar = document.getElementById('toolbarNode');
+            const cameraWin = document.getElementById('cameraWindow');
+            const lowerContent = document.getElementById('lowerContent');
             const debugPanel = document.getElementById('debugPanel');
-            const cameraWindow = document.getElementById('cameraWindow');
             const toggleBtn = document.getElementById('uiToggleBtn');
+            const controlsBox = document.getElementById('controls');
 
-            if (contentBlock.style.display === 'none') {
-                contentBlock.style.display = 'block';
+            if (toolbar.style.display === 'none') {
+                toolbar.style.display = 'flex';
+                cameraWin.style.display = 'block';
+                lowerContent.style.display = 'block';
                 debugPanel.style.display = 'block';
-                cameraWindow.style.display = 'block';
+                controlsBox.style.width = '360px'; 
                 toggleBtn.innerText = '👁';
                 toggleBtn.style.color = '#00e5ff';
                 toggleBtn.style.borderColor = '#444';
             } else {
-                contentBlock.style.display = 'none';
+                toolbar.style.display = 'none';
+                cameraWin.style.display = 'none';
+                lowerContent.style.display = 'none';
                 debugPanel.style.display = 'none';
-                cameraWindow.style.display = 'none';
+                controlsBox.style.width = '200px'; 
                 toggleBtn.innerText = '❌';
                 toggleBtn.style.color = '#ff007f';
                 toggleBtn.style.borderColor = '#ff007f';
