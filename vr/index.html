@@ -104,9 +104,9 @@
         // PURE HARDWARE INERTIAL TUNING BLOCK
         // =========================================================================
         const ACCEL_GAIN       = 0.35; 
-        const ACCEL_DEADZONE   = 0.30; 
-        const SPIN_KILL_LIMIT  = 14.0; 
-        const SLIDE_FRICTION   = 0.85; 
+        const ACCEL_DEADZONE   = 0.35; // Increased slightly to drop hand jitter
+        const SPIN_KILL_LIMIT  = 4.5;  // CRITICAL: Aggressive threshold blocks translation during angular tilt/rotation
+        const SLIDE_FRICTION   = 0.80; // Snappier step damping layout
         const MAX_SPEED_CEILING = 0.60; 
         // =========================================================================
 
@@ -144,48 +144,47 @@
             const canvas = document.getElementById('canvas3d');
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x0a0a0f);
-        
+
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.set(telemetryState.x, telemetryState.y, telemetryState.z);
-        
+
             renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        
+
             initOrbitControls();
-        
+
             const grid = new THREE.GridHelper(50, 25, 0x00e5ff, 0x1f1f2e);
             grid.position.y = -3;
             scene.add(grid);
-        
+
             scene.add(new THREE.AmbientLight(0xffffff, 0.45));
             
             const keyLight = new THREE.DirectionalLight(0xffffff, 0.85);
             keyLight.position.set(20, 40, 25);
             scene.add(keyLight);
-        
+
             const fillLight = new THREE.DirectionalLight(0x00e5ff, 0.4);
             fillLight.position.set(-20, 15, -15);
             scene.add(fillLight);
-        
+
             scene.add(worldGroup);
-        
+
             window.addEventListener('resize', onWindowResize);
             document.getElementById('scanBtn').addEventListener('click', captureAndScanFrame);
             document.getElementById('gyroBtn').addEventListener('click', toggleSensorsFunctionality);
             document.getElementById('clearBtn').addEventListener('click', clearSceneAndResetView);
-        
+
             initRearCameraStreamGracefully();
-        
-            // === INSERT AUTO-POPULATE LOGIC HERE ===
+
+            // Extract API key dynamically from URL parameters parsing safely
             const urlParams = new URLSearchParams(window.location.search);
             const urlKey = urlParams.get('key');
             if (urlKey) {
                 document.getElementById('apiKeyField').value = urlKey.trim();
                 document.getElementById('aiDescription').innerHTML = "Ready to scan scene!<br>Gemini API Key loaded automatically from URL.";
             }
-            // =======================================
-        
+
             animate();
         }
 
@@ -425,11 +424,9 @@
             });
         }
 
-        // --- NEW ISOLATED SENSOR TOGGLING PATHWAYS ---
         function toggleSensorsFunctionality() {
             const btn = document.getElementById('gyroBtn');
             if (gyroActive) {
-                // FIXED: Now safely shuts down listeners WITHOUT erasing the 3D world meshes
                 deactivateTrackingSensors();
             } else {
                 if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -454,7 +451,7 @@
             window.addEventListener('devicemotion', handleHardwareInertialSensors, true);
             gyroActive = true;
             btnElement.classList.add('btn-active');
-            document.getElementById('debugPanel').innerText = "Sensors: Active | Inertial Walking Engage";
+            document.getElementById('debugPanel').innerText = "Sensors: Active | Horizontal Walking Engage";
         }
 
         function deactivateTrackingSensors() {
@@ -468,14 +465,11 @@
             currentVelocity.set(0,0,0);
             hardwareActivelySpinning = false;
             
-            // Re-initialize traditional screen touch navigation on top of existing shapes location
             initOrbitControls();
             document.getElementById('debugPanel').innerText = "Cam: Ready | Sensors: Inactive";
         }
 
-        // 🗑 Completely Clear Scene & Reset Baseline Telemetry Views
         function clearSceneAndResetView() {
-            // Clear generated world meshes array manually
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
                 if(child.geometry) child.geometry.dispose();
@@ -483,10 +477,8 @@
                 worldGroup.remove(child);
             }
 
-            // Unbind sensors gracefully using the decoupled architecture function
             deactivateTrackingSensors();
 
-            // Reset camera parameters to factory initialization baselines
             telemetryState.x = 0; telemetryState.y = 5; telemetryState.z = 15;
             camera.position.set(telemetryState.x, telemetryState.y, telemetryState.z);
             camera.rotation.set(0, 0, 0);
@@ -508,25 +500,49 @@
             setObjectQuaternion(camera.quaternion, alpha, beta, gamma, THREE.MathUtils.degToRad(screenAngle));
         }
 
+        // --- UPDATED LOCATIVE HORIZONTAL HARDWARE CORE ---
         function handleHardwareInertialSensors(event) {
             if (!gyroActive) return;
             const r = event.rotationRate; const accel = event.acceleration;
             if (!r || !accel || accel.x === null || accel.z === null) return;
 
+            // 1. ROTATIONAL SHIELDING: Instantly kill velocity vectors if phone is spinning or tilting actively
             if (Math.abs(r.alpha || 0) > SPIN_KILL_LIMIT || Math.abs(r.beta || 0) > SPIN_KILL_LIMIT || Math.abs(r.gamma || 0) > SPIN_KILL_LIMIT) {
-                hardwareActivelySpinning = true; targetVelocity.set(0, 0, 0); return;
+                hardwareActivelySpinning = true; 
+                targetVelocity.set(0, 0, 0); 
+                return;
             }
             hardwareActivelySpinning = false;
 
-            let ax = accel.x; let az = accel.z;
+            let ax = accel.x; 
+            let az = accel.z; // Completely ignoring hardware accel.y (up/down forces)
+
             if (Math.abs(ax) < ACCEL_DEADZONE) ax = 0;
             if (Math.abs(az) < ACCEL_DEADZONE) az = 0;
 
             if (ax !== 0 || az !== 0) {
-                let localForceVector = new THREE.Vector3(ax, 0, -az);
-                localForceVector.applyQuaternion(camera.quaternion);
-                localForceVector.y = 0; localForceVector.normalize();
-                targetVelocity.copy(localForceVector).setLength(Math.sqrt(ax * ax + az * az) * ACCEL_GAIN);
+                // 2. MATRIX PROJECTION FLATTENING: Project camera facing direction vectors strictly onto XZ plane
+                let forward = new THREE.Vector3();
+                camera.getWorldDirection(forward);
+                forward.y = 0; // Lock out altitude changes entirely
+                
+                // Edge case handling if user looks dead straight down or up
+                if (forward.lengthSq() < 0.01) {
+                    forward.set(0, 0, -1).applyQuaternion(camera.quaternion);
+                    forward.y = 0;
+                }
+                forward.normalize();
+
+                let right = new THREE.Vector3();
+                right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+
+                // Compute final direction strictly relative to a flat horizontal compass heading
+                let horizontalMove = new THREE.Vector3();
+                horizontalMove.addScaledVector(right, ax);
+                horizontalMove.addScaledVector(forward, -az); 
+                horizontalMove.normalize();
+
+                targetVelocity.copy(horizontalMove).setLength(Math.sqrt(ax * ax + az * az) * ACCEL_GAIN);
             } else {
                 targetVelocity.multiplyScalar(SLIDE_FRICTION);
             }
@@ -539,8 +555,11 @@
             } else {
                 currentVelocity.lerp(targetVelocity, 0.25);
                 if (currentVelocity.length() > MAX_SPEED_CEILING) currentVelocity.setLength(MAX_SPEED_CEILING);
+                
+                // targetVelocity.y is always 0, meaning altitude modifications are completely blocked
                 if (currentVelocity.lengthSq() > 0.00001) camera.position.add(currentVelocity);
                 else currentVelocity.set(0, 0, 0);
+                
                 telemetryState.x = camera.position.x; telemetryState.z = camera.position.z;
             }
             renderer.render(scene, camera);
