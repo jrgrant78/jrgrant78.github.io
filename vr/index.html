@@ -7,32 +7,48 @@
     <style>
         body { margin: 0; padding: 0; overflow: hidden; font-family: sans-serif; background: #0b0b0f; color: #fff; }
         
-        /* Floating UI Visibility Toggle Button */
-        #uiToggleBtn { 
+        /* Main Controls Container aligned to the top, level with the camera window */
+        #controls { 
             position: absolute; 
             top: 10px; 
             left: 10px; 
-            z-index: 12; 
-            width: 40px; 
-            height: 40px; 
+            z-index: 10; 
             background: rgba(15,15,22,0.9); 
-            color: #00e5ff; 
-            border: 1px solid #333; 
+            padding: 12px; 
             border-radius: 8px; 
-            font-size: 1.2em; 
+            border: 1px solid #333; 
+            width: 220px; 
+            box-shadow: 0 4px 25px rgba(0,0,0,0.8); 
+        }
+        
+        /* Flexbox Header Row configuration inside the container box */
+        .header-row { 
+            display: flex; 
+            align-items: center; 
+            gap: 10px; 
+            width: 100%;
+        }
+
+        /* Toggle Button configured inline inside the control box header */
+        #uiToggleBtn { 
+            width: 32px; 
+            height: 32px; 
+            background: #1a1a24; 
+            color: #00e5ff; 
+            border: 1px solid #444; 
+            border-radius: 6px; 
+            font-size: 1.1em; 
             display: flex; 
             align-items: center; 
             justify-content: center; 
             cursor: pointer; 
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            flex-shrink: 0;
             transition: all 0.2s ease;
             -webkit-tap-highlight-color: transparent;
         }
+        #uiToggleBtn:active { transform: scale(0.95); }
         
-        /* Shifted Overlay Controls Container downwards to make space for Toggle */
-        #controls { position: absolute; top: 60px; left: 10px; z-index: 10; background: rgba(15,15,22,0.9); padding: 15px; border-radius: 8px; border: 1px solid #333; width: 200px; box-shadow: 0 4px 25px rgba(0,0,0,0.8); }
-        
-        /* Small Upper-Right Camera View Window */
+        /* Small Upper-Right Camera View Window level with the controls */
         #cameraWindow { position: absolute; top: 10px; right: 10px; z-index: 10; width: 120px; height: 90px; border: 2px solid #00e5ff; border-radius: 6px; overflow: hidden; background: #000; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
         #cameraFeed { width: 100%; height: 100%; object-fit: cover; }
         
@@ -90,26 +106,30 @@
 </head>
 <body>
 
-    <!-- UI Visibility Control Node -->
-    <button id="uiToggleBtn" title="Toggle UI Controls">👁</button>
-
     <div id="cameraWindow">
         <video id="cameraFeed" autoplay playsinline muted></video>
     </div>
 
     <div id="controls">
-        <h4 style="margin: 0 0 5px 0; color: #00e5ff; text-align: center;">Spatial Sculptor</h4>
-        
-        <div class="btn-toolbar">
-            <button id="scanBtn" class="action-btn btn-scan" title="Scan Surroundings">⛶</button>
-            <button id="gyroBtn" class="action-btn btn-gyro" title="Enable Gyro & Inertial Walk">🕧</button>
-            <button id="clearBtn" class="action-btn btn-clear" title="Clear Scene & Reset View">🗑</button>
+        <!-- Integrated Header Row with Left-Aligned Eye Toggle Button -->
+        <div class="header-row">
+            <button id="uiToggleBtn" title="Toggle UI Controls">👁</button>
+            <h4 style="margin: 0; color: #00e5ff; font-size: 0.95em; letter-spacing: 0.5px; flex-grow: 1; text-align: left;">Spatial Sculptor</h4>
         </div>
-
-        <input type="password" id="apiKeyField" class="key-input" placeholder="Enter Gemini API Key...">
         
-        <div id="status">Analyzing live frame parameters...</div>
-        <div id="aiDescription">Ready to scan scene!<br>Aim camera and tap ⛶ to scan.</div>
+        <!-- Toggle Target Content Sub-Container Node -->
+        <div id="controlsContent">
+            <div class="btn-toolbar">
+                <button id="scanBtn" class="action-btn btn-scan" title="Scan Surroundings">⛶</button>
+                <button id="gyroBtn" class="action-btn btn-gyro" title="Enable Gyro & Inertial Walk">🕧</button>
+                <button id="clearBtn" class="action-btn btn-clear" title="Clear Scene & Reset View">🗑</button>
+            </div>
+
+            <input type="password" id="apiKeyField" class="key-input" placeholder="Enter Gemini API Key...">
+            
+            <div id="status">Analyzing live frame parameters...</div>
+            <div id="aiDescription">Ready to scan scene!<br>Aim camera and tap ⛶ to scan.</div>
+        </div>
     </div>
 
     <div id="debugPanel">
@@ -194,8 +214,6 @@
             document.getElementById('scanBtn').addEventListener('click', captureAndScanFrame);
             document.getElementById('gyroBtn').addEventListener('click', toggleSensorsFunctionality);
             document.getElementById('clearBtn').addEventListener('click', clearSceneAndResetView);
-            
-            // Core Show/Hide Hook setup for clean AR integration
             document.getElementById('uiToggleBtn').addEventListener('click', toggleControlPanelsVisibility);
 
             initRearCameraStreamGracefully();
@@ -210,25 +228,27 @@
             animate();
         }
 
-        // --- SHOW / HIDE UI EVENT TOGGLER ---
+        // --- SUB-CONTAINER SELECTIVE INTERACTION VISIBILITY TOGGLER ---
         function toggleControlPanelsVisibility() {
-            const controlsPanel = document.getElementById('controls');
+            const contentBlock = document.getElementById('controlsContent');
             const debugPanel = document.getElementById('debugPanel');
             const cameraWindow = document.getElementById('cameraWindow');
             const toggleBtn = document.getElementById('uiToggleBtn');
 
-            if (controlsPanel.style.display === 'none') {
-                controlsPanel.style.display = 'block';
+            if (contentBlock.style.display === 'none') {
+                contentBlock.style.display = 'block';
                 debugPanel.style.display = 'block';
                 cameraWindow.style.display = 'block';
                 toggleBtn.innerText = '👁';
                 toggleBtn.style.color = '#00e5ff';
+                toggleBtn.style.borderColor = '#444';
             } else {
-                controlsPanel.style.display = 'none';
+                contentBlock.style.display = 'none';
                 debugPanel.style.display = 'none';
                 cameraWindow.style.display = 'none';
                 toggleBtn.innerText = '❌';
                 toggleBtn.style.color = '#ff007f';
+                toggleBtn.style.borderColor = '#ff007f';
             }
         }
 
@@ -400,10 +420,9 @@
                 }
             }
 
-            // LOCKED COMPLETION HANDLER: Explicitly guarantees scene log remains visible post-generation
             if (finalShapesPayload) {
                 descDiv.style.color = "#fff";
-                descDiv.innerText = forensicTextBlueprint; // Fixed: Retains description inside the DOM panel
+                descDiv.innerText = forensicTextBlueprint; 
                 renderAIBlueprint(finalShapesPayload);
             } else {
                 descDiv.style.color = "#ff3333";
