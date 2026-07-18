@@ -119,7 +119,6 @@
         let currentVelocity = new THREE.Vector3();
         let hardwareActivelySpinning = false;
         
-        // UI Hardware Semaphore Guard to stop concurrent event loops
         let scanInProgress = false;
 
         let telemetryState = {
@@ -207,9 +206,7 @@
             }
         }
 
-        // --- LITERAL COMPONENT ANALYSIS PROMPT ENGINE ---
         async function captureAndScanFrame() {
-            // 1. CONCURRENCY GUARD: Instantly dump request execution if a scan is running
             if (scanInProgress) return;
             
             const descDiv = document.getElementById('aiDescription');
@@ -228,7 +225,6 @@
                 return;
             }
 
-            // Lock UI controls immediately
             scanInProgress = true;
             scanBtn.disabled = true;
             scanBtn.style.opacity = "0.4";
@@ -275,7 +271,6 @@
             let finalErrorMessage = "Network connection failed.";
             let parsedPayloadInstance = null;
 
-            // Sequential Network Evaluation
             for (let currentModel of priorityModels) {
                 if (parsedPayloadInstance) break; 
                 
@@ -336,7 +331,6 @@
                 }
             }
 
-            // --- EXPLICIT LOOP TERMINATION PATHWAY ---
             if (parsedPayloadInstance) {
                 descDiv.style.color = "#fff";
                 descDiv.innerText = parsedPayloadInstance.description || "Scan finished.";
@@ -346,14 +340,12 @@
                 descDiv.innerText = `Scan Error:\n${finalErrorMessage}`;
             }
 
-            // Unlock UI controls completely
             scanInProgress = false;
             scanBtn.disabled = false;
             scanBtn.style.opacity = "1";
             statusDiv.style.display = 'none';
         }
 
-        // --- HIGH-POLY SOLID GEOMETRY COMPILER FACTORY ---
         function renderAIBlueprint(shapesArray) {
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
@@ -368,7 +360,6 @@
                 if (!shapeData || !shapeData.type) return;
 
                 let geo;
-                // Enforce high polygon budgets across the curves
                 const polyBudget = Math.max(shapeData.segments || 96, 64); 
 
                 try {
@@ -396,15 +387,14 @@
                     }
 
                     if (geo) {
-                        // Recompute normal surfaces to strip lighting shading breaks
                         geo.computeVertexNormals();
 
                         const mat = new THREE.MeshStandardMaterial({
                             color: new THREE.Color(shapeData.color || "#ffffff"),
-                            flatShading: false,     // Continuous Gouraud/Phong interpolation layout
+                            flatShading: false, 
                             roughness: 0.4,     
                             metalness: 0.12,
-                            side: THREE.DoubleSide  // Enforces solid mesh fills across backfaces
+                            side: THREE.DoubleSide 
                         });
 
                         const mesh = new THREE.Mesh(geo, mat);
@@ -425,41 +415,12 @@
             });
         }
 
-        function clearSceneAndResetView() {
-            while(worldGroup.children.length > 0) {
-                const child = worldGroup.children[0];
-                if(child.geometry) child.geometry.dispose();
-                if(child.material) child.material.dispose();
-                worldGroup.remove(child);
-            }
-
-            if (gyroActive) {
-                window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
-                window.removeEventListener('devicemotion', handleHardwareInertialSensors);
-                gyroActive = false;
-                document.getElementById('gyroBtn').classList.remove('btn-active');
-            }
-
-            targetVelocity.set(0,0,0);
-            currentVelocity.set(0,0,0);
-            hardwareActivelySpinning = false;
-            telemetryState.x = 0; telemetryState.y = 5; telemetryState.z = 15;
-            
-            initOrbitControls();
-            camera.position.set(telemetryState.x, telemetryState.y, telemetryState.z);
-            camera.rotation.set(0, 0, 0);
-            camera.quaternion.set(0, 0, 0, 1);
-            controls.target.set(0, 0, 0);
-            controls.update();
-
-            document.getElementById('debugPanel').innerText = "Cam: Ready | Sensors: Inactive";
-            document.getElementById('aiDescription').innerText = "Scene reset. Ready to scan.";
-        }
-
+        // --- NEW ISOLATED SENSOR TOGGLING PATHWAYS ---
         function toggleSensorsFunctionality() {
             const btn = document.getElementById('gyroBtn');
             if (gyroActive) {
-                clearSceneAndResetView();
+                // FIXED: Now safely shuts down listeners WITHOUT erasing the 3D world meshes
+                deactivateTrackingSensors();
             } else {
                 if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                     DeviceOrientationEvent.requestPermission()
@@ -483,6 +444,49 @@
             window.addEventListener('devicemotion', handleHardwareInertialSensors, true);
             gyroActive = true;
             btnElement.classList.add('btn-active');
+            document.getElementById('debugPanel').innerText = "Sensors: Active | Inertial Walking Engage";
+        }
+
+        function deactivateTrackingSensors() {
+            if (!gyroActive) return;
+            window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
+            window.removeEventListener('devicemotion', handleHardwareInertialSensors);
+            gyroActive = false;
+            document.getElementById('gyroBtn').classList.remove('btn-active');
+            
+            targetVelocity.set(0,0,0);
+            currentVelocity.set(0,0,0);
+            hardwareActivelySpinning = false;
+            
+            // Re-initialize traditional screen touch navigation on top of existing shapes location
+            initOrbitControls();
+            document.getElementById('debugPanel').innerText = "Cam: Ready | Sensors: Inactive";
+        }
+
+        // 🗑 Completely Clear Scene & Reset Baseline Telemetry Views
+        function clearSceneAndResetView() {
+            // Clear generated world meshes array manually
+            while(worldGroup.children.length > 0) {
+                const child = worldGroup.children[0];
+                if(child.geometry) child.geometry.dispose();
+                if(child.material) child.material.dispose();
+                worldGroup.remove(child);
+            }
+
+            // Unbind sensors gracefully using the decoupled architecture function
+            deactivateTrackingSensors();
+
+            // Reset camera parameters to factory initialization baselines
+            telemetryState.x = 0; telemetryState.y = 5; telemetryState.z = 15;
+            camera.position.set(telemetryState.x, telemetryState.y, telemetryState.z);
+            camera.rotation.set(0, 0, 0);
+            camera.quaternion.set(0, 0, 0, 1);
+            
+            if (!controls) initOrbitControls();
+            controls.target.set(0, 0, 0);
+            controls.update();
+
+            document.getElementById('aiDescription').innerText = "Scene reset. Ready to scan.";
         }
 
         function handleGyroscopeMotionInput(event) {
