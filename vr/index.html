@@ -118,6 +118,9 @@
         let targetVelocity = new THREE.Vector3();
         let currentVelocity = new THREE.Vector3();
         let hardwareActivelySpinning = false;
+        
+        // UI Hardware Semaphore Guard to stop concurrent event loops
+        let scanInProgress = false;
 
         let telemetryState = {
             alpha: 0, beta: 0, gamma: 0,
@@ -156,9 +159,8 @@
             grid.position.y = -3;
             scene.add(grid);
 
-            scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+            scene.add(new THREE.AmbientLight(0xffffff, 0.45));
             
-            // Dynamic multi-point layout highlighting complex structural curvatures
             const keyLight = new THREE.DirectionalLight(0xffffff, 0.85);
             keyLight.position.set(20, 40, 25);
             scene.add(keyLight);
@@ -207,8 +209,12 @@
 
         // --- LITERAL COMPONENT ANALYSIS PROMPT ENGINE ---
         async function captureAndScanFrame() {
+            // 1. CONCURRENCY GUARD: Instantly dump request execution if a scan is running
+            if (scanInProgress) return;
+            
             const descDiv = document.getElementById('aiDescription');
             const statusDiv = document.getElementById('status');
+            const scanBtn = document.getElementById('scanBtn');
             const userEnteredKey = document.getElementById('apiKeyField').value.trim();
 
             if (!userEnteredKey) {
@@ -222,6 +228,10 @@
                 return;
             }
 
+            // Lock UI controls immediately
+            scanInProgress = true;
+            scanBtn.disabled = true;
+            scanBtn.style.opacity = "0.4";
             statusDiv.style.display = 'block';
 
             const hiddenCanvas = document.createElement('canvas');
@@ -232,44 +242,40 @@
             const base64Image = hiddenCanvas.toDataURL('image/jpeg').split(',')[1];
 
             const promptText = `
-                You are a micro-spatial computer vision scanner and expert parametric 3D modeler. 
-                Analyze the camera frame down to the smallest detail with absolute architectural literalism.
+                You are a high-fidelity spatial architecture scanner. Analyze this camera frame down to the smallest detail.
 
-                1. DENSE COMPREHENSIVE SCAN LOG: In the "description" key, write an exhaustive, granular text record. You must log every distinct visible element, their exact coordinate positions, relative scale, proximity context, structural orientation, physical textures, and explicit lighting calculation parameters down to the smallest detail.
+                1. GRAND FORENSIC SCAN ANALYSIS: In the "description" key, write an exhaustive text breakdown detailing exactly what is seen in the image down to every last detail. Log the precise identity, physical placement coordinates, rotation angles, materials, textures, and exact locations of light sources striking the scene.
 
-                2. INTENSE MESH COMPLEXITY CONSTRAINTS: 
-                   - ABSOLUTE PROHIBITION: Do not return flat background plates, single shapes, or lazy geometric approximations.
-                   - SOLID MANIFOLD ASSEMBLIES: Every item must be modeled as a continuous group of solid, volumetric primitive nodes. To guarantee the structure is watertight and has zero floating polygons, meshes must explicitly overlap and slice into each other (e.g., body segments sinking directly into adjacent structural components).
-                   - Break elements down organically into an extensive collection of 25 to 50 distinct interlocking primitives to form intricate, highly detailed asset groups.
+                2. HIGH POLYGON COMPOSITE COMPLEXITY:
+                   - ABSOLUTE PROHIBITION: Do not return a single shape, a flat sheet/canvas, or loose floating primitives.
+                   - SOLID INTERLOCKING MANIFOLD HULLS: You must break every object down into a dense, detailed array of 25 to 50 interlocking solid primitives. Parts must explicitly overlap or sink into adjacent nodes to form a completely watertight, solid design (e.g., a chair must be constructed out of a solid box seat, 4 distinct cylinder legs piercing into the base, support struts, and a detailed backrest arrangement).
+                   
+                Primitives allowed: "box", "sphere", "cylinder", "cone", "capsule", "torus".
+                HIGH POLYGON RESOLUTION: For curved profiles, set a "segments" parameter between 64 and 128 to render dense, smooth curves.
 
-                Primitives: "box", "sphere", "cylinder", "cone", "capsule", "torus", "lathe", "extrude".
-                HIGH POLYGON SETTINGS: For all curved structures, output a "segments" parameter between 96 and 128 to ensure dense, high-polygon curvature hulls.
-
-                Return a single JSON object matching this schema exactly:
+                Return a clean JSON object matching this schema exactly:
                 {
-                  "description": "[Your exhaustive, hyper-detailed spatial description documenting object placement, orientation lines, and lighting fields...]",
+                  "description": "[Your exhaustive, micro-detailed forensic text analysis documenting object placement, orientation lines, and lighting fields...]",
                   "shapes": [
                     {
-                      "name": "detailed_mesh_node",
-                      "type": "box | sphere | cylinder | cone | capsule | torus | lathe | extrude",
+                      "name": "mesh_component_id",
+                      "type": "box | sphere | cylinder | cone | capsule | torus",
                       "color": "#hexcode",
                       "position": {"x": 0.0, "y": 1.5, "z": -3.0},
                       "scale": {"x": 1.0, "y": 1.0, "z": 1.0},
                       "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
-                      "segments": 96,
-                      "pathPoints": [{"x": 0.1, "y": 0.0}, {"x": 0.6, "y": 0.4}, {"x": 0.2, "y": 1.2}],
-                      "extrudeDepth": 0.4
+                      "segments": 96
                     }
                   ]
                 }
-                Ground plane floor is y=-3. Generate a rich, high-density landscape of solid volumetric primitives!
+                Ground plane floor is y=-3. Generate a massive layout of solid, volumetric primitives!
             `;
 
             const priorityModels = ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash'];
             let finalErrorMessage = "Network connection failed.";
             let parsedPayloadInstance = null;
 
-            // Decoupled Model Hunting Core Loop
+            // Sequential Network Evaluation
             for (let currentModel of priorityModels) {
                 if (parsedPayloadInstance) break; 
                 
@@ -313,7 +319,7 @@
                         if (firstBracket !== -1 && lastBracket !== -1) {
                             jsonText = jsonText.substring(firstBracket, lastBracket + 1);
                         } else {
-                            throw new Error("Invalid payload array formatting returned.");
+                            throw new Error("Invalid payload data framing formatting.");
                         }
 
                         parsedPayloadInstance = JSON.parse(jsonText);
@@ -330,21 +336,24 @@
                 }
             }
 
-            // --- DECOUPLED INDEPENDENT RENDERING THREAD ---
-            // Execution hits here outside the network loop context entirely. 
-            // Parsing errors or runtime mesh warnings cannot cause cascading API retries.
+            // --- EXPLICIT LOOP TERMINATION PATHWAY ---
             if (parsedPayloadInstance) {
                 descDiv.style.color = "#fff";
-                descDiv.innerText = parsedPayloadInstance.description || "Scan completed.";
+                descDiv.innerText = parsedPayloadInstance.description || "Scan finished.";
                 renderAIBlueprint(parsedPayloadInstance.shapes);
             } else {
                 descDiv.style.color = "#ff3333";
                 descDiv.innerText = `Scan Error:\n${finalErrorMessage}`;
             }
+
+            // Unlock UI controls completely
+            scanInProgress = false;
+            scanBtn.disabled = false;
+            scanBtn.style.opacity = "1";
             statusDiv.style.display = 'none';
         }
 
-        // --- HIGH-POLY CLEAN HULL GENERATION FACTORY ---
+        // --- HIGH-POLY SOLID GEOMETRY COMPILER FACTORY ---
         function renderAIBlueprint(shapesArray) {
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
@@ -359,7 +368,8 @@
                 if (!shapeData || !shapeData.type) return;
 
                 let geo;
-                const polyBudget = Math.max(shapeData.segments || 80, 80); 
+                // Enforce high polygon budgets across the curves
+                const polyBudget = Math.max(shapeData.segments || 96, 64); 
 
                 try {
                     switch(shapeData.type.toLowerCase().trim()) {
@@ -381,51 +391,20 @@
                         case 'torus':
                             geo = new THREE.TorusGeometry(0.4, 0.12, polyBudget, polyBudget * 1.5);
                             break;
-                        case 'lathe':
-                            if (shapeData.pathPoints && shapeData.pathPoints.length >= 2) {
-                                const lathePoints = shapeData.pathPoints.map(p => new THREE.Vector2(p.x ?? 0, p.y ?? 0));
-                                geo = new THREE.LatheGeometry(lathePoints, polyBudget);
-                            } else {
-                                geo = new THREE.CylinderGeometry(0.5, 0.5, 1, polyBudget);
-                            }
-                            break;
-                        case 'extrude':
-                            if (shapeData.pathPoints && shapeData.pathPoints.length >= 3) {
-                                const shapePath = new THREE.Shape();
-                                shapePath.moveTo(shapeData.pathPoints[0].x ?? 0, shapeData.pathPoints[0].y ?? 0);
-                                for (let i = 1; i < shapeData.pathPoints.length; i++) {
-                                    shapePath.lineTo(shapeData.pathPoints[i].x ?? 0, shapeData.pathPoints[i].y ?? 0);
-                                }
-                                shapePath.closePath();
-                                
-                                const extrudeSettings = {
-                                    depth: shapeData.extrudeDepth || 0.4,
-                                    bevelEnabled: true,
-                                    bevelThickness: 0.04,
-                                    bevelSize: 0.02,
-                                    bevelSegments: 5,
-                                    curveSegments: Math.floor(polyBudget / 2)
-                                };
-                                geo = new THREE.ExtrudeGeometry(shapePath, extrudeSettings);
-                                geo.center();
-                            } else {
-                                geo = new THREE.BoxGeometry(1, 1, 1);
-                            }
-                            break;
                         default: 
                             geo = new THREE.BoxGeometry(1, 1, 1);
                     }
 
                     if (geo) {
-                        // Recalculates vertex normals dynamically across the dense layout
+                        // Recompute normal surfaces to strip lighting shading breaks
                         geo.computeVertexNormals();
 
                         const mat = new THREE.MeshStandardMaterial({
                             color: new THREE.Color(shapeData.color || "#ffffff"),
-                            flatShading: false, // Smooth Phong-blended lighting interpolation
-                            roughness: 0.42,     
+                            flatShading: false,     // Continuous Gouraud/Phong interpolation layout
+                            roughness: 0.4,     
                             metalness: 0.12,
-                            side: THREE.DoubleSide // Eliminates visual holes or gaps
+                            side: THREE.DoubleSide  // Enforces solid mesh fills across backfaces
                         });
 
                         const mesh = new THREE.Mesh(geo, mat);
@@ -441,7 +420,7 @@
                         worldGroup.add(mesh);
                     }
                 } catch (geomError) {
-                    console.error("Mesh parsing bypass:", geomError);
+                    console.error("Mesh calculation skipped:", geomError);
                 }
             });
         }
@@ -539,7 +518,6 @@
             }
         }
 
-        // Frame update configuration loops
         function animate() {
             requestAnimationFrame(animate);
             if (controls) {
