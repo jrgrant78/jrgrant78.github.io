@@ -232,7 +232,7 @@
         
             if (!userEnteredKey || userEnteredKey === "") {
                 descDiv.style.color = "#ff3333";
-                descDiv.innerText = "Authentication Halt:\nPlease enter an API key in the field below the icons.\n\nAim camera and tap ⛶ to scan.";
+                descDiv.innerText = "Authentication Halt:\nPlease enter an API key.\n\nAim camera and tap ⛶ to scan.";
                 return;
             }
         
@@ -251,34 +251,35 @@
             
             const base64Image = hiddenCanvas.toDataURL('image/jpeg').split(',')[1];
         
-            // UPGRADED HIGH-FIDELITY PROMPT
             const promptText = `
-                You are an expert low-poly 3D artist and spatial analyst. Analyze this camera frame.
-                
-                1. DEEP SCENE ANALYSIS: In the "description" key, provide a rich, detailed multi-sentence analysis of the image contents. Detail the primary subjects, secondary background elements, material textures, apparent ambient lighting conditions, color palettes, and the relative spatial distribution of elements from the lens perspective.
-                
-                2. GRANULAR MESH GENERATION: Recreate the visible world elements with high structural complexity using compound geometric primitives. Do not use single generic shapes for complex objects. Instead, segment objects into highly detailed, interconnected sub-components. 
-                   - For a chair: model the seat pad, backrest frame, individual support struts, and legs.
-                   - For a person/animal: model the chest mass, head structure, distinct jaw/muzzle, jointed limbs, and hands/feet using connected primitives.
-                   - For electronics: model the main screen bezel, support base, control buttons, and cables.
-                
-                Available primitive types: "box", "sphere", "cylinder", "cone", "capsule", "torus".
-                
+                You are a master parametric 3D modeler. Analyze this spatial snapshot camera frame.
+                Your goal is to recreate the scene using highly detailed, high-polygon procedural structures. 
+        
+                Available shape types:
+                - "box", "sphere", "cylinder", "cone", "capsule", "torus"
+                - "lathe": For intricate rotational geometry (vases, cups, round ornate furniture pillars). Requires a "pathPoints" array of 2D coordinates representing the silhouette profile from bottom to top.
+                - "extrude": For complex linear cross-sections (gears, stars, text shapes, unique custom moldings). Requires a "pathPoints" array forming a closed 2D shape.
+        
+                POLYGON RESOLUTION: For curved primitives, provide a "segments" parameter between 32 and 64 to guarantee perfectly smooth, dense, high-polygon surfaces.
+        
                 Return a single, structurally perfect JSON object exactly matching this schema:
                 {
-                  "description": "A comprehensive paragraph detailing the scene contents, physical textures, lighting vector sources, and depth relationships...",
+                  "description": "A meticulous, highly detailed analysis of the physical space, lighting, and asset placement...",
                   "shapes": [
                     {
-                      "name": "descriptive_component_id",
-                      "type": "box | sphere | cylinder | cone | capsule | torus",
+                      "name": "detailed_mesh_id",
+                      "type": "box | sphere | cylinder | cone | capsule | torus | lathe | extrude",
                       "color": "#hexcode",
                       "position": {"x": 0.0, "y": 1.5, "z": -3.0},
                       "scale": {"x": 1.0, "y": 1.0, "z": 1.0},
-                      "rotation": {"x": 0.0, "y": 0.0, "z": 0.0}
+                      "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
+                      "segments": 64,
+                      "pathPoints": [{"x": 0.0, "y": 0.0}, {"x": 0.5, "y": 0.5}, {"x": 0.2, "y": 1.0}],
+                      "extrudeDepth": 0.5
                     }
                   ]
                 }
-                Keep baseline target vectors relative to a centered origin ground floor plane (y=-3 is the ground). Maximize the shape count to capture intricate details!
+                Ground plane is y=-3. Generate a rich array of densely packed, high-poly components to accurately capture intricate design details!
             `;
         
             const priorityModels = ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash'];
@@ -299,7 +300,7 @@
                             headers: { 
                                 'Content-Type': 'application/json',
                                 'x-goog-api-key': userEnteredKey 
-                                    },
+                            },
                             body: JSON.stringify({
                                 contents: [{
                                     parts: [
@@ -314,7 +315,6 @@
                         if (!response.ok) {
                             const errorJson = await response.json();
                             const serverMessage = errorJson.error?.message || "";
-                            
                             if (response.status === 429 || response.status === 503 || serverMessage.toLowerCase().includes("high demand")) {
                                 await new Promise(res => setTimeout(res, backoffDelay));
                                 attemptsLeft--;
@@ -350,7 +350,6 @@
                         backoffDelay *= 2;
                     }
                 }
-        
                 if (pipelineSuccess) break;
             }
         
@@ -363,7 +362,7 @@
 
         // 5. Mesh Processing Generator Engine
         function renderAIBlueprint(shapesArray) {
-            // Clear out previous meshes safely
+            // Safely clear out previous meshes
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
                 if(child.geometry) child.geometry.dispose();
@@ -374,43 +373,83 @@
             shapesArray.forEach(shapeData => {
                 let geo;
                 
-                // UPGRADED ADVANCED PRIMITIVE GRAPHICS TRANSLATOR
+                // Dynamically extract the requested polygon budget from the AI payload
+                const polyBudget = shapeData.segments || 48;
+        
                 switch(shapeData.type.toLowerCase().trim()) {
                     case 'box': 
-                        geo = new THREE.BoxGeometry(1, 1, 1); 
+                        // Increased subdivision segments to handle complex lighting deformations smoothly
+                        geo = new THREE.BoxGeometry(1, 1, 1, 4, 4, 4); 
                         break;
                     case 'sphere': 
-                        geo = new THREE.SphereGeometry(0.5, 14, 12); 
+                        geo = new THREE.SphereGeometry(0.5, polyBudget, polyBudget); 
                         break;
                     case 'cylinder': 
-                        geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 14); 
+                        geo = new THREE.CylinderGeometry(0.5, 0.5, 1, polyBudget); 
                         break;
                     case 'cone': 
-                        geo = new THREE.ConeGeometry(0.5, 1, 14); 
+                        geo = new THREE.ConeGeometry(0.5, 1, polyBudget); 
                         break;
                     case 'capsule':
-                        // Dynamic mapping for organic limbs and structures: radius, length, capSegments, radialSegments
-                        geo = new THREE.CapsuleGeometry(0.35, 0.7, 4, 10);
+                        geo = new THREE.CapsuleGeometry(0.35, 0.7, 8, polyBudget);
                         break;
                     case 'torus':
-                        // Dynamic mapping for wheels, rings, and detailing: radius, tubeThickness, radialSegments, tubularSegments
-                        geo = new THREE.TorusGeometry(0.4, 0.12, 8, 20);
+                        geo = new THREE.TorusGeometry(0.4, 0.12, polyBudget, polyBudget * 2);
                         break;
+                        
+                    case 'lathe':
+                        // Procedural generation: Converts custom 2D silhouettes into intricate high-poly 3D models
+                        if (shapeData.pathPoints && shapeData.pathPoints.length > 0) {
+                            const lathePoints = shapeData.pathPoints.map(p => new THREE.Vector2(p.x, p.y));
+                            geo = new THREE.LatheGeometry(lathePoints, polyBudget);
+                        } else {
+                            // Fallback if formatting fails
+                            geo = new THREE.CylinderGeometry(0.5, 0.5, 1, polyBudget);
+                        }
+                        break;
+        
+                    case 'extrude':
+                        // Procedural generation: Sweeps a custom 2D vector path out along a depth axis
+                        if (shapeData.pathPoints && shapeData.pathPoints.length > 0) {
+                            const shapePath = new THREE.Shape();
+                            shapePath.moveTo(shapeData.pathPoints[0].x, shapeData.pathPoints[0].y);
+                            for (let i = 1; i < shapeData.pathPoints.length; i++) {
+                                shapePath.lineTo(shapeData.pathPoints[i].x, shapeData.pathPoints[i].y);
+                            }
+                            
+                            const extrudeSettings = {
+                                depth: shapeData.extrudeDepth || 0.4,
+                                bevelEnabled: true,
+                                bevelThickness: 0.04,
+                                bevelSize: 0.02,
+                                bevelSegments: 4,
+                                curveSegments: polyBudget / 2
+                            };
+                            geo = new THREE.ExtrudeGeometry(shapePath, extrudeSettings);
+                            
+                            // Center the newly generated custom geometry bounding boxes
+                            geo.center();
+                        } else {
+                            geo = new THREE.BoxGeometry(1, 1, 1);
+                        }
+                        break;
+        
                     default: 
                         geo = new THREE.BoxGeometry(1, 1, 1);
                 }
         
-                // Apply a highly structural, clean-faceted low-poly styling material
+                // Switching flatShading to FALSE enables beautiful, smooth phong interpolation 
+                // across high-polygon counts for high-fidelity rendering
                 const mat = new THREE.MeshStandardMaterial({
                     color: new THREE.Color(shapeData.color || "#ffffff"),
-                    flatShading: true,  // Enforces sharp, deliberate low-poly polygon edges
-                    roughness: 0.5,     // Adds realistic, crisp environmental diffuse reflections
-                    metalness: 0.1
+                    flatShading: false, 
+                    roughness: 0.35,     
+                    metalness: 0.15
                 });
         
                 const mesh = new THREE.Mesh(geo, mat);
                 
-                // Map positional arrays
+                // Map transform vectors
                 mesh.position.set(shapeData.position.x, shapeData.position.y, shapeData.position.z);
                 mesh.scale.set(shapeData.scale.x, shapeData.scale.y, shapeData.scale.z);
                 mesh.rotation.set(shapeData.rotation.x, shapeData.rotation.y, shapeData.rotation.z);
