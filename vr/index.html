@@ -229,20 +229,20 @@
             const descDiv = document.getElementById('aiDescription');
             const statusDiv = document.getElementById('status');
             const userEnteredKey = document.getElementById('apiKeyField').value.trim();
-
+        
             if (!userEnteredKey || userEnteredKey === "") {
                 descDiv.style.color = "#ff3333";
                 descDiv.innerText = "Authentication Halt:\nPlease enter an API key in the field below the icons.\n\nAim camera and tap ⛶ to scan.";
                 return;
             }
-
+        
             if (!videoElement || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) {
                 alert("Camera feed stream is not active yet.");
                 return;
             }
-
+        
             statusDiv.style.display = 'block';
-
+        
             const hiddenCanvas = document.createElement('canvas');
             hiddenCanvas.width = videoElement.videoWidth;
             hiddenCanvas.height = videoElement.videoHeight;
@@ -250,50 +250,56 @@
             ctx.drawImage(videoElement, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
             
             const base64Image = hiddenCanvas.toDataURL('image/jpeg').split(',')[1];
-
+        
+            // UPGRADED HIGH-FIDELITY PROMPT
             const promptText = `
-                Analyze this spatial snapshot camera frame step-by-step.
-                First, identify the primary visible structural subjects and targets, analyzing their orientation and positions relative to each other. Document this inside a brief sentence under a "description" key.
+                You are an expert low-poly 3D artist and spatial analyst. Analyze this camera frame.
                 
-                Second, execute code-based 3D modeling operations. Recreate the visible world elements using compound geometric primitives (box, sphere, cylinder, cone). 
-                Break components down organically into highly descriptive low-poly sculptures (e.g., if a dog/pet structure is found, model the chest, muzzle block, ears, tail, and distinct legs bent to match the current posture).
+                1. DEEP SCENE ANALYSIS: In the "description" key, provide a rich, detailed multi-sentence analysis of the image contents. Detail the primary subjects, secondary background elements, material textures, apparent ambient lighting conditions, color palettes, and the relative spatial distribution of elements from the lens perspective.
                 
-                Return a clean, valid JSON object structure. Follow this pattern:
+                2. GRANULAR MESH GENERATION: Recreate the visible world elements with high structural complexity using compound geometric primitives. Do not use single generic shapes for complex objects. Instead, segment objects into highly detailed, interconnected sub-components. 
+                   - For a chair: model the seat pad, backrest frame, individual support struts, and legs.
+                   - For a person/animal: model the chest mass, head structure, distinct jaw/muzzle, jointed limbs, and hands/feet using connected primitives.
+                   - For electronics: model the main screen bezel, support base, control buttons, and cables.
+                
+                Available primitive types: "box", "sphere", "cylinder", "cone", "capsule", "torus".
+                
+                Return a single, structurally perfect JSON object exactly matching this schema:
                 {
-                  "description": "Visual scene annotation text...",
+                  "description": "A comprehensive paragraph detailing the scene contents, physical textures, lighting vector sources, and depth relationships...",
                   "shapes": [
                     {
-                      "name": "sculpted_node_id",
-                      "type": "box",
-                      "color": "#ff007f",
+                      "name": "descriptive_component_id",
+                      "type": "box | sphere | cylinder | cone | capsule | torus",
+                      "color": "#hexcode",
                       "position": {"x": 0.0, "y": 1.5, "z": -3.0},
-                      "scale": {"x": 2.0, "y": 0.5, "z": 2.0},
-                      "rotation": {"x": 0.1, "y": 0.0, "z": 0.0}
+                      "scale": {"x": 1.0, "y": 1.0, "z": 1.0},
+                      "rotation": {"x": 0.0, "y": 0.0, "z": 0.0}
                     }
                   ]
                 }
-                Keep baseline target vectors relative to a centered origin ground floor plane (y=-3 is the ground).
+                Keep baseline target vectors relative to a centered origin ground floor plane (y=-3 is the ground). Maximize the shape count to capture intricate details!
             `;
-
+        
             const priorityModels = ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash'];
             let pipelineSuccess = false;
             let finalErrorMessage = "Unknown network error.";
-
+        
             for (let currentModel of priorityModels) {
                 let attemptsLeft = 3;
                 let backoffDelay = 1500;
-
+        
                 while (attemptsLeft > 0) {
                     try {
                         descDiv.style.color = "#ffab00";
                         descDiv.innerText = `Connecting via ${currentModel}...\n(Attempt ${4 - attemptsLeft} of 3)`;
-
+        
                         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${userEnteredKey}`, {
                             method: 'POST',
                             headers: { 
                                 'Content-Type': 'application/json',
                                 'x-goog-api-key': userEnteredKey 
-                            },
+                                    },
                             body: JSON.stringify({
                                 contents: [{
                                     parts: [
@@ -304,7 +310,7 @@
                                 generationConfig: { responseMimeType: "application/json" }
                             })
                         });
-
+        
                         if (!response.ok) {
                             const errorJson = await response.json();
                             const serverMessage = errorJson.error?.message || "";
@@ -317,10 +323,10 @@
                             }
                             throw new Error(`HTTP ${response.status} - ${serverMessage}`);
                         }
-
+        
                         const data = await response.json();
                         let jsonText = data.candidates[0].content.parts[0].text;
-
+        
                         const firstBracket = jsonText.indexOf('{');
                         const lastBracket = jsonText.lastIndexOf('}');
                         if (firstBracket !== -1 && lastBracket !== -1) {
@@ -328,7 +334,7 @@
                         } else {
                             throw new Error("Valid structural JSON block missing from payload.");
                         }
-
+        
                         const parsedScene = JSON.parse(jsonText);
                         descDiv.style.color = "#aaa";
                         descDiv.innerText = parsedScene.description;
@@ -336,7 +342,7 @@
                         renderAIBlueprint(parsedScene.shapes);
                         pipelineSuccess = true;
                         break;
-
+        
                     } catch (err) {
                         finalErrorMessage = err.message;
                         attemptsLeft--;
@@ -344,10 +350,10 @@
                         backoffDelay *= 2;
                     }
                 }
-
+        
                 if (pipelineSuccess) break;
             }
-
+        
             if (!pipelineSuccess) {
                 descDiv.style.color = "#ff3333";
                 descDiv.innerText = `Scan Processing Failure:\n${finalErrorMessage}\n\nAim camera and tap ⛶ to scan.`;
@@ -357,31 +363,58 @@
 
         // 5. Mesh Processing Generator Engine
         function renderAIBlueprint(shapesArray) {
+            // Clear out previous meshes safely
             while(worldGroup.children.length > 0) {
-                worldGroup.remove(worldGroup.children[0]);
+                const child = worldGroup.children[0];
+                if(child.geometry) child.geometry.dispose();
+                if(child.material) child.material.dispose();
+                worldGroup.remove(child);
             }
-
+        
             shapesArray.forEach(shapeData => {
                 let geo;
-                switch(shapeData.type) {
-                    case 'box': geo = new THREE.BoxGeometry(1, 1, 1); break;
-                    case 'sphere': geo = new THREE.SphereGeometry(0.5, 12, 12); break;
-                    case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 12); break;
-                    case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 12); break;
-                    default: geo = new THREE.BoxGeometry(1, 1, 1);
+                
+                // UPGRADED ADVANCED PRIMITIVE GRAPHICS TRANSLATOR
+                switch(shapeData.type.toLowerCase().trim()) {
+                    case 'box': 
+                        geo = new THREE.BoxGeometry(1, 1, 1); 
+                        break;
+                    case 'sphere': 
+                        geo = new THREE.SphereGeometry(0.5, 14, 12); 
+                        break;
+                    case 'cylinder': 
+                        geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 14); 
+                        break;
+                    case 'cone': 
+                        geo = new THREE.ConeGeometry(0.5, 1, 14); 
+                        break;
+                    case 'capsule':
+                        // Dynamic mapping for organic limbs and structures: radius, length, capSegments, radialSegments
+                        geo = new THREE.CapsuleGeometry(0.35, 0.7, 4, 10);
+                        break;
+                    case 'torus':
+                        // Dynamic mapping for wheels, rings, and detailing: radius, tubeThickness, radialSegments, tubularSegments
+                        geo = new THREE.TorusGeometry(0.4, 0.12, 8, 20);
+                        break;
+                    default: 
+                        geo = new THREE.BoxGeometry(1, 1, 1);
                 }
-
+        
+                // Apply a highly structural, clean-faceted low-poly styling material
                 const mat = new THREE.MeshStandardMaterial({
                     color: new THREE.Color(shapeData.color || "#ffffff"),
-                    flatShading: true,
-                    roughness: 0.65
+                    flatShading: true,  // Enforces sharp, deliberate low-poly polygon edges
+                    roughness: 0.5,     // Adds realistic, crisp environmental diffuse reflections
+                    metalness: 0.1
                 });
-
+        
                 const mesh = new THREE.Mesh(geo, mat);
+                
+                // Map positional arrays
                 mesh.position.set(shapeData.position.x, shapeData.position.y, shapeData.position.z);
                 mesh.scale.set(shapeData.scale.x, shapeData.scale.y, shapeData.scale.z);
                 mesh.rotation.set(shapeData.rotation.x, shapeData.rotation.y, shapeData.rotation.z);
-
+        
                 worldGroup.add(mesh);
             });
         }
