@@ -7,37 +7,38 @@
     <style>
         body { margin: 0; padding: 0; overflow: hidden; font-family: sans-serif; background: #0b0b0f; color: #fff; }
         
-        /* Main Controls Container limited to screen bounds on ultra-narrow devices */
+        /* Main Controls Container pinned symmetrically with matching left/right margins */
         #controls { 
             position: absolute; 
             top: 10px; 
             left: 10px; 
+            right: 10px; 
             z-index: 10; 
             background: rgba(15,15,22,0.9); 
             padding: 12px; 
             border-radius: 8px; 
             border: 1px solid #333; 
-            width: 326px; 
-            max-width: calc(100vw - 20px); 
             box-shadow: 0 4px 25px rgba(0,0,0,0.8); 
             box-sizing: border-box;
         }
         
-        /* Fixed-height upper deck guarantees pixel-perfect title and button alignment */
+        /* Flex assembly distributes extra space between control stack and camera feed */
         .upper-deck {
             display: flex;
+            justify-content: space-between;
             gap: 12px;
             align-items: stretch;
             width: 100%;
-            height: 90px;
         }
 
-        /* Clean vertical flex layout to frame the interactive elements */
+        /* Fixed width column preserves precise button scaling configurations */
         .control-core {
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            flex-grow: 1;
+            width: 170px;
+            flex-shrink: 0;
+            flex-grow: 0;
             min-width: 0;
         }
 
@@ -66,7 +67,7 @@
         }
         #uiToggleBtn:active { transform: scale(0.95); }
         
-        /* Fixed 4:3 Aspect Camera view embedded perfectly inside the module layout bounds */
+        /* Right-aligned camera screen with fixed 4:3 dimensions matching the deck height */
         #cameraWindow { 
             width: 120px;
             height: 90px;
@@ -82,7 +83,6 @@
         
         .btn-toolbar { display: flex; gap: 8px; width: 100%; margin: 0; }
         
-        /* Preserved exact action button square sizing configurations */
         button.action-btn { 
             flex: 1; 
             aspect-ratio: 1;
@@ -170,15 +170,11 @@
     <canvas id="canvas3d"></canvas>
 
     <script>
-        // =========================================================================
-        // PURE HARDWARE INERTIAL TUNING BLOCK
-        // =========================================================================
         const ACCEL_GAIN       = 0.35; 
         const ACCEL_DEADZONE   = 0.35; 
         const SPIN_KILL_LIMIT  = 4.5;  
         const SLIDE_FRICTION   = 0.80; 
         const MAX_SPEED_CEILING = 0.60; 
-        // =========================================================================
 
         let scene, camera, renderer, controls;
         let videoElement, localStream;
@@ -263,20 +259,19 @@
             animate();
         }
 
+        // --- PRESERVES PARENT ANCHORS WHEN TOGGLING CHILD DOCK DISPLAY VISIBILITIES ---
         function toggleControlPanelsVisibility() {
             const toolbar = document.getElementById('toolbarNode');
             const cameraWin = document.getElementById('cameraWindow');
             const lowerContent = document.getElementById('lowerContent');
             const debugPanel = document.getElementById('debugPanel');
             const toggleBtn = document.getElementById('uiToggleBtn');
-            const controlsBox = document.getElementById('controls');
 
             if (toolbar.style.display === 'none') {
                 toolbar.style.display = 'flex';
                 cameraWin.style.display = 'block';
                 lowerContent.style.display = 'block';
                 debugPanel.style.display = 'block';
-                controlsBox.style.width = ''; 
                 toggleBtn.innerText = '👁';
                 toggleBtn.style.color = '#00e5ff';
                 toggleBtn.style.borderColor = '#444';
@@ -285,7 +280,6 @@
                 cameraWin.style.display = 'none';
                 lowerContent.style.display = 'none';
                 debugPanel.style.display = 'none';
-                controlsBox.style.width = '160px'; 
                 toggleBtn.innerText = '❌';
                 toggleBtn.style.color = '#ff007f';
                 toggleBtn.style.borderColor = '#ff007f';
