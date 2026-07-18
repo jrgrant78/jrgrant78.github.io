@@ -249,7 +249,6 @@
             };
         })();
 
-        // --- OPTION 1: PROCEDURAL 3D RECTILINEAR FILLET GENERATOR ---
         function createRoundedBoxGeometry(w, h, d, radius, segments) {
             w = Math.max(w, 0.05); h = Math.max(h, 0.05); d = Math.max(d, 0.05);
             const r = Math.min(radius, Math.min(w, h) * 0.45);
@@ -280,6 +279,24 @@
             const geo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
             geo.center();
             return geo;
+        }
+
+        // --- CLIENT SIDE GRACEFUL SUBSTRING SCANNER FALLBACK ---
+        function extractCleanJsonObject(rawText) {
+            const firstOpen = rawText.indexOf('{');
+            if (firstOpen === -1) throw new Error("No object initialization vector located.");
+            
+            let braceDepth = 0;
+            for (let i = firstOpen; i < rawText.length; i++) {
+                if (rawText[i] === '{') braceDepth++;
+                else if (rawText[i] === '}') {
+                    braceDepth--;
+                    if (braceDepth === 0) {
+                        return rawText.substring(firstOpen, i + 1);
+                    }
+                }
+            }
+            throw new Error("Mismatched object encapsulation boundaries detected.");
         }
 
         function init3D() {
@@ -425,14 +442,12 @@
             let finalShapesPayload = null;
             let finalErrorMessage = "Network pipeline error.";
 
-            // PASS 1: LINGUISTIC FORENSIC COMPOSITION
+            // PASS 1: NATIVE SYSTEM LEVEL SCHEMA SCHEMA LOCKDOWN
             const pass1Prompt = `
-                You are a micro-spatial computer vision engine. Analyze this camera frame with absolute architectural literalism.
+                Analyze this camera frame with absolute architectural literalism.
                 Write an exhaustive, granular spatial text log detailing every visible element down to the last detail.
-                Document the exact identity, relative positions, depth layers, coordinate intersections, color tones, textures, and angles of real-world light sources striking the scene.
-                If any people or living subjects are present, forensically log their joint configurations, limbs, hands, and facial orientations explicitly.
-                Return ONLY a clean JSON object containing a single string key:
-                { "desc": "[Your exhaustive forensic text analysis here...]" }
+                Document identity, positions, depth layers, coordinate intersections, color tones, textures, and angles of light sources.
+                If people or living subjects are present, log joint configurations, limbs, and facial orientations explicitly.
             `;
 
             for (let currentModel of priorityModels) {
@@ -446,13 +461,24 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             contents: [{ parts: [{ text: pass1Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }],
-                            generationConfig: { responseMimeType: "application/json" }
+                            generationConfig: { 
+                                responseMimeType: "application/json",
+                                responseSchema: {
+                                    type: "OBJECT",
+                                    properties: {
+                                        desc: { type: "STRING" }
+                                    },
+                                    required: ["desc"]
+                                }
+                            }
                         })
                     });
 
                     if (response.ok) {
                         const data = await response.json();
-                        const parsed = JSON.parse(data.candidates[0].content.parts[0].text);
+                        const cleanRawText = data.candidates[0].content.parts[0].text;
+                        const verifiedJsonString = extractCleanJsonObject(cleanRawText);
+                        const parsed = JSON.parse(verifiedJsonString);
                         forensicTextBlueprint = parsed.desc;
                     }
                 } catch (err) {
@@ -467,36 +493,18 @@
                 return;
             }
 
-            // PASS 2: INJECTED FILLET GENERATION DEMANDS
+            // PASS 2: COMPACT OBJECT BLUEPRINT SCHEMA ASSIGNMENT
             const pass2Prompt = `
-                You are a master chiseled sculptor and 3D CAD engineering compiler. 
-                Using the provided camera frame AND the following forensic text blueprint, construct a highly complex, multi-primitive structural block assembly.
+                Using the provided camera frame AND the following forensic text blueprint, construct a complex, multi-primitive structural block assembly.
 
                 FORENSIC TEXT BLUEPRINT:
                 "${forensicTextBlueprint}"
 
                 STRICT MESH GENERATION MANDATES:
-                1. ABSOLUTE PROHIBITION AGAINST SIMPLIFICATION: You are explicitly forbidden from abstracting complex shapes into standalone items.
-                2. SCULPTURAL BLUEPRINT FORMULA: The "shapes" array MUST contain between 40 and 70 distinct entries. Complete human anatomies require mapping components separately (cranium, jaw, neck, split chests, shoulder hubs, upper/lower arms, hands, individual finger nodes).
+                1. NO SIMPLIFICATION: You must map anatomy components separately (cranium, neck, split chests, shoulder hubs, upper/lower arms).
+                2. SCULPTURAL BLUEPRINT FORMULA: The "shapes" array MUST contain between 40 and 70 distinct entries.
                 3. SOLID MANIFOLD COALESCENCE: Every primitive must sink at least 15% into neighboring meshes.
-                4. ORGANIC FAUX BLENDING: You have access to a soft "roundedbox" primitive along with "capsule" and "torus". Use these curved nodes extensively as structural fillets directly over joints where two sharp structures intersect. Interlock them tightly to catch light reflections smoothly and simulate a blended, continuous sculptural execution.
-
-                Format using this highly compressed token-saving schema:
-                "t": type ("box"|"sphere"|"cylinder"|"cone"|"capsule"|"torus"|"roundedbox")
-                "m": material finish ("wood"|"porcelain")
-                "c": hex color string
-                "p": position array [x, y, z]
-                "s": scale array [x, y, z]
-                "r": rotation array [x, y, z]
-                "g": curve segments (64 to 128)
-
-                Return ONLY a clean JSON object matching this schema layout:
-                {
-                  "shapes": [
-                    { "t": "roundedbox", "m": "porcelain", "c": "#ffffff", "p": [0.0, 1.2, -3.0], "s": [0.3, 0.6, 0.3], "r": [0, 0, 0], "g": 96 }
-                  ]
-                }
-                Ground floor plane is fixed at y=-3. Generate a massive array of solid rounded primitives!
+                4. ORGANIC FAUX BLENDING: Use "roundedbox", "capsule", and "torus" nodes extensively as structural fillets directly over joints where structures intersect to catch light reflections smoothly.
             `;
 
             for (let currentModel of priorityModels) {
@@ -510,18 +518,39 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             contents: [{ parts: [{ text: pass2Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }],
-                            generationConfig: { responseMimeType: "application/json" }
+                            generationConfig: { 
+                                responseMimeType: "application/json",
+                                responseSchema: {
+                                    type: "OBJECT",
+                                    properties: {
+                                        shapes: {
+                                            type: "ARRAY",
+                                            items: {
+                                                type: "OBJECT",
+                                                properties: {
+                                                    t: { type: "STRING" },
+                                                    m: { type: "STRING" },
+                                                    c: { type: "STRING" },
+                                                    p: { type: "ARRAY", items: { type: "NUMBER" } },
+                                                    s: { type: "ARRAY", items: { type: "NUMBER" } },
+                                                    r: { type: "ARRAY", items: { type: "NUMBER" } },
+                                                    g: { type: "INTEGER" }
+                                                },
+                                                required: ["t", "m", "c", "p", "s", "r"]
+                                            }
+                                        }
+                                    },
+                                    required: ["shapes"]
+                                }
+                            }
                         })
                     });
 
                     if (response.ok) {
                         const data = await response.json();
-                        let jsonText = data.candidates[0].content.parts[0].text;
-                        const firstBracket = jsonText.indexOf('{');
-                        const lastBracket = jsonText.lastIndexOf('}');
-                        jsonText = jsonText.substring(firstBracket, lastBracket + 1);
-                        
-                        const parsed = JSON.parse(jsonText);
+                        const cleanRawText = data.candidates[0].content.parts[0].text;
+                        const verifiedJsonString = extractCleanJsonObject(cleanRawText);
+                        const parsed = JSON.parse(verifiedJsonString);
                         if (parsed && Array.isArray(parsed.shapes)) {
                             finalShapesPayload = parsed.shapes;
                         }
@@ -575,7 +604,6 @@
                             const rw = scl[0] ?? 1;
                             const rh = scl[1] ?? 1;
                             const rd = scl[2] ?? 1;
-                            // Extract scale early to calculate absolute, uniform edge bevel fillets
                             const baseBevel = Math.min(0.12, Math.min(rw, rh, rd) * 0.35);
                             geo = createRoundedBoxGeometry(rw, rh, rd, baseBevel, 5);
                             break;
@@ -627,7 +655,6 @@
                         mesh.position.set(pos[0] ?? 0, pos[1] ?? 0, pos[2] ?? 0);
                         mesh.rotation.set(rot[0] ?? 0, rot[1] ?? 0, rot[2] ?? 0);
 
-                        // If roundedbox, dimensions are already baked uniformly to avoid stretched corners
                         if (isRoundedBox) {
                             mesh.scale.set(1, 1, 1);
                         } else {
