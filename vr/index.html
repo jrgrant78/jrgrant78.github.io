@@ -152,7 +152,6 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-            // Unlocks advanced reflections for porcelain glazed surfaces
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
             renderer.toneMappingExposure = 1.2;
 
@@ -164,12 +163,11 @@
 
             scene.add(new THREE.AmbientLight(0xffffff, 0.5));
             
-            // Structured high-contrast light setup to showcase carved/sculpted curves
             const keyLight = new THREE.DirectionalLight(0xffffff, 1.2);
             keyLight.position.set(20, 40, 25);
             scene.add(keyLight);
 
-            const rimLight = new THREE.DirectionalLight(0xff007f, 0.4);
+            const rimLight = new THREE.DirectionalLight(0xff007f, 0.45);
             rimLight.position.set(-20, 20, -20);
             scene.add(rimLight);
 
@@ -254,41 +252,37 @@
             ctx.drawImage(videoElement, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
             const base64Image = hiddenCanvas.toDataURL('image/jpeg').split(',')[1];
 
+            // COMPRESSED ARRAY SCHEMA PROMPT: Eliminates token limits to force deep anatomical sculpting
             const promptText = `
-                You are a master chiseled sculptor and expert computer vision scanner. 
-                Analyze this camera frame and construct an intricate 3D representation designed like an assembly of carved wood blocks or fine glazed porcelain.
+                You are a master chiseled sculptor and 3D computer vision scanner. 
+                Analyze this image and translate it into a complex, multi-part chiseled assembly of carved wood or smooth porcelain blocks.
 
-                1. GRAND FORENSIC SCAN ANALYSIS: In the "description" key, write an exhaustive text breakdown detailing exactly what is seen in the image down to every last detail. Log the precise identity, physical placement coordinates, rotation angles, materials, textures, and exact locations of light sources striking the scene.
+                1. EXHAUSTIVE GRAND SCAN ANALYSIS: Under the "desc" key, describe exactly what is seen in the image down to every last detail. Document explicit identification, spatial coordinates, material finishes, real-world lighting sources, and structural orientation profiles.
 
-                2. CRITICAL ANATOMICAL AND STRUCTURAL CONTRAINT:
-                   - STRICTOR PROHIBITION AGAINST HYPER-SIMPLIFICATION: Never approximate complex shapes with single primitive representations. For example, do not represent humans as a basic egg or capsule torso without limbs.
-                   - CARVED COMPOSITE STRUCTURAL ASSEMBLY: Treat every object as an intricate collection of 35 to 60 interlocking chiseled primitive components. 
-                   - HUMAN / LIVING FIGURES MANDATE: If a person or living subject is present, you MUST forensically construct full anatomy out of interconnected primitives: separate head/cranium, nose/jawline accents, neck cylinder, divided chest and abdomen blocks, shoulder links, upper arms, lower arms, hands, hip blocks, thighs, shins, and distinct feet structures.
-                   - SOLID MANIFOLD COALESCENCE: Every primitive component must explicitly sink 10% into adjacent parts to maintain a perfectly solid, continuous chiseled look with zero disconnected or floating polygons.
+                2. CHISELED COMPONENT MANDATE (NO SIMPLISTIC Fallbacks):
+                   - YOU ARE FORBIDDEN from abstracting compound objects into standalone shapes (e.g., do not output a person as an egg head on top of a box torso with missing limbs).
+                   - SCULPTED HIGH-DENSITY ASSEMBLIES: You must construct subjects out of an extensive array of 35 to 60 interlocking micro-primitives.
+                   - ANATOMICAL APPENDAGE RULE: If humans or living subjects are visible, you MUST build full physical anatomy out of individual, overlapping primitives: separate head/cranium skull, nose ridges, neck column, split upper/lower chest blocks, shoulder nodes, upper arms, lower arms, hands, hip blocks, thighs, shins, and feet.
+                   - EVERY component must sink 15% into its neighbor so they coalesce into a solid, continuous, watertight sculpture with NO floating parts.
 
-                3. SPECIFY SCULPTING MEDIUMS:
-                   Assign each component a "materialType" of either "wood" (matte finish, light-absorbing) or "porcelain" (smooth, glassy high-gloss finish) matching the texture characteristics of the target object.
+                To maximize mesh budget, use this highly compressed array-based JSON format:
+                "t": type ("box"|"sphere"|"cylinder"|"cone"|"capsule"|"torus")
+                "m": material ("wood"|"porcelain")
+                "c": hex color string
+                "p": position array [x, y, z]
+                "s": scale array [x, y, z]
+                "r": rotation array [x, y, z]
+                "g": geometric curve segments (64 to 128)
 
-                Primitives allowed: "box", "sphere", "cylinder", "cone", "capsule", "torus".
-                HIGH POLYGON RESOLUTION: Set a "segments" parameter between 64 and 128 to ensure dense, perfectly smooth curves.
-
-                Return a clean JSON object matching this schema exactly:
+                Match this exact schema layout:
                 {
-                  "description": "[Your exhaustive, micro-detailed forensic text analysis documenting object placement, orientation lines, and lighting fields...]",
+                  "desc": "[Your exhaustive, micro-detailed forensic text analysis documenting object placement, orientation lines, and lighting fields...]",
                   "shapes": [
-                    {
-                      "name": "body_part_or_chiseled_node_id",
-                      "type": "box | sphere | cylinder | cone | capsule | torus",
-                      "materialType": "wood | porcelain",
-                      "color": "#hexcode",
-                      "position": {"x": 0.0, "y": 1.5, "z": -3.0},
-                      "scale": {"x": 1.0, "y": 1.0, "z": 1.0},
-                      "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
-                      "segments": 96
-                    }
+                    { "t": "capsule", "m": "wood", "c": "#d2a679", "p": [0.0, 1.2, -3.0], "s": [0.4, 0.8, 0.4], "r": [0, 0, 0], "g": 96 },
+                    { "t": "cylinder", "m": "wood", "c": "#b38659", "p": [0.2, 0.4, -3.0], "s": [0.1, 0.6, 0.1], "r": [0.2, 0, -0.1], "g": 64 }
                   ]
                 }
-                Ground plane floor is y=-3. Build a highly complex, chiseled sculptural composition!
+                Ground floor plane is fixed at y=-3. Generate a massive, highly detailed chiseled assembly!
             `;
 
             const priorityModels = ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash'];
@@ -357,7 +351,7 @@
 
             if (parsedPayloadInstance) {
                 descDiv.style.color = "#fff";
-                descDiv.innerText = parsedPayloadInstance.description || "Sculpting finished.";
+                descDiv.innerText = parsedPayloadInstance.desc || "Sculpting finished.";
                 renderAIBlueprint(parsedPayloadInstance.shapes);
             } else {
                 descDiv.style.color = "#ff3333";
@@ -370,7 +364,7 @@
             statusDiv.style.display = 'none';
         }
 
-        // --- PHYSICAL MATERIAL ADVANCED COMPILER FACTORY ---
+        // --- COMPRESSED KEY PARSING PHYSICAL COMPILER ---
         function renderAIBlueprint(shapesArray) {
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
@@ -382,13 +376,14 @@
             if (!Array.isArray(shapesArray)) return;
 
             shapesArray.forEach(shapeData => {
-                if (!shapeData || !shapeData.type) return;
+                // Map compressed keys ("t"=type, "m"=material, "c"=color, "p"=position, "s"=scale, "r"=rotation, "g"=segments)
+                if (!shapeData || !shapeData.t) return;
 
                 let geo;
-                const polyBudget = Math.max(shapeData.segments || 96, 64); 
+                const polyBudget = Math.max(shapeData.g || 96, 64); 
 
                 try {
-                    switch(shapeData.type.toLowerCase().trim()) {
+                    switch(shapeData.t.toLowerCase().trim()) {
                         case 'box': 
                             geo = new THREE.BoxGeometry(1, 1, 1, 6, 6, 6); 
                             break;
@@ -415,43 +410,42 @@
                         geo.computeVertexNormals();
 
                         let mat;
-                        const baseColor = new THREE.Color(shapeData.color || "#ffffff");
-                        const matClassification = (shapeData.materialType || "porcelain").toLowerCase().trim();
+                        const baseColor = new THREE.Color(shapeData.c || "#ffffff");
+                        const matClassification = (shapeData.m || "porcelain").toLowerCase().trim();
 
-                        // Advanced material pipeline switches to capture chiseled aesthetics
                         if (matClassification === 'wood') {
                             mat = new THREE.MeshStandardMaterial({
                                 color: baseColor,
-                                roughness: 0.85,  // Highly diffusing matte structure
+                                roughness: 0.85,  
                                 metalness: 0.02,
                                 side: THREE.DoubleSide
                             });
                         } else { 
-                            // Porcelain glaze defaults or structural triggers
                             mat = new THREE.MeshPhysicalMaterial({
                                 color: baseColor,
                                 roughness: 0.05,
                                 metalness: 0.05,
-                                clearcoat: 1.0,           // Glass shell layer
-                                clearcoatRoughness: 0.03, // Mirror-smooth glaze reflectives
+                                clearcoat: 1.0,           
+                                clearcoatRoughness: 0.03, 
                                 side: THREE.DoubleSide
                             });
                         }
 
                         const mesh = new THREE.Mesh(geo, mat);
                         
-                        const p = shapeData.position || {x:0, y:0, z:0};
-                        const s = shapeData.scale || {x:1, y:1, z:1};
-                        const r = shapeData.rotation || {x:0, y:0, z:0};
+                        // Parse flat arrays from compressed payload schema mapping safely
+                        const pos = Array.isArray(shapeData.p) ? shapeData.p : [0,0,0];
+                        const scl = Array.isArray(shapeData.s) ? shapeData.s : [1,1,1];
+                        const rot = Array.isArray(shapeData.r) ? shapeData.r : [0,0,0];
 
-                        mesh.position.set(p.x ?? 0, p.y ?? 0, p.z ?? 0);
-                        mesh.scale.set(s.x ?? 1, s.y ?? 1, s.z ?? 1);
-                        mesh.rotation.set(r.x ?? 0, r.y ?? 0, r.z ?? 0);
+                        mesh.position.set(pos[0] ?? 0, pos[1] ?? 0, pos[2] ?? 0);
+                        mesh.scale.set(scl[0] ?? 1, scl[1] ?? 1, scl[2] ?? 1);
+                        mesh.rotation.set(rot[0] ?? 0, rot[1] ?? 0, rot[2] ?? 0);
 
                         worldGroup.add(mesh);
                     }
                 } catch (geomError) {
-                    console.error("Mesh calculation skipped:", geomError);
+                    console.error("Mesh compilation skipped:", geomError);
                 }
             });
         }
