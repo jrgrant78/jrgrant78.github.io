@@ -7,14 +7,38 @@
     <style>
         body { margin: 0; padding: 0; overflow: hidden; font-family: sans-serif; background: #0b0b0f; color: #fff; }
         
-        #controls { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(15,15,22,0.9); padding: 15px; border-radius: 8px; border: 1px solid #333; width: 200px; box-shadow: 0 4px 25px rgba(0,0,0,0.8); }
+        /* Floating UI Visibility Toggle Button */
+        #uiToggleBtn { 
+            position: absolute; 
+            top: 10px; 
+            left: 10px; 
+            z-index: 12; 
+            width: 40px; 
+            height: 40px; 
+            background: rgba(15,15,22,0.9); 
+            color: #00e5ff; 
+            border: 1px solid #333; 
+            border-radius: 8px; 
+            font-size: 1.2em; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            cursor: pointer; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            transition: all 0.2s ease;
+            -webkit-tap-highlight-color: transparent;
+        }
         
+        /* Shifted Overlay Controls Container downwards to make space for Toggle */
+        #controls { position: absolute; top: 60px; left: 10px; z-index: 10; background: rgba(15,15,22,0.9); padding: 15px; border-radius: 8px; border: 1px solid #333; width: 200px; box-shadow: 0 4px 25px rgba(0,0,0,0.8); }
+        
+        /* Small Upper-Right Camera View Window */
         #cameraWindow { position: absolute; top: 10px; right: 10px; z-index: 10; width: 120px; height: 90px; border: 2px solid #00e5ff; border-radius: 6px; overflow: hidden; background: #000; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
         #cameraFeed { width: 100%; height: 100%; object-fit: cover; }
         
         .btn-toolbar { display: flex; gap: 8px; margin-top: 10px; width: 100%; }
         
-        button { 
+        button.action-btn { 
             flex: 1; 
             aspect-ratio: 1; 
             background: #1a1a24; 
@@ -66,6 +90,9 @@
 </head>
 <body>
 
+    <!-- UI Visibility Control Node -->
+    <button id="uiToggleBtn" title="Toggle UI Controls">👁</button>
+
     <div id="cameraWindow">
         <video id="cameraFeed" autoplay playsinline muted></video>
     </div>
@@ -74,9 +101,9 @@
         <h4 style="margin: 0 0 5px 0; color: #00e5ff; text-align: center;">Spatial Sculptor</h4>
         
         <div class="btn-toolbar">
-            <button id="scanBtn" class="btn-scan" title="Scan Surroundings">⛶</button>
-            <button id="gyroBtn" class="btn-gyro" title="Enable Gyro & Inertial Walk">🕧</button>
-            <button id="clearBtn" class="btn-clear" title="Clear Scene & Reset View">🗑</button>
+            <button id="scanBtn" class="action-btn btn-scan" title="Scan Surroundings">⛶</button>
+            <button id="gyroBtn" class="action-btn btn-gyro" title="Enable Gyro & Inertial Walk">🕧</button>
+            <button id="clearBtn" class="action-btn btn-clear" title="Clear Scene & Reset View">🗑</button>
         </div>
 
         <input type="password" id="apiKeyField" class="key-input" placeholder="Enter Gemini API Key...">
@@ -167,6 +194,9 @@
             document.getElementById('scanBtn').addEventListener('click', captureAndScanFrame);
             document.getElementById('gyroBtn').addEventListener('click', toggleSensorsFunctionality);
             document.getElementById('clearBtn').addEventListener('click', clearSceneAndResetView);
+            
+            // Core Show/Hide Hook setup for clean AR integration
+            document.getElementById('uiToggleBtn').addEventListener('click', toggleControlPanelsVisibility);
 
             initRearCameraStreamGracefully();
 
@@ -178,6 +208,28 @@
             }
 
             animate();
+        }
+
+        // --- SHOW / HIDE UI EVENT TOGGLER ---
+        function toggleControlPanelsVisibility() {
+            const controlsPanel = document.getElementById('controls');
+            const debugPanel = document.getElementById('debugPanel');
+            const cameraWindow = document.getElementById('cameraWindow');
+            const toggleBtn = document.getElementById('uiToggleBtn');
+
+            if (controlsPanel.style.display === 'none') {
+                controlsPanel.style.display = 'block';
+                debugPanel.style.display = 'block';
+                cameraWindow.style.display = 'block';
+                toggleBtn.innerText = '👁';
+                toggleBtn.style.color = '#00e5ff';
+            } else {
+                controlsPanel.style.display = 'none';
+                debugPanel.style.display = 'none';
+                cameraWindow.style.display = 'none';
+                toggleBtn.innerText = '❌';
+                toggleBtn.style.color = '#ff007f';
+            }
         }
 
         function initOrbitControls() {
@@ -207,7 +259,6 @@
             }
         }
 
-        // --- CASCADING MULTI-PASS API ENGINE ---
         async function captureAndScanFrame() {
             if (scanInProgress) return;
             
@@ -244,9 +295,7 @@
             let finalShapesPayload = null;
             let finalErrorMessage = "Network pipeline error.";
 
-            // =========================================================================
             // PASS 1: LINGUISTIC FORENSIC COMPOSITION
-            // =========================================================================
             const pass1Prompt = `
                 You are a micro-spatial computer vision engine. Analyze this camera frame with absolute architectural literalism.
                 Write an exhaustive, granular spatial text log detailing every visible element down to the last detail.
@@ -288,13 +337,7 @@
                 return;
             }
 
-            // Show intermediate text progress to user smoothly
-            descDiv.style.color = "#fff";
-            descDiv.innerText = forensicTextBlueprint;
-
-            // =========================================================================
             // PASS 2: STRUCTURAL ARRAY COMPILATION (CAD MODE)
-            // =========================================================================
             const pass2Prompt = `
                 You are a master chiseled sculptor and 3D CAD engineering compiler. 
                 Using the provided camera frame AND the following forensic text blueprint, construct a highly complex, multi-primitive chiseled block assembly.
@@ -357,8 +400,10 @@
                 }
             }
 
+            // LOCKED COMPLETION HANDLER: Explicitly guarantees scene log remains visible post-generation
             if (finalShapesPayload) {
                 descDiv.style.color = "#fff";
+                descDiv.innerText = forensicTextBlueprint; // Fixed: Retains description inside the DOM panel
                 renderAIBlueprint(finalShapesPayload);
             } else {
                 descDiv.style.color = "#ff3333";
