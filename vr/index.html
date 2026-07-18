@@ -207,6 +207,7 @@
             }
         }
 
+        // --- CASCADING MULTI-PASS API ENGINE ---
         async function captureAndScanFrame() {
             if (scanInProgress) return;
             
@@ -238,108 +239,130 @@
             ctx.drawImage(videoElement, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
             const base64Image = hiddenCanvas.toDataURL('image/jpeg').split(',')[1];
 
-            // FIXED HYPER-DENSITY SCULPTING PROMPT WITH SHAPE QUOTAS
-            const promptText = `
-                You are a master chiseled sculptor and 3D vision CAD engine. Convert the camera frame into a highly intricate, multi-primitive chiseled block assembly of carved wood or polished porcelain.
+            const priorityModels = ['gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'];
+            let forensicTextBlueprint = "";
+            let finalShapesPayload = null;
+            let finalErrorMessage = "Network pipeline error.";
 
-                1. CONCISE SCAN LOG: In the "desc" key, provide a compressed, bulleted spatial breakdown of the scene (objects, orientation, light directions). Keep this description compact to conserve token bandwidth for geometry generation.
-
-                2. MANDATORY GEOMETRIC QUOTA & COMPOSITE DENSITY:
-                   - STRICT CRITICAL RULE: The "shapes" array MUST contain between 40 and 70 distinct primitive nodes. You are strictly forbidden from outputting simple baselines (like an egg on a cube without limbs).
-                   - SCULPTURAL BLUEPRINT FORMULA FOR FIGURES: If humans or living objects are present, you must manually assemble them piece-by-piece using distinct primitives: 1 cranium, 1 jaw block, 1 nose cone, 1 neck cylinder, 2 chest plates, 2 abdominal segments, 2 hip joints, 4 upper/lower arm tubes, 2 palm boxes, 10 separate finger capsules, 4 leg shafts, and 2 distinct geometric wedged blocks for feet.
-                   - SOLID COMPOSITE SLICING: Every primitive must sink at least 15% into its adjacent neighbors to maintain total mesh solidity with zero floating polygons.
-
-                Format layout using this highly minified token-saving JSON map:
-                "t": type ("box"|"sphere"|"cylinder"|"cone"|"capsule"|"torus")
-                "m": material classification ("wood"|"porcelain")
-                "c": hex color code string
-                "p": coordinate position array [x, y, z]
-                "s": dimensional scale array [x, y, z]
-                "r": angular rotation matrix array [x, y, z]
-                "g": geometric curvature divisions (64 to 128)
-
-                Output template structure matching this format exactly:
-                {
-                  "desc": "[Condensed, forensic scene breakdown...]",
-                  "shapes": [
-                    { "t": "capsule", "m": "porcelain", "c": "#ffffff", "p": [0.0, 1.5, -3.0], "s": [0.3, 0.6, 0.3], "r": [0, 0, 0], "g": 96 },
-                    { "t": "box", "m": "wood", "c": "#8b5a2b", "p": [0.0, -2.5, -3.0], "s": [2.5, 0.2, 2.5], "r": [0, 0.5, 0], "g": 64 }
-                  ]
-                }
-                Ground floor is y=-3. Execute a beautiful, ultra-complex chiseled block arrangement!
+            // =========================================================================
+            // PASS 1: LINGUISTIC FORENSIC COMPOSITION
+            // =========================================================================
+            const pass1Prompt = `
+                You are a micro-spatial computer vision engine. Analyze this camera frame with absolute architectural literalism.
+                Write an exhaustive, granular spatial text log detailing every visible element down to the last detail.
+                Document the exact identity, relative positions, depth layers, coordinate intersections, color tones, textures, and angles of real-world light sources striking the scene.
+                If any people or living subjects are present, forensically log their joint configurations, limbs, hands, and facial orientations explicitly.
+                Return ONLY a clean JSON object containing a single string key:
+                { "desc": "[Your exhaustive forensic text analysis here...]" }
             `;
 
-            const priorityModels = ['gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'];
-            let finalErrorMessage = "Network connection failed.";
-            let parsedPayloadInstance = null;
-
             for (let currentModel of priorityModels) {
-                if (parsedPayloadInstance) break; 
-                
-                let attemptsLeft = 3;
-                let backoffDelay = 1500;
+                if (forensicTextBlueprint) break;
+                try {
+                    descDiv.style.color = "#ffab00";
+                    descDiv.innerText = `Pass 1/2: Analyzing visual details...\n(${currentModel})`;
 
-                while (attemptsLeft > 0) {
-                    try {
-                        descDiv.style.color = "#ffab00";
-                        descDiv.innerText = `Sculpting via ${currentModel}...\n(Attempt ${4 - attemptsLeft} of 3)`;
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${userEnteredKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: pass1Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }],
+                            generationConfig: { responseMimeType: "application/json" }
+                        })
+                    });
 
-                        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${userEnteredKey}`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                contents: [{
-                                    parts: [
-                                        { text: promptText },
-                                        { inlineData: { mimeType: "image/jpeg", data: base64Image } }
-                                    ]
-                                }],
-                                generationConfig: { responseMimeType: "application/json" }
-                            })
-                        });
-
-                        if (!response.ok) {
-                            const errorJson = await response.json();
-                            const serverMessage = errorJson.error?.message || "";
-                            if (response.status === 429 || response.status === 503) {
-                                await new Promise(res => setTimeout(res, backoffDelay));
-                                attemptsLeft--; backoffDelay *= 2; continue;
-                            }
-                            throw new Error(`HTTP ${response.status} - ${serverMessage}`);
-                        }
-
+                    if (response.ok) {
                         const data = await response.json();
-                        let jsonText = data.candidates[0].content.parts[0].text;
-
-                        const firstBracket = jsonText.indexOf('{');
-                        const lastBracket = jsonText.lastIndexOf('}');
-                        if (firstBracket !== -1 && lastBracket !== -1) {
-                            jsonText = jsonText.substring(firstBracket, lastBracket + 1);
-                        } else {
-                            throw new Error("Invalid payload data framing formatting.");
-                        }
-
-                        parsedPayloadInstance = JSON.parse(jsonText);
-                        if (parsedPayloadInstance) break; 
-
-                    } catch (err) {
-                        finalErrorMessage = err.message;
-                        attemptsLeft--;
-                        if (attemptsLeft > 0) {
-                            await new Promise(res => setTimeout(res, backoffDelay));
-                            backoffDelay *= 2;
-                        }
+                        const parsed = JSON.parse(data.candidates[0].content.parts[0].text);
+                        forensicTextBlueprint = parsed.desc;
                     }
+                } catch (err) {
+                    finalErrorMessage = `Pass 1 Failed: ${err.message}`;
                 }
             }
 
-            if (parsedPayloadInstance) {
+            if (!forensicTextBlueprint) {
+                descDiv.style.color = "#ff3333";
+                descDiv.innerText = `Scan Error at Pass 1:\n${finalErrorMessage}`;
+                scanInProgress = false; scanBtn.disabled = false; scanBtn.style.opacity = "1"; statusDiv.style.display = 'none';
+                return;
+            }
+
+            // Show intermediate text progress to user smoothly
+            descDiv.style.color = "#fff";
+            descDiv.innerText = forensicTextBlueprint;
+
+            // =========================================================================
+            // PASS 2: STRUCTURAL ARRAY COMPILATION (CAD MODE)
+            // =========================================================================
+            const pass2Prompt = `
+                You are a master chiseled sculptor and 3D CAD engineering compiler. 
+                Using the provided camera frame AND the following forensic text blueprint, construct a highly complex, multi-primitive chiseled block assembly.
+
+                FORENSIC TEXT BLUEPRINT:
+                "${forensicTextBlueprint}"
+
+                STRICT MESH GENERATION MANDATES:
+                1. ABSOLUTE PROHIBITION AGAINST SIMPLIFICATION: You are explicitly forbidden from abstracting complex shapes into standalone items (e.g., no single eggs for heads or flat boxes without limbs).
+                2. SCULPTURAL BLUEPRINT FORMULA: The "shapes" array MUST contain between 40 and 70 distinct entries. If a human or figure is noted in the text blueprint, you must completely map out their anatomy component-by-component: separate cranium skull, jaw ridges, nose accents, neck cylinders, split upper/lower chest segments, abdominal blocks, shoulder links, upper arms, lower arms, hands, individual finger capsules, hip connectors, thighs, shins, and distinct chiseled block feet.
+                3. SOLID MANIFOLD COALESCENCE: Every primitive must sink at least 15% into its neighbors. They must slice directly into each other to form a continuous, solid chiseled look with ZERO loose, floating, or disconnected polygons.
+
+                Format using this highly compressed token-saving schema:
+                "t": type ("box"|"sphere"|"cylinder"|"cone"|"capsule"|"torus")
+                "m": material finish ("wood"|"porcelain")
+                "c": hex color string
+                "p": position array [x, y, z]
+                "s": scale array [x, y, z]
+                "r": rotation array [x, y, z]
+                "g": curve segments (64 to 128)
+
+                Return ONLY a clean JSON object matching this schema layout:
+                {
+                  "shapes": [
+                    { "t": "capsule", "m": "porcelain", "c": "#ffffff", "p": [0.0, 1.2, -3.0], "s": [0.3, 0.6, 0.3], "r": [0, 0, 0], "g": 96 }
+                  ]
+                }
+                Ground floor plane is fixed at y=-3. Generate a massive array of solid chiseled primitives!
+            `;
+
+            for (let currentModel of priorityModels) {
+                if (finalShapesPayload) break;
+                try {
+                    descDiv.style.color = "#ffab00";
+                    descDiv.innerText = `Pass 2/2: Sculpting structural geometries...\n(${currentModel})`;
+
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${userEnteredKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: pass2Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }],
+                            generationConfig: { responseMimeType: "application/json" }
+                        })
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        let jsonText = data.candidates[0].content.parts[0].text;
+                        const firstBracket = jsonText.indexOf('{');
+                        const lastBracket = jsonText.lastIndexOf('}');
+                        jsonText = jsonText.substring(firstBracket, lastBracket + 1);
+                        
+                        const parsed = JSON.parse(jsonText);
+                        if (parsed && Array.isArray(parsed.shapes)) {
+                            finalShapesPayload = parsed.shapes;
+                        }
+                    }
+                } catch (err) {
+                    finalErrorMessage = `Pass 2 Failed: ${err.message}`;
+                }
+            }
+
+            if (finalShapesPayload) {
                 descDiv.style.color = "#fff";
-                descDiv.innerText = parsedPayloadInstance.desc || "Sculpting finished.";
-                renderAIBlueprint(parsedPayloadInstance.shapes);
+                renderAIBlueprint(finalShapesPayload);
             } else {
                 descDiv.style.color = "#ff3333";
-                descDiv.innerText = `Scan Error:\n${finalErrorMessage}`;
+                descDiv.innerText = `Scan Error at Pass 2:\n${finalErrorMessage}`;
             }
 
             scanInProgress = false;
@@ -355,8 +378,6 @@
                 if(child.material) child.material.dispose();
                 worldGroup.remove(child);
             }
-
-            if (!Array.isArray(shapesArray)) return;
 
             shapesArray.forEach(shapeData => {
                 if (!shapeData || !shapeData.t) return;
