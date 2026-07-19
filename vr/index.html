@@ -265,13 +265,13 @@
         let isFirstGyroFrame = false;
         let gyroYawOffset = 0; 
         let lockedGyroRoll = 0; 
-        let currentPitchVal = 0; 
         const cleanTargetQuaternion = new THREE.Quaternion(); 
         
-        // Custom Optical Flow Cache State Variables
-        let opticalFlowCanvas, opticalFlowContext;
-        let lastLuminanceMatrix = null;
-        
+        // Perceptual Odometry System Arrays
+        let flowCanvas, flowCtx;
+        let prevFrameLuma = null;
+        const flowGridSize = 8; 
+
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
         
@@ -349,6 +349,14 @@
         }
 
         function init3D() {
+            // API Key verification routed first to guarantee instant availability
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlKey = urlParams.get('key');
+            if (urlKey) {
+                document.getElementById('apiKeyField').value = urlKey.trim();
+                document.getElementById('aiDescription').innerHTML = "Ready to scan scene!<br>Gemini API Key verified via deep structural handshake.";
+            }
+
             const canvas = document.getElementById('canvas3d');
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x0a0a0f);
@@ -374,11 +382,11 @@
 
             scene.add(worldGroup);
 
-            // Initialize Offscreen Processing Matrix for Optical Flow Calculations
-            opticalFlowCanvas = document.createElement('canvas');
-            opticalFlowCanvas.width = 8;
-            opticalFlowCanvas.height = 8;
-            opticalFlowContext = opticalFlowCanvas.getContext('2d');
+            // Initialize analytical downsampler canvas for pure optical flow calculations
+            flowCanvas = document.createElement('canvas');
+            flowCanvas.width = 48;
+            flowCanvas.height = 36;
+            flowCtx = flowCanvas.getContext('2d');
 
             window.addEventListener('resize', onWindowResize);
             document.getElementById('scanBtn').addEventListener('click', captureAndScanFrame);
@@ -393,13 +401,6 @@
             document.getElementById('fileInput').addEventListener('change', handleDeviceFileSelection);
 
             initRearCameraStreamGracefully();
-
-            const urlParams = new URLSearchParams(window.location.search);
-            const urlKey = urlParams.get('key');
-            if (urlKey) {
-                document.getElementById('apiKeyField').value = urlKey.trim();
-                document.getElementById('aiDescription').innerHTML = "Ready to scan scene!<br>Gemini API Key verified via deep structural handshake.";
-            }
             animate();
         }
 
@@ -503,13 +504,18 @@
 
         async function initRearCameraStreamGracefully() {
             videoElement = document.getElementById('cameraFeed');
+            videoElement.setAttribute('autoplay', '');
+            videoElement.setAttribute('muted', '');
+            videoElement.setAttribute('playsinline', '');
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
                 videoElement.srcObject = localStream;
+                videoElement.play().catch(e => console.log("Media framework interaction delay expected."));
             } catch (err) {
                 try {
                     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                     videoElement.srcObject = localStream;
+                    videoElement.play().catch(e => console.log("Fallback execution error handled."));
                 } catch (e) {
                     document.getElementById('debugPanel').innerText = "Camera Stream Error";
                 }
@@ -558,38 +564,47 @@
             scanInProgress = true;
             scanBtn.disabled = true;
             
-            statusDiv.innerText = "Pass 1/2: Deconstructing Organic Anatomy...";
+            statusDiv.innerText = "Pass 1/2: Analyzing Organic Entities...";
             statusDiv.style.display = 'block';
 
             const models = ['gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'];
             let parsedPayload = null;
             let finalShapesPayload = null;
 
-            // ENHANCED PROMPT 1: Shifting core generation mechanics entirely towards highly precise organic topology
+            // ENFORCED: Prioritizes organic forms, body posing, complete anatomical connectivity, and high primitive density
             const pass1Prompt = `
-                Act as a Master 3D Sculptor and Anatomical Systems Architect. Analyze this frame and plan a high-fidelity primitive model.
-                Your response must populate exactly two fields inside the target JSON object:
-                1. description: An artistic, vivid summary of the subjects found.
-                2. blueprint: A textual structural construction map.
+                Act as a Lead 3D Spatial Systems Architect specializing in organic topology and visual reconstruction. 
+                Analyze this image and generate a high-density hierarchical object tree deconstruction inside the JSON schema.
 
-                ORGANIC TOPOLOGY AND ANATOMICAL RULES:
-                - Give massive preference, detail, and primitive density to living organisms (people, figures, animals, faces, hair structures) over static environmental clutter.
-                - Deconstruct figures with strict geometric precision: break out detailed facial structures (jaw profiles, brows, noses), hairstyles (length, texture blocks), body contours, distinct poses, arm segments, and leg extensions.
-                - CRITICAL CONNECTIVITY REQUIREMENT: Every limb, joint, neck, and head component must intersect cleanly and lock safely into the torso structure. No floating or unattached body segments are allowed.
-                - Extract hyper-specific color signatures directly from the visual inputs (skin hex values, hair coloring, clothing tones) matching pixel groups perfectly.
+                CRITICAL STRUCTURAL FOCUS MANDATE:
+                You must place heavy emphasis on organic subjects (e.g. people, animals, creatures) over inanimate objects. Inanimate objects should be secondary or omitted if they crowd the budget. Focus your attention, structure completion, and geometric primitive counts heavily on:
+                - Detailed facial structure and distinct facial features.
+                - Accurate hair style, hair length, and hair color mapping.
+                - True body shape, explicit body pose, precise arm positioning, leg positioning, and spinal posture.
+                - Complete garment and clothing layering.
 
-                Format blueprint lines exactly like this layout template:
-                "Object: [Component Group Name]
-                - type=[type], material=[surface], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
-                Valid shapes: box, roundedbox, sphere, cylinder, cone, capsule, torus. Ground sits at y=-3.
+                ANATOMICAL CONNECTIVITY ENFORCEMENT RULES:
+                All limbs (arms, hands, legs, feet) and the head MUST be perfectly and logically attached to the main torso/body hierarchy. There must be NO floating primitives or disjointed gaps. Primitives must overlap or intersect securely at the joints to form a single continuous entity.
+
+                GEOMETRIC DENSITY DIRECTIVE:
+                Push as many geometric primitives as possible for each organic subject (targeting 60 to 90 primitives total across the character structure). Break the body down into multi-segmented capsule limbs, grouped sphere shoulders, explicit cylinder joints, and detailed multi-primitive hair/facial feature maps.
+
+                CHROMATIC SELECTION:
+                Sample exact hex color values directly from the image asset corresponding to skin tones, clothing variations, and hair layers.
+
+                Format the blueprint string exactly like this layout template:
+                "Object: [Name]
+                - type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
+
+                Valid types: box, roundedbox, sphere, cylinder, cone, capsule, torus.
+                Ground elevation sits at y = -3.
             `;
 
             for (let model of models) {
                 if (parsedPayload) break;
                 try {
-                    descDiv.innerHTML = `<span style='color:#ffab00;'>Pass 1/2: Processing Anatomy & Posture (${model})...</span>`;
-                    const res = await fetch seaward = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`;
-                    const response = await fetch(res seaward, {
+                    descDiv.innerHTML = `<span style='color:#ffab00;'>Pass 1/2: Reconstructing Anatomy (${model})...</span>`;
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -604,43 +619,49 @@
                             }
                         })
                     });
-                    if (response.ok) {
-                        const data = await response.json();
+                    if (res.ok) {
+                        const data = await res.json();
                         parsedPayload = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
                     }
                 } catch (e) { console.error(e); }
             }
 
             if (!parsedPayload || !parsedPayload.blueprint) {
-                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 1 Connection Error. Structural parsing failed.</span>";
+                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 1 System Connection Timeout. Verification failed.</span>";
                 scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
                 return;
             }
 
             descDiv.innerText = parsedPayload.description;
 
-            // ENHANCED PROMPT 2: Enforcing dense mechanical primitive allocation onto living forms
             const pass2Prompt = `
-                You are an Expert Visual 3D Modeler and Data Compiler. Look directly at the attached reference image AND read the blueprint manifest text from Pass 1.
+                You are an Expert Visual 3D Modeler and Anatomical Compiler. Look directly at the attached reference image AND read the textual blueprint layout generated by Pass 1.
                 
-                BLUEPRINT RECONSTRUCTION BASELINE:
+                Your job is to cross-reference the text draft against the actual image to output a hyper-precise, high-density 3D primitive payload inside the target schema.
+
+                TEXTUAL BLUEPRINT DRAFT:
                 "${parsedPayload.blueprint}"
 
-                COMPILATION MANDATES:
-                1. Prioritize organic entities over backgrounds. Maximize primitive density on people, facial features, arm positions, postures, hair length, and clothing layers.
-                2. Build limbs sequentially to form unbroken structural chains. Ensure the head connects flawlessly to the neck, and the neck to the chest. Prevent floating parts.
-                3. Allocate a high volume of primitives to ensure clean shapes. Convert your final design into the mandated JSON shapes array.
+                COMPILATION INSTRUCTIONS:
+                1. Ensure all human or animal subjects have perfectly connected limb configurations with absolutely zero floating parts or disconnected components. Limbs must seamlessly join the torso.
+                2. Maximize the detail of facial features, hair structure, body pose geometry, and clothing using dozens of finely tuned primitives. Ensure hex colors are exactly sampled from the visual reference.
+                3. Map everything directly into the mandated JSON shapes array schema architecture.
             `;
 
             for (let model of models) {
                 if (finalShapesPayload) break;
                 try {
-                    statusDiv.innerText = "Pass 2/2: Compiling Connected Primitive Hierarchies...";
+                    statusDiv.innerText = "Pass 2/2: Injecting Interconnected Geometric Topology...";
                     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            contents: [{ parts: [{ text: pass2Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }], 
+                            contents: [{ 
+                                parts: [
+                                    { text: pass2Prompt },
+                                    { inlineData: { mimeType: "image/jpeg", data: base64Image } }
+                                ] 
+                            }], 
                             generationConfig: { 
                                 responseMimeType: "application/json",
                                 responseSchema: {
@@ -651,7 +672,9 @@
                                             items: {
                                                 type: "OBJECT",
                                                 properties: {
-                                                    t: { type: "STRING" }, m: { type: "STRING" }, c: { type: "STRING" },
+                                                    t: { type: "STRING" },
+                                                    m: { type: "STRING" },
+                                                    c: { type: "STRING" },
                                                     p: { type: "ARRAY", items: { type: "NUMBER" } },
                                                     s: { type: "ARRAY", items: { type: "NUMBER" } },
                                                     r: { type: "ARRAY", items: { type: "NUMBER" } }
@@ -678,7 +701,7 @@
                 rawCachedShapesArray = finalShapesPayload; 
                 renderAIBlueprint(finalShapesPayload);
             } else {
-                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 2 structural packing exception.</span>";
+                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 2 compilation layout exception.</span>";
             }
 
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
@@ -826,6 +849,7 @@
                 worldGroup.remove(c);
             }
             deactivateTrackingSensors();
+            prevFrameLuma = null;
             lockedGyroRoll = 0; 
             rawCachedShapesArray = null;
             scannedBackdropDataUrl = null;
@@ -855,110 +879,134 @@
             }
 
             sensorEuler.y += gyroYawOffset;
-            currentPitchVal = sensorEuler.x; // Track spatial look pitch dynamically for our horizon translation threshold
             camera.quaternion.setFromEuler(sensorEuler);
         }
 
-        // CUSTOM CORE FUNCTION: Real-Time Canvas Sub-Matrix Vision Optical Flow Engine
-        function evaluateOpticalFlowMovement() {
+        // INTEGRATED: Pure JS Visual Perception and Optical Motion Differential Pipeline
+        function processPerceptualCameraOdometry() {
             if (!videoElement || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) return;
-            
-            // Render micro-matrix map from stream loop
-            opticalFlowContext.drawImage(videoElement, 0, 0, 8, 8);
-            const framePixels = opticalFlowContext.getImageData(0, 0, 8, 8).data;
-            
-            let currentLuminance = new Float32Array(64);
-            for (let i = 0; i < 64; i++) {
-                let r = framePixels[i * 4];
-                let g = framePixels[i * 4 + 1];
-                let b = framePixels[i * 4 + 2];
-                currentLuminance[i] = 0.299 * r + 0.587 * g + 0.114 * b; // Standard Grayscale extraction
-            }
-            
-            if (lastLuminanceMatrix === null) {
-                lastLuminanceMatrix = currentLuminance;
+
+            // 1. Horizon Constraints Analysis Loop: Isolate active pitch vector bounds
+            const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+            const pitchAngle = euler.x; 
+            const horizonThreshold = THREE.MathUtils.degToRad(15.0); // Allow +/- 15 degrees wiggle-room
+
+            if (Math.abs(pitchAngle) > horizonThreshold) {
+                prevFrameLuma = null; // Flush motion analysis caches when looking outside horizon threshold bounds
                 return;
             }
-            
-            // Calculate spatial shifts
-            let shiftLeftScore = 0, shiftRightScore = 0;
-            let centerMassOld = 0, centerMassNew = 0;
-            let borderMassOld = 0, borderMassNew = 0;
-            
-            for (let row = 0; row < 8; row++) {
-                for (let col = 0; col < 8; col++) {
-                    let idx = row * 8 + col;
-                    let valOld = lastLuminanceMatrix[idx];
-                    let valNew = currentLuminance[idx];
+
+            // 2. Sample live camera pixels down into a processing grid matrix
+            const w = flowCanvas.width;
+            const h = flowCanvas.height;
+            flowCtx.drawImage(videoElement, 0, 0, w, h);
+            const imgData = flowCtx.getImageData(0, 0, w, h);
+            const pixels = imgData.data;
+
+            let currentLuma = new Float32Array(w * h);
+            for (let i = 0; i < pixels.length; i += 4) {
+                currentLuma[i / 4] = (pixels[i] * 0.299 + pixels[i + 1] * 0.587 + pixels[i + 2] * 0.114) / 255.0;
+            }
+
+            if (!prevFrameLuma) {
+                prevFrameLuma = currentLuma;
+                return;
+            }
+
+            // 3. Mathematical differential vector calculation loop (Macro Optical Flow approximation)
+            let panDeltaX = 0;
+            let expansionFactor = 0; 
+            let totalWeights = 0;
+
+            const cx = w / 2;
+            const cy = h / 2;
+
+            for (let y = 2; y < h - 2; y += 2) {
+                for (let x = 2; x < w - 2; x += 2) {
+                    const idx = y * w + x;
                     
-                    // Lateral Pan Distribution Weights
-                    if (col < 4) {
-                        shiftLeftScore += (valNew - valOld);
-                    } else {
-                        shiftRightScore += (valNew - valOld);
-                    }
+                    // Spatial vectors indicating direction out from image frame centerpoint coordinates
+                    const rx = x - cx;
+                    const ry = y - cy;
+                    const distFromCenter = Math.sqrt(rx * rx + ry * ry);
+
+                    if (distFromCenter < 2) continue;
+
+                    // Compute local directional luminosity differentials
+                    const gradX = currentLuma[idx + 1] - currentLuma[idx - 1];
+                    const gradY = currentLuma[idx + w] - currentLuma[idx - w];
+                    const deltaT = currentLuma[idx] - prevFrameLuma[idx];
+
+                    const denominator = (gradX * gradX + gradY * gradY + 0.01);
                     
-                    // Radial Scaling Weights (Center vs Border Rings)
-                    if (row >= 2 && row <= 5 && col >= 2 && col <= 5) {
-                        centerMassOld += valOld;
-                        centerMassNew += valNew;
-                    } else {
-                        borderMassOld += valOld;
-                        borderMassNew += valNew;
+                    // Approximate structural movement components via standard optical intensity mapping equations
+                    const localFlowX = -deltaT * gradX / denominator;
+                    const localFlowY = -deltaT * gradY / denominator;
+
+                    if (Math.abs(localFlowX) < 3 && Math.abs(localFlowY) < 3) {
+                        panDeltaX += localFlowX;
+
+                        // Calculate if displacement vector expands away from center (Zoom In) or collapses inward (Zoom Out)
+                        const dotProductProduct = (localFlowX * rx + localFlowY * ry) / distFromCenter;
+                        expansionFactor += dotProductProduct;
+                        totalWeights++;
                     }
                 }
             }
-            
-            let panDelta = (shiftLeftScore - shiftRightScore) * 0.002;
-            let zoomDelta = ((centerMassNew / borderMassNew) - (centerMassOld / borderMassOld)) * 2.5;
-            
-            lastLuminanceMatrix = currentLuminance;
-            
-            // HORIZON RESTRICTION HANDSHAKE: Validate pitch angle falls within the loose threshold window
-            // true level horizon sits around 0 pitch. Allow a ~25 degree tolerance window.
-            const horizonThreshold = THREE.MathUtils.degToRad(25.0); 
-            if (Math.abs(currentPitchVal) <= horizonThreshold) {
-                executeVirtualCameraTranslation(panDelta, zoomDelta);
-            }
-        }
 
-        function executeVirtualCameraTranslation(panDelta, zoomDelta) {
-            const movementSpeedScaler = 0.45;
-            let forwardHeadingVec = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-            forwardHeadingVec.y = 0; // Lock movement path parallel to grid plain
-            forwardHeadingVec.normalize();
-            
-            let lateralHeadingVec = new THREE.Vector3().crossVectors(camera.up, forwardHeadingVec).normalize();
-            
-            // Trigger Forward/Backward movement based on expansion scaling indicators
-            if (Math.abs(zoomDelta) > 0.02) {
-                camera.position.addScaledVector(forwardHeadingVec, zoomDelta * movementSpeedScaler);
+            if (totalWeights > 10) {
+                const avgPanX = panDeltaX / totalWeights;
+                const avgExpansion = expansionFactor / totalWeights;
+
+                // 4. Map calculated frame shifts into local spatial translation steps
+                const forwardVector = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                forwardVector.y = 0; // Lock structural movement vectors flat onto the floor grid plane
+                forwardVector.normalize();
+
+                const rightVector = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+                rightVector.y = 0;
+                rightVector.normalize();
+
+                // Tuning constants for movement sensitivity mapping balances
+                const speedModifier = 0.35; 
+                const lateralModifier = 0.25;
+
+                // Forward / Backward tracking evaluations based on expansion deltas
+                if (avgExpansion > 0.04) {
+                    camera.position.addScaledVector(forwardVector, avgExpansion * speedModifier);
+                } else if (avgExpansion < -0.04) {
+                    camera.position.addScaledVector(forwardVector, avgExpansion * speedModifier); 
+                }
+
+                // Horizontal Panning / Lateral camera track execution loop mappings
+                if (Math.abs(avgPanX) > 0.03) {
+                    // Panning frame data elements right moves camera left, panning frame left moves camera right
+                    camera.position.addScaledVector(rightVector, -avgPanX * lateralModifier);
+                }
             }
-            
-            // Trigger Lateral Counter-Steer Panning translation based on horizontal pixel drift shifts
-            if (Math.abs(panDelta) > 0.01) {
-                camera.position.addScaledVector(lateralHeadingVec, -panDelta * movementSpeedScaler);
-            }
+
+            prevFrameLuma = currentLuma;
         }
 
         function animate() {
             requestAnimationFrame(animate);
             
-            if (gyroActive) {
-                evaluateOpticalFlowMovement(); // Run visual frame delta calculation pipeline loop continuously
-            } else if (controls && controls.enabled) {
+            if (controls && controls.enabled) {
                 controls.update();
                 
-                if (lockedGyroRoll !== 0) {
+                if (!gyroActive && lockedGyroRoll !== 0) {
                     cleanTargetQuaternion.copy(camera.quaternion);
                     camera.rotateZ(lockedGyroRoll);
                 }
             }
+
+            // Run perceptual odometry tracking loops dynamically inside frame cycles
+            processPerceptualCameraOdometry();
             
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Objects: ${worldGroup.children.length} | Mode: ${gyroActive ? "Flow Walk" : "Orbit View"}`;
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Objects: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
             
