@@ -434,7 +434,7 @@
         function init3D() {
             const canvas = document.getElementById('canvas3d');
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x0a0a0f);
+            scene.background = new THREE.Color(0x06060a);
 
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.set(telemetryState.x, telemetryState.y, telemetryState.z);
@@ -443,19 +443,35 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
             initOrbitControls();
             
             perceptionEngine = new RadialMassPerceptionEngine();
 
-            const grid = new THREE.GridHelper(50, 25, 0x00e5ff, 0x1f1f2e);
+            const grid = new THREE.GridHelper(50, 25, 0x1f1f2e, 0x111116);
             grid.position.y = -3;
             scene.add(grid);
 
-            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-            const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-            sun.position.set(20, 40, 25);
-            scene.add(sun);
+            // UPGRADED LIGHTING SETUP FOR STRUCTURAL DEPTH & DRAMATIC RIM HIGHLIGHTS
+            scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+            
+            const keyLight = new THREE.DirectionalLight(0xfff5eb, 1.5);
+            keyLight.position.set(15, 25, 20);
+            keyLight.castShadow = true;
+            keyLight.shadow.mapSize.width = 1024;
+            keyLight.shadow.mapSize.height = 1024;
+            keyLight.shadow.bias = -0.001;
+            scene.add(keyLight);
+
+            const fillLight = new THREE.DirectionalLight(0xdbe7ff, 0.6);
+            fillLight.position.set(-15, 10, 10);
+            scene.add(fillLight);
+
+            const dramaticRimLight = new THREE.DirectionalLight(0xffaa66, 2.5);
+            dramaticRimLight.position.set(-5, 12, -25);
+            scene.add(dramaticRimLight);
 
             scene.add(worldGroup);
 
@@ -595,7 +611,7 @@
             }
         }
 
-        // UPDATED: Sorted dynamically from absolute highest architectural capability down to open-weights limits
+        // UPGRADED HIGH-DENSITY SCULPTING PIPELINE
         async function captureAndScanFrame() {
             if (scanInProgress) return;
             console.clear();
@@ -639,7 +655,6 @@
             scanBtn.disabled = true;
             statusDiv.style.display = 'block';
 
-            // FIXED: Calibrated model priority array ordered purely by reasoning capabilities
             const modelCascadeOrder = [
                 'gemini-3.1-pro-preview', 
                 'gemini-3.5-flash', 
@@ -653,23 +668,31 @@
             let parsedPayload = null;
             let finalShapesPayload = null;
 
+            // STRICTOR DIRECTIVES: Forces the model to generate sub-components rather than lazy groups
             const pass1Prompt = `
-                Act as a Lead 3D Spatial Systems Architect. Analyze this image and generate a high-density hierarchical object tree deconstruction.
-                Your response must populate exactly two fields inside the target JSON schema object:
-                1. description: An artistic summary of the scene content.
+                Act as an avant-garde 3D Low-Poly Digital Sculptor. Analyze this image and generate a high-density primitive blueprint deconstruction.
+                Your response must populate exactly two fields inside the target JSON object:
+                1. description: A highly descriptive summary of the scene content.
                 2. blueprint: A textual architectural manifest string mapped object-by-object.
                 
+                ANTI-LAZINESS SCULPTING RULES:
+                - NEVER represent an entire organic structure (like hair, chest, or horns) as a single primitive. You must build them out of micro-components.
+                - The total primitive count across the blueprint MUST strictly be between 50 and 80 items.
+                - Reconstruct HAIR using at least 25 thin, overlapping, slightly rotated capsules/cylinders cascading down around the face using fiery red/copper hex signatures.
+                - Reconstruct the HORNS as a chained skeletal sequence of at least 8 interlocking tapered cones/cylinders per horn. Progressively step-translate their positions and rotations to trace an elegant sweep curve.
+                - Reconstruct the DRESS/BODICE using a dense matrix pattern of 20+ small dark/black cubes/cylinders configured to outline the shoulders and lace texture variants.
+                - Reconstruct FACIAL CONTOURS using multiple overlapping subtle spheres/capsules (chin, lips, nose, elven ears).
+                
                 Format the blueprint string exactly like this layout template:
-                "Object: [Name]
+                "Object: [Sub-component Name]
                 - type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
-                Valid types: box, roundedbox, sphere, cylinder, cone, capsule, torus. Ground elevation sits at y = -3.
+                Valid types: box, roundedbox, sphere, cylinder, cone, capsule, torus. Ground elevation is y = -3.
             `;
 
-            // PASS 1: CASCADED RETRY EXECUTION ROUTER
             pass1ModelLoop: for (let model of modelCascadeOrder) {
                 for (let attempt = 1; attempt <= 3; attempt++) {
                     try {
-                        descDiv.innerHTML = `<span style='color:#ffab00;'>Pass 1/2: Processing ${model} (Attempt ${attempt}/3)...</span>`;
+                        descDiv.innerHTML = `<span style='color:#ffab00;'>Pass 1/2: Sculpting Matrix via ${model} (${attempt}/3)...</span>`;
                         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -697,7 +720,7 @@
             }
 
             if (!parsedPayload || !parsedPayload.blueprint) {
-                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 1 Pipeline Failure. Model fallback limits exceeded with zero returns.</span>";
+                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 1 Pipeline Failure. Falling back.</span>";
                 scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
                 return;
             }
@@ -705,15 +728,16 @@
             descDiv.innerText = parsedPayload.description;
 
             const pass2Prompt = `
-                You are an Expert Visual 3D Modeler. Read the textual blueprint layout generated by Pass 1 and map it into the mandated schema architecture array.
+                You are an Expert Visual 3D Modeler. Read the detailed abstract blueprint layout generated by Pass 1 and map it into the mandated schema architecture array without losing ANY elements.
+                
+                Ensure all 50 to 80 separate micro-primitives are accurately preserved, capturing the custom color changes and coordinate chains.
                 TEXTUAL BLUEPRINT DRAFT: "${parsedPayload.blueprint}"
             `;
 
-            // PASS 2: CASCADED RETRY EXECUTION ROUTER
             pass2ModelLoop: for (let model of modelCascadeOrder) {
                 for (let attempt = 1; attempt <= 3; attempt++) {
                     try {
-                        descDiv.innerHTML = `<span style='color:#00e5ff;'>Pass 2/2: Mapping Structural Tree with ${model} (Attempt ${attempt}/3)...</span>`;
+                        descDiv.innerHTML = `<span style='color:#00e5ff;'>Pass 2/2: Compiling Geometric Tree via ${model} (${attempt}/3)...</span>`;
                         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -760,7 +784,7 @@
                 rawCachedShapesArray = finalShapesPayload; 
                 renderAIBlueprint(finalShapesPayload);
             } else {
-                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 2 compilation layout exception. Retries exhausted.</span>";
+                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 2 compilation layout exception.</span>";
             }
 
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
@@ -797,12 +821,12 @@
                         case 'box': geo = new THREE.BoxGeometry(1, 1, 1); break;
                         case 'roundedbox':
                             customScaleHandled = true;
-                            geo = createRoundedBoxGeometry(scl[0]||1, scl[1]||1, scl[2]||1, 0.08, 3);
+                            geo = createRoundedBoxGeometry(scl[0]||1, scl[1]||1, scl[2]||1, 0.04, 3);
                             break;
-                        case 'sphere': geo = new THREE.SphereGeometry(0.5, 24, 24); break;
+                        case 'sphere': geo = new THREE.SphereGeometry(0.5, 32, 32); break;
                         case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 24); break;
                         case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 24); break;
-                        case 'capsule': geo = new THREE.CapsuleGeometry(0.3, 0.6, 6, 18); break;
+                        case 'capsule': geo = new THREE.CapsuleGeometry(0.3, 0.6, 8, 24); break;
                         case 'torus': geo = new THREE.TorusGeometry(0.4, 0.1, 12, 36); break;
                         default: geo = new THREE.BoxGeometry(1, 1, 1);
                     }
@@ -810,9 +834,10 @@
                     if (geo) {
                         const mat = new THREE.MeshPhysicalMaterial({
                             color: new THREE.Color(shape.c || "#ffffff"),
-                            roughness: shape.m === 'wood' ? 0.8 : 0.1,
-                            metalness: 0.05,
-                            clearcoat: shape.m === 'wood' ? 0.0 : 1.0,
+                            roughness: shape.t === 'roundedbox' || shape.t === 'sphere' ? 0.15 : 0.6,
+                            metalness: shape.m === 'metal' ? 0.8 : 0.1,
+                            clearcoat: 1.0,
+                            clearcoatRoughness: 0.1,
                             side: THREE.DoubleSide
                         });
 
@@ -821,25 +846,34 @@
                         mesh.rotation.set(rot[0], rot[1], rot[2]);
                         if (!customScaleHandled) mesh.scale.set(scl[0], scl[1], scl[2]);
 
+                        mesh.castShadow = true;
+                        mesh.receiveShadow = true;
                         worldGroup.add(mesh);
                     }
                 } catch (e) { console.error(e); }
             });
 
-            if (scannedBackdropDataUrl && worldGroup.children.length > 0) {
+            // Auto-center camera focus onto generated geometry installation
+            if (worldGroup.children.length > 0) {
                 const box = new THREE.Box3().setFromObject(worldGroup);
-                const size = new THREE.Vector3(); box.getSize(size);
                 const center = new THREE.Vector3(); box.getCenter(center);
+                if (controls) {
+                    controls.target.copy(center);
+                    controls.update();
+                }
 
-                const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
-                floatingBackdropMesh = new THREE.Mesh(
-                    new THREE.PlaneGeometry(1, 1),
-                    new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false })
-                );
-                floatingBackdropMesh.position.set(center.x, center.y, box.min.z - 1.0);
-                floatingBackdropMesh.scale.set(Math.max(size.x, 4), Math.max(size.y, 4), 1);
-                floatingBackdropMesh.visible = backdropOverlayActive;
-                scene.add(floatingBackdropMesh);
+                if (scannedBackdropDataUrl) {
+                    const size = new THREE.Vector3(); box.getSize(size);
+                    const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
+                    floatingBackdropMesh = new THREE.Mesh(
+                        new THREE.PlaneGeometry(1, 1),
+                        new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
+                    );
+                    floatingBackdropMesh.position.set(center.x, center.y, box.min.z - 1.5);
+                    floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
+                    floatingBackdropMesh.visible = backdropOverlayActive;
+                    scene.add(floatingBackdropMesh);
+                }
             }
         }
 
@@ -953,7 +987,6 @@
                 visualTelemetry.scaleFlow = massFlow.scale;
                 visualTelemetry.panFlow = massFlow.pan;
                 
-                // Horizon Gating Constraint Engine (Strict 5-Degree Ceiling)
                 if (Math.abs(currentEuler.x) <= PITCH_THRESHOLD) {
                     visualTelemetry.gated = false;
                     
