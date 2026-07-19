@@ -344,14 +344,6 @@
         }
 
         function init3D() {
-            // Check key handshake at absolute startup
-            const urlParams = new URLSearchParams(window.location.search);
-            const urlKey = urlParams.get('key');
-            if (urlKey) {
-                document.getElementById('apiKeyField').value = urlKey.trim();
-                document.getElementById('aiDescription').innerHTML = "Ready to scan scene!<br>Gemini API Key verified via deep structural handshake.";
-            }
-
             const canvas = document.getElementById('canvas3d');
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x0a0a0f);
@@ -390,6 +382,13 @@
             document.getElementById('fileInput').addEventListener('change', handleDeviceFileSelection);
 
             initRearCameraStreamGracefully();
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlKey = urlParams.get('key');
+            if (urlKey) {
+                document.getElementById('apiKeyField').value = urlKey.trim();
+                document.getElementById('aiDescription').innerHTML = "Ready to scan scene!<br>Gemini API Key verified via deep structural handshake.";
+            }
             animate();
         }
 
@@ -493,18 +492,13 @@
 
         async function initRearCameraStreamGracefully() {
             videoElement = document.getElementById('cameraFeed');
-            videoElement.setAttribute('autoplay', '');
-            videoElement.setAttribute('muted', '');
-            videoElement.setAttribute('playsinline', '');
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
                 videoElement.srcObject = localStream;
-                videoElement.play().catch(() => {});
             } catch (err) {
                 try {
                     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                     videoElement.srcObject = localStream;
-                    videoElement.play().catch(() => {});
                 } catch (e) {
                     document.getElementById('debugPanel').innerText = "Camera Stream Error";
                 }
@@ -553,40 +547,38 @@
             scanInProgress = true;
             scanBtn.disabled = true;
             
-            statusDiv.innerText = "Pass 1/2: Analyzing Organic Hierarchy...";
+            statusDiv.innerText = "Pass 1/2: Analyzing Scene Hierarchy...";
             statusDiv.style.display = 'block';
 
             const models = ['gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'];
             let parsedPayload = null;
             let finalShapesPayload = null;
 
-            // UPGRADED: Prompt focuses 70-80% of total primitive budget exclusively on organic subjects
+            // CRITICAL UPGRADE: Pass 1 Prompt heavily modified to force anatomical and structural focus on living/organic entities
             const pass1Prompt = `
-                Act as a Lead 3D Spatial Systems Architect. Analyze this image and generate a high-density hierarchical object tree deconstruction.
+                Act as a Lead 3D Spatial Systems Architect specializing in organic topology and anatomical breakdown. Analyze this image and generate a high-density hierarchical object tree deconstruction.
+                
+                ORGANIC PRIORITIZATION DIRECTIVE:
+                You must heavily emphasize and prioritize organic subjects (e.g., people, animals, characters, hands, organic living entities) over inanimate objects, architecture, or backdrops. Inanimate background assets (furniture, rooms, terrain lines) must be condensed into sparse, minimal primitive groupings. 
+                
+                Organic subjects require intense attention to detail and structural completion. Isolate their anatomical components (e.g., separate skull masses, jointed limbs, trunk/torso volumes, garment fold extensions) into individual sub-primitives targeting 40 to 80 shapes total across the scene, ensuring the organic asset forms a completed structural tree.
+                
                 Your response must populate exactly two fields inside the target JSON schema object:
-
-                1. description: A gorgeous, highly descriptive summary of the scene content focusing heavily on living or organic assets. DO NOT mix shape vectors into this text field.
+                1. description: A gorgeous, highly descriptive, artistic summary of the scene content for display in a text panel. DO NOT mix any shape vectors or coordinates into this text field.
                 2. blueprint: A textual architectural manifest string mapped object-by-object. 
-                
-                ORGANIC TOPOLOGY ALLOCATION CRITERIA:
-                1. Identify all organic subjects (e.g., people, animals, creatures, faces, hands, limbs). 
-                2. Dedicate 75% of your global shape resolution capacity (40 to 80 primitives total) to capturing the exact contour, articulation, structure, and gestures of these organic subjects. Explode bodies into discrete sub-components (torsos, specific limbs, joints, heads).
-                3. Treat inanimate structures, backgrounds, floors, or furniture as low-density baseline scaffolding. Minimize their shape count down to simple bounding shapes.
-                
-                CRITICAL DIRECTIVE - CHROMATIC SAMPLING MANDATE:
-                You must dynamically extract the exact hex color signatures from the image asset feed for each sub-mesh component. Skin tones, garments, hair, eyes, and background elements must receive hyper-specific hex values matching the visual input precisely.
-                
+
                 Format the blueprint string exactly like this layout template:
                 "Object: [Name]
                 - type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
 
-                Valid types: box, roundedbox, sphere, cylinder, cone, capsule, torus. Ground elevation sits at y = -3.
+                Valid types: box, roundedbox, sphere, cylinder, cone, capsule, torus.
+                Ground elevation sits at y = -3. Do not condense organic objects into single templates.
             `;
 
             for (let model of models) {
                 if (parsedPayload) break;
                 try {
-                    descDiv.innerHTML = `<span style='color:#ffab00;'>Pass 1/2: Analyzing Organic Subjects (${model})...</span>`;
+                    descDiv.innerHTML = `<span style='color:#ffab00;'>Pass 1/2: Analyzing Scene & Colors (${model})...</span>`;
                     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -617,26 +609,26 @@
 
             descDiv.innerText = parsedPayload.description;
 
-            // UPGRADED: Validation step cross-references layout data against the organic structural hierarchy
+            // CRITICAL UPGRADE: Pass 2 Prompt heavily modified to allocate 70-80% of total primitive densities directly to organic forms
             const pass2Prompt = `
-                You are an Expert Visual 3D Modeler and Data Compiler. Look directly at the attached starting reference image AND read the textual blueprint layout generated by Pass 1.
+                You are an Expert Visual 3D Modeler and Sculptor specializing in complex character anatomy and volumetric organic design. Look directly at the attached starting reference image AND read the textual blueprint layout generated by Pass 1.
                 
-                Your job is to cross-reference the text draft against the actual image to output a hyper-precise, dense 3D primitive payload.
+                Your job is to cross-reference the text draft against the actual image to output a hyper-precise, dense 3D primitive payload that prioritizes organic subjects.
 
                 TEXTUAL BLUEPRINT DRAFT:
                 "${parsedPayload.blueprint}"
 
-                COMPILATION & ORGANIC ENFORCEMENT INSTRUCTIONS:
-                1. Ensure all organic subjects (people, animals, living forms) are built out using dense, high-resolution primitive clusters to capture exact posture and details.
-                2. Bounding scale, colors, and relative layout locations must match the organic bodies perfectly based on the input image data.
-                3. Keep background inanimate items reduced to ultra-basic primitive proxies. Do not waste primitive density on flat structures or background objects.
+                COMPILATION & BIOLOGICAL ENFORCEMENT INSTRUCTIONS:
+                1. Allocate the vast majority of your primitive budget (70% to 80% of the nodes) exclusively to the organic subjects (people, animals, organisms). Use intricate, stacked, and overlapped primitives to accurately track curves, limb contours, extensions, facial/head posture, and structural completion.
+                2. Keep inanimate items (floors, backgrounds, scenery) highly simplified and low-density.
+                3. Ensure the color hex values perfectly sample the pixel segments of the organic subjects (e.g., clothes, hair tone accents, biological surfaces, skin highlights).
                 4. Map everything directly into the mandated JSON shapes array schema architecture.
             `;
 
             for (let model of models) {
                 if (finalShapesPayload) break;
                 try {
-                    statusDiv.innerText = "Pass 2/2: Structuring Articulated Organic Topology Map...";
+                    statusDiv.innerText = "Pass 2/2: Mapping Visually Enforced Chromatic Matrix Tree...";
                     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -800,21 +792,19 @@
             gyroActive = false;
             document.getElementById('gyroBtn').classList.remove('btn-active');
             
-            // 1. Unroll camera transform using YXZ ordering to isolate structural roll
             const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
             lockedGyroRoll = euler.z; 
             
-            // 2. Clear roll from active camera space to compute look line vector
             euler.z = 0;
             camera.quaternion.setFromEuler(euler);
             camera.updateMatrix();
             camera.updateMatrixWorld(true);
             
-            // 3. Compute exact target point along look direction ray path
             const currentForwardDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             const explicitTargetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(currentForwardDir, 10);
             
-            // 4. Reset controls to wipe accumulated velocity deltas cleanly
+            camera.lookAt(explicitTargetPoint);
+            
             if (controls) {
                 controls.dispose();
             }
@@ -822,11 +812,9 @@
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.target.copy(explicitTargetPoint);
             
-            // 5. Force update on single initialization frame bypass
             controls.enableDamping = false;
             controls.update();
             
-            // 6. Restore system navigation damping configurations safely
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
         }
@@ -878,7 +866,6 @@
             if (controls && controls.enabled) {
                 controls.update();
                 
-                // DUAL-PHASE RENDER SANDBOXING: Enforces precise isolation of roll angles around rendering cycles
                 if (!gyroActive && lockedGyroRoll !== 0) {
                     cleanTargetQuaternion.copy(camera.quaternion);
                     camera.rotateZ(lockedGyroRoll);
