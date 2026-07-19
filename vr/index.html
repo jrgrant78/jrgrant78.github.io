@@ -782,33 +782,40 @@
             btn.classList.add('btn-active');
         }
 
-        // FIXED: Deactivation tracking completely bypasses lookAt() to lock pitch, yaw, AND Z-roll values cleanly
+        // FIXED: Reverts controls.up to standard baseline while neutralizing camera roll (Z-axis) dynamically before handoff
         function deactivateTrackingSensors() {
             if (!gyroActive) return;
             window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
             gyroActive = false;
             document.getElementById('gyroBtn').classList.remove('btn-active');
             
-            // 1. Extract exact current world Up and Forward vectors out of live camera tracking state
-            const currentUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
-            const currentForwardDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-            const explicitTargetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(currentForwardDir, 10);
+            // 1. Capture absolute forward look direction from gyro matrices
+            const forward = new THREE.Vector3();
+            camera.getWorldDirection(forward);
             
-            // 2. Safely dispose of previous instances to clear hidden acceleration velocities
+            // 2. Extrapolate exact focal target intercept point ahead of the viewer
+            const explicitTargetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(forward, 10);
+            
+            // 3. Extract orientation angles via a YXZ sequence breakdown to isolate and delete Z-axis roll safely
+            const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+            euler.z = 0; // Lock structural canvas twist completely to zero before generating Orbit limits
+            camera.quaternion.setFromEuler(euler);
+            
+            // 4. Purge internal velocity and damping state history cleanly
             if (controls) {
                 controls.dispose();
             }
             
-            // 3. Bind new OrbitControls structure mapping the explicit, tilted camera up-vector parameter
+            // 5. Reinitialize controls with true global up layout to support native touch panning loops
             controls = new THREE.OrbitControls(camera, renderer.domElement);
-            controls.up.copy(currentUp); // Locks the Z-axis canvas roll angle in place perfectly
+            controls.up.set(0, 1, 0); 
             controls.target.copy(explicitTargetPoint);
             
-            // 4. Temporarily drop damping calculations to eliminate translation lag frames
+            // 6. Execute a single-frame bypass update sequence to seal orientation positions
             controls.enableDamping = false;
             controls.update();
             
-            // 5. Restore interaction damping configurations smoothly
+            // 7. Safe operational recovery of smooth damping tracking layers
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
         }
@@ -827,7 +834,6 @@
             scannedBackdropDataUrl = null;
             camera.position.set(0, 5, 15);
             if (controls) {
-                // Return OrbitControls to absolute true vertical when workspace resets
                 controls.up.set(0, 1, 0);
                 controls.target.set(0, 0, 0);
                 controls.update();
