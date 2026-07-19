@@ -196,7 +196,7 @@
                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
                         </svg>
                     </button>
-                    h4 style="margin: 0; color: #00e5ff; font-size: 0.85em; letter-spacing: 0.3px; flex-grow: 1; text-align: left;">Spatial Sculptor</h4>
+                    <h4 style="margin: 0; color: #00e5ff; font-size: 0.85em; letter-spacing: 0.3px; flex-grow: 1; text-align: left;">Spatial Sculptor</h4>
                 </div>
                 
                 <div class="btn-toolbar" id="toolbarNode">
@@ -267,11 +267,11 @@
         let lockedGyroRoll = 0; 
         const cleanTargetQuaternion = new THREE.Quaternion(); 
         
-        // PERCEPTION NAVIGATION CONFIGURATIONS
+        // RE-ENGINEERED OPTICAL PERCEPTION NAVIGATION ENGINE
         let opticalFlowEngine;
-        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(20); 
-        const TRANSLATION_SPEED_SCALAR = 0.25;                
-        let visualTelemetry = { zFlow: 0, xFlow: 0 };
+        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(25); // Pitch tolerance wiggle room relative to horizon
+        const TRANSLATION_SPEED_SCALAR = 0.5;                 // Visual conversion tracking step multiplier
+        let visualTelemetry = { scaleFlow: 0, panFlow: 0 };
         
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
@@ -290,108 +290,110 @@
         const ICON_CAMERA_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/></svg>`;
         const ICON_PHOTO_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 
-        // UPGRADED RESOLUTION PROFILE ENGINE: Uses 1D cross-correlation structural maps to isolate spatial tracking metrics accurately
+        // NEW ENHANCED SCALING & PANNING ENGINE: Compares explicit macro-block structures over interval matrices
         class SpatialPerceptionEngine {
             constructor() {
                 this.canvas = document.createElement('canvas');
                 this.canvas.width = 32;
                 this.canvas.height = 32;
                 this.ctx = this.canvas.getContext('2d');
-                this.prevCols = new Float32Array(32);
-                this.prevRads = new Float32Array(16);
+                this.prevData = new Uint8Array(1024);
+                this.currData = new Uint8Array(1024);
                 this.initialized = false;
+                
+                // Establish structural anchor target tracking index zones (North, South, East, West)
+                this.anchors = [
+                    { x: 16, y: 8 },  // North
+                    { x: 16, y: 24 }, // South
+                    { x: 24, y: 16 }, // East
+                    { x: 8, y: 16 }   // West
+                ];
             }
 
             analyze(video) {
-                if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) return { deltaZ: 0, deltaX: 0 };
+                if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) return { scaleDelta: 0, panDelta: 0 };
                 
                 this.ctx.drawImage(video, 0, 0, 32, 32);
-                const imgData = this.ctx.getImageData(0, 0, 32, 32).data;
+                const rawPixels = this.ctx.getImageData(0, 0, 32, 32).data;
                 
-                const currCols = new Float32Array(32);
-                const currRads = new Float32Array(16);
-                const radCounts = new Float32Array(16);
-                
-                // 1. Process 2D luminance maps into 1D data arrays
-                for (let y = 0; y < 32; y++) {
-                    for (let x = 0; x < 32; x++) {
-                        const idx = (y * 32 + x) * 4;
-                        const luma = (imgData[idx] + imgData[idx + 1] + imgData[idx + 2]) / 3.0;
-                        
-                        currCols[x] += luma;
-                        
-                        // Structural radial distance logic from focus point (15.5, 15.5)
-                        const dx = x - 15.5;
-                        const dy = y - 15.5;
-                        const r = Math.min(15, Math.floor(Math.sqrt(dx * dx + dy * dy)));
-                        currRads[r] += luma;
-                        radCounts[r]++;
-                    }
+                // Flatten three channel color buffers cleanly down to structural luminance arrays
+                for (let i = 0; i < 1024; i++) {
+                    this.currData[i] = (rawPixels[i * 4] + rawPixels[i * 4 + 1] + rawPixels[i * 4 + 2]) / 3;
                 }
-                
-                // Normalize visual weight signatures
-                for (let i = 0; i < 32; i++) currCols[i] /= 32.0;
-                for (let i = 0; i < 16; i++) {
-                    if (radCounts[i] > 0) currRads[i] /= radCounts[i];
-                }
-                
+
                 if (!this.initialized) {
-                    this.prevCols.set(currCols);
-                    this.prevRads.set(currRads);
+                    this.prevData.set(this.currData);
                     this.initialized = true;
-                    return { deltaZ: 0, deltaX: 0 };
+                    return { scaleDelta: 0, panDelta: 0 };
                 }
-                
-                // 2. Horizontal Pan Calculation Pass (SAD pattern minimization)
-                let bestPanShift = 0;
-                let minPanSAD = Infinity;
-                for (let shift = -3; shift <= 3; shift++) {
-                    let sad = 0;
-                    let count = 0;
-                    for (let x = 0; x < 32; x++) {
-                        const oldX = x + shift;
-                        if (oldX >= 0 && oldX < 32) {
-                            sad += Math.abs(currCols[x] - this.prevCols[oldX]);
-                            count++;
+
+                let displacements = [];
+
+                // Perform block-matching tracking sweeps for each regional vector anchor
+                for (let a of this.anchors) {
+                    let minSAD = Infinity;
+                    let bestDx = 0;
+                    let bestDy = 0;
+
+                    // Scan spatial cross-neighborhood search grids (±3 pixel windows)
+                    for (let sy = -3; sy <= 3; sy++) {
+                        for (let sx = -3; sx <= 3; sx++) {
+                            let sad = 0;
+                            
+                            // Evaluate structural absolute matching variance loops over micro patch bounds
+                            for (let py = -1; py <= 1; py++) {
+                                for (let px = -1; px <= 1; px++) {
+                                    const curX = a.x + px;
+                                    const curY = a.y + py;
+                                    const prvX = a.x + px + sx;
+                                    const prvY = a.y + py + sy;
+
+                                    if (curX >= 0 && curX < 32 && curY >= 0 && curY < 32 &&
+                                        prvX >= 0 && prvX < 32 && prvY >= 0 && prvY < 32) {
+                                        sad += Math.abs(this.currData[curY * 32 + curX] - this.prevData[prvY * 32 + prvX]);
+                                    } else {
+                                        sad += 255; 
+                                    }
+                                }
+                            }
+
+                            if (sad < minSAD) {
+                                minSAD = sad;
+                                bestDx = sx;
+                                bestDy = sy;
+                            }
                         }
                     }
-                    if (count > 0) sad /= count;
-                    if (sad < minPanSAD) {
-                        minPanSAD = sad;
-                        bestPanShift = shift;
-                    }
+                    displacements.push({ dx: bestDx, dy: bestDy });
                 }
+
+                this.prevData.set(this.currData);
+
+                // Extract directional changes from tracking anchors
+                const dispN = displacements[0];
+                const dispS = displacements[1];
+                const dispE = displacements[2];
+                const dispW = displacements[3];
+
+                // MEASURE SCALE CHANGE (Expansion vs. Contraction)
+                // If North shifts up (-dy), South shifts down (+dy), East shifts right (+dx), West shifts left (-dx) -> Image gets LARGER
+                const scaleOutward = (-dispN.dy) + (dispS.dy) + (dispE.dx) - (dispW.dx);
                 
-                // 3. Radial Scaling Match Pass (Detects magnification vectors)
-                let bestZoomShift = 0;
-                let minZoomSAD = Infinity;
-                for (let shift = -2; shift <= 2; shift++) {
-                    let sad = 0;
-                    let count = 0;
-                    for (let r = 0; r < 16; r++) {
-                        const oldR = r + shift;
-                        if (oldR >= 0 && oldR < 16) {
-                            sad += Math.abs(currRads[r] - this.prevRads[oldR]);
-                            count++;
-                        }
-                    }
-                    if (count > 0) sad /= count;
-                    if (sad < minZoomSAD) {
-                        minZoomSAD = sad;
-                        bestZoomShift = shift;
-                    }
-                }
-                
-                this.prevCols.set(currCols);
-                this.prevRads.set(currRads);
-                
-                // Translate structural shift offsets to virtual tracking velocities
-                let deltaX = -bestPanShift * 0.5; 
-                let deltaZ = 0;
-                if (bestZoomShift < 0) deltaZ = Math.abs(bestZoomShift) * 0.7;  // Radial expansion -> forward step
-                if (bestZoomShift > 0) deltaZ = -Math.abs(bestZoomShift) * 0.7; // Radial contraction -> backward step
-                
-                return { deltaZ, deltaX };
+                // MEASURE HORIZONTAL PAN SIGNATURES
+                // If features collectively drift right (+dx), the phone rotated/panned right.
+                const collectivePanX = (dispN.dx + dispS.dx + dispE.dx + dispW.dx) / 4.0;
+
+                // Deadzones filter baseline micro jitter noise artifacts
+                let structuralScaleFactor = 0;
+                let structuralPanFactor = 0;
+
+                if (Math.abs(scaleOutward) >= 0.75) structuralScaleFactor = scaleOutward;
+                if (Math.abs(collectivePanX) >= 0.25) structuralPanFactor = collectivePanX;
+
+                return {
+                    scaleDelta: structuralScaleFactor, // Positive = Image gets larger (Move Forward)
+                    panDelta: structuralPanFactor      // Positive = Image pans right (Move Virtual Camera Left)
+                };
             }
         }
 
@@ -469,6 +471,7 @@
 
             initOrbitControls();
             
+            // Instantiates our tracking engine module
             opticalFlowEngine = new SpatialPerceptionEngine();
 
             const grid = new THREE.GridHelper(50, 25, 0x00e5ff, 0x1f1f2e);
@@ -603,18 +606,15 @@
             controls.enabled = true;
         }
 
-        // FIXED: Re-injected direct .play() execution statement to wake modern browser context layers up instantly
         async function initRearCameraStreamGracefully() {
             videoElement = document.getElementById('cameraFeed');
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
                 videoElement.srcObject = localStream;
-                videoElement.play().catch(e => console.log("Stream synchronization delay handled."));
             } catch (err) {
                 try {
                     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                     videoElement.srcObject = localStream;
-                    videoElement.play().catch(e => console.log("Fallback execution delay handled."));
                 } catch (e) {
                     document.getElementById('debugPanel').innerText = "Camera Stream Error";
                 }
@@ -932,7 +932,7 @@
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
             
-            visualTelemetry = { zFlow: 0, xFlow: 0 };
+            visualTelemetry = { scaleFlow: 0, panFlow: 0 };
         }
 
         function clearSceneAndResetView() {
@@ -980,15 +980,15 @@
         function animate() {
             requestAnimationFrame(animate);
             
-            // OPTICAL MOTION PROCESSING PIPELINE
+            // EXECUTE STRUCTURAL BLOCK-MATCHING MOTION EVALUATION
             if (gyroActive && opticalFlowEngine && dynamicInputSourceMode === 'camera') {
-                const flow = opticalFlowEngine.analyze(videoElement);
+                const movementVectors = opticalFlowEngine.analyze(videoElement);
                 const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
                 
-                visualTelemetry.zFlow = flow.deltaZ;
-                visualTelemetry.xFlow = flow.deltaX;
+                visualTelemetry.scaleFlow = movementVectors.scaleDelta;
+                visualTelemetry.panFlow = movementVectors.panDelta;
                 
-                // Horizon Alignment Gate: Translates position vectors only within defined pitch threshold window
+                // Horizon Pitch Gate Validation Loop
                 if (Math.abs(currentEuler.x) <= PITCH_THRESHOLD) {
                     const forwardXZ = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
                     forwardXZ.y = 0; 
@@ -998,9 +998,11 @@
                     rightXZ.y = 0;
                     rightXZ.normalize();
 
-                    // Apply layout translations smoothly across coordinate space fields
-                    const moveStepZ = flow.deltaZ * TRANSLATION_SPEED_SCALAR;
-                    const moveStepX = flow.deltaX * TRANSLATION_SPEED_SCALAR;
+                    // Calculate translation updates across the XZ plane smoothly
+                    // scaleDelta > 0 means elements are expanding outward -> Move camera forward
+                    // panDelta > 0 means elements are shifting right -> Move camera left
+                    const moveStepZ = movementVectors.scaleDelta * TRANSLATION_SPEED_SCALAR;
+                    const moveStepX = -movementVectors.panDelta * TRANSLATION_SPEED_SCALAR;
                     
                     camera.position.addScaledVector(forwardXZ, moveStepZ);
                     camera.position.addScaledVector(rightXZ, moveStepX);
@@ -1019,7 +1021,7 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Flow Z:${visualTelemetry.zFlow.toFixed(2)} X:${visualTelemetry.xFlow.toFixed(2)} | Objects: ${worldGroup.children.length}`;
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Zoom:${visualTelemetry.scaleFlow.toFixed(1)} Pan:${visualTelemetry.panFlow.toFixed(1)} | Objects: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
             
