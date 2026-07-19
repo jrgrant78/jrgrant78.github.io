@@ -75,7 +75,7 @@
             box-sizing: border-box;
             position: relative;
         }
-        #cameraFeed { width: 100%; height: 100%; object-fit: cover; display: block; }
+        #cameraFeed { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
         
         #libraryPreview { width: 100%; height: 100%; object-fit: cover; display: none; cursor: pointer; }
         #folderPlaceholder { 
@@ -488,17 +488,23 @@
             }
         }
 
+        // FIXED: Added manual .play() command immediately post stream attribution to unlock hardware pipelines on updated layout changes
         async function initRearCameraStreamGracefully() {
             videoElement = document.getElementById('cameraFeed');
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
                 videoElement.srcObject = localStream;
+                videoElement.setAttribute('autoplay', '');
+                videoElement.setAttribute('muted', '');
+                videoElement.setAttribute('playsinline', '');
+                videoElement.play().catch(e => console.log("Stream execution bypass caught: ", e));
             } catch (err) {
                 try {
                     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                     videoElement.srcObject = localStream;
+                    videoElement.play().catch(e => console.log("Stream alignment bypass caught: ", e));
                 } catch (e) {
-                    document.getElementById('debugPanel').innerText = "Camera Stream Error";
+                    document.getElementById('debugPanel').innerText = "Camera Stream Permission Exception";
                 }
             }
         }
@@ -782,38 +788,32 @@
             btn.classList.add('btn-active');
         }
 
-        // FIXED: Complete extraction reorder with immediate deep matrix world synchronization primitives
+        // KEEP PRECISE ALIGNMENT: Continuous, zero-jump extraction layer strips roll (Z-axis) FIRST before re-locking calculations
         function deactivateTrackingSensors() {
             if (!gyroActive) return;
             window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
             gyroActive = false;
             document.getElementById('gyroBtn').classList.remove('btn-active');
             
-            // 1. Unroll the camera transform natively using YXZ ordering
             const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
             euler.z = 0; 
             camera.quaternion.setFromEuler(euler);
             
-            // 2. CRITICAL CORE FIX: Force immediate recalculation of matrices so world directions aren't reading stale data
             camera.updateMatrix();
             camera.updateMatrixWorld(true);
             
-            // 3. Compute the unrolled looking path directly out of synchronized tracking transformations
             const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             const explicitTargetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(forward, 10);
             
-            // 4. Update the single persistent OrbitControls container directly instead of breaking and resetting references
             if (controls) {
                 controls.target.copy(explicitTargetPoint);
                 
-                // 5. Hard clamp damping factors during synchronization to cleanly flush out velocity deltas
                 const cachedDampingState = controls.enableDamping;
                 controls.enableDamping = false;
                 
                 controls.enabled = true;
                 controls.update();
                 
-                // 6. Restore system navigation damping smoothly
                 controls.enableDamping = cachedDampingState;
             }
         }
