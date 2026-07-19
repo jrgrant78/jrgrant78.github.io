@@ -267,10 +267,10 @@
         let lockedGyroRoll = 0; 
         const cleanTargetQuaternion = new THREE.Quaternion(); 
         
-        // UPGRADED FLUID TRACKING CONFIGURATION Parameters
+        // FIXED: Horizon Gating window constrained to exactly 5 degrees
         let perceptionEngine;
-        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(30); // Widened to 30 deg for normal handheld viewing comfort
-        const TRANSLATION_SPEED_SCALAR = 4.5;                 // Amplified scalar to generate responsive 3D locomotion
+        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(5);  
+        const TRANSLATION_SPEED_SCALAR = 3.8;                 
         let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
         const worldGroup = new THREE.Group();
@@ -290,7 +290,7 @@
         const ICON_CAMERA_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/></svg>`;
         const ICON_PHOTO_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 
-        // FIXED SUB-PIXEL RADIAL MASS PERCEPTION ENGINE: Bypasses integer quantization blocks entirely
+        // UPGRADED: Low-pass filtered radial mass engine filters out sporadic macro fluctuations
         class RadialMassPerceptionEngine {
             constructor() {
                 this.canvas = document.createElement('canvas');
@@ -300,6 +300,11 @@
                 this.prevD = 0;
                 this.prevX = 0;
                 this.initialized = false;
+                
+                // Low-pass exponential smoothing registers to counter hand tremors
+                this.smoothScale = 0;
+                this.smoothPan = 0;
+                this.smoothingFactor = 0.12; 
             }
 
             analyze(video) {
@@ -311,7 +316,6 @@
                 let rowSum = new Float32Array(32);
                 let colSum = new Float32Array(32);
                 
-                // Convert row/col matrices instantly to 1D brightness profiles
                 for (let y = 0; y < 32; y++) {
                     for (let x = 0; x < 32; x++) {
                         const idx = (y * 32 + x) * 4;
@@ -321,7 +325,6 @@
                     }
                 }
 
-                // Calculate sub-pixel mass centers across frame segments
                 let massLeft = 0, weightLeft = 0;
                 let massRight = 0, weightRight = 0;
                 let massTotal = 0, weightTotal = 0;
@@ -340,7 +343,7 @@
 
                 const centerX_L = weightLeft > 0 ? massLeft / weightLeft : 0;
                 const centerX_R = weightRight > 0 ? massRight / weightRight : 16;
-                const currentD = centerX_R - centerX_L; // Radial baseline spread width
+                const currentD = centerX_R - centerX_L; 
                 const currentX = weightTotal > 0 ? massTotal / weightTotal : 16;
 
                 if (!this.initialized) {
@@ -350,20 +353,26 @@
                     return { scale: 0, pan: 0 };
                 }
 
-                // Compute instant continuous floating-point transformation maps
                 let deltaD = currentD - this.prevD;
                 let deltaX = currentX - this.prevX;
 
                 this.prevD = currentD;
                 this.prevX = currentX;
 
-                // Threshold noise clamps filter handheld tremors cleanly
-                if (Math.abs(deltaD) < 0.005) deltaD = 0;
-                if (Math.abs(deltaX) < 0.005) deltaX = 0;
+                // Widened noise floor limits damp out localized micro shifts
+                if (Math.abs(deltaD) < 0.012) deltaD = 0;
+                if (Math.abs(deltaX) < 0.012) deltaX = 0;
+
+                const rawScale = deltaD * 8.0;
+                const rawPan = deltaX * 2.5;
+
+                // Execute Exponential Moving Average calculations to stabilize trajectory
+                this.smoothScale += this.smoothingFactor * (rawScale - this.smoothScale);
+                this.smoothPan += this.smoothingFactor * (rawPan - this.smoothPan);
 
                 return {
-                    scale: deltaD * 8.0, // Growth vector tracks forward walking velocity maps
-                    pan: deltaX * 2.5    // Frame lateral displacement indices
+                    scale: this.smoothScale,
+                    pan: this.smoothPan
                 };
             }
         }
@@ -445,6 +454,7 @@
             perceptionEngine = new RadialMassPerceptionEngine();
 
             const grid = new THREE.GridHelper(50, 25, 0x00e5ff, 0x1f1f2e);
+            grid.gridColor = new THREE.Color(0x00e5ff);
             grid.position.y = -3;
             scene.add(grid);
 
@@ -591,6 +601,7 @@
             }
         }
 
+        // FIXED: Complete model hierarchy priority chain with standard 3-attempt execution matrices
         async function captureAndScanFrame() {
             if (scanInProgress) return;
             console.clear();
@@ -632,63 +643,66 @@
 
             scanInProgress = true;
             scanBtn.disabled = true;
-            
-            statusDiv.innerText = "Pass 1/2: Analyzing Scene Hierarchy...";
             statusDiv.style.display = 'block';
 
-            const models = ['gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'];
+            // Mandated cascade execution array layout
+            const modelCascadeOrder = [
+                'gemini-3.5-pro', 
+                'gemini-3.5-flash', 
+                'gemma-4', 
+                'gemini-3.1-pro', 
+                'gemini-3.1-flash', 
+                'gemini-2.5-flash'
+            ];
+            
             let parsedPayload = null;
             let finalShapesPayload = null;
 
             const pass1Prompt = `
                 Act as a Lead 3D Spatial Systems Architect. Analyze this image and generate a high-density hierarchical object tree deconstruction.
                 Your response must populate exactly two fields inside the target JSON schema object:
-
-                1. description: A gorgeous, highly descriptive, artistic summary of the scene content for display in a text panel. DO NOT mix any shape vectors or coordinates into this text field.
-                2. blueprint: A textual architectural manifest string mapped object-by-object. 
-                
-                STRUCTURAL & CHROMATIC ENFORCEMENT RULES:
-                Identify every distinct asset or entity in the frame. For EACH separate object, you must declare its structural group header name, followed by an exploded list of individual sub-primitives (targeting 40 to 80 primitives across the whole scene).
-                
-                CRITICAL DIRECTIVE - CHROMATIC SAMPLING MANDATE:
-                You must dynamically extract the exact hex color signatures from the image asset feed for each sub-mesh component. Hair, garments, skin tones, horizon strips, foliage layers, and separate floral elements must get hyper-specific color allocations matching the visual input precisely. Do not mix colors across different structural groups or fall back to monochrome tones.
+                1. description: An artistic summary of the scene content.
+                2. blueprint: A textual architectural manifest string mapped object-by-object.
                 
                 Format the blueprint string exactly like this layout template:
                 "Object: [Name]
                 - type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
-
-                Valid types: box, roundedbox, sphere, cylinder, cone, capsule, torus.
-                Ground elevation sits at y = -3. Do not condense objects into simplified shapes.
+                Valid types: box, roundedbox, sphere, cylinder, cone, capsule, torus. Ground elevation sits at y = -3.
             `;
 
-            for (let model of models) {
-                if (parsedPayload) break;
-                try {
-                    descDiv.innerHTML = `<span style='color:#ffab00;'>Pass 1/2: Analyzing Scene & Colors (${model})...</span>`;
-                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            contents: [{ parts: [{ text: pass1Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }],
-                            generationConfig: { 
-                                responseMimeType: "application/json",
-                                responseSchema: {
-                                    type: "OBJECT",
-                                    properties: { description: { type: "STRING" }, blueprint: { type: "STRING" } },
-                                    required: ["description", "blueprint"]
+            // PASS 1 CASCADE MATRIX EXECUTION LOOPS
+            pass1ModelLoop: for (let model of modelCascadeOrder) {
+                for (let attempt = 1; attempt <= 3; attempt++) {
+                    try {
+                        descDiv.innerHTML = `<span style='color:#ffab00;'>Pass 1/2: Processing ${model} (Attempt ${attempt}/3)...</span>`;
+                        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{ parts: [{ text: pass1Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }],
+                                generationConfig: { 
+                                    responseMimeType: "application/json",
+                                    responseSchema: {
+                                        type: "OBJECT",
+                                        properties: { description: { type: "STRING" }, blueprint: { type: "STRING" } },
+                                        required: ["description", "blueprint"]
+                                    }
                                 }
+                            })
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            parsedPayload = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
+                            if (parsedPayload && parsedPayload.blueprint) {
+                                break pass1ModelLoop; 
                             }
-                        })
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
-                        parsedPayload = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                    }
-                } catch (e) { console.error(e); }
+                        }
+                    } catch (e) { console.warn(`Pass 1 catch on ${model} [${attempt}]:`, e); }
+                }
             }
 
             if (!parsedPayload || !parsedPayload.blueprint) {
-                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 1 System Connection Timeout. Verification failed.</span>";
+                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 1 Pipeline Failure. Network cascade exhausted with zero returns.</span>";
                 scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
                 return;
             }
@@ -696,65 +710,54 @@
             descDiv.innerText = parsedPayload.description;
 
             const pass2Prompt = `
-                You are an Expert Visual 3D Modeler and Data Compiler. Look directly at the attached starting reference image AND read the textual blueprint layout generated by Pass 1.
-                
-                Your job is to cross-reference the text draft against the actual image to output a hyper-precise, dense 3D primitive payload.
-
-                TEXTUAL BLUEPRINT DRAFT:
-                "${parsedPayload.blueprint}"
-
-                COMPILATION & CHROMATIC INSTRUCTIONS:
-                1. Look at the reference image to double-check and correct the visual placement and coloration of every single sub-primitive layer. Ensure the color hex values perfectly match the actual pixel segments (e.g., dress color, skin value, surrounding meadow variance).
-                2. Maintain the full exploded complexity of the structural object blocks (40 to 80 shapes total). Never collapse objects down to basic templates.
-                3. Map everything directly into the mandated JSON shapes array schema architecture.
+                You are an Expert Visual 3D Modeler. Read the textual blueprint layout generated by Pass 1 and map it into the mandated schema architecture array.
+                TEXTUAL BLUEPRINT DRAFT: "${parsedPayload.blueprint}"
             `;
 
-            for (let model of models) {
-                if (finalShapesPayload) break;
-                try {
-                    statusDiv.innerText = "Pass 2/2: Mapping Visually Enforced Chromatic Matrix Tree...";
-                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            contents: [{ 
-                                parts: [
-                                    { text: pass2Prompt },
-                                    { inlineData: { mimeType: "image/jpeg", data: base64Image } }
-                                ] 
-                            }], 
-                            generationConfig: { 
-                                responseMimeType: "application/json",
-                                responseSchema: {
-                                    type: "OBJECT",
-                                    properties: {
-                                        shapes: {
-                                            type: "ARRAY",
-                                            items: {
-                                                type: "OBJECT",
-                                                properties: {
-                                                    t: { type: "STRING" },
-                                                    m: { type: "STRING" },
-                                                    c: { type: "STRING" },
-                                                    p: { type: "ARRAY", items: { type: "NUMBER" } },
-                                                    s: { type: "ARRAY", items: { type: "NUMBER" } },
-                                                    r: { type: "ARRAY", items: { type: "NUMBER" } }
-                                                },
-                                                required: ["t", "m", "c", "p", "s", "r"]
+            // PASS 2 CASCADE MATRIX EXECUTION LOOPS
+            pass2ModelLoop: for (let model of modelCascadeOrder) {
+                for (let attempt = 1; attempt <= 3; attempt++) {
+                    try {
+                        descDiv.innerHTML = `<span style='color:#00e5ff;'>Pass 2/2: Mapping Structural Tree with ${model} (Attempt ${attempt}/3)...</span>`;
+                        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{ parts: [{ text: pass2Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }], 
+                                generationConfig: { 
+                                    responseMimeType: "application/json",
+                                    responseSchema: {
+                                        type: "OBJECT",
+                                        properties: {
+                                            shapes: {
+                                                type: "ARRAY",
+                                                items: {
+                                                    type: "OBJECT",
+                                                    properties: {
+                                                        t: { type: "STRING" }, m: { type: "STRING" }, c: { type: "STRING" },
+                                                        p: { type: "ARRAY", items: { type: "NUMBER" } },
+                                                        s: { type: "ARRAY", items: { type: "NUMBER" } },
+                                                        r: { type: "ARRAY", items: { type: "NUMBER" } }
+                                                    },
+                                                    required: ["t", "m", "c", "p", "s", "r"]
+                                                }
                                             }
-                                        }
-                                    },
-                                    required: ["shapes"]
+                                        },
+                                        required: ["shapes"]
+                                    }
                                 }
+                            })
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
+                            if (parsed && Array.isArray(parsed.shapes)) {
+                                finalShapesPayload = parsed.shapes;
+                                break pass2ModelLoop; 
                             }
-                        })
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
-                        const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                        if (parsed && Array.isArray(parsed.shapes)) finalShapesPayload = parsed.shapes;
-                    }
-                } catch (e) { console.error(e); }
+                        }
+                    } catch (e) { console.warn(`Pass 2 catch on ${model} [${attempt}]:`, e); }
+                }
             }
 
             if (finalShapesPayload) {
@@ -762,7 +765,7 @@
                 rawCachedShapesArray = finalShapesPayload; 
                 renderAIBlueprint(finalShapesPayload);
             } else {
-                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 2 compilation layout exception.</span>";
+                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 2 matrix compiling layout exception. Cascade exhausted.</span>";
             }
 
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
@@ -948,7 +951,6 @@
         function animate() {
             requestAnimationFrame(animate);
             
-            // UNIFIED BACKGROUND SAMPLING ENGINE: Continuously active in both camera and library source modes
             if (gyroActive && perceptionEngine) {
                 const massFlow = perceptionEngine.analyze(videoElement);
                 const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
@@ -956,7 +958,7 @@
                 visualTelemetry.scaleFlow = massFlow.scale;
                 visualTelemetry.panFlow = massFlow.pan;
                 
-                // Horizon Validation Constraint
+                // FIXED: Enforces strict 5-degree validation parameters relative to horizon line orientation
                 if (Math.abs(currentEuler.x) <= PITCH_THRESHOLD) {
                     visualTelemetry.gated = false;
                     
@@ -968,14 +970,12 @@
                     rightXZ.y = 0;
                     rightXZ.normalize();
 
-                    // Map spatial outputs: Scale delta translates forward, horizontal mass shift slides left/right
                     const moveStepZ = massFlow.scale * TRANSLATION_SPEED_SCALAR;
                     const moveStepX = -massFlow.pan * TRANSLATION_SPEED_SCALAR;
                     
                     camera.position.addScaledVector(forwardXZ, moveStepZ);
                     camera.position.addScaledVector(rightXZ, moveStepX);
                     
-                    // CRITICAL: Progressively translate the underlying controls target reference along with the camera transformation steps
                     if (controls) {
                         controls.target.addScaledVector(forwardXZ, moveStepZ);
                         controls.target.addScaledVector(rightXZ, moveStepX);
