@@ -480,9 +480,12 @@
         }
 
         function initOrbitControls() {
-            controls = new THREE.OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
+            if (!controls) {
+                controls = new THREE.OrbitControls(camera, renderer.domElement);
+                controls.enableDamping = true;
+                controls.dampingFactor = 0.05;
+            }
+            controls.enabled = true;
         }
 
         async function initRearCameraStreamGracefully() {
@@ -770,11 +773,10 @@
         }
 
         function activateTrackingSensors(btn) {
+            // REPAIRED: Preserve the exact single OrbitControls instance, disabling interaction instead of allocating new structures
             if (controls) { 
-                controls.dispose(); 
-                controls = null; 
+                controls.enabled = false; 
             }
-            // OFF TO ON: Trigger relative offset matching logic on the next execution cycle
             isFirstGyroFrame = true;
             window.addEventListener('deviceorientation', handleGyroscopeMotionInput, true);
             gyroActive = true;
@@ -787,18 +789,21 @@
             gyroActive = false;
             document.getElementById('gyroBtn').classList.remove('btn-active');
             
-            // Re-instantiate OrbitControls cleanly
-            controls = new THREE.OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
-            
-            // ON TO OFF PERSISTENCE LOCK: Injects the camera's exact up matrix to preserve pitch and roll seamlessly
-            controls.up.copy(camera.up);
-            
-            const dynamicForwardHeading = new THREE.Vector3();
-            camera.getWorldDirection(dynamicForwardHeading);
-            controls.target.copy(camera.position).add(dynamicForwardHeading.multiplyScalar(10));
-            controls.update();
+            if (controls) {
+                // REPAIRED: Remove the camera's roll twist component via YXZ Euler matrix deconstruction ahead of re-enabling
+                const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+                euler.z = 0; // Absolute level zero-roll calibration
+                camera.quaternion.setFromEuler(euler);
+                
+                // REPAIRED: Injects target vectors completely parallel to the level view direction vector, preventing pitch/yaw jumps
+                const dynamicForwardHeading = new THREE.Vector3();
+                camera.getWorldDirection(dynamicForwardHeading);
+                
+                // Lock OrbitControls mathematical orientation framework explicitly to current camera state parameters
+                controls.target.copy(camera.position).add(dynamicForwardHeading.multiplyScalar(10));
+                controls.enabled = true;
+                controls.update();
+            }
         }
 
         function clearSceneAndResetView() {
@@ -815,8 +820,6 @@
             scannedBackdropDataUrl = null;
             camera.position.set(0, 5, 15);
             if (controls) {
-                // Return OrbitControls to absolute true vertical when workspace resets
-                controls.up.set(0, 1, 0);
                 controls.target.set(0, 0, 0);
                 controls.update();
             }
@@ -837,7 +840,7 @@
             if (isFirstGyroFrame) {
                 let currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
                 
-                // OFF TO ON PERSISTENCE LOCK: Only locks horizontal yaw. Pitch and roll dynamically match true physical horizon.
+                // OFF TO ON TRACKING PERSISTENCE: Locks the horizontal axis while letting pitch/roll seek the true physical horizon
                 gyroYawOffset = currentEuler.y - sensorEuler.y;
                 isFirstGyroFrame = false;
             }
@@ -848,7 +851,7 @@
 
         function animate() {
             requestAnimationFrame(animate);
-            if (controls) {
+            if (controls && controls.enabled) {
                 controls.update();
             }
             
