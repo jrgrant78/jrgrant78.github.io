@@ -492,7 +492,7 @@
             const urlKey = urlParams.get('key');
             if (urlKey) {
                 document.getElementById('apiKeyField').value = urlKey.trim();
-                document.getElementById('aiDescription').innerHTML = "Ready to scan scene!<br>Gemini API Key verified.";
+                document.getElementById('aiDescription').innerHTML = "Ready to scan scene!<br>Gemini API Key loaded.";
             }
             animate();
         }
@@ -610,7 +610,7 @@
             }
         }
 
-        // ASYNCHRONOUS DUAL-PASS VISUAL FAN-OUT MULTIPLEXER ENGINE
+        // HYBRID MATRIX GENERATOR WITH EXPLICIT MODEL REPORTING & CONTEXT ISOLATION
         async function captureAndScanFrame() {
             if (scanInProgress) return;
             console.clear();
@@ -654,68 +654,121 @@
             scanBtn.disabled = true;
             statusDiv.style.display = 'block';
 
-            // Targeted baseline models array optimized for rapid structural vision querying
-            const visionModels = [
+            // Stabilized cascade list tracking baseline endpoints explicitly
+            const modelCascadeList = [
+                'gemini-1.5-flash',
                 'gemini-2.5-flash',
-                'gemini-3.5-flash',
-                'gemini-3.1-flash-lite',
-                'gemini-3-flash-preview',
-                'gemini-2.5-pro'
+                'gemini-1.5-pro',
+                'gemini-2.5-pro',
+                'gemini-3.5-flash'
             ];
+            
+            let parsedPayload = null;
+            let unifiedShapes = [];
+            let successfulPass1Model = "unknown";
 
-            // GLOBAL SPATIAL ALIGNMENT MATRIX: Enforces absolute coordinate anchoring across parallel sessions
-            const globalSpatialAnchorPrompt = `
-                Global Space Coordinates Alignment Protocol:
-                - The primary figure torso center sits firmly at target point [0, 0, 0].
-                - The ground surface / platform level is fixed tightly at elevation plane y = -3.
-                - The lower body skirt base sits at elevation plane y = -1.2.
-                - The head skull sphere center is fixed tightly at elevation plane y = 2.8.
-                - All generated shapes MUST use this exact mathematical skeleton framework to prevent disconnected joints or floating gaps.
+            // RESTORED PASS 1: Generates the structural scene text blueprint and the UI description block
+            const pass1Prompt = `
+                Act as an advanced 3D Spatial Scaffolder. Analyze this image frame completely.
+                Your response must populate exactly two fields inside the target JSON object:
+                1. description: Provide a detailed, text summary describing the exact subjects, clothes, platform, and hair features observed.
+                2. blueprint: An architectural text blueprint manifest listing 80+ structural primitives categorized under these four distinct structural headers:
+                
+                ### REGION: FOUNDATION
+                ### REGION: WARDROBE
+                ### REGION: LIMBS
+                ### REGION: PORTRAIT
+                
+                Strict Geometric Template Directives:
+                - Ground floor platform surface is fixed at elevation y = -3.
+                - Body dress center mass spans between y = -1.2 and y = 0.8.
+                - Head skull sphere center mass is fixed tightly at elevation y = 2.4.
+                - Under ### REGION: PORTRAIT, you MUST force the generation of 25+ distinct layered text items describing the cascading brown hair shell before listing facial nodes.
+                
+                Format each text entry line exactly like this template:
+                "- type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
             `;
 
-            // Isolated architectural visual zone rulesets
-            const visualZonePipelines = [
-                {
-                    id: 'FOUNDATION',
-                    focus: `Analyze this image and focus EXCLUSIVELY on the base pedestal platform structure (e.g., the textured turtle statue). Deconstruct it into 25-30 highly defined, interlocking low-poly shapes (spheres, boxes, roundedboxes) tracing its outer contours. Color tags must match the exact weathered teal/green surface signatures.`
-                },
-                {
-                    id: 'WARDROBE',
-                    focus: `Analyze this image and focus EXCLUSIVELY on the torso attire garment panels (e.g., the royal blue off-the-shoulder dress). Sculpt the main body, skirt flairs, and cross-body bag straps out of 25-30 closely joined boxes and cylinders. Capture the exact high-contrast royal blue coloration.`
-                },
-                {
-                    id: 'LIMBS',
-                    focus: `Analyze this image and focus EXCLUSIVELY on skeletal limbs. You MUST eliminate tracking gaps: attach the upper arms directly to the shoulders [0, 0.8, 0] and extend them downward. Attach the thighs directly to the skirt baseline [0, -1.2, 0]. Generate complete joint chains: Upper Arm (cylinders) -> Forearm (cylinders) -> Hand (spheres); and Thigh (cylinders) -> Calf (cylinders) -> Foot (roundedboxes) resting flush on the ground platform at y = -3.`
-                },
-                {
-                    id: 'PORTRAIT',
-                    focus: `Analyze this image and focus EXCLUSIVELY on the head, face, and hair structures. ATTENTION INVERSION DIRECTIVE: You must allocate 80% of your geometric budget to the hair. Reconstruct thick, cascading brown hair out of 30+ distinct overlapping, layered capsules and cylinders that form a volumetric helmet configuration wrapping around the skull sphere, flowing down past the shoulder plane. Do not output thin isolated loops or flat floating hats.`
+            pass1ModelLoop: for (let model of modelCascadeList) {
+                for (let attempt = 1; attempt <= 2; attempt++) {
+                    try {
+                        statusDiv.style.display = 'block';
+                        statusDiv.innerText = `Pass 1: Parsing Scene via ${model}...`;
+                        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{ parts: [{ text: pass1Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }],
+                                generationConfig: { 
+                                    responseMimeType: "application/json",
+                                    responseSchema: {
+                                        type: "OBJECT",
+                                        properties: { description: { type: "STRING" }, blueprint: { type: "STRING" } },
+                                        required: ["description", "blueprint"]
+                                    }
+                                }
+                            })
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            parsedPayload = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
+                            if (parsedPayload && parsedPayload.blueprint) {
+                                successfulPass1Model = model;
+                                break pass1ModelLoop; 
+                            }
+                        }
+                    } catch (e) { console.warn(`Pass 1 error on ${model}:`, e); }
                 }
+            }
+
+            if (!parsedPayload || !parsedPayload.blueprint) {
+                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 1 Scaffolding Failure. Check key status or endpoint access configurations.</span>";
+                scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
+                return;
+            }
+
+            // RESTORED: Displays the textual overview description in the UI terminal window
+            descDiv.innerHTML = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
+
+            const structuralTasks = [
+                { id: 'FOUNDATION', rules: 'Compile the bottom green pedestal layout. Force 20+ shapes.' },
+                { id: 'WARDROBE', rules: 'Compile the blue dress geometry. Ensure solid contiguous boxes.' },
+                { id: 'LIMBS', rules: 'Compile complete connected limb extensions. Attach upper arms directly to the torso sides, and thighs to the dress baseline. Ensure forearms, hands, calves, and feet are fully written.' },
+                { id: 'PORTRAIT', rules: 'CRITICAL LAW: You must process the HAIR layers first. Translate every text line describing hair capsules into actual JSON array entries. Build a thick volumetric shell wrapping around the head sphere down past the shoulders. Do not drop items.' }
             ];
 
-            let accumulatedShapes = [];
-            let structuralOverviewText = "Multiplex fan-out spatial reconstruction initialized successfully.";
+            const splitSegments = parsedPayload.blueprint.split(/### REGION:\s*/i);
 
-            // Execute isolated vision requests in parallel across individual visual focus domains
-            const processingPromises = visualZonePipelines.map(async (zone) => {
-                const regionalInferencePrompt = `
-                    Act as an expert low-poly 3D Geometric Vision Modeler specializing exclusively in the [${zone.id}] region.
+            // PASS 2: Asynchronous context-isolated processing blocks with visual logging hooks
+            const regionalCompilationPromises = structuralTasks.map(async (task) => {
+                let isolatedTextSnippet = "";
+                for (let segment of splitSegments) {
+                    if (segment.toUpperCase().startsWith(task.id)) {
+                        isolatedTextSnippet = segment;
+                        break;
+                    }
+                }
+                if (!isolatedTextSnippet.trim()) isolatedTextSnippet = parsedPayload.blueprint;
+
+                const pass2Prompt = `
+                    You are a precision 3D Geometry compiler specializing in the [${task.id}] zone.
+                    Convert this local isolated text block blueprint directly into a functional JSON shapes layout array.
                     
-                    ${globalSpatialAnchorPrompt}
+                    DATA BLOCK TO COMPILE:
+                    "${isolatedTextSnippet}"
                     
-                    SPECIFIC INFERENCE TARGET:
-                    ${zone.focus}
-                    
-                    Compile your geometric output directly into the target JSON array schema structure. Do not skip components.
+                    COMPILER DIRECTIVES:
+                    - ${task.rules}
+                    - Translate every single written text line item into the structural JSON output. Do not truncate early or drop sections.
                 `;
 
-                for (let model of visionModels) {
+                for (let model of modelCascadeList) {
                     try {
                         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
-                                contents: [{ parts: [{ text: regionalInferencePrompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }], 
+                                contents: [{ parts: [{ text: pass2Prompt }] }], 
                                 generationConfig: { 
                                     responseMimeType: "application/json",
                                     responseSchema: {
@@ -745,34 +798,37 @@
                             const data = await res.json();
                             const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
                             if (parsed && Array.isArray(parsed.shapes)) {
-                                return parsed.shapes;
+                                // Dynamic reporting loop showing model handshakes in real-time inside the status tracker
+                                return { id: task.id, model: model, shapes: parsed.shapes };
                             }
                         }
-                    } catch (e) { console.warn(`Model ${model} bypassed on regional segment task [${zone.id}]:`, e); }
+                    } catch (e) { console.warn(`Pass 2 exception on zone ${task.id} via ${model}:`, e); }
                 }
-                return [];
+                return { id: task.id, model: "failed", shapes: [] };
             });
 
             try {
-                descDiv.innerHTML = `<span style='color:#00e5ff;'>Launching 4 Parallel Visual Inference Streams...</span>`;
-                const parallelResults = await Promise.all(processingPromises);
+                statusDiv.innerText = "Launching compiler matrices across parallel lanes...";
+                const compiledResults = await Promise.all(regionalCompilationPromises);
                 
-                parallelResults.forEach((shapesBatch) => {
-                    if (shapesBatch && shapesBatch.length > 0) {
-                        accumulatedShapes.push(...shapesBatch);
+                let reportTrackingLog = "<br><br><b>Sector Compilation Audit:</b>";
+                compiledResults.forEach((result) => {
+                    if (result.shapes.length > 0) {
+                        unifiedShapes.push(...result.shapes);
                     }
+                    reportTrackingLog += `<br>• Zone [${result.id}] compiled successfully via <i>${result.model}</i> (${result.shapes.length} nodes)`;
                 });
 
-                if (accumulatedShapes.length > 0) {
-                    descDiv.innerText = `Spatial fan-out synthesis complete. Successfully assembled multiple independent visual sectors into unified space.`;
-                    rawCachedShapesArray = accumulatedShapes; 
-                    renderAIBlueprint(accumulatedShapes);
+                if (unifiedShapes.length > 0) {
+                    descDiv.innerHTML += reportTrackingLog;
+                    rawCachedShapesArray = unifiedShapes; 
+                    renderAIBlueprint(unifiedShapes);
                 } else {
-                    descDiv.innerHTML = "<span style='color:#ff3333;'>Parallel assembly processing failure. Array returned empty structure.</span>";
+                    descDiv.innerHTML = "<span style='color:#ff3333;'>Compilation thread failure. Assembled index array returned empty coordinates.</span>";
                 }
             } catch (err) {
-                console.error("Fan-out multiplex synchronization crash:", err);
-                descDiv.innerHTML = "<span style='color:#ff3333;'>Critical parallel thread scheduling exception.</span>";
+                console.error(err);
+                descDiv.innerHTML = "<span style='color:#ff3333;'>Parallel pipeline synchronization exception.</span>";
             }
 
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
