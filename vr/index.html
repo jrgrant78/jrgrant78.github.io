@@ -258,20 +258,15 @@
     <canvas id="canvas3d"></canvas>
 
     <script>
-        const ACCEL_GAIN       = 0.35; 
-        const ACCEL_DEADZONE   = 0.35; 
-        const SPIN_KILL_LIMIT  = 4.5;  
-        const SLIDE_FRICTION   = 0.80; 
-        const MAX_SPEED_CEILING = 0.60; 
-
         let scene, camera, renderer, controls;
         let videoElement, localStream;
+        
+        // UPGRADED: Rotational preservation state structures
         let gyroActive = false;
+        let isFirstGyroFrame = false;
+        const gyroOffset = new THREE.Quaternion();
+        
         const worldGroup = new THREE.Group();
-
-        let targetVelocity = new THREE.Vector3();
-        let currentVelocity = new THREE.Vector3();
-        let hardwareActivelySpinning = false;
         let scanInProgress = false;
         
         let dynamicInputSourceMode = 'camera';
@@ -280,7 +275,7 @@
         let floatingBackdropMesh = null; 
         let rawCachedShapesArray = null;  
 
-        let telemetryState = { alpha: 0, beta: 0, gamma: 0, x: 0, y: 5, z: 15 };
+        let telemetryState = { x: 0, y: 5, z: 15 };
 
         const OPEN_EYE_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
@@ -288,17 +283,20 @@
         const ICON_CAMERA_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/></svg>`;
         const ICON_PHOTO_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 
-        const setObjectQuaternion = (function () {
+        // Absolute hardware tracking conversion mapping
+        const getSensorQuaternion = (function () {
             const zee = new THREE.Vector3( 0, 0, 1 );
             const euler = new THREE.Euler();
             const q0 = new THREE.Quaternion();
             const q1 = new THREE.Quaternion( - Math.sqrt( 0.5 ), 0, 0, Math.sqrt( 0.5 ) ); 
 
-            return function ( quaternion, alpha, beta, gamma, orient ) {
+            return function ( alpha, beta, gamma, orient ) {
+                const q = new THREE.Quaternion();
                 euler.set( beta, alpha, - gamma, 'YXZ' ); 
-                quaternion.setFromEuler( euler ); 
-                quaternion.multiply( q1 ); 
-                quaternion.multiply( q0.setFromAxisAngle( zee, - orient ) ); 
+                q.setFromEuler( euler ); 
+                q.multiply( q1 ); 
+                q.multiply( q0.setFromAxisAngle( zee, - orient ) ); 
+                return q;
             };
         })();
 
@@ -506,6 +504,8 @@
 
         async function captureAndScanFrame() {
             if (scanInProgress) return;
+            console.clear();
+            
             const descDiv = document.getElementById('aiDescription');
             const statusDiv = document.getElementById('status');
             const scanBtn = document.getElementById('scanBtn');
@@ -543,13 +543,14 @@
 
             scanInProgress = true;
             scanBtn.disabled = true;
+            
+            statusDiv.innerText = "Pass 1/2: Analyzing Scene Hierarchy...";
             statusDiv.style.display = 'block';
 
             const models = ['gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'];
             let parsedPayload = null;
             let finalShapesPayload = null;
 
-            // PASS 1: HIERARCHICAL CHROMATIC ENGINE DIRECTIVE
             const pass1Prompt = `
                 Act as a Lead 3D Spatial Systems Architect. Analyze this image and generate a high-density hierarchical object tree deconstruction.
                 Your response must populate exactly two fields inside the target JSON schema object:
@@ -561,7 +562,7 @@
                 Identify every distinct asset or entity in the frame. For EACH separate object, you must declare its structural group header name, followed by an exploded list of individual sub-primitives (targeting 40 to 80 primitives across the whole scene).
                 
                 CRITICAL DIRECTIVE - CHROMATIC SAMPLING MANDATE:
-                You must dynamically extract the exact hex color signatures from the image asset feed for each sub-mesh component. Hair, distinct garments, facial skin tones, horizon strips, foliage layers, and separate flower heads must get hyper-specific color allocations matching the visual input precisely. Do not mix colors across different structural groups or fall back to monochrome tones.
+                You must dynamically extract the exact hex color signatures from the image asset feed for each sub-mesh component. Hair, garments, skin tones, horizon strips, foliage layers, and separate floral elements must get hyper-specific color allocations matching the visual input precisely. Do not mix colors across different structural groups or fall back to monochrome tones.
                 
                 Format the blueprint string exactly like this layout template:
                 "Object: [Name]
@@ -605,7 +606,6 @@
 
             descDiv.innerText = parsedPayload.description;
 
-            // PASS 2: MULTIMODAL MESH-TO-IMAGE QUALITY CONTROLLER
             const pass2Prompt = `
                 You are an Expert Visual 3D Modeler and Data Compiler. Look directly at the attached starting reference image AND read the textual blueprint layout generated by Pass 1.
                 
@@ -771,17 +771,17 @@
             }
         }
 
-        // PERSISTENCE UPGRADE: Seamlessly lock position coordinates across tracking runtime transitions
+        // REPAIRED: Exact orientation mapping and position preservation handler loop
         function activateTrackingSensors(btn) {
             if (controls) { 
                 controls.dispose(); 
                 controls = null; 
             }
-            // Target and current velocities reset seamlessly, keeping camera position completely intact
-            targetVelocity.set(0,0,0); 
-            currentVelocity.set(0,0,0);
+            
+            // Flags the system to calculate relative sensor delta values on the next frame loop
+            isFirstGyroFrame = true;
+            
             window.addEventListener('deviceorientation', handleGyroscopeMotionInput, true);
-            window.addEventListener('devicemotion', handleHardwareInertialSensors, true);
             gyroActive = true;
             btn.classList.add('btn-active');
         }
@@ -789,16 +789,12 @@
         function deactivateTrackingSensors() {
             if (!gyroActive) return;
             window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
-            window.removeEventListener('devicemotion', handleHardwareInertialSensors);
             gyroActive = false;
             document.getElementById('gyroBtn').classList.remove('btn-active');
             
-            // Re-instantiate OrbitControls without snapping position vector parameters
-            controls = new THREE.OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
+            initOrbitControls();
             
-            // CRITICAL FIX: Extract forward heading vector to seamlessly extrapolate new orbit target node points
+            // Extrapolates standard matrix values forward from current view vector seamlessly
             const dynamicForwardHeading = new THREE.Vector3();
             camera.getWorldDirection(dynamicForwardHeading);
             controls.target.copy(camera.position).add(dynamicForwardHeading.multiplyScalar(10));
@@ -806,6 +802,8 @@
         }
 
         function clearSceneAndResetView() {
+            console.clear();
+            
             while(worldGroup.children.length > 0) {
                 let c = worldGroup.children[0];
                 if(c.geometry) c.geometry.dispose();
@@ -825,38 +823,35 @@
 
         function handleGyroscopeMotionInput(e) {
             if (!gyroActive) return;
+            
             let a = e.alpha ? THREE.MathUtils.degToRad(e.alpha) : 0;
             let b = e.beta ? THREE.MathUtils.degToRad(e.beta) : 0;
             let g = e.gamma ? THREE.MathUtils.degToRad(e.gamma) : 0;
-            setObjectQuaternion(camera.quaternion, a, b, g, 0);
-        }
+            let orient = window.orientation ? THREE.MathUtils.degToRad(window.orientation) : 0;
 
-        function handleHardwareInertialSensors(e) {
-            if (!gyroActive) return;
-            let acc = e.acceleration;
-            if (!acc || acc.x === null) return;
-            let ax = Math.abs(acc.x) > ACCEL_DEADZONE ? acc.x : 0;
-            let az = Math.abs(acc.z) > ACCEL_DEADZONE ? acc.z : 0;
-            
-            let dir = new THREE.Vector3();
-            camera.getWorldDirection(dir);
-            dir.y = 0; dir.normalize();
-            let right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0,1,0)).normalize();
-            
-            targetVelocity.set(0,0,0).addScaledVector(right, ax).addScaledVector(dir, -az);
-            targetVelocity.setLength(Math.min(targetVelocity.length() * ACCEL_GAIN, MAX_SPEED_CEILING));
+            // Compute current hardware spatial vector matrix layout
+            let qSensor = getSensorQuaternion(a, b, g, orient);
+
+            // UPGRADED: Computes dynamic relative shift so view alignment does not twitch on activation
+            if (isFirstGyroFrame) {
+                gyroOffset.copy(camera.quaternion).multiply(qSensor.invert());
+                isFirstGyroFrame = false;
+            }
+
+            // Maps hardware stream to viewport matrix tracking loops relatively
+            camera.quaternion.copy(gyroOffset).multiply(qSensor);
         }
 
         function animate() {
             requestAnimationFrame(animate);
             if (controls) {
                 controls.update();
-            } else if (gyroActive) {
-                currentVelocity.lerp(targetVelocity, 0.2);
-                camera.position.add(currentVelocity);
             }
+            
+            // Accel calculation block fully evacuated; camera coordinate space remains completely static
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
+            
             document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Objects: ${worldGroup.children.length}`;
             renderer.render(scene, camera);
         }
