@@ -264,6 +264,7 @@
         let gyroActive = false;
         let isFirstGyroFrame = false;
         let gyroYawOffset = 0; 
+        let lockedGyroRoll = 0; // Persistent container to lock Z-axis bank orientation smoothly
         
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
@@ -782,21 +783,29 @@
             btn.classList.add('btn-active');
         }
 
-        // UPGRADED: Total isolation deactivation routing eliminates tracking memory snaps completely
+        // UPGRADED: Isolates tracking coordinates, strips and persists structural Z-roll vectors natively
         function deactivateTrackingSensors() {
             if (!gyroActive) return;
             window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
             gyroActive = false;
             document.getElementById('gyroBtn').classList.remove('btn-active');
             
-            // 1. Compute exact forward looking ray parameters from current gyro transform state
+            // 1. Unroll the camera transform matrix using YXZ ordering to isolate structural roll
+            const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+            lockedGyroRoll = euler.z; // Capture and securely lock the exact roll angle
+            
+            // 2. Temporarily clear out roll from the active camera quaternion space
+            euler.z = 0;
+            camera.quaternion.setFromEuler(euler);
+            
+            // 3. Compute exact looking path vectors using the unrolled transform coordinates
             const currentForwardDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             const explicitTargetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(currentForwardDir, 10);
             
-            // 2. Zero-out camera roll using standard lookAt projection right before attaching controls
+            // 4. Zero-out camera roll cleanly before initialization handoff
             camera.lookAt(explicitTargetPoint);
             
-            // 3. Reallocate new OrbitControls container to instantly clear latency deltas
+            // 5. Reallocate new OrbitControls container to instantly clear latency deltas
             if (controls) {
                 controls.dispose();
             }
@@ -804,13 +813,16 @@
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.target.copy(explicitTargetPoint);
             
-            // 4. Force a zero-damping state snap frame sequence to lock target indices perfectly
+            // 6. Force a zero-damping state snap frame sequence to lock target indices perfectly
             controls.enableDamping = false;
             controls.update();
             
-            // 5. Restore interaction damping configurations safely
+            // 7. Restore interaction damping configurations safely
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
+            
+            // 8. Immediately re-inject the persistent roll parameter to shield the screen from visible frame jumps
+            camera.rotateZ(lockedGyroRoll);
         }
 
         function clearSceneAndResetView() {
@@ -823,6 +835,7 @@
                 worldGroup.remove(c);
             }
             deactivateTrackingSensors();
+            lockedGyroRoll = 0; // Clear the persistent roll locking container during hard workspace resets
             rawCachedShapesArray = null;
             scannedBackdropDataUrl = null;
             camera.position.set(0, 5, 15);
@@ -858,6 +871,11 @@
             requestAnimationFrame(animate);
             if (controls && controls.enabled) {
                 controls.update();
+                
+                // CONTINUOUS PERSISTENCE MECHANIC: Inject the roll orientation layer cleanly right after OrbitControls executes
+                if (!gyroActive && lockedGyroRoll !== 0) {
+                    camera.rotateZ(lockedGyroRoll);
+                }
             }
             
             telemetryState.x = camera.position.x;
