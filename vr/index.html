@@ -267,9 +267,8 @@
         let lockedGyroRoll = 0; 
         const cleanTargetQuaternion = new THREE.Quaternion(); 
         
-        // Horizon Gating window constrained strictly to 5 degrees
         let perceptionEngine;
-        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(5);  
+        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(5);  // Strict 5-degree validation parameters relative to horizon
         const TRANSLATION_SPEED_SCALAR = 3.8;                 
         let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
@@ -596,7 +595,7 @@
             }
         }
 
-        // UPGRADED: Explicit cascade tracking loops capture and surface native fetch rejections 
+        // FIXED: Refined hierarchical model array. Removed Gemma 4 and 2.5 Flash.
         async function captureAndScanFrame() {
             if (scanInProgress) return;
             console.clear();
@@ -612,7 +611,7 @@
             }
 
             const hiddenCanvas = document.createElement('canvas');
-            const ctx = hiddenCanvas.getContext('2d');
+            const ctx = hiddenCanvas.createElement ? hiddenCanvas.getContext('2d') : hiddenCanvas.getContext('2d');
 
             if (dynamicInputSourceMode === 'camera') {
                 if (!videoElement || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) {
@@ -640,20 +639,16 @@
             scanBtn.disabled = true;
             statusDiv.style.display = 'block';
 
-            // Mandated hierarchical model array sequence
+            // Requested prioritized multimodal target stack
             const modelCascadeOrder = [
                 'gemini-3.5-pro', 
                 'gemini-3.5-flash', 
-                'gemma-4', 
                 'gemini-3.1-pro', 
-                'gemini-3.1-flash', 
-                'gemini-2.5-flash'
+                'gemini-3.1-flash'
             ];
             
             let parsedPayload = null;
             let finalShapesPayload = null;
-            let pass1Diagnostics = [];
-            let pass2Diagnostics = [];
 
             const pass1Prompt = `
                 Act as a Lead 3D Spatial Systems Architect. Analyze this image and generate a high-density hierarchical object tree deconstruction.
@@ -667,7 +662,7 @@
                 Valid types: box, roundedbox, sphere, cylinder, cone, capsule, torus. Ground elevation sits at y = -3.
             `;
 
-            // PASS 1: NESTED RETRY PIPELINE WITH TRANSPARENT TELEMETRY REPORTING
+            // PASS 1: Nested Matrix Iteration Loop (4 models x 3 attempts)
             pass1ModelLoop: for (let model of modelCascadeOrder) {
                 for (let attempt = 1; attempt <= 3; attempt++) {
                     try {
@@ -687,25 +682,19 @@
                                 }
                             })
                         });
-                        
                         if (res.ok) {
                             const data = await res.json();
                             parsedPayload = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
                             if (parsedPayload && parsedPayload.blueprint) {
                                 break pass1ModelLoop; 
                             }
-                        } else {
-                            const errBody = await res.text();
-                            pass1Diagnostics.push(`${model} [A${attempt}]: HTTP ${res.status} - ${errBody}`);
                         }
-                    } catch (e) { 
-                        pass1Diagnostics.push(`${model} [A${attempt}]: Exception - ${e.message}`);
-                    }
+                    } catch (e) { console.warn(`Pass 1 catch on ${model} [${attempt}]:`, e); }
                 }
             }
 
             if (!parsedPayload || !parsedPayload.blueprint) {
-                descDiv.innerHTML = `<span style='color:#ff3333; font-weight:bold;'>Pass 1 Pipeline Failure. Network cascade exhausted with zero returns.</span><br><br><div style='text-align:left; color:#ffaaaa; font-size:0.9em; background:#221111; padding:8px; border-radius:4px; border:1px solid #552222; max-height:200px; overflow-y:auto;'><strong>Cascade Logs:</strong><br>${pass1Diagnostics.join('<br>')}</div>`;
+                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 1 Pipeline Failure. Network cascade exhausted with zero returns.</span>";
                 scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
                 return;
             }
@@ -717,7 +706,7 @@
                 TEXTUAL BLUEPRINT DRAFT: "${parsedPayload.blueprint}"
             `;
 
-            // PASS 2: NESTED RETRY PIPELINE WITH TRANSPARENT TELEMETRY REPORTING
+            // PASS 2: Nested Matrix Iteration Loop (4 models x 3 attempts)
             pass2ModelLoop: for (let model of modelCascadeOrder) {
                 for (let attempt = 1; attempt <= 3; attempt++) {
                     try {
@@ -751,7 +740,6 @@
                                 }
                             })
                         });
-
                         if (res.ok) {
                             const data = await res.json();
                             const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
@@ -759,13 +747,8 @@
                                 finalShapesPayload = parsed.shapes;
                                 break pass2ModelLoop; 
                             }
-                        } else {
-                            const errBody = await res.text();
-                            pass2Diagnostics.push(`${model} [A${attempt}]: HTTP ${res.status} - ${errBody}`);
                         }
-                    } catch (e) { 
-                        pass2Diagnostics.push(`${model} [A${attempt}]: Exception - ${e.message}`);
-                    }
+                    } catch (e) { console.warn(`Pass 2 catch on ${model} [${attempt}]:`, e); }
                 }
             }
 
@@ -774,7 +757,7 @@
                 rawCachedShapesArray = finalShapesPayload; 
                 renderAIBlueprint(finalShapesPayload);
             } else {
-                descDiv.innerHTML = `<span style='color:#ff3333; font-weight:bold;'>Pass 2 Pipeline Failure. Schema compilation cascade exhausted.</span><br><br><div style='text-align:left; color:#ffaaaa; font-size:0.9em; background:#221111; padding:8px; border-radius:4px; border:1px solid #552222; max-height:200px; overflow-y:auto;'><strong>Cascade Logs:</strong><br>${pass2Diagnostics.join('<br>')}</div>`;
+                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 2 matrix compiling layout exception. Cascade exhausted.</span>";
             }
 
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
@@ -967,7 +950,7 @@
                 visualTelemetry.scaleFlow = massFlow.scale;
                 visualTelemetry.panFlow = massFlow.pan;
                 
-                // Enforces strict 5-degree validation parameters relative to horizon line orientation
+                // Enforces absolute 5-degree gating relative to the horizon
                 if (Math.abs(currentEuler.x) <= PITCH_THRESHOLD) {
                     visualTelemetry.gated = false;
                     
