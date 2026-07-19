@@ -265,13 +265,7 @@
         let isFirstGyroFrame = false;
         let gyroYawOffset = 0; 
         let lockedGyroRoll = 0; 
-        const cleanTargetQuaternion = new THREE.Quaternion(); 
-        
-        // RE-ENGINEERED OPTICAL PERCEPTION NAVIGATION ENGINE
-        let opticalFlowEngine;
-        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(25); // Pitch tolerance wiggle room relative to horizon
-        const TRANSLATION_SPEED_SCALAR = 0.5;                 // Visual conversion tracking step multiplier
-        let visualTelemetry = { scaleFlow: 0, panFlow: 0 };
+        const cleanTargetQuaternion = new THREE.Quaternion(); // Sandbox tracking cache container
         
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
@@ -289,113 +283,6 @@
 
         const ICON_CAMERA_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/></svg>`;
         const ICON_PHOTO_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"></polyline></svg>`;
-
-        // NEW ENHANCED SCALING & PANNING ENGINE: Compares explicit macro-block structures over interval matrices
-        class SpatialPerceptionEngine {
-            constructor() {
-                this.canvas = document.createElement('canvas');
-                this.canvas.width = 32;
-                this.canvas.height = 32;
-                this.ctx = this.canvas.getContext('2d');
-                this.prevData = new Uint8Array(1024);
-                this.currData = new Uint8Array(1024);
-                this.initialized = false;
-                
-                // Establish structural anchor target tracking index zones (North, South, East, West)
-                this.anchors = [
-                    { x: 16, y: 8 },  // North
-                    { x: 16, y: 24 }, // South
-                    { x: 24, y: 16 }, // East
-                    { x: 8, y: 16 }   // West
-                ];
-            }
-
-            analyze(video) {
-                if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) return { scaleDelta: 0, panDelta: 0 };
-                
-                this.ctx.drawImage(video, 0, 0, 32, 32);
-                const rawPixels = this.ctx.getImageData(0, 0, 32, 32).data;
-                
-                // Flatten three channel color buffers cleanly down to structural luminance arrays
-                for (let i = 0; i < 1024; i++) {
-                    this.currData[i] = (rawPixels[i * 4] + rawPixels[i * 4 + 1] + rawPixels[i * 4 + 2]) / 3;
-                }
-
-                if (!this.initialized) {
-                    this.prevData.set(this.currData);
-                    this.initialized = true;
-                    return { scaleDelta: 0, panDelta: 0 };
-                }
-
-                let displacements = [];
-
-                // Perform block-matching tracking sweeps for each regional vector anchor
-                for (let a of this.anchors) {
-                    let minSAD = Infinity;
-                    let bestDx = 0;
-                    let bestDy = 0;
-
-                    // Scan spatial cross-neighborhood search grids (±3 pixel windows)
-                    for (let sy = -3; sy <= 3; sy++) {
-                        for (let sx = -3; sx <= 3; sx++) {
-                            let sad = 0;
-                            
-                            // Evaluate structural absolute matching variance loops over micro patch bounds
-                            for (let py = -1; py <= 1; py++) {
-                                for (let px = -1; px <= 1; px++) {
-                                    const curX = a.x + px;
-                                    const curY = a.y + py;
-                                    const prvX = a.x + px + sx;
-                                    const prvY = a.y + py + sy;
-
-                                    if (curX >= 0 && curX < 32 && curY >= 0 && curY < 32 &&
-                                        prvX >= 0 && prvX < 32 && prvY >= 0 && prvY < 32) {
-                                        sad += Math.abs(this.currData[curY * 32 + curX] - this.prevData[prvY * 32 + prvX]);
-                                    } else {
-                                        sad += 255; 
-                                    }
-                                }
-                            }
-
-                            if (sad < minSAD) {
-                                minSAD = sad;
-                                bestDx = sx;
-                                bestDy = sy;
-                            }
-                        }
-                    }
-                    displacements.push({ dx: bestDx, dy: bestDy });
-                }
-
-                this.prevData.set(this.currData);
-
-                // Extract directional changes from tracking anchors
-                const dispN = displacements[0];
-                const dispS = displacements[1];
-                const dispE = displacements[2];
-                const dispW = displacements[3];
-
-                // MEASURE SCALE CHANGE (Expansion vs. Contraction)
-                // If North shifts up (-dy), South shifts down (+dy), East shifts right (+dx), West shifts left (-dx) -> Image gets LARGER
-                const scaleOutward = (-dispN.dy) + (dispS.dy) + (dispE.dx) - (dispW.dx);
-                
-                // MEASURE HORIZONTAL PAN SIGNATURES
-                // If features collectively drift right (+dx), the phone rotated/panned right.
-                const collectivePanX = (dispN.dx + dispS.dx + dispE.dx + dispW.dx) / 4.0;
-
-                // Deadzones filter baseline micro jitter noise artifacts
-                let structuralScaleFactor = 0;
-                let structuralPanFactor = 0;
-
-                if (Math.abs(scaleOutward) >= 0.75) structuralScaleFactor = scaleOutward;
-                if (Math.abs(collectivePanX) >= 0.25) structuralPanFactor = collectivePanX;
-
-                return {
-                    scaleDelta: structuralScaleFactor, // Positive = Image gets larger (Move Forward)
-                    panDelta: structuralPanFactor      // Positive = Image pans right (Move Virtual Camera Left)
-                };
-            }
-        }
 
         const getSensorQuaternion = (function () {
             const zee = new THREE.Vector3( 0, 0, 1 );
@@ -470,9 +357,6 @@
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
             initOrbitControls();
-            
-            // Instantiates our tracking engine module
-            opticalFlowEngine = new SpatialPerceptionEngine();
 
             const grid = new THREE.GridHelper(50, 25, 0x00e5ff, 0x1f1f2e);
             grid.position.y = -3;
@@ -900,25 +784,28 @@
             btn.classList.add('btn-active');
         }
 
+        // FIXED: Re-engineered tracking isolation. Grabs and zeros roll component out of look vectors to prevent target point calculation skew.
         function deactivateTrackingSensors() {
             if (!gyroActive) return;
             window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
             gyroActive = false;
             document.getElementById('gyroBtn').classList.remove('btn-active');
             
+            // 1. Isolate orientation using a YXZ sequence to extract the camera roll cleanly
             const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
             lockedGyroRoll = euler.z; 
             
+            // 2. Temporarily clear roll to calculate the clean look line vector
             euler.z = 0;
             camera.quaternion.setFromEuler(euler);
             camera.updateMatrix();
             camera.updateMatrixWorld(true);
             
+            // 3. Compute exact target point along the unrolled heading ray path
             const currentForwardDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             const explicitTargetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(currentForwardDir, 10);
             
-            camera.lookAt(explicitTargetPoint);
-            
+            // 4. Wipe control deltas cleanly
             if (controls) {
                 controls.dispose();
             }
@@ -926,13 +813,13 @@
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.target.copy(explicitTargetPoint);
             
+            // 5. Hard update single initialization frame bypass
             controls.enableDamping = false;
             controls.update();
             
+            // 6. Restore system navigation damping configurations safely
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
-            
-            visualTelemetry = { scaleFlow: 0, panFlow: 0 };
         }
 
         function clearSceneAndResetView() {
@@ -977,41 +864,13 @@
             camera.quaternion.setFromEuler(sensorEuler);
         }
 
+        // FIXED: Implement a dual-phase render sandboxing routine. Prevents OrbitControls from reading rolled camera values on subsequent frames.
         function animate() {
             requestAnimationFrame(animate);
-            
-            // EXECUTE STRUCTURAL BLOCK-MATCHING MOTION EVALUATION
-            if (gyroActive && opticalFlowEngine && dynamicInputSourceMode === 'camera') {
-                const movementVectors = opticalFlowEngine.analyze(videoElement);
-                const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
-                
-                visualTelemetry.scaleFlow = movementVectors.scaleDelta;
-                visualTelemetry.panFlow = movementVectors.panDelta;
-                
-                // Horizon Pitch Gate Validation Loop
-                if (Math.abs(currentEuler.x) <= PITCH_THRESHOLD) {
-                    const forwardXZ = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-                    forwardXZ.y = 0; 
-                    forwardXZ.normalize();
-                    
-                    const rightXZ = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-                    rightXZ.y = 0;
-                    rightXZ.normalize();
-
-                    // Calculate translation updates across the XZ plane smoothly
-                    // scaleDelta > 0 means elements are expanding outward -> Move camera forward
-                    // panDelta > 0 means elements are shifting right -> Move camera left
-                    const moveStepZ = movementVectors.scaleDelta * TRANSLATION_SPEED_SCALAR;
-                    const moveStepX = -movementVectors.panDelta * TRANSLATION_SPEED_SCALAR;
-                    
-                    camera.position.addScaledVector(forwardXZ, moveStepZ);
-                    camera.position.addScaledVector(rightXZ, moveStepX);
-                }
-            }
-
             if (controls && controls.enabled) {
                 controls.update();
                 
+                // PHASE 1: Capture unrolled baseline values, then inject the bank orientation right before rendering
                 if (!gyroActive && lockedGyroRoll !== 0) {
                     cleanTargetQuaternion.copy(camera.quaternion);
                     camera.rotateZ(lockedGyroRoll);
@@ -1021,10 +880,11 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Zoom:${visualTelemetry.scaleFlow.toFixed(1)} Pan:${visualTelemetry.panFlow.toFixed(1)} | Objects: ${worldGroup.children.length}`;
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Objects: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
             
+            // PHASE 2: Restore unrolled orientation state so OrbitControls navigation parameters never break or drift
             if (controls && controls.enabled && !gyroActive && lockedGyroRoll !== 0) {
                 camera.quaternion.copy(cleanTargetQuaternion);
             }
