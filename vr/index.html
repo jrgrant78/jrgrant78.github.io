@@ -75,7 +75,7 @@
             box-sizing: border-box;
             position: relative;
         }
-        #cameraFeed { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
+        #cameraFeed { width: 100%; height: 100%; object-fit: cover; display: block; }
         
         #libraryPreview { width: 100%; height: 100%; object-fit: cover; display: none; cursor: pointer; }
         #folderPlaceholder { 
@@ -263,7 +263,7 @@
         
         let gyroActive = false;
         let isFirstGyroFrame = false;
-        let gyroYawOffset = 0; 
+        let gyroYawOffset = 0; // Horizontal persistent offset tracking latch
         
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
@@ -342,14 +342,6 @@
         }
 
         function init3D() {
-            // FIXED: Handshake execution moved to top to prevent camera permissions from locking core interface execution
-            const urlParams = new URLSearchParams(window.location.search);
-            const urlKey = urlParams.get('key');
-            if (urlKey) {
-                document.getElementById('apiKeyField').value = urlKey.trim();
-                document.getElementById('aiDescription').innerHTML = "Ready to scan scene!<br>Gemini API Key verified via deep structural handshake.";
-            }
-
             const canvas = document.getElementById('canvas3d');
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x0a0a0f);
@@ -388,6 +380,13 @@
             document.getElementById('fileInput').addEventListener('change', handleDeviceFileSelection);
 
             initRearCameraStreamGracefully();
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlKey = urlParams.get('key');
+            if (urlKey) {
+                document.getElementById('apiKeyField').value = urlKey.trim();
+                document.getElementById('aiDescription').innerHTML = "Ready to scan scene!<br>Gemini API Key verified via deep structural handshake.";
+            }
             animate();
         }
 
@@ -481,30 +480,20 @@
         }
 
         function initOrbitControls() {
-            if (!controls) {
-                controls = new THREE.OrbitControls(camera, renderer.domElement);
-                controls.enableDamping = true;
-                controls.dampingFactor = 0.05;
-                controls.up.set(0, 1, 0);
-            }
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
         }
 
-        // FIXED: Explicit lifecycle hooks forced onto media container to bypass aggressive sandbox autoplay restrictions
         async function initRearCameraStreamGracefully() {
             videoElement = document.getElementById('cameraFeed');
-            videoElement.setAttribute('autoplay', '');
-            videoElement.setAttribute('muted', '');
-            videoElement.setAttribute('playsinline', '');
-            
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
                 videoElement.srcObject = localStream;
-                videoElement.play().catch(e => console.log("Media framework interaction delay expected."));
             } catch (err) {
                 try {
                     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                     videoElement.srcObject = localStream;
-                    videoElement.play().catch(e => console.log("Fallback execution error handled."));
                 } catch (e) {
                     document.getElementById('debugPanel').innerText = "Camera Stream Error";
                 }
@@ -782,7 +771,8 @@
 
         function activateTrackingSensors(btn) {
             if (controls) { 
-                controls.enabled = false; 
+                controls.dispose(); 
+                controls = null; 
             }
             isFirstGyroFrame = true;
             window.addEventListener('deviceorientation', handleGyroscopeMotionInput, true);
@@ -790,38 +780,19 @@
             btn.classList.add('btn-active');
         }
 
-        // PERSISTENCE LOCK MECHANIC: Complete axis capture with synchronized world space matrix evaluations
         function deactivateTrackingSensors() {
             if (!gyroActive) return;
             window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
             gyroActive = false;
             document.getElementById('gyroBtn').classList.remove('btn-active');
             
-            // 1. Deconstruct active sensor rotation mapping vectors natively using YXZ channel parsing
-            const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
-            euler.z = 0; // Strip temporary canvas twist safely ahead of vector calculations
-            camera.quaternion.setFromEuler(euler);
+            initOrbitControls();
             
-            // 2. Force immediate world transformations evaluation frame to update projection references
-            camera.updateMatrix();
-            camera.updateMatrixWorld(true);
-            
-            // 3. Compute looking target directly out of synchronized tracking matrices
-            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-            const explicitTargetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(forward, 10);
-            
-            // 4. Update the single persistent OrbitControls container directly
-            if (controls) {
-                controls.target.copy(explicitTargetPoint);
-                
-                const cachedDampingState = controls.enableDamping;
-                controls.enableDamping = false;
-                
-                controls.enabled = true;
-                controls.update();
-                
-                controls.enableDamping = cachedDampingState;
-            }
+            // UPGRADED: Absolute target intersection inheritance logic (locks exact position + look-direction vector)
+            const dynamicForwardHeading = new THREE.Vector3();
+            camera.getWorldDirection(dynamicForwardHeading);
+            controls.target.copy(camera.position).add(dynamicForwardHeading.multiplyScalar(10));
+            controls.update();
         }
 
         function clearSceneAndResetView() {
@@ -838,12 +809,13 @@
             scannedBackdropDataUrl = null;
             camera.position.set(0, 5, 15);
             if (controls) {
-                controls.target.set(0, 0, 0);
+                controls.target.set(0,0,0);
                 controls.update();
             }
             document.getElementById('aiDescription').innerText = "Workspace cleared. System active.";
         }
 
+        // UPGRADED: YXZ Euler Channel Splitting Matrix (Only horizontal locked; vertical maps absolute true horizon)
         function handleGyroscopeMotionInput(e) {
             if (!gyroActive) return;
             
@@ -852,22 +824,27 @@
             let gamma = e.gamma ? THREE.MathUtils.degToRad(e.gamma) : 0;
             let orient = window.orientation ? THREE.MathUtils.degToRad(window.orientation) : 0;
 
+            // Compute raw device hardware orientation matrix
             let qSensor = getSensorQuaternion(alpha, beta, gamma, orient);
             let sensorEuler = new THREE.Euler().setFromQuaternion(qSensor, 'YXZ');
 
             if (isFirstGyroFrame) {
+                // Read current drag tracking yaw directly from previous view layout
                 let currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+                
+                // Lock horizontal component delta loop exclusively
                 gyroYawOffset = currentEuler.y - sensorEuler.y;
                 isFirstGyroFrame = false;
             }
 
+            // Lock horizontal pan offset; let pitch (x) and roll (z) read pure true landscape horizon parameters
             sensorEuler.y += gyroYawOffset;
             camera.quaternion.setFromEuler(sensorEuler);
         }
 
         function animate() {
             requestAnimationFrame(animate);
-            if (controls && controls.enabled) {
+            if (controls) {
                 controls.update();
             }
             
