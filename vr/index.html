@@ -610,7 +610,6 @@
             }
         }
 
-        // RE-ENGINEERED SCANNERS WITH EXPLICIT ERROR REPORTING INTERCEPTORS
         async function captureAndScanFrame() {
             if (scanInProgress) return;
             console.clear();
@@ -654,12 +653,13 @@
             scanBtn.disabled = true;
             statusDiv.style.display = 'block';
 
-            // Fixed specific models array matching primary endpoint mappings
+            // RESTORED: Fixed production model configurations tracking to targeted 2026 active endpoints
             const modelCascadeList = [
-                'gemini-1.5-flash',
-                'gemini-2.5-flash',
-                'gemini-1.5-pro',
-                'gemini-2.5-pro'
+                'gemini-3.5-flash',
+                'gemini-3.1-flash-lite',
+                'gemini-3.1-pro-preview',
+                'gemini-2.5-pro',
+                'gemini-2.5-flash'
             ];
             
             let parsedPayload = null;
@@ -707,7 +707,6 @@
                         })
                     });
 
-                    // FIXED: Intercept server validation errors instead of quietly skipping them
                     if (!res.ok) {
                         const errorDetailsText = await res.text();
                         debugDiagnosticsHistory += `• ${model} HTTP Error ${res.status}: ${errorDetailsText.substring(0, 120)}...<br>`;
@@ -716,10 +715,14 @@
 
                     const data = await res.json();
                     
-                    // FIXED: Confirm safety conditions haven't blocked the content generation block entirely
+                    if (data.error) {
+                        debugDiagnosticsHistory += `• ${model} API Error: ${data.error.message}<br>`;
+                        continue;
+                    }
+
                     if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
                         const reason = data.candidates?.[0]?.finishReason || "UNKNOWN_BLOCK";
-                        debugDiagnosticsHistory += `• ${model} Blocked: Finish reason code variant = [${reason}]<br>`;
+                        debugDiagnosticsHistory += `• ${model} Blocked: Finish reason code = [${reason}]<br>`;
                         continue;
                     }
 
@@ -733,14 +736,12 @@
                 }
             }
 
-            // FIXED: If all fallback loops expire, output the verbose raw network responses to let the user debug instantly
             if (!parsedPayload || !parsedPayload.blueprint) {
                 descDiv.innerHTML = `
                     <span style='color:#ff3333; font-weight:bold;'>Pass 1 Fatal Cascade Failure</span><br>
                     <div style='background:#221111; border:1px solid #ff3333; padding:10px; border-radius:4px; margin-top:8px;'>
                         <b>Inference Engine Diagnostic Trail:</b><br>${debugDiagnosticsHistory || "No server responses recorded. Check device internet stability."}
-                    </div>
-                    <br><span style='font-size:0.9em; color:#bbb;'>Common Solutions:<br>1. Check if your API Key contains trailing spaces.<br>2. Confirm the key has full permissions enabled for the Generative Language Vision endpoints.<br>3. Ensure your source file size isn't triggering a standard network payload limits drop.</span>`;
+                    </div>`;
                 scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
                 return;
             }
