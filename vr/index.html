@@ -264,7 +264,8 @@
         let gyroActive = false;
         let isFirstGyroFrame = false;
         let gyroYawOffset = 0; 
-        let lockedGyroRoll = 0; // Persistent container to lock Z-axis bank orientation smoothly
+        let lockedGyroRoll = 0; 
+        const cleanTargetQuaternion = new THREE.Quaternion(); // Sandbox tracking cache container
         
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
@@ -783,29 +784,28 @@
             btn.classList.add('btn-active');
         }
 
-        // UPGRADED: Isolates tracking coordinates, strips and persists structural Z-roll vectors natively
+        // FIXED: Re-engineered tracking isolation. Grabs and zeros roll component out of look vectors to prevent target point calculation skew.
         function deactivateTrackingSensors() {
             if (!gyroActive) return;
             window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
             gyroActive = false;
             document.getElementById('gyroBtn').classList.remove('btn-active');
             
-            // 1. Unroll the camera transform matrix using YXZ ordering to isolate structural roll
+            // 1. Isolate orientation using a YXZ sequence to extract the camera roll cleanly
             const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
-            lockedGyroRoll = euler.z; // Capture and securely lock the exact roll angle
+            lockedGyroRoll = euler.z; 
             
-            // 2. Temporarily clear out roll from the active camera quaternion space
+            // 2. Temporarily clear roll to calculate the clean look line vector
             euler.z = 0;
             camera.quaternion.setFromEuler(euler);
+            camera.updateMatrix();
+            camera.updateMatrixWorld(true);
             
-            // 3. Compute exact looking path vectors using the unrolled transform coordinates
+            // 3. Compute exact target point along the unrolled heading ray path
             const currentForwardDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             const explicitTargetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(currentForwardDir, 10);
             
-            // 4. Zero-out camera roll cleanly before initialization handoff
-            camera.lookAt(explicitTargetPoint);
-            
-            // 5. Reallocate new OrbitControls container to instantly clear latency deltas
+            // 4. Wipe control deltas cleanly
             if (controls) {
                 controls.dispose();
             }
@@ -813,16 +813,13 @@
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.target.copy(explicitTargetPoint);
             
-            // 6. Force a zero-damping state snap frame sequence to lock target indices perfectly
+            // 5. Hard update single initialization frame bypass
             controls.enableDamping = false;
             controls.update();
             
-            // 7. Restore interaction damping configurations safely
+            // 6. Restore system navigation damping configurations safely
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
-            
-            // 8. Immediately re-inject the persistent roll parameter to shield the screen from visible frame jumps
-            camera.rotateZ(lockedGyroRoll);
         }
 
         function clearSceneAndResetView() {
@@ -835,7 +832,7 @@
                 worldGroup.remove(c);
             }
             deactivateTrackingSensors();
-            lockedGyroRoll = 0; // Clear the persistent roll locking container during hard workspace resets
+            lockedGyroRoll = 0; 
             rawCachedShapesArray = null;
             scannedBackdropDataUrl = null;
             camera.position.set(0, 5, 15);
@@ -867,13 +864,15 @@
             camera.quaternion.setFromEuler(sensorEuler);
         }
 
+        // FIXED: Implement a dual-phase render sandboxing routine. Prevents OrbitControls from reading rolled camera values on subsequent frames.
         function animate() {
             requestAnimationFrame(animate);
             if (controls && controls.enabled) {
                 controls.update();
                 
-                // CONTINUOUS PERSISTENCE MECHANIC: Inject the roll orientation layer cleanly right after OrbitControls executes
+                // PHASE 1: Capture unrolled baseline values, then inject the bank orientation right before rendering
                 if (!gyroActive && lockedGyroRoll !== 0) {
+                    cleanTargetQuaternion.copy(camera.quaternion);
                     camera.rotateZ(lockedGyroRoll);
                 }
             }
@@ -882,7 +881,13 @@
             telemetryState.z = camera.position.z;
             
             document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Objects: ${worldGroup.children.length}`;
+            
             renderer.render(scene, camera);
+            
+            // PHASE 2: Restore unrolled orientation state so OrbitControls navigation parameters never break or drift
+            if (controls && controls.enabled && !gyroActive && lockedGyroRoll !== 0) {
+                camera.quaternion.copy(cleanTargetQuaternion);
+            }
         }
 
         function onWindowResize() {
