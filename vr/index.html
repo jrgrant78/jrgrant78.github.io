@@ -773,7 +773,6 @@
         }
 
         function activateTrackingSensors(btn) {
-            // REPAIRED: Preserve the exact single OrbitControls instance, disabling interaction instead of allocating new structures
             if (controls) { 
                 controls.enabled = false; 
             }
@@ -783,27 +782,35 @@
             btn.classList.add('btn-active');
         }
 
+        // UPGRADED: Total isolation deactivation routing eliminates tracking memory snaps completely
         function deactivateTrackingSensors() {
             if (!gyroActive) return;
             window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
             gyroActive = false;
             document.getElementById('gyroBtn').classList.remove('btn-active');
             
+            // 1. Compute exact forward looking ray parameters from current gyro transform state
+            const currentForwardDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            const explicitTargetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(currentForwardDir, 10);
+            
+            // 2. Zero-out camera roll using standard lookAt projection right before attaching controls
+            camera.lookAt(explicitTargetPoint);
+            
+            // 3. Reallocate new OrbitControls container to instantly clear latency deltas
             if (controls) {
-                // REPAIRED: Remove the camera's roll twist component via YXZ Euler matrix deconstruction ahead of re-enabling
-                const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
-                euler.z = 0; // Absolute level zero-roll calibration
-                camera.quaternion.setFromEuler(euler);
-                
-                // REPAIRED: Injects target vectors completely parallel to the level view direction vector, preventing pitch/yaw jumps
-                const dynamicForwardHeading = new THREE.Vector3();
-                camera.getWorldDirection(dynamicForwardHeading);
-                
-                // Lock OrbitControls mathematical orientation framework explicitly to current camera state parameters
-                controls.target.copy(camera.position).add(dynamicForwardHeading.multiplyScalar(10));
-                controls.enabled = true;
-                controls.update();
+                controls.dispose();
             }
+            
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.target.copy(explicitTargetPoint);
+            
+            // 4. Force a zero-damping state snap frame sequence to lock target indices perfectly
+            controls.enableDamping = false;
+            controls.update();
+            
+            // 5. Restore interaction damping configurations safely
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
         }
 
         function clearSceneAndResetView() {
@@ -839,8 +846,6 @@
 
             if (isFirstGyroFrame) {
                 let currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
-                
-                // OFF TO ON TRACKING PERSISTENCE: Locks the horizontal axis while letting pitch/roll seek the true physical horizon
                 gyroYawOffset = currentEuler.y - sensorEuler.y;
                 isFirstGyroFrame = false;
             }
