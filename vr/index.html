@@ -267,10 +267,10 @@
         let lockedGyroRoll = 0; 
         const cleanTargetQuaternion = new THREE.Quaternion(); 
         
-        // VISUAL CAM PERCEPTION METRICS
+        // PERCEPTION NAVIGATION STORAGE BOUNDS
         let perceptionEngine;
-        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(15); // Horizon threshold window (Wiggle Room)
-        const TRANSLATION_SPEED_SCALAR = 0.25;                // Structural movement conversion multiplier
+        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(15); 
+        const TRANSLATION_SPEED_SCALAR = 0.25;                
         let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
         const worldGroup = new THREE.Group();
@@ -290,7 +290,6 @@
         const ICON_CAMERA_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/></svg>`;
         const ICON_PHOTO_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 
-        // HIGH-PRECISION MACRO BLOCK-MATCHING PERCEPTION ENGINE
         class QuadrantPerceptionEngine {
             constructor() {
                 this.canvas = document.createElement('canvas');
@@ -301,12 +300,11 @@
                 this.currLuma = new Uint8Array(1024);
                 this.initialized = false;
                 
-                // Track 4 robust distinct structural tracking points offset from center (16,16)
                 this.points = [
-                    { x: 8,  y: 8,  rx: -8, ry: -8 }, // Top Left
-                    { x: 24, y: 8,  rx: 8,  ry: -8 }, // Top Right
-                    { x: 8,  y: 24, rx: -8, ry: 24 }, // Bottom Left
-                    { x: 24, y: 24, rx: 8,  ry: 24 }  // Bottom Right
+                    { x: 8,  y: 8,  rx: -8, ry: -8 }, 
+                    { x: 24, y: 8,  rx: 8,  ry: -8 }, 
+                    { x: 8,  y: 24, rx: -8, ry: 24 }, 
+                    { x: 24, y: 24, rx: 8,  ry: 24 }  
                 ];
             }
 
@@ -335,12 +333,10 @@
                     let bestDx = 0;
                     let bestDy = 0;
 
-                    // Search neighborhood window matrix map layout (±3 pixels grid displacement)
                     for (let sy = -3; sy <= 3; sy++) {
                         for (let sx = -3; sx <= 3; sx++) {
                             let sad = 0;
                             
-                            // Check local 3x3 tracking patch matching limits
                             for (let wy = -1; wy <= 1; wy++) {
                                 for (let wx = -1; wx <= 1; wx++) {
                                     const cx = p.x + wx;
@@ -365,18 +361,16 @@
                         }
                     }
 
-                    // Compute vector metrics relative to center out tracking axes
                     const magnitudeR = Math.sqrt(p.rx * p.rx + p.ry * p.ry);
                     const radialDot = (bestDx * p.rx + bestDy * p.ry) / magnitudeR;
 
-                    totalScale += radialDot; // Positive = Expanding Outward (Image getting larger)
-                    totalPan += bestDx;     // Collective lateral displacement indices
+                    totalScale += radialDot; 
+                    totalPan += bestDx;     
                     validPointsCount++;
                 }
 
                 this.prevLuma.set(this.currLuma);
 
-                // Filter macro fluctuations to establish clean filtering boundaries
                 let finalScale = totalScale / validPointsCount;
                 let finalPan = totalPan / validPointsCount;
 
@@ -461,7 +455,6 @@
 
             initOrbitControls();
             
-            // Allocate structural quadrant tracking engines cleanly
             perceptionEngine = new QuadrantPerceptionEngine();
 
             const grid = new THREE.GridHelper(50, 25, 0x00e5ff, 0x1f1f2e);
@@ -921,8 +914,6 @@
             
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
-            
-            visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         }
 
         function clearSceneAndResetView() {
@@ -970,15 +961,15 @@
         function animate() {
             requestAnimationFrame(animate);
             
-            // RUN CAM PERCEPTION MATRIX FLOW TRACKING
-            if (gyroActive && perceptionEngine && dynamicInputSourceMode === 'camera') {
+            // FIXED: Decoupled entirely from asset selection mode. Engine always checks video stream tracks.
+            if (gyroActive && perceptionEngine) {
                 const flowData = perceptionEngine.analyze(videoElement);
                 const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
                 
                 visualTelemetry.scaleFlow = flowData.scale;
                 visualTelemetry.panFlow = flowData.pan;
                 
-                // Horizon Gating Constraint: Process movement vector steps *only* within the pitch window
+                // Horizon Gating Verification Constraints
                 if (Math.abs(currentEuler.x) <= PITCH_THRESHOLD) {
                     visualTelemetry.gated = false;
                     
@@ -990,15 +981,14 @@
                     rightXZ.y = 0;
                     rightXZ.normalize();
 
-                    // scale > 0 -> Image expanding outward -> Move Camera Forward
-                    // pan > 0 -> Image panning right -> Move Camera Left
+                    // Map metrics: Outward scaling pushes camera forward, horizontal panning slides layout left/right
                     const moveStepZ = flowData.scale * TRANSLATION_SPEED_SCALAR;
                     const moveStepX = -flowData.pan * TRANSLATION_SPEED_SCALAR;
                     
                     camera.position.addScaledVector(forwardXZ, moveStepZ);
                     camera.position.addScaledVector(rightXZ, moveStepX);
                 } else {
-                    visualTelemetry.gated = true; // Lock position vectors if tilted away from horizon bounds
+                    visualTelemetry.gated = true; 
                 }
             }
 
