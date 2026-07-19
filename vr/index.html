@@ -782,33 +782,33 @@
             btn.classList.add('btn-active');
         }
 
-        // UPGRADED: Total isolation deactivation routing eliminates tracking memory snaps completely
+        // FIXED: Deactivation tracking completely bypasses lookAt() to lock pitch, yaw, AND Z-roll values cleanly
         function deactivateTrackingSensors() {
             if (!gyroActive) return;
             window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
             gyroActive = false;
             document.getElementById('gyroBtn').classList.remove('btn-active');
             
-            // 1. Compute exact forward looking ray parameters from current gyro transform state
+            // 1. Extract exact current world Up and Forward vectors out of live camera tracking state
+            const currentUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
             const currentForwardDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             const explicitTargetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(currentForwardDir, 10);
             
-            // 2. Zero-out camera roll using standard lookAt projection right before attaching controls
-            camera.lookAt(explicitTargetPoint);
-            
-            // 3. Reallocate new OrbitControls container to instantly clear latency deltas
+            // 2. Safely dispose of previous instances to clear hidden acceleration velocities
             if (controls) {
                 controls.dispose();
             }
             
+            // 3. Bind new OrbitControls structure mapping the explicit, tilted camera up-vector parameter
             controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.up.copy(currentUp); // Locks the Z-axis canvas roll angle in place perfectly
             controls.target.copy(explicitTargetPoint);
             
-            // 4. Force a zero-damping state snap frame sequence to lock target indices perfectly
+            // 4. Temporarily drop damping calculations to eliminate translation lag frames
             controls.enableDamping = false;
             controls.update();
             
-            // 5. Restore interaction damping configurations safely
+            // 5. Restore interaction damping configurations smoothly
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
         }
@@ -827,6 +827,8 @@
             scannedBackdropDataUrl = null;
             camera.position.set(0, 5, 15);
             if (controls) {
+                // Return OrbitControls to absolute true vertical when workspace resets
+                controls.up.set(0, 1, 0);
                 controls.target.set(0, 0, 0);
                 controls.update();
             }
