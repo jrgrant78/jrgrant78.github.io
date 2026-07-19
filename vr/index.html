@@ -196,7 +196,7 @@
                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
                         </svg>
                     </button>
-                    <h4 style="margin: 0; color: #00e5ff; font-size: 0.85em; letter-spacing: 0.3px; flex-grow: 1; text-align: left;">Spatial Sculptor</h4>
+                    h4 style="margin: 0; color: #00e5ff; font-size: 0.85em; letter-spacing: 0.3px; flex-grow: 1; text-align: left;">Spatial Sculptor</h4>
                 </div>
                 
                 <div class="btn-toolbar" id="toolbarNode">
@@ -267,10 +267,10 @@
         let lockedGyroRoll = 0; 
         const cleanTargetQuaternion = new THREE.Quaternion(); 
         
-        // REINSERTS OPTEK FLOW TRACKERS
+        // PERCEPTION NAVIGATION CONFIGURATIONS
         let opticalFlowEngine;
-        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(20); // Horizon mapping threshold window
-        const TRANSLATION_SPEED_SCALAR = 0.35;                // Continuous vector speed multiplier
+        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(20); 
+        const TRANSLATION_SPEED_SCALAR = 0.25;                
         let visualTelemetry = { zFlow: 0, xFlow: 0 };
         
         const worldGroup = new THREE.Group();
@@ -290,82 +290,108 @@
         const ICON_CAMERA_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/></svg>`;
         const ICON_PHOTO_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 
-        // NEW CONTINUOUS LUCAS-KANADE PERCEPTION CLASS: Evaluates continuous floating-point vectors on a 16x16 grid
+        // UPGRADED RESOLUTION PROFILE ENGINE: Uses 1D cross-correlation structural maps to isolate spatial tracking metrics accurately
         class SpatialPerceptionEngine {
             constructor() {
                 this.canvas = document.createElement('canvas');
-                this.canvas.width = 16;
-                this.canvas.height = 16;
+                this.canvas.width = 32;
+                this.canvas.height = 32;
                 this.ctx = this.canvas.getContext('2d');
-                this.prevLuma = new Float32Array(256);
-                this.currLuma = new Float32Array(256);
+                this.prevCols = new Float32Array(32);
+                this.prevRads = new Float32Array(16);
                 this.initialized = false;
             }
 
             analyze(video) {
                 if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) return { deltaZ: 0, deltaX: 0 };
                 
-                this.ctx.drawImage(video, 0, 0, 16, 16);
-                const imgData = this.ctx.getImageData(0, 0, 16, 16).data;
+                this.ctx.drawImage(video, 0, 0, 32, 32);
+                const imgData = this.ctx.getImageData(0, 0, 32, 32).data;
                 
-                // Form structural luminance arrays natively
-                for (let i = 0; i < 256; i++) {
-                    this.currLuma[i] = (imgData[i * 4] + imgData[i * 4 + 1] + imgData[i * 4 + 2]) / 3.0;
+                const currCols = new Float32Array(32);
+                const currRads = new Float32Array(16);
+                const radCounts = new Float32Array(16);
+                
+                // 1. Process 2D luminance maps into 1D data arrays
+                for (let y = 0; y < 32; y++) {
+                    for (let x = 0; x < 32; x++) {
+                        const idx = (y * 32 + x) * 4;
+                        const luma = (imgData[idx] + imgData[idx + 1] + imgData[idx + 2]) / 3.0;
+                        
+                        currCols[x] += luma;
+                        
+                        // Structural radial distance logic from focus point (15.5, 15.5)
+                        const dx = x - 15.5;
+                        const dy = y - 15.5;
+                        const r = Math.min(15, Math.floor(Math.sqrt(dx * dx + dy * dy)));
+                        currRads[r] += luma;
+                        radCounts[r]++;
+                    }
                 }
-
+                
+                // Normalize visual weight signatures
+                for (let i = 0; i < 32; i++) currCols[i] /= 32.0;
+                for (let i = 0; i < 16; i++) {
+                    if (radCounts[i] > 0) currRads[i] /= radCounts[i];
+                }
+                
                 if (!this.initialized) {
-                    this.prevLuma.set(this.currLuma);
+                    this.prevCols.set(currCols);
+                    this.prevRads.set(currRads);
                     this.initialized = true;
                     return { deltaZ: 0, deltaX: 0 };
                 }
-
-                let sum_Ix2 = 0, sum_IxIt = 0;
-                let sum_Ir2 = 0, sum_IrIt = 0;
-                const cx = 7.5, cy = 7.5;
-
-                // Loop across inner structural matrix grid boundary loops
-                for (let y = 1; y < 15; y++) {
-                    for (let x = 1; x < 15; x++) {
-                        const idx = y * 16 + x;
-                        
-                        // Differential spatial derivatives
-                        const Ix = (this.currLuma[idx + 1] - this.currLuma[idx - 1]) / 2.0;
-                        const Iy = (this.currLuma[idx + 16] - this.currLuma[idx - 16]) / 2.0;
-                        
-                        // Temporal differential variation
-                        const It = this.currLuma[idx] - this.prevLuma[idx];
-                        
-                        sum_Ix2 += Ix * Ix;
-                        sum_IxIt += Ix * It;
-
-                        // Radial vector projections for zoom/scale matching calculations
-                        const rx = x - cx;
-                        const ry = y - cy;
-                        const Ir = Ix * rx + Iy * ry;
-                        
-                        sum_Ir2 += Ir * Ir;
-                        sum_IrIt += Ir * It;
+                
+                // 2. Horizontal Pan Calculation Pass (SAD pattern minimization)
+                let bestPanShift = 0;
+                let minPanSAD = Infinity;
+                for (let shift = -3; shift <= 3; shift++) {
+                    let sad = 0;
+                    let count = 0;
+                    for (let x = 0; x < 32; x++) {
+                        const oldX = x + shift;
+                        if (oldX >= 0 && oldX < 32) {
+                            sad += Math.abs(currCols[x] - this.prevCols[oldX]);
+                            count++;
+                        }
+                    }
+                    if (count > 0) sad /= count;
+                    if (sad < minPanSAD) {
+                        minPanSAD = sad;
+                        bestPanShift = shift;
                     }
                 }
-
-                this.prevLuma.set(this.currLuma);
-
-                const eps = 0.05;
-                const vx = -sum_IxIt / (sum_Ix2 + eps);
-                const vz = -sum_IrIt / (sum_Ir2 + eps);
-
-                // Noise-filtering threshold limits to damp ambient camera jitter
-                const deadzoneX = 0.08;
-                const deadzoneZ = 0.04;
-
-                let outX = 0;
-                let outZ = 0;
-
-                // Sign matching logic maps feature shifts directly to camera navigation vectors
-                if (Math.abs(vx) > deadzoneX) outX = -vx * 1.5; 
-                if (Math.abs(vz) > deadzoneZ) outZ = vz * 4.0; 
-
-                return { deltaZ: outZ, deltaX: outX };
+                
+                // 3. Radial Scaling Match Pass (Detects magnification vectors)
+                let bestZoomShift = 0;
+                let minZoomSAD = Infinity;
+                for (let shift = -2; shift <= 2; shift++) {
+                    let sad = 0;
+                    let count = 0;
+                    for (let r = 0; r < 16; r++) {
+                        const oldR = r + shift;
+                        if (oldR >= 0 && oldR < 16) {
+                            sad += Math.abs(currRads[r] - this.prevRads[oldR]);
+                            count++;
+                        }
+                    }
+                    if (count > 0) sad /= count;
+                    if (sad < minZoomSAD) {
+                        minZoomSAD = sad;
+                        bestZoomShift = shift;
+                    }
+                }
+                
+                this.prevCols.set(currCols);
+                this.prevRads.set(currRads);
+                
+                // Translate structural shift offsets to virtual tracking velocities
+                let deltaX = -bestPanShift * 0.5; 
+                let deltaZ = 0;
+                if (bestZoomShift < 0) deltaZ = Math.abs(bestZoomShift) * 0.7;  // Radial expansion -> forward step
+                if (bestZoomShift > 0) deltaZ = -Math.abs(bestZoomShift) * 0.7; // Radial contraction -> backward step
+                
+                return { deltaZ, deltaX };
             }
         }
 
@@ -443,7 +469,6 @@
 
             initOrbitControls();
             
-            // Initialize the perception engine
             opticalFlowEngine = new SpatialPerceptionEngine();
 
             const grid = new THREE.GridHelper(50, 25, 0x00e5ff, 0x1f1f2e);
@@ -578,15 +603,18 @@
             controls.enabled = true;
         }
 
+        // FIXED: Re-injected direct .play() execution statement to wake modern browser context layers up instantly
         async function initRearCameraStreamGracefully() {
             videoElement = document.getElementById('cameraFeed');
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
                 videoElement.srcObject = localStream;
+                videoElement.play().catch(e => console.log("Stream synchronization delay handled."));
             } catch (err) {
                 try {
                     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                     videoElement.srcObject = localStream;
+                    videoElement.play().catch(e => console.log("Fallback execution delay handled."));
                 } catch (e) {
                     document.getElementById('debugPanel').innerText = "Camera Stream Error";
                 }
@@ -952,7 +980,7 @@
         function animate() {
             requestAnimationFrame(animate);
             
-            // CONTINUOUS PERCEPTION CALCULATION PASS
+            // OPTICAL MOTION PROCESSING PIPELINE
             if (gyroActive && opticalFlowEngine && dynamicInputSourceMode === 'camera') {
                 const flow = opticalFlowEngine.analyze(videoElement);
                 const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
@@ -960,7 +988,7 @@
                 visualTelemetry.zFlow = flow.deltaZ;
                 visualTelemetry.xFlow = flow.deltaX;
                 
-                // Horizon Alignment Gate: Translates position vectors only within pitch tolerance limits
+                // Horizon Alignment Gate: Translates position vectors only within defined pitch threshold window
                 if (Math.abs(currentEuler.x) <= PITCH_THRESHOLD) {
                     const forwardXZ = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
                     forwardXZ.y = 0; 
@@ -970,7 +998,7 @@
                     rightXZ.y = 0;
                     rightXZ.normalize();
 
-                    // Calculate translation updates across the XZ plane smoothly
+                    // Apply layout translations smoothly across coordinate space fields
                     const moveStepZ = flow.deltaZ * TRANSLATION_SPEED_SCALAR;
                     const moveStepX = flow.deltaX * TRANSLATION_SPEED_SCALAR;
                     
