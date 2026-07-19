@@ -484,8 +484,8 @@
                 controls = new THREE.OrbitControls(camera, renderer.domElement);
                 controls.enableDamping = true;
                 controls.dampingFactor = 0.05;
+                controls.up.set(0, 1, 0);
             }
-            controls.enabled = true;
         }
 
         async function initRearCameraStreamGracefully() {
@@ -782,42 +782,40 @@
             btn.classList.add('btn-active');
         }
 
-        // FIXED: Order of execution swapped. Roll is stripped first, then the target forward line is plotted to lock all components.
+        // FIXED: Complete extraction reorder with immediate deep matrix world synchronization primitives
         function deactivateTrackingSensors() {
             if (!gyroActive) return;
             window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
             gyroActive = false;
             document.getElementById('gyroBtn').classList.remove('btn-active');
             
-            // 1. Isolate tracking coordinates and safely clear out the temporary Z-axis roll component FIRST
+            // 1. Unroll the camera transform natively using YXZ ordering
             const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
             euler.z = 0; 
             camera.quaternion.setFromEuler(euler);
             
-            // 2. NOW compute the absolute, roll-free vector pointing where the user is looking
-            const forward = new THREE.Vector3();
-            camera.getWorldDirection(forward);
+            // 2. CRITICAL CORE FIX: Force immediate recalculation of matrices so world directions aren't reading stale data
+            camera.updateMatrix();
+            camera.updateMatrixWorld(true);
             
-            // 3. Project a new forward focal intercept vector using the clean look direction
+            // 3. Compute the unrolled looking path directly out of synchronized tracking transformations
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             const explicitTargetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(forward, 10);
             
-            // 4. Wipe control acceleration pools entirely
+            // 4. Update the single persistent OrbitControls container directly instead of breaking and resetting references
             if (controls) {
-                controls.dispose();
+                controls.target.copy(explicitTargetPoint);
+                
+                // 5. Hard clamp damping factors during synchronization to cleanly flush out velocity deltas
+                const cachedDampingState = controls.enableDamping;
+                controls.enableDamping = false;
+                
+                controls.enabled = true;
+                controls.update();
+                
+                // 6. Restore system navigation damping smoothly
+                controls.enableDamping = cachedDampingState;
             }
-            
-            // 5. Instantiate a fresh control grid matching the true global horizon line axis (0, 1, 0)
-            controls = new THREE.OrbitControls(camera, renderer.domElement);
-            controls.up.set(0, 1, 0); 
-            controls.target.copy(explicitTargetPoint);
-            
-            // 6. Force a hard zero-damping execution frame to bypass standard positioning logic snaps
-            controls.enableDamping = false;
-            controls.update();
-            
-            // 7. Gracefully hand control back to active dampening drag mechanics
-            controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
         }
 
         function clearSceneAndResetView() {
@@ -834,7 +832,6 @@
             scannedBackdropDataUrl = null;
             camera.position.set(0, 5, 15);
             if (controls) {
-                controls.up.set(0, 1, 0);
                 controls.target.set(0, 0, 0);
                 controls.update();
             }
