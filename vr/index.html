@@ -267,10 +267,10 @@
         let lockedGyroRoll = 0; 
         const cleanTargetQuaternion = new THREE.Quaternion(); 
         
-        // PERCEPTION NAVIGATION STORAGE BOUNDS
+        // UPGRADED FLUID TRACKING CONFIGURATION Parameters
         let perceptionEngine;
-        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(15); 
-        const TRANSLATION_SPEED_SCALAR = 0.25;                
+        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(30); // Widened to 30 deg for normal handheld viewing comfort
+        const TRANSLATION_SPEED_SCALAR = 4.5;                 // Amplified scalar to generate responsive 3D locomotion
         let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
         const worldGroup = new THREE.Group();
@@ -290,22 +290,16 @@
         const ICON_CAMERA_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/></svg>`;
         const ICON_PHOTO_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 
-        class QuadrantPerceptionEngine {
+        // FIXED SUB-PIXEL RADIAL MASS PERCEPTION ENGINE: Bypasses integer quantization blocks entirely
+        class RadialMassPerceptionEngine {
             constructor() {
                 this.canvas = document.createElement('canvas');
                 this.canvas.width = 32;
                 this.canvas.height = 32;
                 this.ctx = this.canvas.getContext('2d');
-                this.prevLuma = new Uint8Array(1024);
-                this.currLuma = new Uint8Array(1024);
+                this.prevD = 0;
+                this.prevX = 0;
                 this.initialized = false;
-                
-                this.points = [
-                    { x: 8,  y: 8,  rx: -8, ry: -8 }, 
-                    { x: 24, y: 8,  rx: 8,  ry: -8 }, 
-                    { x: 8,  y: 24, rx: -8, ry: 24 }, 
-                    { x: 24, y: 24, rx: 8,  ry: 24 }  
-                ];
             }
 
             analyze(video) {
@@ -314,70 +308,63 @@
                 this.ctx.drawImage(video, 0, 0, 32, 32);
                 const rawPixels = this.ctx.getImageData(0, 0, 32, 32).data;
                 
-                for (let i = 0; i < 1024; i++) {
-                    this.currLuma[i] = (rawPixels[i * 4] + rawPixels[i * 4 + 1] + rawPixels[i * 4 + 2]) / 3;
+                let rowSum = new Float32Array(32);
+                let colSum = new Float32Array(32);
+                
+                // Convert row/col matrices instantly to 1D brightness profiles
+                for (let y = 0; y < 32; y++) {
+                    for (let x = 0; x < 32; x++) {
+                        const idx = (y * 32 + x) * 4;
+                        const luma = (rawPixels[idx] + rawPixels[idx + 1] + rawPixels[idx + 2]) / 3.0;
+                        rowSum[y] += luma;
+                        colSum[x] += luma;
+                    }
                 }
 
+                // Calculate sub-pixel mass centers across frame segments
+                let massLeft = 0, weightLeft = 0;
+                let massRight = 0, weightRight = 0;
+                let massTotal = 0, weightTotal = 0;
+
+                for (let x = 0; x < 32; x++) {
+                    massTotal += x * colSum[x];
+                    weightTotal += colSum[x];
+                    if (x < 16) {
+                        massLeft += x * colSum[x];
+                        weightLeft += colSum[x];
+                    } else {
+                        massRight += x * colSum[x];
+                        weightRight += colSum[x];
+                    }
+                }
+
+                const centerX_L = weightLeft > 0 ? massLeft / weightLeft : 0;
+                const centerX_R = weightRight > 0 ? massRight / weightRight : 16;
+                const currentD = centerX_R - centerX_L; // Radial baseline spread width
+                const currentX = weightTotal > 0 ? massTotal / weightTotal : 16;
+
                 if (!this.initialized) {
-                    this.prevLuma.set(this.currLuma);
+                    this.prevD = currentD;
+                    this.prevX = currentX;
                     this.initialized = true;
                     return { scale: 0, pan: 0 };
                 }
 
-                let totalScale = 0;
-                let totalPan = 0;
-                let validPointsCount = 0;
+                // Compute instant continuous floating-point transformation maps
+                let deltaD = currentD - this.prevD;
+                let deltaX = currentX - this.prevX;
 
-                for (let p of this.points) {
-                    let minSAD = Infinity;
-                    let bestDx = 0;
-                    let bestDy = 0;
+                this.prevD = currentD;
+                this.prevX = currentX;
 
-                    for (let sy = -3; sy <= 3; sy++) {
-                        for (let sx = -3; sx <= 3; sx++) {
-                            let sad = 0;
-                            
-                            for (let wy = -1; wy <= 1; wy++) {
-                                for (let wx = -1; wx <= 1; wx++) {
-                                    const cx = p.x + wx;
-                                    const cy = p.y + wy;
-                                    const px = p.x + wx + sx;
-                                    const py = p.y + wy + sy;
+                // Threshold noise clamps filter handheld tremors cleanly
+                if (Math.abs(deltaD) < 0.005) deltaD = 0;
+                if (Math.abs(deltaX) < 0.005) deltaX = 0;
 
-                                    if (cx >= 0 && cx < 32 && cy >= 0 && cy < 32 &&
-                                        px >= 0 && px < 32 && py >= 0 && py < 32) {
-                                        sad += Math.abs(this.currLuma[cy * 32 + cx] - this.prevLuma[py * 32 + px]);
-                                    } else {
-                                        sad += 255; 
-                                    }
-                                }
-                            }
-
-                            if (sad < minSAD) {
-                                minSAD = sad;
-                                bestDx = sx;
-                                bestDy = sy;
-                            }
-                        }
-                    }
-
-                    const magnitudeR = Math.sqrt(p.rx * p.rx + p.ry * p.ry);
-                    const radialDot = (bestDx * p.rx + bestDy * p.ry) / magnitudeR;
-
-                    totalScale += radialDot; 
-                    totalPan += bestDx;     
-                    validPointsCount++;
-                }
-
-                this.prevLuma.set(this.currLuma);
-
-                let finalScale = totalScale / validPointsCount;
-                let finalPan = totalPan / validPointsCount;
-
-                if (Math.abs(finalScale) < 0.2) finalScale = 0;
-                if (Math.abs(finalPan) < 0.15) finalPan = 0;
-
-                return { scale: finalScale, pan: finalPan };
+                return {
+                    scale: deltaD * 8.0, // Growth vector tracks forward walking velocity maps
+                    pan: deltaX * 2.5    // Frame lateral displacement indices
+                };
             }
         }
 
@@ -455,7 +442,7 @@
 
             initOrbitControls();
             
-            perceptionEngine = new QuadrantPerceptionEngine();
+            perceptionEngine = new RadialMassPerceptionEngine();
 
             const grid = new THREE.GridHelper(50, 25, 0x00e5ff, 0x1f1f2e);
             grid.position.y = -3;
@@ -961,15 +948,15 @@
         function animate() {
             requestAnimationFrame(animate);
             
-            // FIXED: Decoupled entirely from asset selection mode. Engine always checks video stream tracks.
+            // UNIFIED BACKGROUND SAMPLING ENGINE: Continuously active in both camera and library source modes
             if (gyroActive && perceptionEngine) {
-                const flowData = perceptionEngine.analyze(videoElement);
+                const massFlow = perceptionEngine.analyze(videoElement);
                 const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
                 
-                visualTelemetry.scaleFlow = flowData.scale;
-                visualTelemetry.panFlow = flowData.pan;
+                visualTelemetry.scaleFlow = massFlow.scale;
+                visualTelemetry.panFlow = massFlow.pan;
                 
-                // Horizon Gating Verification Constraints
+                // Horizon Validation Constraint
                 if (Math.abs(currentEuler.x) <= PITCH_THRESHOLD) {
                     visualTelemetry.gated = false;
                     
@@ -981,12 +968,18 @@
                     rightXZ.y = 0;
                     rightXZ.normalize();
 
-                    // Map metrics: Outward scaling pushes camera forward, horizontal panning slides layout left/right
-                    const moveStepZ = flowData.scale * TRANSLATION_SPEED_SCALAR;
-                    const moveStepX = -flowData.pan * TRANSLATION_SPEED_SCALAR;
+                    // Map spatial outputs: Scale delta translates forward, horizontal mass shift slides left/right
+                    const moveStepZ = massFlow.scale * TRANSLATION_SPEED_SCALAR;
+                    const moveStepX = -massFlow.pan * TRANSLATION_SPEED_SCALAR;
                     
                     camera.position.addScaledVector(forwardXZ, moveStepZ);
                     camera.position.addScaledVector(rightXZ, moveStepX);
+                    
+                    // CRITICAL: Progressively translate the underlying controls target reference along with the camera transformation steps
+                    if (controls) {
+                        controls.target.addScaledVector(forwardXZ, moveStepZ);
+                        controls.target.addScaledVector(rightXZ, moveStepX);
+                    }
                 } else {
                     visualTelemetry.gated = true; 
                 }
@@ -1004,7 +997,7 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Zoom:${visualTelemetry.scaleFlow.toFixed(2)} Pan:${visualTelemetry.panFlow.toFixed(2)} Horizon:${visualTelemetry.gated ? 'Gated' : 'TRACKING'} | Objects: ${worldGroup.children.length}`;
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Zoom:${visualTelemetry.scaleFlow.toFixed(3)} Pan:${visualTelemetry.panFlow.toFixed(3)} Horizon:${visualTelemetry.gated ? 'Gated' : 'TRACKING'} | Objects: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
             
