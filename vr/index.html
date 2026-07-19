@@ -265,7 +265,12 @@
         let isFirstGyroFrame = false;
         let gyroYawOffset = 0; 
         let lockedGyroRoll = 0; 
+        let currentPitchVal = 0; 
         const cleanTargetQuaternion = new THREE.Quaternion(); 
+        
+        // Custom Optical Flow Cache State Variables
+        let opticalFlowCanvas, opticalFlowContext;
+        let lastLuminanceMatrix = null;
         
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
@@ -301,7 +306,7 @@
         })();
 
         function createRoundedBoxGeometry(w, h, d, radius, segments) {
-            w = Math.max(w, 0.05); h = Math.max(w, 0.05); d = Math.max(d, 0.05);
+            w = Math.max(w, 0.05); h = Math.max(h, 0.05); d = Math.max(d, 0.05);
             const r = Math.min(radius, Math.min(w, h) * 0.45);
             const shape = new THREE.Shape();
             const x = -w / 2, y = -h / 2;
@@ -368,6 +373,12 @@
             scene.add(sun);
 
             scene.add(worldGroup);
+
+            // Initialize Offscreen Processing Matrix for Optical Flow Calculations
+            opticalFlowCanvas = document.createElement('canvas');
+            opticalFlowCanvas.width = 8;
+            opticalFlowCanvas.height = 8;
+            opticalFlowContext = opticalFlowCanvas.getContext('2d');
 
             window.addEventListener('resize', onWindowResize);
             document.getElementById('scanBtn').addEventListener('click', captureAndScanFrame);
@@ -547,46 +558,38 @@
             scanInProgress = true;
             scanBtn.disabled = true;
             
-            statusDiv.innerText = "Pass 1/2: Analyzing Scene Hierarchy...";
+            statusDiv.innerText = "Pass 1/2: Deconstructing Organic Anatomy...";
             statusDiv.style.display = 'block';
 
             const models = ['gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'];
             let parsedPayload = null;
             let finalShapesPayload = null;
 
-            // ENHANCED: Prompts modified to aggressively prioritize organic, connected anatomical structures and granular facial/hair feature details.
+            // ENHANCED PROMPT 1: Shifting core generation mechanics entirely towards highly precise organic topology
             const pass1Prompt = `
-                Act as a Lead 3D Spatial Systems Architect. Analyze this image and generate a high-density hierarchical object tree deconstruction.
-                Your response must populate exactly two fields inside the target JSON schema object:
+                Act as a Master 3D Sculptor and Anatomical Systems Architect. Analyze this frame and plan a high-fidelity primitive model.
+                Your response must populate exactly two fields inside the target JSON object:
+                1. description: An artistic, vivid summary of the subjects found.
+                2. blueprint: A textual structural construction map.
 
-                1. description: A gorgeous, highly descriptive, artistic summary of the scene content for display in a text panel. DO NOT mix any shape vectors or coordinates into this text field.
-                2. blueprint: A textual architectural manifest string mapped object-by-object. 
-                
-                ORGANIC ANATOMICAL PRIORITY MANDATE:
-                If humans, animals, or living organic beings are present in the image frame, you MUST allocate 75% to 85% of your shape primitive count budget exclusively to those elements. Inanimate objects and backgrounds must be heavily simplified into low-fidelity base meshes to preserve your parsing tokens for the living subjects.
+                ORGANIC TOPOLOGY AND ANATOMICAL RULES:
+                - Give massive preference, detail, and primitive density to living organisms (people, figures, animals, faces, hair structures) over static environmental clutter.
+                - Deconstruct figures with strict geometric precision: break out detailed facial structures (jaw profiles, brows, noses), hairstyles (length, texture blocks), body contours, distinct poses, arm segments, and leg extensions.
+                - CRITICAL CONNECTIVITY REQUIREMENT: Every limb, joint, neck, and head component must intersect cleanly and lock safely into the torso structure. No floating or unattached body segments are allowed.
+                - Extract hyper-specific color signatures directly from the visual inputs (skin hex values, hair coloring, clothing tones) matching pixel groups perfectly.
 
-                STRUCTURAL COMPLETION & CONNECTIVITY RULES:
-                Every organic entity must be built with strict structural completion. Do not generate floating limbs or isolated heads. All joints must map tightly to their parent geometry:
-                - Head & Face: Must explicitly declare sub-primitives for jawline/facial structure, nose ridge, eyes, hair styling volume, hair length flows, and exact hair coloring signatures.
-                - Body Shape & Posture: Torso blocks must reflect the physical body shape, shoulder tilt, and leaning posture.
-                - Limbs: Arms (upper arm, lower arm, hands) and Legs (thigh, calf, feet) must be perfectly attached to the shoulder and hip joints of the torso without any spatial gaps. Maintain the exact body pose and arm/leg positioning seen in the image.
-                - Clothing: Generated primitives must encapsulate structural folds and layers over the corresponding body meshes.
-
-                CRITICAL DIRECTIVE - CHROMATIC SAMPLING MANDATE:
-                You must dynamically extract the exact hex color signatures from the image asset feed for each sub-mesh component. Hair styling colors, skin tones, clothing fabrics, and biological layers must get hyper-specific color allocations matching the visual input precisely.
-
-                Format the blueprint string exactly like this layout template:
-                "Object: [Name]
-                - type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
-
-                Valid types: box, roundedbox, sphere, cylinder, cone, capsule, torus. Ground elevation sits at y = -3.
+                Format blueprint lines exactly like this layout template:
+                "Object: [Component Group Name]
+                - type=[type], material=[surface], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
+                Valid shapes: box, roundedbox, sphere, cylinder, cone, capsule, torus. Ground sits at y=-3.
             `;
 
             for (let model of models) {
                 if (parsedPayload) break;
                 try {
-                    descDiv.innerHTML = `<span style='color:#ffab00;'>Pass 1/2: Analyzing Scene & Colors (${model})...</span>`;
-                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
+                    descDiv.innerHTML = `<span style='color:#ffab00;'>Pass 1/2: Processing Anatomy & Posture (${model})...</span>`;
+                    const res = await fetch seaward = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`;
+                    const response = await fetch(res seaward, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -601,50 +604,43 @@
                             }
                         })
                     });
-                    if (res.ok) {
-                        const data = await res.json();
+                    if (response.ok) {
+                        const data = await response.json();
                         parsedPayload = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
                     }
                 } catch (e) { console.error(e); }
             }
 
             if (!parsedPayload || !parsedPayload.blueprint) {
-                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 1 System Connection Timeout. Verification failed.</span>";
+                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 1 Connection Error. Structural parsing failed.</span>";
                 scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
                 return;
             }
 
             descDiv.innerText = parsedPayload.description;
 
+            // ENHANCED PROMPT 2: Enforcing dense mechanical primitive allocation onto living forms
             const pass2Prompt = `
-                You are an Expert Visual 3D Modeler and Data Compiler. Look directly at the attached starting reference image AND read the textual blueprint layout generated by Pass 1.
+                You are an Expert Visual 3D Modeler and Data Compiler. Look directly at the attached reference image AND read the blueprint manifest text from Pass 1.
                 
-                Your job is to cross-reference the text draft against the actual image to output a hyper-precise, dense 3D primitive payload.
-
-                TEXTUAL BLUEPRINT DRAFT:
+                BLUEPRINT RECONSTRUCTION BASELINE:
                 "${parsedPayload.blueprint}"
 
-                ANATOMICAL CONNECTIVITY VALIDATION RULES:
-                1. Look directly at the organic entities (people, animals) in the reference image. Correct any coordinate drift from Pass 1 to ensure that arms, legs, necks, and heads are flush and physically connected to their corresponding bodies.
-                2. Increase primitive density on facial profiles, features, hair styles, body pose orientation, hand positions, and detailed apparel contours.
-                3. Ensure the extracted color hex values perfectly match the live biological and apparel pixel segments (skin values, hair hue, garment folds).
-                4. Map everything directly into the mandated JSON shapes array schema architecture.
+                COMPILATION MANDATES:
+                1. Prioritize organic entities over backgrounds. Maximize primitive density on people, facial features, arm positions, postures, hair length, and clothing layers.
+                2. Build limbs sequentially to form unbroken structural chains. Ensure the head connects flawlessly to the neck, and the neck to the chest. Prevent floating parts.
+                3. Allocate a high volume of primitives to ensure clean shapes. Convert your final design into the mandated JSON shapes array.
             `;
 
             for (let model of models) {
                 if (finalShapesPayload) break;
                 try {
-                    statusDiv.innerText = "Pass 2/2: Mapping Visually Enforced Chromatic Matrix Tree...";
+                    statusDiv.innerText = "Pass 2/2: Compiling Connected Primitive Hierarchies...";
                     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            contents: [{ 
-                                parts: [
-                                    { text: pass2Prompt },
-                                    { inlineData: { mimeType: "image/jpeg", data: base64Image } }
-                                ] 
-                            }], 
+                            contents: [{ parts: [{ text: pass2Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }], 
                             generationConfig: { 
                                 responseMimeType: "application/json",
                                 responseSchema: {
@@ -655,9 +651,7 @@
                                             items: {
                                                 type: "OBJECT",
                                                 properties: {
-                                                    t: { type: "STRING" },
-                                                    m: { type: "STRING" },
-                                                    c: { type: "STRING" },
+                                                    t: { type: "STRING" }, m: { type: "STRING" }, c: { type: "STRING" },
                                                     p: { type: "ARRAY", items: { type: "NUMBER" } },
                                                     s: { type: "ARRAY", items: { type: "NUMBER" } },
                                                     r: { type: "ARRAY", items: { type: "NUMBER" } }
@@ -684,7 +678,7 @@
                 rawCachedShapesArray = finalShapesPayload; 
                 renderAIBlueprint(finalShapesPayload);
             } else {
-                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 2 compilation layout exception.</span>";
+                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 2 structural packing exception.</span>";
             }
 
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
@@ -809,8 +803,6 @@
             const currentForwardDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             const explicitTargetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(currentForwardDir, 10);
             
-            camera.lookAt(explicitTargetPoint);
-            
             if (controls) {
                 controls.dispose();
             }
@@ -827,7 +819,6 @@
 
         function clearSceneAndResetView() {
             console.clear();
-            
             while(worldGroup.children.length > 0) {
                 let c = worldGroup.children[0];
                 if(c.geometry) c.geometry.dispose();
@@ -864,15 +855,101 @@
             }
 
             sensorEuler.y += gyroYawOffset;
+            currentPitchVal = sensorEuler.x; // Track spatial look pitch dynamically for our horizon translation threshold
             camera.quaternion.setFromEuler(sensorEuler);
+        }
+
+        // CUSTOM CORE FUNCTION: Real-Time Canvas Sub-Matrix Vision Optical Flow Engine
+        function evaluateOpticalFlowMovement() {
+            if (!videoElement || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) return;
+            
+            // Render micro-matrix map from stream loop
+            opticalFlowContext.drawImage(videoElement, 0, 0, 8, 8);
+            const framePixels = opticalFlowContext.getImageData(0, 0, 8, 8).data;
+            
+            let currentLuminance = new Float32Array(64);
+            for (let i = 0; i < 64; i++) {
+                let r = framePixels[i * 4];
+                let g = framePixels[i * 4 + 1];
+                let b = framePixels[i * 4 + 2];
+                currentLuminance[i] = 0.299 * r + 0.587 * g + 0.114 * b; // Standard Grayscale extraction
+            }
+            
+            if (lastLuminanceMatrix === null) {
+                lastLuminanceMatrix = currentLuminance;
+                return;
+            }
+            
+            // Calculate spatial shifts
+            let shiftLeftScore = 0, shiftRightScore = 0;
+            let centerMassOld = 0, centerMassNew = 0;
+            let borderMassOld = 0, borderMassNew = 0;
+            
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                    let idx = row * 8 + col;
+                    let valOld = lastLuminanceMatrix[idx];
+                    let valNew = currentLuminance[idx];
+                    
+                    // Lateral Pan Distribution Weights
+                    if (col < 4) {
+                        shiftLeftScore += (valNew - valOld);
+                    } else {
+                        shiftRightScore += (valNew - valOld);
+                    }
+                    
+                    // Radial Scaling Weights (Center vs Border Rings)
+                    if (row >= 2 && row <= 5 && col >= 2 && col <= 5) {
+                        centerMassOld += valOld;
+                        centerMassNew += valNew;
+                    } else {
+                        borderMassOld += valOld;
+                        borderMassNew += valNew;
+                    }
+                }
+            }
+            
+            let panDelta = (shiftLeftScore - shiftRightScore) * 0.002;
+            let zoomDelta = ((centerMassNew / borderMassNew) - (centerMassOld / borderMassOld)) * 2.5;
+            
+            lastLuminanceMatrix = currentLuminance;
+            
+            // HORIZON RESTRICTION HANDSHAKE: Validate pitch angle falls within the loose threshold window
+            // true level horizon sits around 0 pitch. Allow a ~25 degree tolerance window.
+            const horizonThreshold = THREE.MathUtils.degToRad(25.0); 
+            if (Math.abs(currentPitchVal) <= horizonThreshold) {
+                executeVirtualCameraTranslation(panDelta, zoomDelta);
+            }
+        }
+
+        function executeVirtualCameraTranslation(panDelta, zoomDelta) {
+            const movementSpeedScaler = 0.45;
+            let forwardHeadingVec = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            forwardHeadingVec.y = 0; // Lock movement path parallel to grid plain
+            forwardHeadingVec.normalize();
+            
+            let lateralHeadingVec = new THREE.Vector3().crossVectors(camera.up, forwardHeadingVec).normalize();
+            
+            // Trigger Forward/Backward movement based on expansion scaling indicators
+            if (Math.abs(zoomDelta) > 0.02) {
+                camera.position.addScaledVector(forwardHeadingVec, zoomDelta * movementSpeedScaler);
+            }
+            
+            // Trigger Lateral Counter-Steer Panning translation based on horizontal pixel drift shifts
+            if (Math.abs(panDelta) > 0.01) {
+                camera.position.addScaledVector(lateralHeadingVec, -panDelta * movementSpeedScaler);
+            }
         }
 
         function animate() {
             requestAnimationFrame(animate);
-            if (controls && controls.enabled) {
+            
+            if (gyroActive) {
+                evaluateOpticalFlowMovement(); // Run visual frame delta calculation pipeline loop continuously
+            } else if (controls && controls.enabled) {
                 controls.update();
                 
-                if (!gyroActive && lockedGyroRoll !== 0) {
+                if (lockedGyroRoll !== 0) {
                     cleanTargetQuaternion.copy(camera.quaternion);
                     camera.rotateZ(lockedGyroRoll);
                 }
@@ -881,7 +958,7 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Objects: ${worldGroup.children.length}`;
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Objects: ${worldGroup.children.length} | Mode: ${gyroActive ? "Flow Walk" : "Orbit View"}`;
             
             renderer.render(scene, camera);
             
