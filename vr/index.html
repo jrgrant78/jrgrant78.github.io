@@ -610,7 +610,7 @@
             }
         }
 
-        // HYBRID MATRIX GENERATOR WITH EXPLICIT MODEL REPORTING & CONTEXT ISOLATION
+        // RE-ENGINEERED SCANNERS WITH EXPLICIT ERROR REPORTING INTERCEPTORS
         async function captureAndScanFrame() {
             if (scanInProgress) return;
             console.clear();
@@ -621,7 +621,7 @@
             const userEnteredKey = document.getElementById('apiKeyField').value.trim();
 
             if (!userEnteredKey) {
-                descDiv.innerHTML = "<span style='color:#ff3333;'>Authentication Error: Key required.</span>";
+                descDiv.innerHTML = "<span style='color:#ff3333;'>Authentication Error: Key field cannot be left blank.</span>";
                 return;
             }
 
@@ -654,24 +654,23 @@
             scanBtn.disabled = true;
             statusDiv.style.display = 'block';
 
-            // Stabilized cascade list tracking baseline endpoints explicitly
+            // Fixed specific models array matching primary endpoint mappings
             const modelCascadeList = [
                 'gemini-1.5-flash',
                 'gemini-2.5-flash',
                 'gemini-1.5-pro',
-                'gemini-2.5-pro',
-                'gemini-3.5-flash'
+                'gemini-2.5-pro'
             ];
             
             let parsedPayload = null;
             let unifiedShapes = [];
-            let successfulPass1Model = "unknown";
+            let successfulPass1Model = "none";
+            let debugDiagnosticsHistory = "";
 
-            // RESTORED PASS 1: Generates the structural scene text blueprint and the UI description block
             const pass1Prompt = `
                 Act as an advanced 3D Spatial Scaffolder. Analyze this image frame completely.
                 Your response must populate exactly two fields inside the target JSON object:
-                1. description: Provide a detailed, text summary describing the exact subjects, clothes, platform, and hair features observed.
+                1. description: Provide a rich text summary describing the exact subjects, blue dress clothing textures, base turtle pedestal, and flowing long hair attributes observed.
                 2. blueprint: An architectural text blueprint manifest listing 80+ structural primitives categorized under these four distinct structural headers:
                 
                 ### REGION: FOUNDATION
@@ -683,51 +682,69 @@
                 - Ground floor platform surface is fixed at elevation y = -3.
                 - Body dress center mass spans between y = -1.2 and y = 0.8.
                 - Head skull sphere center mass is fixed tightly at elevation y = 2.4.
-                - Under ### REGION: PORTRAIT, you MUST force the generation of 25+ distinct layered text items describing the cascading brown hair shell before listing facial nodes.
+                - Under ### REGION: PORTRAIT, you MUST generate 25+ distinct layered text items describing the cascading brown hair shell before listing facial nodes.
                 
                 Format each text entry line exactly like this template:
                 "- type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
             `;
 
             pass1ModelLoop: for (let model of modelCascadeList) {
-                for (let attempt = 1; attempt <= 2; attempt++) {
-                    try {
-                        statusDiv.style.display = 'block';
-                        statusDiv.innerText = `Pass 1: Parsing Scene via ${model}...`;
-                        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                contents: [{ parts: [{ text: pass1Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }],
-                                generationConfig: { 
-                                    responseMimeType: "application/json",
-                                    responseSchema: {
-                                        type: "OBJECT",
-                                        properties: { description: { type: "STRING" }, blueprint: { type: "STRING" } },
-                                        required: ["description", "blueprint"]
-                                    }
+                try {
+                    statusDiv.innerText = `Pass 1: Prompting ${model}...`;
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: pass1Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }],
+                            generationConfig: { 
+                                responseMimeType: "application/json",
+                                responseSchema: {
+                                    type: "OBJECT",
+                                    properties: { description: { type: "STRING" }, blueprint: { type: "STRING" } },
+                                    required: ["description", "blueprint"]
                                 }
-                            })
-                        });
-                        if (res.ok) {
-                            const data = await res.json();
-                            parsedPayload = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                            if (parsedPayload && parsedPayload.blueprint) {
-                                successfulPass1Model = model;
-                                break pass1ModelLoop; 
                             }
-                        }
-                    } catch (e) { console.warn(`Pass 1 error on ${model}:`, e); }
+                        })
+                    });
+
+                    // FIXED: Intercept server validation errors instead of quietly skipping them
+                    if (!res.ok) {
+                        const errorDetailsText = await res.text();
+                        debugDiagnosticsHistory += `• ${model} HTTP Error ${res.status}: ${errorDetailsText.substring(0, 120)}...<br>`;
+                        continue;
+                    }
+
+                    const data = await res.json();
+                    
+                    // FIXED: Confirm safety conditions haven't blocked the content generation block entirely
+                    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+                        const reason = data.candidates?.[0]?.finishReason || "UNKNOWN_BLOCK";
+                        debugDiagnosticsHistory += `• ${model} Blocked: Finish reason code variant = [${reason}]<br>`;
+                        continue;
+                    }
+
+                    parsedPayload = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
+                    if (parsedPayload && parsedPayload.blueprint) {
+                        successfulPass1Model = model;
+                        break pass1ModelLoop; 
+                    }
+                } catch (e) { 
+                    debugDiagnosticsHistory += `• ${model} Exception: ${e.message}<br>`;
                 }
             }
 
+            // FIXED: If all fallback loops expire, output the verbose raw network responses to let the user debug instantly
             if (!parsedPayload || !parsedPayload.blueprint) {
-                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 1 Scaffolding Failure. Check key status or endpoint access configurations.</span>";
+                descDiv.innerHTML = `
+                    <span style='color:#ff3333; font-weight:bold;'>Pass 1 Fatal Cascade Failure</span><br>
+                    <div style='background:#221111; border:1px solid #ff3333; padding:10px; border-radius:4px; margin-top:8px;'>
+                        <b>Inference Engine Diagnostic Trail:</b><br>${debugDiagnosticsHistory || "No server responses recorded. Check device internet stability."}
+                    </div>
+                    <br><span style='font-size:0.9em; color:#bbb;'>Common Solutions:<br>1. Check if your API Key contains trailing spaces.<br>2. Confirm the key has full permissions enabled for the Generative Language Vision endpoints.<br>3. Ensure your source file size isn't triggering a standard network payload limits drop.</span>`;
                 scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
                 return;
             }
 
-            // RESTORED: Displays the textual overview description in the UI terminal window
             descDiv.innerHTML = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
 
             const structuralTasks = [
@@ -739,7 +756,6 @@
 
             const splitSegments = parsedPayload.blueprint.split(/### REGION:\s*/i);
 
-            // PASS 2: Asynchronous context-isolated processing blocks with visual logging hooks
             const regionalCompilationPromises = structuralTasks.map(async (task) => {
                 let isolatedTextSnippet = "";
                 for (let segment of splitSegments) {
@@ -796,10 +812,11 @@
 
                         if (res.ok) {
                             const data = await res.json();
-                            const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                            if (parsed && Array.isArray(parsed.shapes)) {
-                                // Dynamic reporting loop showing model handshakes in real-time inside the status tracker
-                                return { id: task.id, model: model, shapes: parsed.shapes };
+                            if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+                                const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
+                                if (parsed && Array.isArray(parsed.shapes)) {
+                                    return { id: task.id, model: model, shapes: parsed.shapes };
+                                }
                             }
                         }
                     } catch (e) { console.warn(`Pass 2 exception on zone ${task.id} via ${model}:`, e); }
@@ -808,7 +825,7 @@
             });
 
             try {
-                statusDiv.innerText = "Launching compiler matrices across parallel lanes...";
+                statusDiv.innerText = "Launching parallel compilation pipelines...";
                 const compiledResults = await Promise.all(regionalCompilationPromises);
                 
                 let reportTrackingLog = "<br><br><b>Sector Compilation Audit:</b>";
