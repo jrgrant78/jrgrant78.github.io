@@ -267,8 +267,9 @@
         let lockedGyroRoll = 0; 
         const cleanTargetQuaternion = new THREE.Quaternion(); 
         
+        // HORIZON NAVIGATION ENGINE CONFIGURATION
         let perceptionEngine;
-        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(5);  // Strict 5-degree validation parameters relative to horizon
+        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(5);  // Strictly gates motion to a ±5 degree horizon window
         const TRANSLATION_SPEED_SCALAR = 3.8;                 
         let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
@@ -595,7 +596,7 @@
             }
         }
 
-        // FIXED: Refined hierarchical model array. Removed Gemma 4 and 2.5 Flash.
+        // FIXED: Complete model hierarchy orchestration prioritizing accurate strings with 3 explicit retry sequences per tier
         async function captureAndScanFrame() {
             if (scanInProgress) return;
             console.clear();
@@ -611,7 +612,7 @@
             }
 
             const hiddenCanvas = document.createElement('canvas');
-            const ctx = hiddenCanvas.createElement ? hiddenCanvas.getContext('2d') : hiddenCanvas.getContext('2d');
+            const ctx = hiddenCanvas.getContext('2d');
 
             if (dynamicInputSourceMode === 'camera') {
                 if (!videoElement || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) {
@@ -639,12 +640,14 @@
             scanBtn.disabled = true;
             statusDiv.style.display = 'block';
 
-            // Requested prioritized multimodal target stack
+            // Requested functional cascade endpoint array strings
             const modelCascadeOrder = [
-                'gemini-3.5-pro', 
                 'gemini-3.5-flash', 
-                'gemini-3.1-pro', 
-                'gemini-3.1-flash'
+                'gemini-3.1-pro-preview', 
+                'gemini-3.1-flash-lite', 
+                'gemini-3-flash-preview', 
+                'gemini-2.5-pro', 
+                'gemini-2.5-flash'
             ];
             
             let parsedPayload = null;
@@ -662,7 +665,7 @@
                 Valid types: box, roundedbox, sphere, cylinder, cone, capsule, torus. Ground elevation sits at y = -3.
             `;
 
-            // PASS 1: Nested Matrix Iteration Loop (4 models x 3 attempts)
+            // PASS 1: RETRY RESOLUTION RUNNER
             pass1ModelLoop: for (let model of modelCascadeOrder) {
                 for (let attempt = 1; attempt <= 3; attempt++) {
                     try {
@@ -694,7 +697,7 @@
             }
 
             if (!parsedPayload || !parsedPayload.blueprint) {
-                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 1 Pipeline Failure. Network cascade exhausted with zero returns.</span>";
+                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 1 Pipeline Failure. Model matrix fallback limits exceeded with zero returns.</span>";
                 scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
                 return;
             }
@@ -706,7 +709,7 @@
                 TEXTUAL BLUEPRINT DRAFT: "${parsedPayload.blueprint}"
             `;
 
-            // PASS 2: Nested Matrix Iteration Loop (4 models x 3 attempts)
+            // PASS 2: RETRY RESOLUTION RUNNER
             pass2ModelLoop: for (let model of modelCascadeOrder) {
                 for (let attempt = 1; attempt <= 3; attempt++) {
                     try {
@@ -757,7 +760,7 @@
                 rawCachedShapesArray = finalShapesPayload; 
                 renderAIBlueprint(finalShapesPayload);
             } else {
-                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 2 matrix compiling layout exception. Cascade exhausted.</span>";
+                descDiv.innerHTML = "<span style='color:#ff3333;'>Pass 2 compilation layout exception. Retries exhausted.</span>";
             }
 
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
@@ -950,7 +953,7 @@
                 visualTelemetry.scaleFlow = massFlow.scale;
                 visualTelemetry.panFlow = massFlow.pan;
                 
-                // Enforces absolute 5-degree gating relative to the horizon
+                // PHASE 1: Gate position updates to a strict ±5 degree pitch window relative to the horizon plane
                 if (Math.abs(currentEuler.x) <= PITCH_THRESHOLD) {
                     visualTelemetry.gated = false;
                     
@@ -993,6 +996,7 @@
             
             renderer.render(scene, camera);
             
+            // PHASE 2: Unroll the preview rotation vectors cleanly so OrbitControls navigation indices never break
             if (controls && controls.enabled && !gyroActive && lockedGyroRoll !== 0) {
                 camera.quaternion.copy(cleanTargetQuaternion);
             }
