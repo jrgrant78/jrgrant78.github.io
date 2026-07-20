@@ -268,10 +268,9 @@
         const cleanTargetQuaternion = new THREE.Quaternion(); 
         
         let perceptionEngine;
-        // FIXED: Reduced multipliers dramatically to create high-precision sub-pixel stabilization scaling
-        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(15);  
-        const TRANSLATION_SPEED_SCALAR = 0.05;                 
-        let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
+        // FIXED: Rebalanced translation scale to provide real-time fluid walking movement
+        const TRANSLATION_SPEED_SCALAR = 1.25;                 
+        let visualTelemetry = { scaleFlow: 0, panFlow: 0 };
         
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
@@ -302,7 +301,7 @@
                 
                 this.smoothScale = 0;
                 this.smoothPan = 0;
-                this.smoothingFactor = 0.08; 
+                this.smoothingFactor = 0.15; 
             }
 
             analyze(video) {
@@ -357,12 +356,12 @@
                 this.prevD = currentD;
                 this.prevX = currentX;
 
-                // FIXED: Tightened tracking filters to block baseline pixel noise completely
-                if (Math.abs(deltaD) < 0.02) deltaD = 0;
-                if (Math.abs(deltaX) < 0.02) deltaX = 0;
+                // Threshold filter to maintain structural tracking stability
+                if (Math.abs(deltaD) < 0.015) deltaD = 0;
+                if (Math.abs(deltaX) < 0.015) deltaX = 0;
 
-                const rawScale = THREE.MathUtils.clamp(deltaD * 1.5, -0.4, 0.4);
-                const rawPan = THREE.MathUtils.clamp(deltaX * 0.8, -0.4, 0.4);
+                const rawScale = deltaD * 4.0;
+                const rawPan = deltaX * 2.0;
 
                 this.smoothScale += this.smoothingFactor * (rawScale - this.smoothScale);
                 this.smoothPan += this.smoothingFactor * (rawPan - this.smoothPan);
@@ -1076,7 +1075,6 @@
             camera.quaternion.setFromEuler(sensorEuler);
         }
 
-        // FIXED: Re-engineered computational vector paths inside the physics engine loop
         function animate() {
             requestAnimationFrame(animate);
             
@@ -1086,23 +1084,27 @@
                 visualTelemetry.scaleFlow = massFlow.scale;
                 visualTelemetry.panFlow = massFlow.pan;
                 
-                // FIXED: Derived directions strictly from standard world space boundaries.
-                // Looking up/down/rotating now has ZERO influence over forward/backward translations.
-                const lockedForwardXZ = new THREE.Vector3(0, 0, -1); 
-                const lockedRightXZ = new THREE.Vector3(1, 0, 0);
+                // FIXED: Derived translations from camera's horizontal gaze heading (yaw)
+                // Pitch and Roll adjustments are stripped out entirely so looking up/down won't trigger shifts.
+                const horizontalForward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                horizontalForward.y = 0; 
+                horizontalForward.normalize();
+                
+                const horizontalRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+                horizontalRight.y = 0;
+                horizontalRight.normalize();
 
-                // FIXED: Multiplied translation adjustments by the new precision damping factor
+                // FIXED: Reset scalar to 1.25 to make walking fluidly responsive
                 const moveStepZ = massFlow.scale * TRANSLATION_SPEED_SCALAR;
                 const moveStepX = -massFlow.pan * TRANSLATION_SPEED_SCALAR;
                 
-                camera.position.addScaledVector(lockedForwardXZ, moveStepZ);
-                camera.position.addScaledVector(lockedRightXZ, moveStepX);
+                camera.position.addScaledVector(horizontalForward, moveStepZ);
+                camera.position.addScaledVector(horizontalRight, moveStepX);
                 
                 if (controls) {
-                    controls.target.addScaledVector(lockedForwardXZ, moveStepZ);
-                    controls.target.addScaledVector(lockedRightXZ, moveStepX);
+                    controls.target.addScaledVector(horizontalForward, moveStepZ);
+                    controls.target.addScaledVector(horizontalRight, moveStepX);
                 }
-                visualTelemetry.gated = false;
             }
 
             if (controls && controls.enabled) {
@@ -1117,7 +1119,7 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Zoom:${visualTelemetry.scaleFlow.toFixed(3)} Pan:${visualTelemetry.panFlow.toFixed(3)} Horizon:ISOLATED | Objects: ${worldGroup.children.length}`;
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Zoom:${visualTelemetry.scaleFlow.toFixed(3)} Pan:${visualTelemetry.panFlow.toFixed(3)} | Objects: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
             
