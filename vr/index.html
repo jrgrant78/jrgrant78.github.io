@@ -271,16 +271,16 @@
         let virtualWalkVelocityX = 0;
         let virtualWalkVelocityZ = 0;
         
-        // Friction parameters tuned to isolate movement momentum
-        const VELOCITY_FRICTION_DECAY = 0.78; 
-        const VELOCITY_DEADZONE_LIMIT = 0.002;
+        // Tuned to manage instantaneous velocity tracking responsiveness
+        const VELOCITY_INTERPOLATION_STEP = 0.22; 
+        const VELOCITY_DEADZONE_LIMIT = 0.001;
 
         let motionTracker;
         const LEVEL_PITCH_LIMIT = THREE.MathUtils.degToRad(20);  
         const LEVEL_ROLL_LIMIT = THREE.MathUtils.degToRad(15);   
         const ROTATIONAL_BLANKING_THRESHOLD = 0.005; 
         
-        const TRANSLATION_SPEED_SCALAR = 0.55;                   
+        const TRANSLATION_SPEED_SCALAR = 0.65;                   
         let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
         const worldGroup = new THREE.Group();
@@ -314,9 +314,6 @@
                     {x: 16, y: 32}, {x: 32, y: 32}, {x: 48, y: 32},
                     {x: 16, y: 48}, {x: 32, y: 48}, {x: 48, y: 48}
                 ];
-                
-                this.smoothScale = 0;
-                this.smoothPan = 0;
             }
 
             analyze(video) {
@@ -329,8 +326,6 @@
                 let curTotalLuma = 0;
                 let prevTotalLuma = 0;
 
-                // FIXED: LUMINANCE BALANCE NORMALIZATION LOOP
-                // We map out total frame brightness values ahead of block comparison to isolate exposure shifts from steps
                 for (let i = 0; i < 64 * 64; i++) {
                     curBuffer[i] = (frameData[i*4] + frameData[i*4+1] + frameData[i*4+2]) / 3;
                     curTotalLuma += curBuffer[i];
@@ -343,12 +338,14 @@
                     return { scale: 0, pan: 0 };
                 }
 
-                // Determine dynamic balance change offsets
                 const lumaBalanceOffset = (curTotalLuma - prevTotalLuma) / 4096.0;
 
                 let totalVectorX = 0;
                 let totalExpansion = 0;
                 const searchRadius = 5;
+                
+                // Track directional consensus counts to enforce noise filtering gates
+                let activeMotionBlocksCount = 0;
 
                 for (let pt of this.trackingPoints) {
                     let bestSAD = Infinity;
@@ -367,7 +364,6 @@
 
                                     if (oldX >= 0 && oldX < 64 && oldY >= 0 && oldY < 64 &&
                                         newX >= 0 && newX < 64 && newY >= 0 && newY < 64) {
-                                        // FIXED: Subtract brightness drift variations dynamically during the matching stage
                                         const normalizedCurPixel = curBuffer[newY * 64 + newX] - lumaBalanceOffset;
                                         sad += Math.abs(normalizedCurPixel - this.prevBuffer[oldY * 64 + oldX]);
                                     }
@@ -382,28 +378,34 @@
                         }
                     }
 
+                    if (mvX !== 0 || mvY !== 0) {
+                        activeMotionBlocksCount++;
+                    }
+
                     totalVectorX += mvX;
                     const vecFromCenterValX = pt.x - 32;
                     const vecFromCenterValY = pt.y - 32;
-                    const expansionFactorContribution = (mvX * vecFromCenterValX) + (mvY * vecFromCenterValY);
-                    totalExpansion += expansionFactorContribution;
+                    totalExpansion += (mvX * vecFromCenterValX) + (mvY * vecFromCenterValY);
                 }
 
                 this.prevBuffer.set(curBuffer);
 
+                // FIXED: CONSENSUS VOTING GATE
+                // Reject all pixel displacement metrics instantly if less than half the blocks confirm structural change
+                if (activeMotionBlocksCount < 5) {
+                    return { scale: 0, pan: 0 };
+                }
+
                 let rawPan = -(totalVectorX / 9.0) * 0.25;
                 let rawScale = (totalExpansion / 9.0) * 0.015;
 
-                // Restrict filters tightly to cleanly block noise
-                if (Math.abs(rawPan) < 0.15) rawPan = 0;
-                if (Math.abs(rawScale) < 0.12) rawScale = 0;
+                if (Math.abs(rawPan) < 0.14) rawPan = 0;
+                if (Math.abs(rawScale) < 0.10) rawScale = 0;
 
-                this.smoothPan += 0.12 * (rawPan - this.smoothPan);
-                this.smoothScale += 0.12 * (rawScale - this.smoothScale);
-
+                // FIXED: Double Inertia integration eliminated by stripping internal IIR smoothing structures entirely
                 return {
-                    scale: THREE.MathUtils.clamp(this.smoothScale, -0.2, 0.2),
-                    pan: THREE.MathUtils.clamp(this.smoothPan, -0.2, 0.2)
+                    scale: THREE.MathUtils.clamp(rawScale, -0.2, 0.2),
+                    pan: THREE.MathUtils.clamp(rawPan, -0.2, 0.2)
                 };
             }
         }
@@ -467,7 +469,6 @@
             throw new Error("Mismatched block bounds.");
         }
 
-        // FIXED: Restored URL parameter extraction setup safely inside initialization sequence
         function init3D() {
             const urlParams = new URLSearchParams(window.location.search);
             const urlKey = urlParams.get('key');
@@ -1120,6 +1121,9 @@
                 const angularDriftDelta = camera.quaternion.angleTo(lastCameraQuaternion);
                 lastCameraQuaternion.copy(camera.quaternion);
 
+                let targetVelZ = 0;
+                let targetVelX = 0;
+
                 if (Math.abs(currentEuler.x) <= LEVEL_PITCH_LIMIT && Math.abs(currentEuler.z) <= LEVEL_ROLL_LIMIT) {
                     statusHorizonStr = "LEVEL_WALK";
                     
@@ -1128,27 +1132,13 @@
                     visualTelemetry.panFlow = trackingData.pan;
                     
                     if (angularDriftDelta < ROTATIONAL_BLANKING_THRESHOLD) {
-                        let impulseForceZ = trackingData.scale * TRANSLATION_SPEED_SCALAR;
-                        let impulseForceX = trackingData.pan * TRANSLATION_SPEED_SCALAR;
+                        // Gather instantaneous targeted kinematic scales
+                        targetVelZ = trackingData.scale * TRANSLATION_SPEED_SCALAR;
+                        targetVelX = trackingData.pan * TRANSLATION_SPEED_SCALAR;
 
-                        // FIXED: IMPULSE FORCE HIGH-PASS FILTER
-                        // Instantly starve small camera noise to prevent it from entering the velocity buffer
-                        if (Math.abs(impulseForceZ) < 0.015) impulseForceZ = 0;
-                        if (Math.abs(impulseForceX) < 0.015) impulseForceX = 0;
-                        
-                        // FIXED: MOMENTUM ACCUMULATION OVERHAUL
-                        // Instantly dump velocity loops to zero if there is no active macro impulse detected
-                        if (impulseForceZ === 0) {
-                            virtualWalkVelocityZ *= 0.3; 
-                        } else {
-                            virtualWalkVelocityZ += impulseForceZ;
-                        }
-
-                        if (impulseForceX === 0) {
-                            virtualWalkVelocityX *= 0.3;
-                        } else {
-                            virtualWalkVelocityX += impulseForceX;
-                        }
+                        // High-pass filtering threshold applied early to target velocity vectors
+                        if (Math.abs(targetVelZ) < 0.035) targetVelZ = 0;
+                        if (Math.abs(targetVelX) < 0.035) targetVelX = 0;
                     } else {
                         statusHorizonStr = "PAN_BLANKED";
                     }
@@ -1159,10 +1149,12 @@
                     visualTelemetry.gated = true;
                 }
 
-                // Smoothly fade remaining momentum transitions down via standard damping decay
-                virtualWalkVelocityZ *= VELOCITY_FRICTION_DECAY;
-                virtualWalkVelocityX *= VELOCITY_FRICTION_DECAY;
+                // FIXED: VELOCITY-FOLLOWING MODEL (Single Stage IIR Integration)
+                // Eliminates additive compounding run-away loops. Velocities target instant vectors directly.
+                virtualWalkVelocityZ = THREE.MathUtils.lerp(virtualWalkVelocityZ, targetVelZ, VELOCITY_INTERPOLATION_STEP);
+                virtualWalkVelocityX = THREE.MathUtils.lerp(virtualWalkVelocityX, targetVelX, VELOCITY_INTERPOLATION_STEP);
 
+                // Absolute structural zero floor clamp to terminate standing drift leakage
                 if (Math.abs(virtualWalkVelocityZ) < VELOCITY_DEADZONE_LIMIT) virtualWalkVelocityZ = 0;
                 if (Math.abs(virtualWalkVelocityX) < VELOCITY_DEADZONE_LIMIT) virtualWalkVelocityX = 0;
 
@@ -1185,6 +1177,8 @@
                 }
             } else {
                 lastCameraQuaternion.copy(camera.quaternion);
+                virtualWalkVelocityZ = 0;
+                virtualWalkVelocityX = 0;
             }
 
             if (controls && controls.enabled) {
