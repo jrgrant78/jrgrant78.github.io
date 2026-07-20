@@ -265,12 +265,13 @@
         let isFirstGyroFrame = false;
         let gyroYawOffset = 0; 
         let lockedGyroRoll = 0; 
-        const cleanTargetQuaternion = new THREE.Quaternion(); 
+        const cleanTargetQuaternion = new THREE.Quaternion();
+        const prevGyroQuaternion = new THREE.Quaternion(); 
         
         let perceptionEngine;
-        // FIXED: Rebalanced translation scale to provide real-time fluid walking movement
-        const TRANSLATION_SPEED_SCALAR = 1.25;                 
-        let visualTelemetry = { scaleFlow: 0, panFlow: 0 };
+        // FIXED: Restored walking velocity vector scale to a responsive, balanced output value
+        const TRANSLATION_SPEED_SCALAR = 2.5;                 
+        let visualTelemetry = { scaleFlow: 0, panFlow: 0, trackingStatus: 'IDLE' };
         
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
@@ -356,12 +357,11 @@
                 this.prevD = currentD;
                 this.prevX = currentX;
 
-                // Threshold filter to maintain structural tracking stability
                 if (Math.abs(deltaD) < 0.015) deltaD = 0;
                 if (Math.abs(deltaX) < 0.015) deltaX = 0;
 
-                const rawScale = deltaD * 4.0;
-                const rawPan = deltaX * 2.0;
+                const rawScale = deltaD * 4.5;
+                const rawPan = deltaX * 1.8;
 
                 this.smoothScale += this.smoothingFactor * (rawScale - this.smoothScale);
                 this.smoothPan += this.smoothingFactor * (rawPan - this.smoothPan);
@@ -1075,6 +1075,7 @@
             camera.quaternion.setFromEuler(sensorEuler);
         }
 
+        // FIXED: Re-architected animation loop to cleanly separate Gyro Look from Video Walking
         function animate() {
             requestAnimationFrame(animate);
             
@@ -1084,27 +1085,42 @@
                 visualTelemetry.scaleFlow = massFlow.scale;
                 visualTelemetry.panFlow = massFlow.pan;
                 
-                // FIXED: Derived translations from camera's horizontal gaze heading (yaw)
-                // Pitch and Roll adjustments are stripped out entirely so looking up/down won't trigger shifts.
-                const horizontalForward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-                horizontalForward.y = 0; 
-                horizontalForward.normalize();
-                
-                const horizontalRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-                horizontalRight.y = 0;
-                horizontalRight.normalize();
+                // FIXED: Calculate the exact frame-to-frame angular delta of device rotation
+                const gyroDeltaAngle = prevGyroQuaternion.angleTo(camera.quaternion);
+                prevGyroQuaternion.copy(camera.quaternion);
 
-                // FIXED: Reset scalar to 1.25 to make walking fluidly responsive
-                const moveStepZ = massFlow.scale * TRANSLATION_SPEED_SCALAR;
-                const moveStepX = -massFlow.pan * TRANSLATION_SPEED_SCALAR;
-                
-                camera.position.addScaledVector(horizontalForward, moveStepZ);
-                camera.position.addScaledVector(horizontalRight, moveStepX);
-                
-                if (controls) {
-                    controls.target.addScaledVector(horizontalForward, moveStepZ);
-                    controls.target.addScaledVector(horizontalRight, moveStepX);
+                // FIXED: GYRO ATTENUATION GATE
+                // If the device is turning quickly (> 0.008 rad/frame), ignore visual flow calculations.
+                // This ensures looking around has absolutely NO cross-contamination effect on walking!
+                if (gyroDeltaAngle > 0.008) {
+                    visualTelemetry.trackingStatus = 'TURNING (GATED)';
+                } else {
+                    visualTelemetry.trackingStatus = 'WALK ACTIVE';
+
+                    // FIXED: Direction vectors now map cleanly relative to the camera's horizontal heading.
+                    // This permits looking up/down/tilted without modifying translation steps.
+                    const walkForwardVector = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                    walkForwardVector.y = 0; 
+                    walkForwardVector.normalize();
+                    
+                    const walkRightVector = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+                    walkRightVector.y = 0;
+                    walkRightVector.normalize();
+
+                    const moveStepZ = massFlow.scale * TRANSLATION_SPEED_SCALAR;
+                    const moveStepX = -massFlow.pan * TRANSLATION_SPEED_SCALAR;
+                    
+                    camera.position.addScaledVector(walkForwardVector, moveStepZ);
+                    camera.position.addScaledVector(walkRightVector, moveStepX);
+                    
+                    if (controls) {
+                        controls.target.addScaledVector(walkForwardVector, moveStepZ);
+                        controls.target.addScaledVector(walkRightVector, moveStepX);
+                    }
                 }
+            } else {
+                visualTelemetry.trackingStatus = 'ORBIT CONTROLS';
+                prevGyroQuaternion.copy(camera.quaternion);
             }
 
             if (controls && controls.enabled) {
@@ -1119,7 +1135,7 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Zoom:${visualTelemetry.scaleFlow.toFixed(3)} Pan:${visualTelemetry.panFlow.toFixed(3)} | Objects: ${worldGroup.children.length}`;
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Motion: ${visualTelemetry.trackingStatus} | Objects: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
             
