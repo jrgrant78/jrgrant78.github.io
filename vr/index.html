@@ -666,7 +666,6 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
-            // FIXED: Pass 1 handles visual categorization without complex mathematical boundary constraints
             const pass1Prompt = `
                 Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely.
                 Your response must populate exactly two fields inside the target JSON object:
@@ -693,7 +692,6 @@
                 COMPILER OPTIMIZATION CAVEATS:
                 - CAVEAT 1 (DECIMAL CAP): Round all spatial floats (p, s, r) strictly to a max of 2 decimal places. 
                 - CAVEAT 2 (MINIFICATION): Eliminate all optional spaces, indentations, and padding tags inside the response array.
-                - CAVEAT 3 (GLOBAL SEAM LAW): Do not ignore or drop elements that extend past semantic boundaries. Process every available entry fully.
             `;
 
             pass1ModelLoop: for (let model of modelCascadeList) {
@@ -757,44 +755,39 @@
             let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
             statusDiv.innerText = "Pass 1 Scaffolding complete. Deploying 8-layer parallel worker matrix...";
 
-            // FIXED: 8 specialized semantic tasks staggered safely by 250ms increments to stay clear of rate limits
+            // 8 distinct semantic tasks mapped out cleanly with linear 250ms stagger delays
             const structuralTasks = [
-                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Compile only the large flat floor bases, ground platforms, and main support mats.', staggerDelay: 0 },
-                { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Compile the detailed surface boundaries, secondary rug mats, and floor borders.', staggerDelay: 250 },
-                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: 'Compile the massive primary backing blocks of couches, structural seating, and main table anchors.', staggerDelay: 500 },
-                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: 'Compile the softer geometric overlays, layered cushions, padding, or animal/subject bodies.', staggerDelay: 750 },
-                { id: 'EXTENSIONS', subId: 'FRAMES', rules: 'Compile vertical boundaries, TV panels, display stands, cabinet structures, and wall hangings.', staggerDelay: 1000 },
-                { id: 'EXTENSIONS', subId: 'LIMBS', rules: 'Compile precise connecting armrests, table legs, framing hardware, and joint primitives.', staggerDelay: 1250 },
-                { id: 'ACCENTS', subId: 'ITEMS', rules: 'Compile standalone accent blocks, secondary decorative nodes, and objects scattered on surfaces.', staggerDelay: 1500 },
-                { id: 'ACCENTS', subId: 'TRIM', rules: 'Compile micro-geometric additions, small texturing adjustments, color highlights, and edge borders.', staggerDelay: 1750 }
+                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile only the large flat floor bases, ground platforms, and main support mats.' },
+                { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile the detailed surface boundaries, secondary rug mats, and floor borders.' },
+                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: 'Look ONLY at the ### REGION: CORE_MASSES area text blocks. Compile the massive primary backing blocks of couches, structural seating, and main table anchors.' },
+                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: 'Look ONLY at the ### REGION: CORE_MASSES area text blocks. Compile the softer geometric overlays, layered cushions, padding, or central subject components.' },
+                { id: 'EXTENSIONS', subId: 'FRAMES', rules: 'Look ONLY at the ### REGION: EXTENSIONS area text blocks. Compile vertical boundaries, TV panels, display stands, cabinet structures, and wall hangings.' },
+                { id: 'EXTENSIONS', subId: 'LIMBS', rules: 'Look ONLY at the ### REGION: EXTENSIONS area text blocks. Compile precise connecting armrests, table legs, framing hardware, and joint primitives.' },
+                { id: 'ACCENTS', subId: 'ITEMS', rules: 'Look ONLY at the ### REGION: ACCENTS area text blocks. Compile standalone accent blocks, secondary decorative nodes, and objects scattered on surfaces.' },
+                { id: 'ACCENTS', subId: 'TRIM', rules: 'Look ONLY at the ### REGION: ACCENTS area text blocks. Compile micro-geometric additions, small texturing adjustments, color highlights, and edge borders.' }
             ];
 
-            const splitSegments = parsedPayload.blueprint.split(/### REGION:\s*/i);
+            const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
+                // Safe rate limit stagger scaling
+                await delayExecutionTime(idx * 250);
 
-            const regionalCompilationPromises = structuralTasks.map(async (task) => {
-                await delayExecutionTime(task.staggerDelay);
-                
-                let isolatedTextSnippet = "";
-                for (let segment of splitSegments) {
-                    if (segment.toUpperCase().startsWith(task.id)) {
-                        isolatedTextSnippet = segment;
-                        break;
-                    }
-                }
-                if (!isolatedTextSnippet.trim()) isolatedTextSnippet = parsedPayload.blueprint;
-
+                // FIXED: Pass the ENTIRE blueprint text string into every compilation worker.
+                // This gives isolated requests full spatial visibility, forcing joints to interlock.
                 const pass2Prompt = `
-                    You are a precision 3D Geometry compiler worker focusing strictly on the [${task.id} -> ${task.subId}] layer.
-                    Convert this text blueprint data directly into a highly minified JSON shapes layout array.
+                    You are a precision 3D Geometry compiler worker focusing strictly on the [${task.id} -> ${task.subId}] sub-layer.
+                    Convert your targeted segment lines into a highly minified JSON shapes layout array.
                     
                     ${globalSpatialAnchorPrompt}
                     
-                    DATA TARGET:
-                    "${isolatedTextSnippet}"
+                    MASTER蓝图 BLUEPRINT MANIFEST REFERENCE CONTEXT:
+                    """
+                    ${parsedPayload.blueprint}
+                    """
                     
-                    COMPILER SUB-LAYER DIRECTIVE:
+                    YOUR COMPILER TARGET INSTRUCTIONS:
                     - ${task.rules}
-                    - Output all nodes matching this sub-layer context. Do not stop early.
+                    - Read the rest of the blueprint headers strictly as a global spatial coordinate reference map so your compiled objects touch, align, and join perfectly with neighboring shapes without floating or separating.
+                    - Do not output duplicate entries from other sections. Focus purely on your sub-layer target.
                 `;
 
                 let pass2Diagnostics = "";
@@ -849,7 +842,7 @@
             try {
                 const compiledResults = await Promise.all(regionalCompilationPromises);
                 
-                let reportTrackingLog = "<br><br><b>8-Layer Semantic Audit Matrix:</b>";
+                let reportTrackingLog = "<br><br><b>8-Layer Cohesive Semantic Audit Matrix:</b>";
                 let permanentPass2Logs = "";
 
                 compiledResults.forEach((result) => {
@@ -869,7 +862,7 @@
                     structuredUiOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>Orchestrator Pass 1 Telemetry Logs:</b><br>${debugDiagnosticsHistory}</div>`;
                 }
                 if (permanentPass2Logs) {
-                    structuredUiOutput += `<br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>Pass 2 Multithread Telemetry Trail:</b><br>${permanentPass2Logs}</div>`;
+                    structuredUiOutput += `<br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>Pass 2 Context Telemetry Trail:</b><br>${permanentPass2Logs}</div>`;
                 }
 
                 descDiv.innerHTML = structuredUiOutput;
