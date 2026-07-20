@@ -666,7 +666,6 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
-            // FIXED: Added strict Kinematic chain rules to the blueprint drafting generation layer
             const pass1Prompt = `
                 Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely.
                 Your response must populate exactly two fields inside the target JSON object:
@@ -678,33 +677,21 @@
                 ### REGION: EXTENSIONS
                 ### REGION: ACCENTS
                 
-                STRICT KINEMATIC CHAINING LAW:
-                - All limb paths (arms, legs, sticks, structures) MUST be calculated sequentially. 
-                - If a main core body cylinder sits at position [0, 0, 0] with scale [1, 2, 1], the limbs MUST attach directly to its outer shell boundary.
-                - No disconnected joints or floating parts allowed. Lower limb parts (forearms, hands, lower framing columns) must have their exact starting vector base anchor positioned flush against the tip of their parent upper limb joint.
+                SPATIAL PROTOCOLS:
+                - Center origin point is at (0, 0, 0). Ground floor elements sit fixed at y = -3.
+                - Generate massive layout depth (80+ items total). Do not truncate descriptions or summarize groups. Write out each shape line manually.
                 
                 Format each text entry line exactly like this template:
                 "- type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
             `;
 
-            // FIXED: Provided explicit Euler conversion lookups to eliminate floating-point rotation drift
             const globalSpatialAnchorPrompt = `
                 Global Space Coordinates Alignment Protocol:
                 - Center origin point is at (0, 0, 0). Ground floor elements sit fixed at y = -3.
                 
-                STRICT KINEMATIC CHAIN MECHANICS:
-                - THE MIDPOINT VECTOR LAW: In Three.js, a cylinder or capsule positions itself from its exact geometric center point. When constructing any limb or connecting bar extending from Joint A [x1, y1, z1] to Joint B [x2, y2, z2], you MUST calculate the position vector as the absolute mathematical midpoint: [(x1+x2)/2, (y1+y2)/2, (z1+z2)/2].
-                - PARENT ANCHORING MANDATE: Forearms must touch upper arms, upper arms must touch torsos, legs must meet structural bases perfectly.
-                
-                EXPLICIT ANGULAR RADIAN ROTATION LOOKUP:
-                - To angle elements realistically without detached drift, look up and apply these precise Euler pitch/roll constants inside your rotation array [r_x, r_y, r_z]:
-                  * Perfect Horizontal (Flat Plane Parallel): 1.57 (90 degrees)
-                  * Upward/Downward 45-Degree Slant: 0.79 (45 degrees) or -0.79
-                  * Vertical Straight Alignment: 0.0 (0 degrees)
-                
                 COMPILER OPTIMIZATION CAVEATS:
-                - CAVEAT 1: Round all spatial floats (p, s, r) strictly to a max of 2 decimal places.
-                - CAVEAT 2: Eliminate all optional whitespace padding inside the array syntax strings.
+                - CAVEAT 1 (DECIMAL CAP): Round all spatial floats (p, s, r) strictly to a max of 2 decimal places. 
+                - CAVEAT 2 (MINIFICATION): Eliminate all optional spaces, indentations, and padding tags inside the response array.
             `;
 
             pass1ModelLoop: for (let model of modelCascadeList) {
@@ -768,35 +755,39 @@
             let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
             statusDiv.innerText = "Pass 1 Scaffolding complete. Deploying 8-layer parallel worker matrix...";
 
+            // 8 distinct semantic tasks mapped out cleanly with linear 250ms stagger delays
             const structuralTasks = [
                 { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile only the large flat floor bases, ground platforms, and main support mats.' },
                 { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile the detailed surface boundaries, secondary rug mats, and floor borders.' },
                 { id: 'CORE_MASSES', subId: 'FURNITURE', rules: 'Look ONLY at the ### REGION: CORE_MASSES area text blocks. Compile the massive primary backing blocks of couches, structural seating, and main table anchors.' },
                 { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: 'Look ONLY at the ### REGION: CORE_MASSES area text blocks. Compile the softer geometric overlays, layered cushions, padding, or central subject components.' },
                 { id: 'EXTENSIONS', subId: 'FRAMES', rules: 'Look ONLY at the ### REGION: EXTENSIONS area text blocks. Compile vertical boundaries, TV panels, display stands, cabinet structures, and wall hangings.' },
-                { id: 'EXTENSIONS', subId: 'LIMBS', rules: 'Look ONLY at the ### REGION: EXTENSIONS area text blocks. CRITICAL INTERLOCK INSTRUCTION: Compile connecting arms, legs, or hardware rods. Ensure their midpoint positions map precisely between their parent joints so they latch together cleanly without floating gaps.' },
+                { id: 'EXTENSIONS', subId: 'LIMBS', rules: 'Look ONLY at the ### REGION: EXTENSIONS area text blocks. Compile precise connecting armrests, table legs, framing hardware, and joint primitives.' },
                 { id: 'ACCENTS', subId: 'ITEMS', rules: 'Look ONLY at the ### REGION: ACCENTS area text blocks. Compile standalone accent blocks, secondary decorative nodes, and objects scattered on surfaces.' },
                 { id: 'ACCENTS', subId: 'TRIM', rules: 'Look ONLY at the ### REGION: ACCENTS area text blocks. Compile micro-geometric additions, small texturing adjustments, color highlights, and edge borders.' }
             ];
 
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
+                // Safe rate limit stagger scaling
                 await delayExecutionTime(idx * 250);
 
+                // FIXED: Pass the ENTIRE blueprint text string into every compilation worker.
+                // This gives isolated requests full spatial visibility, forcing joints to interlock.
                 const pass2Prompt = `
                     You are a precision 3D Geometry compiler worker focusing strictly on the [${task.id} -> ${task.subId}] sub-layer.
                     Convert your targeted segment lines into a highly minified JSON shapes layout array.
                     
                     ${globalSpatialAnchorPrompt}
                     
-                    MASTER BLUEPRINT MANIFEST REFERENCE CONTEXT:
+                    MASTER蓝图 BLUEPRINT MANIFEST REFERENCE CONTEXT:
                     """
                     ${parsedPayload.blueprint}
                     """
                     
                     YOUR COMPILER TARGET INSTRUCTIONS:
                     - ${task.rules}
-                    - Read the full blueprint context map to ensure the spatial alignment vectors match parent joints perfectly. Do not let elements float disconnected in empty coordinates space.
-                    - Output purely your sub-layer target items without duplication.
+                    - Read the rest of the blueprint headers strictly as a global spatial coordinate reference map so your compiled objects touch, align, and join perfectly with neighboring shapes without floating or separating.
+                    - Do not output duplicate entries from other sections. Focus purely on your sub-layer target.
                 `;
 
                 let pass2Diagnostics = "";
@@ -851,7 +842,7 @@
             try {
                 const compiledResults = await Promise.all(regionalCompilationPromises);
                 
-                let reportTrackingLog = "<br><br><b>8-Layer Cohesive Kinematic Audit Matrix:</b>";
+                let reportTrackingLog = "<br><br><b>8-Layer Cohesive Semantic Audit Matrix:</b>";
                 let permanentPass2Logs = "";
 
                 compiledResults.forEach((result) => {
@@ -871,7 +862,7 @@
                     structuredUiOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>Orchestrator Pass 1 Telemetry Logs:</b><br>${debugDiagnosticsHistory}</div>`;
                 }
                 if (permanentPass2Logs) {
-                    structuredUiOutput += `<br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>Pass 2 Joint Telemetry Trail:</b><br>${permanentPass2Logs}</div>`;
+                    structuredUiOutput += `<br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>Pass 2 Context Telemetry Trail:</b><br>${permanentPass2Logs}</div>`;
                 }
 
                 descDiv.innerHTML = structuredUiOutput;
