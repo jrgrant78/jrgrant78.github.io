@@ -703,12 +703,22 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
-            // FIXED: Upgraded Prompt Heuristics to strictly prohibit massive single-block bounding boxes. 
-            // Mandates Micro-Primitive Component Deconstruction (breaking down humans, statues, and structures into compound primitive limbs/shells).
+            // FIXED: Redesigned prompt hierarchy to force strict anatomical breakdown and organic complexity, eliminating blocky abstractions.
             const pass1Prompt = `
                 Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely.
-                CRITICAL DIRECTIVE: Do not represent objects as single large bounding boxes. You must perform Micro-Primitive Component Deconstruction. 
-                Deconstruct complex subjects (like figures, animals, or status objects) into compound clusters of smaller primitives (e.g., separate shells, trunks, head volumes, distinct limbs, structural supports).
+                CRITICAL INSTRUCTION: You MUST avoid primitive blocky placeholders. Break down all organic subjects and complex objects into high-density, highly-articulated components with proper structural anatomy and skeletal proportions.
+                
+                Human Anatomy Rules:
+                - Do NOT render humans as a single box or cylinder.
+                - Deconstruct them into separate torso halves, distinct head volumes, realistic custom hair flow blocks, distinct limb segments (shoulders, upper arms, lower arms, thighs, calves), hands, and feet.
+                - Position limbs with accurate rotation offsets to model human standing/skeletal posture, connected exactly at natural pivot points.
+                
+                Complex Object Rules:
+                - Sculpt statues, pedestals, or sculpture bases (e.g., a turtle) with distinct composite parts: individual head volumes, main body shell geometry patterns, distinct flippers/feet, and multi-tier support rings.
+                
+                Environment Rules:
+                - Capture detailed background tree foliage patterns, supporting poles/pipes, and detailed variable-colored ground plates.
+
                 Your response must populate exactly two fields inside the target JSON object:
                 1. description: Provide a detailed text summary describing the exact subjects observed.
                 2. blueprint: An architectural text blueprint manifest listing descriptive primitives categorized under headers.
@@ -787,7 +797,8 @@
 
                 const pass2Prompt = `
                     You are a precision 3D Geometry compiler worker focusing strictly on the [${task.id} -> ${task.subId}] sub-layer.
-                    Convert your targeted segment lines into a highly minified JSON shapes layout array. Ensure all composite clusters are emitted accurately.
+                    Convert your targeted segment lines into a highly dense, minified JSON shapes layout array. Do NOT skip joints or detailed organic shapes. Ensure parts fit seamlessly.
+                    Allowed geometric types (t): "box", "roundedbox", "sphere", "cylinder", "cone", "capsule". Use "capsule" and "roundedbox" for body limbs/joints and "cone" for tapered vectors/hair modules.
                     ${globalSpatialAnchorPrompt}
                     MASTER BLUEPRINT MANIFEST:
                     """
@@ -813,7 +824,8 @@
                                                 items: {
                                                     type: "OBJECT",
                                                     properties: {
-                                                        t: { type: "STRING" }, m: { type: "STRING" }, c: { type: "STRING" },
+                                                        t: { type: "STRING" }, // box, roundedbox, sphere, cylinder, cone, capsule
+                                                        m: { type: "STRING" }, c: { type: "STRING" },
                                                         p: { type: "ARRAY", items: { type: "NUMBER" } },
                                                         s: { type: "ARRAY", items: { type: "NUMBER" } },
                                                         r: { type: "ARRAY", items: { type: "NUMBER" } },
@@ -868,6 +880,7 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
+        // FIXED: Expanded the compilation parser switch statement to natively map capsule and cone primitives dynamically.
         function renderAIBlueprint(shapesArray) {
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
@@ -889,7 +902,8 @@
                     case 'roundedbox': geo = createRoundedBoxGeometry(scl[0], scl[1], scl[2], 0.04, 3); break;
                     case 'sphere': geo = new THREE.SphereGeometry(0.5, 32, 32); break;
                     case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 24); break;
-                    case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 32); break;
+                    case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 16); break;
+                    case 'capsule': geo = new THREE.CapsuleGeometry(0.3, 0.5, 4, 12); break;
                     default: geo = new THREE.BoxGeometry(1, 1, 1);
                 }
 
@@ -902,10 +916,9 @@
                 const mesh = new THREE.Mesh(geo, mat);
                 mesh.position.set(pos[0], pos[1], pos[2]);
                 mesh.rotation.set(rot[0], rot[1], rot[2]);
-                if (shape.t !== 'roundedbox') mesh.scale.set(scl[0], scl[1], scl[2]);
                 
-                mesh.castShadow = true;
-                mesh.receiveShadow = true;
+                // Keep scale logic clean while allowing custom procedural extensions
+                if (shape.t !== 'roundedbox') mesh.scale.set(scl[0], scl[1], scl[2]);
                 worldGroup.add(mesh);
             });
 
@@ -1053,7 +1066,6 @@
                 return;
             }
 
-            // PRESERVED LOCOMOTION SETTINGS: Decoupled axis scalars locked intact.
             const ACCELERATION_INTEGRATION_GAIN_Z = 0.025;
             const ACCELERATION_INTEGRATION_GAIN_X = 0.006; 
             targetLinearVelocityX -= worldSpaceAcceleration.x * ACCELERATION_INTEGRATION_GAIN_X;
