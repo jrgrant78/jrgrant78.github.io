@@ -265,20 +265,21 @@
         let isFirstGyroFrame = false;
         let lockedGyroRoll = 0; 
         const cleanTargetQuaternion = new THREE.Quaternion(); 
+        
         const gyroOffsetQuaternion = new THREE.Quaternion();
         
-        // --- FIXED: CONTINUOUS 3D INERTIAL REGISTERS ---
+        // World-Space Continuous Velocity Components
         let virtualWalkVelocityX = 0;
-        let virtualWalkVelocityY = 0;
         let virtualWalkVelocityZ = 0;
         
-        // Friction loop parameters to keep the continuous fluid glide stable
-        const VELOCITY_FRICTION_DECAY = 0.84; 
+        // Friction loop variables tuned for smooth momentum dissipation
+        const FRICTION_DECAY_COEFF = 0.84; 
         const VELOCITY_DEADZONE_LIMIT = 0.001;
-        const ACCEL_HIGH_PASS = 0.12;       // Strips background sensor hiss
-        const INSTANT_ACCEL_SCALAR = 0.04;   // Controls scaling translation responsiveness
 
         let motionTracker;
+        const LEVEL_PITCH_LIMIT = THREE.MathUtils.degToRad(20);  
+        const LEVEL_ROLL_LIMIT = THREE.MathUtils.degToRad(15);   
+        
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
         
@@ -429,6 +430,7 @@
             }
         }
 
+        // Processing of manual frame asset configurations
         function toggleInputSourceMode(e) {
             if(e) e.stopPropagation();
             
@@ -589,10 +591,12 @@
                 Your response must populate exactly two fields inside the target JSON object:
                 1. description: Provide a detailed text summary describing the exact subjects, furniture pieces, textures, layout colors, background architecture, or items observed in the current camera view.
                 2. blueprint: An architectural text blueprint manifest listing a massive array of descriptive primitives categorized under these four distinct structural region headers:
+                
                 ### REGION: FOUNDATION
                 ### REGION: CORE_MASSES
                 ### REGION: EXTENSIONS
                 ### REGION: ACCENTS
+                
                 Format each text entry line exactly like this template:
                 "- type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
             `;
@@ -630,6 +634,12 @@
                     }
 
                     const data = await res.json();
+                    
+                    if (data.error) {
+                        debugDiagnosticsHistory += `• Pass 1 [${model}] API Error: ${data.error.message}<br>`;
+                        continue;
+                    }
+
                     parsedPayload = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
                     if (parsedPayload && parsedPayload.blueprint) {
                         successfulPass1Model = model;
@@ -647,7 +657,7 @@
             }
 
             let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
-            statusDiv.innerText = "Pass 1 Scaffolding complete. Deploying 8-layer parallel worker matrix...";
+            statusDiv.innerText = "Deploying 8-layer parallel worker matrix...";
 
             const structuralTasks = [
                 { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks.' },
@@ -667,7 +677,7 @@
                     You are a precision 3D Geometry compiler worker focusing strictly on the [${task.id} -> ${task.subId}] sub-layer.
                     Convert your targeted segment lines into a highly minified JSON shapes layout array.
                     ${globalSpatialAnchorPrompt}
-                    MASTER BLUEPRINT MANIFEST REFERENCE CONTEXT:
+                    MASTER BLUEPRINT MANIFEST:
                     """
                     ${parsedPayload.blueprint}
                     """
@@ -736,7 +746,6 @@
             }
 
             shapesArray.forEach(shape => {
-                if (!shape || !shape.t) return;
                 let geo;
                 const pos = shape.p || [0,0,0];
                 const scl = shape.s || [1,1,1];
@@ -744,7 +753,7 @@
 
                 switch(shape.t.toLowerCase().trim()) {
                     case 'box': geo = new THREE.BoxGeometry(1, 1, 1); break;
-                    case 'roundedbox': geo = createRoundedBoxGeometry(scl[0]||1, scl[1]||1, scl[2]||1, 0.04, 3); break;
+                    case 'roundedbox': geo = createRoundedBoxGeometry(scl[0], scl[1], scl[2], 0.04, 3); break;
                     case 'sphere': geo = new THREE.SphereGeometry(0.5, 32, 32); break;
                     case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 24); break;
                     default: geo = new THREE.BoxGeometry(1, 1, 1);
@@ -760,8 +769,6 @@
                 mesh.position.set(pos[0], pos[1], pos[2]);
                 mesh.rotation.set(rot[0], rot[1], rot[2]);
                 if (shape.t !== 'roundedbox') mesh.scale.set(scl[0], scl[1], scl[2]);
-                mesh.castShadow = true;
-                mesh.receiveShadow = true;
                 worldGroup.add(mesh);
             });
         }
@@ -791,8 +798,7 @@
             }
             isFirstGyroFrame = true;
             window.addEventListener('deviceorientation', handleGyroscopeMotionInput, true);
-            // FIXED: Attach listener for the fluid 3D structural tracking engine
-            window.addEventListener('devicemotion', handleInertial3DMovement, true);
+            window.addEventListener('devicemotion', handleInertialStepInput, true);
             gyroActive = true;
             btn.classList.add('btn-active');
         }
@@ -800,10 +806,9 @@
         function deactivateTrackingSensors() {
             if (!gyroActive) return;
             window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
-            window.removeEventListener('devicemotion', handleInertial3DMovement);
+            window.removeEventListener('devicemotion', handleInertialStepInput);
             gyroActive = false;
             virtualWalkVelocityX = 0;
-            virtualWalkVelocityY = 0;
             virtualWalkVelocityZ = 0;
             document.getElementById('gyroBtn').classList.remove('btn-active');
             
@@ -842,7 +847,6 @@
             deactivateTrackingSensors();
             lockedGyroRoll = 0; 
             virtualWalkVelocityX = 0;
-            virtualWalkVelocityY = 0;
             virtualWalkVelocityZ = 0;
             rawCachedShapesArray = null;
             scannedBackdropDataUrl = null;
@@ -855,7 +859,7 @@
             document.getElementById('aiDescription').innerText = "Workspace cleared. System active.";
         }
 
-        // GYRO FUNCTIONS (100% UNTOUCHED PER USER REQUEST)
+        // GYRO FUNCTIONS (100% LOCKED AND UNTOUCHED PER INSTRUCTIONS)
         function handleGyroscopeMotionInput(e) {
             if (!gyroActive) return;
             
@@ -874,67 +878,84 @@
             camera.quaternion.copy(gyroOffsetQuaternion).multiply(qSensor);
         }
 
-        // --- FIXED: NEW CONTINUOUS FLUID 3D INERTIAL MOTION ENGINE ---
-        // Completely strips step-counting gating to map metric pushing, lifting, and sliding directly into 3D space coordinates
-        function handleInertial3DMovement(e) {
+        // FIXED: RE-ENGINEERED LINEAR ACCELERATION PROJECTION
+        // Strips step counters completely. Maps pure force impulses seamlessly onto the World X/Z plane.
+        function handleInertialStepInput(e) {
             if (!gyroActive) return;
 
+            // Extract native raw linear acceleration matrix (with gravity auto-removed by OS)
             let acc = e.acceleration;
             if (!acc || acc.x === null) return;
 
-            let ax = acc.x;
-            let ay = acc.y;
-            let az = acc.z;
+            // Define modern orientation logic boundaries
+            const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+            const horizonLevelEngaged = (Math.abs(currentEuler.x) <= LEVEL_PITCH_LIMIT && Math.abs(currentEuler.z) <= LEVEL_ROLL_LIMIT);
+            
+            if (!horizonLevelEngaged) {
+                virtualWalkVelocityX = 0;
+                virtualWalkVelocityZ = 0;
+                return;
+            }
 
-            // 1. High-Pass Deadzone Filter
-            // Discards low-level background sensor noise, tremors, and thermal jitter to completely isolate stillness
-            if (Math.abs(ax) < ACCEL_HIGH_PASS) ax = 0;
-            if (Math.abs(ay) < ACCEL_HIGH_PASS) ay = 0;
-            if (Math.abs(az) < ACCEL_HIGH_PASS) az = 0;
+            // Generate a 3D vector representing local hardware acceleration forces
+            const localAccelerationVector = new THREE.Vector3(acc.x, acc.y, acc.z);
 
-            if (ax === 0 && ay === 0 && az === 0) return;
+            // Project device-space acceleration into absolute world space via camera orientation
+            const worldSpaceAcceleration = localAccelerationVector.applyQuaternion(camera.quaternion);
 
-            // 2. Vector Projection Conversion
-            // Maps the phone's hardware space vectors straight into Three.js world axes coordinates using the active gyro quaternion matrix
-            let localAccel = new THREE.Vector3(ax, ay, az);
-            localAccel.applyQuaternion(camera.quaternion);
+            // STRICT PROTECTION GATING: Strip out world Y axis adjustments entirely
+            worldSpaceAcceleration.y = 0;
 
-            // 3. Continuous Velocity Impulse Application
-            virtualWalkVelocityX += localAccel.x * INSTANT_ACCEL_SCALAR;
-            virtualWalkVelocityY += localAccel.y * INSTANT_ACCEL_SCALAR;
-            virtualWalkVelocityZ += localAccel.z * INSTANT_ACCEL_SCALAR;
+            // Apply a tight high-pass noise floor gate to wipe out resting electronic bias variations
+            const NOISE_FLOOR_CUTOFF = 0.22; // m/s^2
+            
+            if (Math.abs(worldSpaceAcceleration.x) < NOISE_FLOOR_CUTOFF) worldSpaceAcceleration.x = 0;
+            else worldSpaceAcceleration.x -= Math.sign(worldSpaceAcceleration.x) * NOISE_FLOOR_CUTOFF;
+
+            if (Math.abs(worldSpaceAcceleration.z) < NOISE_FLOOR_CUTOFF) worldSpaceAcceleration.z = 0;
+            else worldSpaceAcceleration.z -= Math.sign(worldSpaceAcceleration.z) * NOISE_FLOOR_CUTOFF;
+
+            // Single integration scaling gain to smoothly interpolate tracking speeds fluidly
+            const KINEMATIC_GAIN_FACTOR = 0.045;
+            virtualWalkVelocityX += worldSpaceAcceleration.x * KINEMATIC_GAIN_FACTOR;
+            virtualWalkVelocityZ += worldSpaceAcceleration.z * KINEMATIC_GAIN_FACTOR;
         }
 
-        // --- FIXED: RE-ENGINEERED 3D MOTION MATRIX ANIMATION INTERFACES ---
+        // FIXED: CONTINUOUS VELOCITY 업데이트 ENGINE LOOP
         function animate() {
             requestAnimationFrame(animate);
             
-            let statusHorizonStr = "UNLOCKED_3D";
+            let statusHorizonStr = "LOCKED";
             
             if (gyroActive) {
-                // Smoothly update positions along all three axes if active velocity registers have value
-                if (virtualWalkVelocityX !== 0 || virtualWalkVelocityY !== 0 || virtualWalkVelocityZ !== 0) {
+                const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+                
+                if (Math.abs(currentEuler.x) <= LEVEL_PITCH_LIMIT && Math.abs(currentEuler.z) <= LEVEL_ROLL_LIMIT) {
+                    statusHorizonStr = "LEVEL_WALK";
                     
-                    camera.position.x += virtualWalkVelocityX;
-                    camera.position.y += virtualWalkVelocityY;
-                    camera.position.z += virtualWalkVelocityZ;
-                    
-                    if (controls) {
-                        controls.target.x += virtualWalkVelocityX;
-                        controls.target.y += virtualWalkVelocityY;
-                        controls.target.z += virtualWalkVelocityZ;
+                    // Constantly execute exponential velocity decay to slide to a crisp stop when physical forces cease
+                    virtualWalkVelocityX *= FRICTION_DECAY_COEFF;
+                    virtualWalkVelocityZ *= FRICTION_DECAY_COEFF;
+
+                    // Absolute zero hard-stop floor clamp
+                    if (Math.abs(virtualWalkVelocityX) < VELOCITY_DEADZONE_LIMIT) virtualWalkVelocityX = 0;
+                    if (Math.abs(virtualWalkVelocityZ) < VELOCITY_DEADZONE_LIMIT) virtualWalkVelocityZ = 0;
+
+                    // Apply active velocity shifts directly to positions along the zeroed Y plane
+                    if (virtualWalkVelocityX !== 0 || virtualWalkVelocityZ !== 0) {
+                        camera.position.x += virtualWalkVelocityX;
+                        camera.position.z += virtualWalkVelocityZ;
+                        
+                        if (controls) {
+                            controls.target.x += virtualWalkVelocityX;
+                            controls.target.z += virtualWalkVelocityZ;
+                        }
                     }
+                } else {
+                    statusHorizonStr = "TILT_GATED";
+                    virtualWalkVelocityX = 0;
+                    virtualWalkVelocityZ = 0;
                 }
-
-                // Exponential Friction Decay Filter
-                // Forces velocities to rapidly dump down to zero the moment active device acceleration drops below the high-pass gate
-                virtualWalkVelocityX *= VELOCITY_FRICTION_DECAY;
-                virtualWalkVelocityY *= VELOCITY_FRICTION_DECAY;
-                virtualWalkVelocityZ *= VELOCITY_FRICTION_DECAY;
-
-                if (Math.abs(virtualWalkVelocityX) < VELOCITY_DEADZONE_LIMIT) virtualWalkVelocityX = 0;
-                if (Math.abs(virtualWalkVelocityY) < VELOCITY_DEADZONE_LIMIT) virtualWalkVelocityY = 0;
-                if (Math.abs(virtualWalkVelocityZ) < VELOCITY_DEADZONE_LIMIT) virtualWalkVelocityZ = 0;
             }
 
             if (controls && controls.enabled) {
@@ -946,11 +967,10 @@
             }
             
             telemetryState.x = camera.position.x;
-            telemetryState.y = camera.position.y;
             telemetryState.z = camera.position.z;
             
-            // Updated telemetry output panel to track the active continuous 3D velocity vectors
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Y:${telemetryState.y.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${virtualWalkVelocityX.toFixed(3)} VelY:${virtualWalkVelocityY.toFixed(3)} VelZ:${virtualWalkVelocityZ.toFixed(3)} | Mode:${statusHorizonStr}`;
+            // Updated readouts to track the real-time continuous glide velocity logs
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${virtualWalkVelocityX.toFixed(3)} VelZ:${virtualWalkVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
             
