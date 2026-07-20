@@ -666,23 +666,27 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
-            // FIXED: Fully universalized vision instructions. Removed all hardcoded anatomy, garment colors, or specific pedestal objects.
+            // STRATEGY 1 MAP: Pass 1 splits the environment into 8 deterministic coordinate octants
             const pass1Prompt = `
                 Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely.
                 Your response must populate exactly two fields inside the target JSON object:
                 1. description: Provide a detailed text summary describing the exact subjects, furniture pieces, textures, layout colors, background architecture, or items observed in the current camera view.
-                2. blueprint: An architectural text blueprint manifest listing 80+ descriptive primitives categorized under these four distinct structural headers:
+                2. blueprint: An architectural text blueprint manifest listing a massive array of descriptive primitives evenly distributed and categorized under these eight distinct geographic octant headers:
                 
-                ### REGION: FLOORS_AND_BASES
-                ### REGION: CORE_MASSES
-                ### REGION: ATTACHMENTS_AND_EXTENSIONS
-                ### REGION: SURFACE_DETAILS
+                ### REGION: OCTANT_UP_FRONT_LEFT
+                ### REGION: OCTANT_UP_FRONT_RIGHT
+                ### REGION: OCTANT_UP_BACK_LEFT
+                ### REGION: OCTANT_UP_BACK_RIGHT
+                ### REGION: OCTANT_LOW_FRONT_LEFT
+                ### REGION: OCTANT_LOW_FRONT_RIGHT
+                ### REGION: OCTANT_LOW_BACK_LEFT
+                ### REGION: OCTANT_LOW_BACK_RIGHT
                 
-                STRICT SPATIAL ANCHOR & PROPORTION LAWS:
-                - Ground floor planes, flooring surfaces, rugs, or foundational bottoms sit fixed at y = -3.
-                - Items resting on top of surfaces must have contiguous contact points (no floating elements separated by gaps).
-                - Sub-components must use matching X/Z coordinates if they form vertically aligned columns (e.g., couch cushions sitting directly over couch legs).
-                - Maintain clean relative scales. Avoid creating massive, bloated primitive boxes that overflow the bounds of the actual environment subjects.
+                STRICT SPATIAL ANCHOR LAWS:
+                - Center origin point is fixed at (0, 0, 0). Ground level sits fixed at elevation y = -3.
+                - UP zones handle shapes where y >= 0. LOW zones handle shapes where y < 0.
+                - FRONT zones handle shapes where z >= 0. BACK zones handle shapes where z < 0.
+                - LEFT zones handle shapes where x >= 0. RIGHT zones handle shapes where x < 0.
                 
                 Format each text entry line exactly like this template:
                 "- type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
@@ -690,10 +694,15 @@
 
             const globalSpatialAnchorPrompt = `
                 Global Space Coordinates Alignment Protocol:
-                - Ground floor planes, flooring surfaces, rugs, or foundational bottoms sit fixed at y = -3.
-                - Items resting on top of surfaces must have contiguous contact points (no floating elements separated by gaps).
-                - Sub-components must use matching X/Z coordinates if they form vertically aligned columns.
-                - Maintain clean relative scales. Avoid creating massive, bloated primitive boxes that overflow the bounds of the actual environment subjects.
+                - Center origin point is fixed at (0, 0, 0). Ground level sits fixed at elevation y = -3.
+                - UP zones handle shapes where y >= 0. LOW zones handle shapes where y < 0.
+                - FRONT zones handle shapes where z >= 0. BACK zones handle shapes where z < 0.
+                - LEFT zones handle shapes where x >= 0. RIGHT zones handle shapes where x < 0.
+                
+                CAVEAT DIRECTIVES:
+                - FLOAT DECIMAL LIMIT: Round all floating-point coordinate numbers (positions, scales, rotations) strictly to a maximum of 2 decimal places to minimize token footprint.
+                - RESPONSE STRUCTURING: Strip all unnecessary whitespace formatting, line breaks, or indentation from the output JSON structure to enable dense, minified structural parsing.
+                - GLOBAL BOUNDING SEAM RULE: Do not truncate or drop any structural elements just because they cross or overlap into neighboring octant boundaries. Complete all elements that originate within your designated zone bounds.
             `;
 
             pass1ModelLoop: for (let model of modelCascadeList) {
@@ -755,14 +764,18 @@
             }
 
             let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
-            statusDiv.innerText = "Pass 1 Scaffolding complete. Dispatching sector threads...";
+            statusDiv.innerText = "Pass 1 Scaffolding complete. Dispatching 8-sector thread matrix...";
 
-            // FIXED: General environment compiler pipelines to cleanly sort dynamic room layers or shapes
+            // FIXED CAVEAT 1: Staggered delays set precisely at 250ms increments to prevent 429 API rate exhaustion
             const structuralTasks = [
-                { id: 'FLOORS_AND_BASES', rules: 'Compile the bottom ground levels, rugs, or flat platform supports. Force 20+ shapes.', staggerDelay: 0 },
-                { id: 'CORE_MASSES', rules: 'Compile central objects, primary bodies, furniture framing blocks, or large item anchors.', staggerDelay: 350 },
-                { id: 'ATTACHMENTS_AND_EXTENSIONS', rules: 'Compile protruding elements, limbs, structural legs, screen frames, handles, or secondary extensions making sure joints interlock cleanly.', staggerDelay: 700 },
-                { id: 'SURFACE_DETAILS', rules: 'Compile detailed additions, surface textures, geometric trimmings, loose layers, or small item components to add high-fidelity resolution without bloating scale vectors.', staggerDelay: 1050 }
+                { id: 'OCTANT_UP_FRONT_LEFT', rules: 'Compile geometry strictly located in the positive X, positive Y, positive Z space bounds.', staggerDelay: 0 },
+                { id: 'OCTANT_UP_FRONT_RIGHT', rules: 'Compile geometry strictly located in the negative X, positive Y, positive Z space bounds.', staggerDelay: 250 },
+                { id: 'OCTANT_UP_BACK_LEFT', rules: 'Compile geometry strictly located in the positive X, positive Y, negative Z space bounds.', staggerDelay: 500 },
+                { id: 'OCTANT_UP_BACK_RIGHT', rules: 'Compile geometry strictly located in the negative X, positive Y, negative Z space bounds.', staggerDelay: 750 },
+                { id: 'OCTANT_LOW_FRONT_LEFT', rules: 'Compile geometry strictly located in the positive X, negative Y, positive Z space bounds.', staggerDelay: 1000 },
+                { id: 'OCTANT_LOW_FRONT_RIGHT', rules: 'Compile geometry strictly located in the negative X, negative Y, positive Z space bounds.', staggerDelay: 1250 },
+                { id: 'OCTANT_LOW_BACK_LEFT', rules: 'Compile geometry strictly located in the positive X, negative Y, negative Z space bounds.', staggerDelay: 1500 },
+                { id: 'OCTANT_LOW_BACK_RIGHT', rules: 'Compile geometry strictly located in the negative X, negative Y, negative Z space bounds.', staggerDelay: 1750 }
             ];
 
             const splitSegments = parsedPayload.blueprint.split(/### REGION:\s*/i);
@@ -780,8 +793,8 @@
                 if (!isolatedTextSnippet.trim()) isolatedTextSnippet = parsedPayload.blueprint;
 
                 const pass2Prompt = `
-                    You are a precision 3D Geometry compiler specializing in the [${task.id}] zone.
-                    Convert this local isolated text block blueprint directly into a functional JSON shapes layout array.
+                    You are a precision 3D Geometry compiler specializing strictly in the [${task.id}] octant grid region.
+                    Convert this isolated text blueprint block directly into a functional, minified JSON shapes layout array.
                     
                     ${globalSpatialAnchorPrompt}
                     
@@ -790,7 +803,7 @@
                     
                     COMPILER DIRECTIVES:
                     - ${task.rules}
-                    - Translate every single written text line item into the structural JSON output. Do not truncate early or drop sections.
+                    - Output every single written element line from the snippet. Do not skip data or truncate early.
                 `;
 
                 let pass2Diagnostics = "";
@@ -845,7 +858,7 @@
             try {
                 const compiledResults = await Promise.all(regionalCompilationPromises);
                 
-                let reportTrackingLog = "<br><br><b>Sector Compilation Audit Matrix:</b>";
+                let reportTrackingLog = "<br><br><b>8-Octant Compilation Audit Matrix:</b>";
                 let permanentPass2Logs = "";
 
                 compiledResults.forEach((result) => {
@@ -853,10 +866,10 @@
                         unifiedShapes.push(...result.shapes);
                     }
                     if (result.errors) {
-                        permanentPass2Logs += `• Zone [${result.id}] Fallbacks: <span style='color:#ffab00;'>${result.errors}</span><br>`;
+                        permanentPass2Logs += `• Sector [${result.id}] Fallbacks: <span style='color:#ffab00;'>${result.errors}</span><br>`;
                     }
                     let modelStatusColor = result.model.includes('3.5') ? '#00e676' : '#ffab00';
-                    reportTrackingLog += `<br>• Zone [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes)`;
+                    reportTrackingLog += `<br>• Grid [${result.id}] parsed via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes)`;
                 });
 
                 let structuredUiOutput = coreLayoutNarrative + reportTrackingLog;
@@ -865,7 +878,7 @@
                     structuredUiOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>Orchestrator Pass 1 Telemetry Logs:</b><br>${debugDiagnosticsHistory}</div>`;
                 }
                 if (permanentPass2Logs) {
-                    structuredUiOutput += `<br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>Pass 2 Parallel Telemetry Trail:</b><br>${permanentPass2Logs}</div>`;
+                    structuredUiOutput += `<br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>Pass 2 Octree Telemetry Trail:</b><br>${permanentPass2Logs}</div>`;
                 }
 
                 descDiv.innerHTML = structuredUiOutput;
