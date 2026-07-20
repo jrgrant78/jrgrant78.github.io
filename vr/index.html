@@ -268,10 +268,12 @@
         const cleanTargetQuaternion = new THREE.Quaternion(); 
         
         let motionTracker;
-        // FIXED: Level window limits scaled down precisely to manage horizon triggers
+        // Horizon angles: Level window logic limits
         const LEVEL_PITCH_LIMIT = THREE.MathUtils.degToRad(20);  
         const LEVEL_ROLL_LIMIT = THREE.MathUtils.degToRad(15);   
-        const TRANSLATION_SPEED_SCALAR = 0.35;                   
+        
+        // FIXED: Balanced speed scaling factor to handle sub-pixel macro block increments smoothly
+        const TRANSLATION_SPEED_SCALAR = 0.85;                   
         let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
         const worldGroup = new THREE.Group();
@@ -291,7 +293,6 @@
         const ICON_CAMERA_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/></svg>`;
         const ICON_PHOTO_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 
-        // FIXED: Replaced standard luminance mass calculations with a multi-point macro block-matching grid tracker
         class MultiPointMotionTracker {
             constructor() {
                 this.canvas = document.createElement('canvas');
@@ -301,7 +302,6 @@
                 this.prevBuffer = new Uint8ClampedArray(64 * 64);
                 this.initialized = false;
                 
-                // Define 9 structural coordinate zones across the frame matrix layout
                 this.trackingPoints = [
                     {x: 16, y: 16}, {x: 32, y: 16}, {x: 48, y: 16},
                     {x: 16, y: 32}, {x: 32, y: 32}, {x: 48, y: 32},
@@ -319,8 +319,11 @@
                 const frameData = this.ctx.getImageData(0, 0, 64, 64).data;
                 
                 let curBuffer = new Uint8ClampedArray(64 * 64);
+                let frameBrightnessSum = 0;
+                
                 for (let i = 0; i < 64 * 64; i++) {
                     curBuffer[i] = (frameData[i*4] + frameData[i*4+1] + frameData[i*4+2]) / 3;
+                    frameBrightnessSum += curBuffer[i];
                 }
 
                 if (!this.initialized) {
@@ -331,19 +334,16 @@
 
                 let totalVectorX = 0;
                 let totalExpansion = 0;
-                const searchRadius = 4;
+                const searchRadius = 5;
 
-                // Loop through all 9 tracking array nodes to run block-matching analysis
                 for (let pt of this.trackingPoints) {
                     let bestSAD = Infinity;
                     let mvX = 0;
                     let mvY = 0;
 
-                    // Scan localized neighborhoods to find micro-shifts
                     for (let sy = -searchRadius; sy <= searchRadius; sy++) {
                         for (let sx = -searchRadius; sx <= searchRadius; sx++) {
                             let sad = 0;
-                            // Evaluate structural difference using a 3x3 pixel matching frame window
                             for (let wy = -1; wy <= 1; wy++) {
                                 for (let wx = -1; wx <= 1; wx++) {
                                     const oldX = pt.x + wx;
@@ -367,8 +367,6 @@
                     }
 
                     totalVectorX += mvX;
-                    
-                    // Expansion check relative to tracking anchor center point
                     const vecFromCenterValX = pt.x - 32;
                     const vecFromCenterValY = pt.y - 32;
                     const expansionFactorContribution = (mvX * vecFromCenterValX) + (mvY * vecFromCenterValY);
@@ -380,11 +378,12 @@
                 let rawPan = -(totalVectorX / 9.0) * 0.25;
                 let rawScale = (totalExpansion / 9.0) * 0.015;
 
-                if (Math.abs(rawPan) < 0.03) rawPan = 0;
-                if (Math.abs(rawScale) < 0.03) rawScale = 0;
+                // FIXED: Enhanced deadzone tolerances to eliminate low-light auto-exposure pixel drift completely
+                if (Math.abs(rawPan) < 0.07) rawPan = 0;
+                if (Math.abs(rawScale) < 0.06) rawScale = 0;
 
-                this.smoothPan += 0.15 * (rawPan - this.smoothPan);
-                this.smoothScale += 0.15 * (rawScale - this.smoothScale);
+                this.smoothPan += 0.1 * (rawPan - this.smoothPan);
+                this.smoothScale += 0.1 * (rawScale - this.smoothScale);
 
                 return {
                     scale: THREE.MathUtils.clamp(this.smoothScale, -0.2, 0.2),
@@ -1091,39 +1090,43 @@
             camera.quaternion.setFromEuler(sensorEuler);
         }
 
-        // FIXED: Re-engineered computational vector maps to enforce strict structural translation constraints
+        // FIXED: Re-engineered computational vector maps to enforce strict dynamic yaw tracking constraints
         function animate() {
             requestAnimationFrame(animate);
             
             let statusHorizonStr = "LOCKED";
             
             if (gyroActive && motionTracker) {
-                // Read exact pitch/roll orientations directly from the camera quaternion matrix
                 const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
                 
-                // FIXED: Enforce dual-gate verification. Walking activates only when gyro is active AND horizon is level
+                // Gated horizon boundary check (locks translations if screen is aggressively tilted)
                 if (Math.abs(currentEuler.x) <= LEVEL_PITCH_LIMIT && Math.abs(currentEuler.z) <= LEVEL_ROLL_LIMIT) {
                     statusHorizonStr = "LEVEL_WALK";
                     
-                    // Run the 9-point cross-frame optical block matching calculation loop
                     const trackingData = motionTracker.analyze(videoElement);
                     visualTelemetry.scaleFlow = trackingData.scale;
                     visualTelemetry.panFlow = trackingData.pan;
                     
-                    // FIXED: Isolated directions entirely from look vectors. Matches static world coordinate dimensions
-                    const fixedWorldForwardXZ = new THREE.Vector3(0, 0, -1); 
-                    const fixedWorldRightXZ = new THREE.Vector3(1, 0, 0);
+                    // FIXED: Dynamically capture current horizontal heading direction vectors (Yaw) from camera quaternion matrix.
+                    // This aligns physical walks forward/backward directly to where the lens is currently pointing in 360-degree space.
+                    const dynamicForwardXZ = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                    dynamicForwardXZ.y = 0; // Flatten component to lock vertical height elevations completely
+                    dynamicForwardXZ.normalize();
+                    
+                    const dynamicRightXZ = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+                    dynamicRightXZ.y = 0; 
+                    dynamicRightXZ.normalize();
 
-                    const stepZ = trackingData.scale * TRANSLATION_SPEED_SCALAR;
+                    // FIXED: Inverted scale parameters natively so expansion pushes forward, matching natural real-world optics
+                    const stepZ = -trackingData.scale * TRANSLATION_SPEED_SCALAR;
                     const stepX = trackingData.pan * TRANSLATION_SPEED_SCALAR;
                     
-                    // Apply tracking steps dynamically to coordinates
-                    camera.position.addScaledVector(fixedWorldForwardXZ, stepZ);
-                    camera.position.addScaledVector(fixedWorldRightXZ, stepX);
+                    camera.position.addScaledVector(dynamicForwardXZ, stepZ);
+                    camera.position.addScaledVector(dynamicRightXZ, stepX);
                     
                     if (controls) {
-                        controls.target.addScaledVector(fixedWorldForwardXZ, stepZ);
-                        controls.target.addScaledVector(fixedWorldRightXZ, stepX);
+                        controls.target.addScaledVector(dynamicForwardXZ, stepZ);
+                        controls.target.addScaledVector(dynamicRightXZ, stepX);
                     }
                     visualTelemetry.gated = false;
                 } else {
