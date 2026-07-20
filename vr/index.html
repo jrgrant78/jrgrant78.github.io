@@ -283,6 +283,22 @@
         const TRANSLATION_SPEED_SCALAR = 0.65;                   
         let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
+        // --- ADDED ACCELEROMETER STRIDE REGISTERS ---
+        let currentKinematicVelocity = 0;
+        const STRIDE_TARGET_METERS = 0.75; 
+        const KINEMATIC_LERP_SPEED = 0.15;
+        
+        let stepStreakBuffer = 0;
+        const STREAK_THRESHOLD_REQUIRED = 3; 
+        let lastSignalPeakTime = 0;
+        let lastSignalValleyTime = 0;
+        let isSearchingForPeak = true;
+        let dynamicPeakValue = 1.5;
+        let dynamicValleyValue = -1.5;
+        const FILTER_ADAPTATION_RATE = 0.1;
+        let totalStepsCounted = 0;
+        let lastStepTimestamp = 0;
+
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
         
@@ -344,7 +360,6 @@
                 let totalExpansion = 0;
                 const searchRadius = 5;
                 
-                // Track directional consensus counts to enforce noise filtering gates
                 let activeMotionBlocksCount = 0;
 
                 for (let pt of this.trackingPoints) {
@@ -390,8 +405,6 @@
 
                 this.prevBuffer.set(curBuffer);
 
-                // FIXED: CONSENSUS VOTING GATE
-                // Reject all pixel displacement metrics instantly if less than half the blocks confirm structural change
                 if (activeMotionBlocksCount < 5) {
                     return { scale: 0, pan: 0 };
                 }
@@ -402,7 +415,6 @@
                 if (Math.abs(rawPan) < 0.14) rawPan = 0;
                 if (Math.abs(rawScale) < 0.10) rawScale = 0;
 
-                // FIXED: Double Inertia integration eliminated by stripping internal IIR smoothing structures entirely
                 return {
                     scale: THREE.MathUtils.clamp(rawScale, -0.2, 0.2),
                     pan: THREE.MathUtils.clamp(rawPan, -0.2, 0.2)
@@ -1012,14 +1024,19 @@
             }
         }
 
+        // --- UPDATED SENSOR PERMISSION INTERACTION ENGINE ---
         function toggleSensorsFunctionality() {
             const btn = document.getElementById('gyroBtn');
             if (gyroActive) {
                 deactivateTrackingSensors();
             } else {
                 if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                    DeviceOrientationEvent.requestPermission().then(state => {
-                        if (state === 'granted') activateTrackingSensors(btn);
+                    Promise.all([
+                        DeviceOrientationEvent.requestPermission(),
+                        typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function' ? 
+                            DeviceMotionEvent.requestPermission() : Promise.resolve('granted')
+                    ]).then(states => {
+                        if (states.every(s => s === 'granted')) activateTrackingSensors(btn);
                     });
                 } else {
                     activateTrackingSensors(btn);
@@ -1027,12 +1044,15 @@
             }
         }
 
+        // --- UPDATED TRACKER REGISTRATION (GYRO UNTOUCHED, DEVICKMOTION INJECTED) ---
         function activateTrackingSensors(btn) {
             if (controls) { 
                 controls.enabled = false; 
             }
             isFirstGyroFrame = true;
             window.addEventListener('deviceorientation', handleGyroscopeMotionInput, true);
+            // Reinstated structural accelerometer cadence tracker listener cleanly
+            window.addEventListener('devicemotion', handleInertialStepInput, true);
             gyroActive = true;
             btn.classList.add('btn-active');
         }
@@ -1040,7 +1060,9 @@
         function deactivateTrackingSensors() {
             if (!gyroActive) return;
             window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
+            window.removeEventListener('devicemotion', handleInertialStepInput);
             gyroActive = false;
+            currentKinematicVelocity = 0;
             document.getElementById('gyroBtn').classList.remove('btn-active');
             
             const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
@@ -1079,6 +1101,8 @@
             lockedGyroRoll = 0; 
             virtualWalkVelocityX = 0;
             virtualWalkVelocityZ = 0;
+            currentKinematicVelocity = 0;
+            totalStepsCounted = 0;
             rawCachedShapesArray = null;
             scannedBackdropDataUrl = null;
             camera.position.set(0, 5, 15);
@@ -1089,6 +1113,7 @@
             document.getElementById('aiDescription').innerText = "Workspace cleared. System active.";
         }
 
+        // --- GYROSCOPE ORIENTATION FUNCTIONS (100% UNTOUCHED PER INSTRUCTIONS) ---
         function handleGyroscopeMotionInput(e) {
             if (!gyroActive) return;
             
@@ -1110,77 +1135,117 @@
             camera.quaternion.setFromEuler(sensorEuler);
         }
 
+        // --- NEW: INERTIAL ACCELEROMETER STRIDE DISCRIMINATOR CORE ---
+        function handleInertialStepInput(e) {
+            if (!gyroActive) return;
+
+            let acc = e.acceleration;
+            if (!acc || acc.z === null) return;
+
+            const currentTimestamp = performance.now();
+            
+            // Isolate real physical vertical component regardless of phone roll angles
+            const totalRawVector = new THREE.Vector3(acc.x, acc.y, acc.z);
+            const gravityAlignmentVector = new THREE.Vector3(0, -1, 0).applyQuaternion(camera.quaternion);
+            const trueVerticalAcceleration = totalRawVector.dot(gravityAlignmentVector);
+
+            // Continuous Dynamic Baseline Tracking
+            if (trueVerticalAcceleration > dynamicPeakValue) {
+                dynamicPeakValue = THREE.MathUtils.lerp(dynamicPeakValue, trueVerticalAcceleration, FILTER_ADAPTATION_RATE);
+            } else {
+                dynamicPeakValue = THREE.MathUtils.lerp(dynamicPeakValue, 1.2, 0.02);
+            }
+
+            if (trueVerticalAcceleration < dynamicValleyValue) {
+                dynamicValleyValue = THREE.MathUtils.lerp(dynamicValleyValue, trueVerticalAcceleration, FILTER_ADAPTATION_RATE);
+            } else {
+                dynamicValleyValue = THREE.MathUtils.lerp(dynamicValleyValue, -1.2, 0.02);
+            }
+
+            const crossAmplitudeThreshold = (dynamicPeakValue - dynamicValleyValue) * 0.45;
+
+            // Enforce Natural Horizon boundaries
+            const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+            const horizonLevelEngaged = (Math.abs(currentEuler.x) <= LEVEL_PITCH_LIMIT && Math.abs(currentEuler.z) <= LEVEL_ROLL_LIMIT);
+            
+            if (!horizonLevelEngaged) {
+                stepStreakBuffer = 0;
+                currentKinematicVelocity = 0;
+                return;
+            }
+
+            // Rhythm Signature State Machine (Peak-to-Valley Hysteresis Validation)
+            if (isSearchingForPeak) {
+                if (trueVerticalAcceleration > crossAmplitudeThreshold && (currentTimestamp - lastSignalPeakTime) > 250) {
+                    lastSignalPeakTime = currentTimestamp;
+                    isSearchingForPeak = false; 
+                }
+            } else {
+                if (trueVerticalAcceleration < -crossAmplitudeThreshold && (currentTimestamp - lastSignalValleyTime) > 250) {
+                    lastSignalValleyTime = currentTimestamp;
+                    isSearchingForPeak = true;
+
+                    const timeDeltaBetweenStrides = currentTimestamp - lastStepTimestamp;
+
+                    // Biomechanical window filter (Cadence rejection mapping)
+                    if (timeDeltaBetweenStrides >= 330 && timeDeltaBetweenStrides <= 850) {
+                        stepStreakBuffer++;
+                        lastStepTimestamp = currentTimestamp;
+
+                        // Streak gate validation checks
+                        if (stepStreakBuffer >= STREAK_THRESHOLD_REQUIRED) {
+                            const multiStepBonus = (stepStreakBuffer === STREAK_THRESHOLD_REQUIRED) ? STREAK_THRESHOLD_REQUIRED : 1;
+                            
+                            currentKinematicVelocity += (STRIDE_TARGET_METERS * multiStepBonus);
+                            totalStepsCounted += multiStepBonus;
+                        }
+                    } else if (timeDeltaBetweenStrides > 850) {
+                        stepStreakBuffer = 1;
+                        lastStepTimestamp = currentTimestamp;
+                    } else {
+                        // Isolated rapid bump signature: kill confirmation streak buffers
+                        stepStreakBuffer = 0;
+                    }
+                }
+            }
+        }
+
+        // --- UPDATED ANIMATION EXECUTION LOOP (GYRO PRESERVED, MOTION INJECTED) ---
         function animate() {
             requestAnimationFrame(animate);
             
             let statusHorizonStr = "LOCKED";
             
-            if (gyroActive && motionTracker) {
+            if (gyroActive) {
                 const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
                 
-                const angularDriftDelta = camera.quaternion.angleTo(lastCameraQuaternion);
-                lastCameraQuaternion.copy(camera.quaternion);
-
-                let targetVelZ = 0;
-                let targetVelX = 0;
-
                 if (Math.abs(currentEuler.x) <= LEVEL_PITCH_LIMIT && Math.abs(currentEuler.z) <= LEVEL_ROLL_LIMIT) {
                     statusHorizonStr = "LEVEL_WALK";
-                    
-                    const trackingData = motionTracker.analyze(videoElement);
-                    visualTelemetry.scaleFlow = trackingData.scale;
-                    visualTelemetry.panFlow = trackingData.pan;
-                    
-                    if (angularDriftDelta < ROTATIONAL_BLANKING_THRESHOLD) {
-                        // Gather instantaneous targeted kinematic scales
-                        targetVelZ = trackingData.scale * TRANSLATION_SPEED_SCALAR;
-                        targetVelX = trackingData.pan * TRANSLATION_SPEED_SCALAR;
-
-                        // High-pass filtering threshold applied early to target velocity vectors
-                        if (Math.abs(targetVelZ) < 0.035) targetVelZ = 0;
-                        if (Math.abs(targetVelX) < 0.035) targetVelX = 0;
-                    } else {
-                        statusHorizonStr = "PAN_BLANKED";
-                    }
-
-                    visualTelemetry.gated = false;
                 } else {
                     statusHorizonStr = "TILT_GATED";
-                    visualTelemetry.gated = true;
+                    currentKinematicVelocity = 0; // Lock structural movement if device tilts away
                 }
 
-                // FIXED: VELOCITY-FOLLOWING MODEL (Single Stage IIR Integration)
-                // Eliminates additive compounding run-away loops. Velocities target instant vectors directly.
-                virtualWalkVelocityZ = THREE.MathUtils.lerp(virtualWalkVelocityZ, targetVelZ, VELOCITY_INTERPOLATION_STEP);
-                virtualWalkVelocityX = THREE.MathUtils.lerp(virtualWalkVelocityX, targetVelX, VELOCITY_INTERPOLATION_STEP);
-
-                // Absolute structural zero floor clamp to terminate standing drift leakage
-                if (Math.abs(virtualWalkVelocityZ) < VELOCITY_DEADZONE_LIMIT) virtualWalkVelocityZ = 0;
-                if (Math.abs(virtualWalkVelocityX) < VELOCITY_DEADZONE_LIMIT) virtualWalkVelocityX = 0;
-
-                if (virtualWalkVelocityZ !== 0 || virtualWalkVelocityX !== 0) {
+                // INERTIAL KINEMATIC STEP TRANSLATION STEPPING
+                if (currentKinematicVelocity > 0.005) {
                     const dynamicForwardXZ = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
                     dynamicForwardXZ.y = 0;
                     dynamicForwardXZ.normalize();
-                    
-                    const dynamicRightXZ = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-                    dynamicRightXZ.y = 0;
-                    dynamicRightXZ.normalize();
 
-                    camera.position.addScaledVector(dynamicForwardXZ, virtualWalkVelocityZ);
-                    camera.position.addScaledVector(dynamicRightXZ, virtualWalkVelocityX);
+                    let executionStepDelta = currentKinematicVelocity * KINEMATIC_LERP_SPEED;
+                    camera.position.addScaledVector(dynamicForwardXZ, executionStepDelta);
                     
                     if (controls) {
-                        controls.target.addScaledVector(dynamicForwardXZ, virtualWalkVelocityZ);
-                        controls.target.addScaledVector(dynamicRightXZ, virtualWalkVelocityX);
+                        controls.target.addScaledVector(dynamicForwardXZ, executionStepDelta);
                     }
+                    
+                    currentKinematicVelocity -= executionStepDelta;
+                } else {
+                    currentKinematicVelocity = 0;
                 }
-            } else {
-                lastCameraQuaternion.copy(camera.quaternion);
-                virtualWalkVelocityZ = 0;
-                virtualWalkVelocityX = 0;
             }
 
+            // Standard orbit fallback transformations
             if (controls && controls.enabled) {
                 controls.update();
                 if (!gyroActive && lockedGyroRoll !== 0) {
@@ -1192,7 +1257,8 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelZ:${virtualWalkVelocityZ.toFixed(3)} VelX:${virtualWalkVelocityX.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
+            // Updated telemetry display node monitoring values
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Steps Confirmed:${totalStepsCounted} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
             
