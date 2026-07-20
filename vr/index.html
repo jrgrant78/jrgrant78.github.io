@@ -432,7 +432,6 @@
         }
 
         function init3D() {
-            // FIXED: Instantly parse URL keys first before any 3D/Camera exceptions can drop execution
             const urlParams = new URLSearchParams(window.location.search);
             const urlKey = urlParams.get('key');
             if (urlKey) {
@@ -667,24 +666,23 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
+            // FIXED: Fully universalized vision instructions. Removed all hardcoded anatomy, garment colors, or specific pedestal objects.
             const pass1Prompt = `
-                Act as an advanced 3D Spatial Scaffolder. Analyze this image frame completely.
+                Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely.
                 Your response must populate exactly two fields inside the target JSON object:
-                1. description: Provide a rich text summary describing the exact subjects, blue dress clothing textures, base turtle pedestal, and flowing long hair attributes observed.
-                2. blueprint: An architectural text blueprint manifest listing 80+ structural primitives categorized under these four distinct structural headers:
+                1. description: Provide a detailed text summary describing the exact subjects, furniture pieces, textures, layout colors, background architecture, or items observed in the current camera view.
+                2. blueprint: An architectural text blueprint manifest listing 80+ descriptive primitives categorized under these four distinct structural headers:
                 
-                ### REGION: FOUNDATION
-                ### REGION: WARDROBE
-                ### REGION: LIMBS
-                ### REGION: PORTRAIT
+                ### REGION: FLOORS_AND_BASES
+                ### REGION: CORE_MASSES
+                ### REGION: ATTACHMENTS_AND_EXTENSIONS
+                ### REGION: SURFACE_DETAILS
                 
-                SPATIAL ALIGNMENT RULES:
-                - Ground floor platform surface is fixed at elevation y = -3.
-                - Body dress center mass spans strictly between y = -1.2 and y = 0.8. The shoulders sit right at y = 0.8.
-                - The Neck cylinder MUST span from y = 0.8 to y = 1.2, plugging directly into the top of the dress torso.
-                - The Head skull sphere center mass is fixed tightly at elevation y = 1.6. Proportions must look natural.
-                - CONFORMAL DRAPING LAW: Long cascading hair shapes are ordered to wrap closely around the neck and shoulders. Hair shapes must originate around the head (y = 1.6 to 2.2) and travel directly DOWNWARD along the sides and back, following the contour of the shoulders past y = 0.8 down to y = 0.2.
-                - RENDER AS LONG THIN STRIPS: Make sure hair pieces are long, narrow vertical ribbons that drape straight down alongside the neck. Do not point them outwards or upwards.
+                STRICT SPATIAL ANCHOR & PROPORTION LAWS:
+                - Ground floor planes, flooring surfaces, rugs, or foundational bottoms sit fixed at y = -3.
+                - Items resting on top of surfaces must have contiguous contact points (no floating elements separated by gaps).
+                - Sub-components must use matching X/Z coordinates if they form vertically aligned columns (e.g., couch cushions sitting directly over couch legs).
+                - Maintain clean relative scales. Avoid creating massive, bloated primitive boxes that overflow the bounds of the actual environment subjects.
                 
                 Format each text entry line exactly like this template:
                 "- type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
@@ -692,12 +690,10 @@
 
             const globalSpatialAnchorPrompt = `
                 Global Space Coordinates Alignment Protocol:
-                - Ground floor platform surface is fixed at elevation y = -3.
-                - Body dress center mass spans strictly between y = -1.2 and y = 0.8. The shoulders sit right at y = 0.8.
-                - The Neck cylinder MUST span from y = 0.8 to y = 1.2, plugging directly into the top of the dress torso.
-                - The Head skull sphere center mass is fixed tightly at elevation y = 1.6. Proportions must look natural.
-                - CONFORMAL DRAPING LAW: Long cascading hair shapes are ordered to wrap closely around the neck and shoulders. Hair shapes must originate around the head (y = 1.6 to 2.2) and travel directly DOWNWARD along the sides and back, following the contour of the shoulders past y = 0.8 down to y = 0.2.
-                - RENDER AS LONG THIN STRIPS: Make sure hair pieces are long, narrow vertical ribbons that drape straight down alongside the neck. Do not point them outwards or upwards.
+                - Ground floor planes, flooring surfaces, rugs, or foundational bottoms sit fixed at y = -3.
+                - Items resting on top of surfaces must have contiguous contact points (no floating elements separated by gaps).
+                - Sub-components must use matching X/Z coordinates if they form vertically aligned columns.
+                - Maintain clean relative scales. Avoid creating massive, bloated primitive boxes that overflow the bounds of the actual environment subjects.
             `;
 
             pass1ModelLoop: for (let model of modelCascadeList) {
@@ -761,11 +757,12 @@
             let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
             statusDiv.innerText = "Pass 1 Scaffolding complete. Dispatching sector threads...";
 
+            // FIXED: General environment compiler pipelines to cleanly sort dynamic room layers or shapes
             const structuralTasks = [
-                { id: 'FOUNDATION', rules: 'Compile the bottom green pedestal layout. Force 20+ shapes.', staggerDelay: 0 },
-                { id: 'WARDROBE', rules: 'Compile the blue dress geometry. Ensure solid contiguous boxes sitting between y = -1.2 and y = 0.8.', staggerDelay: 350 },
-                { id: 'LIMBS', rules: 'Compile complete connected limb extensions. Attach upper arms directly to the torso sides at shoulder height (y = 0.8). Ensure forearms, hands, calves, and feet are fully written.', staggerDelay: 700 },
-                { id: 'PORTRAIT', rules: 'CRITICAL CONFORMAL HAIR LAW: Lock the Neck cylinder base flat against the torso top at y = 0.8, extending to y = 1.2. Render the head sphere centered exactly at y = 1.6. Generate 25+ overlapping hair capsules originating at the top of the head (y = 2.0) and force them to extend directly DOWNWARD following the curvature of the shoulders down to y = 0.2. Ensure they are long, narrow vertical strips that drape down tightly along the sides. Do not output wide logs or upward rotations.', staggerDelay: 1050 }
+                { id: 'FLOORS_AND_BASES', rules: 'Compile the bottom ground levels, rugs, or flat platform supports. Force 20+ shapes.', staggerDelay: 0 },
+                { id: 'CORE_MASSES', rules: 'Compile central objects, primary bodies, furniture framing blocks, or large item anchors.', staggerDelay: 350 },
+                { id: 'ATTACHMENTS_AND_EXTENSIONS', rules: 'Compile protruding elements, limbs, structural legs, screen frames, handles, or secondary extensions making sure joints interlock cleanly.', staggerDelay: 700 },
+                { id: 'SURFACE_DETAILS', rules: 'Compile detailed additions, surface textures, geometric trimmings, loose layers, or small item components to add high-fidelity resolution without bloating scale vectors.', staggerDelay: 1050 }
             ];
 
             const splitSegments = parsedPayload.blueprint.split(/### REGION:\s*/i);
@@ -1136,7 +1133,6 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        // FIXED: Execute immediately at document baseline instead of hanging on secondary asset download milestones
         init3D();
     </script>
 </body>
