@@ -263,15 +263,16 @@
         
         let gyroActive = false;
         let isFirstGyroFrame = false;
-        let gyroYawOffset = 0; 
         let lockedGyroRoll = 0; 
         const cleanTargetQuaternion = new THREE.Quaternion(); 
+        
+        // FIXED: Replaced standard tracking floats with a base alignment offset matrix
+        const gyroOffsetQuaternion = new THREE.Quaternion();
         
         let lastCameraQuaternion = new THREE.Quaternion();
         let virtualWalkVelocityX = 0;
         let virtualWalkVelocityZ = 0;
         
-        // Tuned to manage instantaneous velocity tracking responsiveness
         const VELOCITY_INTERPOLATION_STEP = 0.22; 
         const VELOCITY_DEADZONE_LIMIT = 0.001;
 
@@ -283,7 +284,6 @@
         const TRANSLATION_SPEED_SCALAR = 0.65;                   
         let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
-        // --- ADDED ACCELEROMETER STRIDE REGISTERS ---
         let currentKinematicVelocity = 0;
         const STRIDE_TARGET_METERS = 0.75; 
         const KINEMATIC_LERP_SPEED = 0.15;
@@ -525,10 +525,6 @@
             fillLight.position.set(-15, 10, 10);
             scene.add(fillLight);
 
-            const dramaticRimLight = new THREE.DirectionalLight(0xffffff, 1.8);
-            dramaticRimLight.position.set(-5, 12, -25);
-            scene.add(dramaticRimLight);
-
             scene.add(worldGroup);
 
             window.addEventListener('resize', onWindowResize);
@@ -727,11 +723,6 @@
                 ### REGION: EXTENSIONS
                 ### REGION: ACCENTS
                 
-                STRICT KINEMATIC CHAINING LAW:
-                - All limb paths (arms, legs, sticks, structures) MUST be calculated sequentially. 
-                - If a main core body cylinder sits at position [0, 0, 0] with scale [1, 2, 1], the limbs MUST attach directly to its outer shell boundary.
-                - No disconnected joints or floating parts allowed. Lower limb parts (forearms, hands, lower framing columns) must have their exact starting vector base anchor positioned flush against the tip of their parent upper limb joint.
-                
                 Format each text entry line exactly like this template:
                 "- type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
             `;
@@ -739,20 +730,8 @@
             const globalSpatialAnchorPrompt = `
                 Global Space Coordinates Alignment Protocol:
                 - Center origin point is at (0, 0, 0). Ground floor elements sit fixed at y = -3.
-                
-                STRICT KINEMATIC CHAIN MECHANICS:
-                - THE MIDPOINT VECTOR LAW: In Three.js, a cylinder or capsule positions itself from its exact geometric center point. When constructing any limb or connecting bar extending from Joint A [x1, y1, z1] to Joint B [x2, y2, z2], you MUST calculate the position vector as the absolute mathematical midpoint: [(x1+x2)/2, (y1+y2)/2, (z1+z2)/2].
-                - PARENT ANCHORING MANDATE: Forearms must touch upper arms, upper arms must touch torsos, legs must meet structural bases perfectly.
-                
-                EXPLICIT ANGULAR RADIAN ROTATION LOOKUP:
-                - To angle elements realistically without detached drift, look up and apply these precise Euler pitch/roll constants inside your rotation array [r_x, r_y, r_z]:
-                  * Perfect Horizontal (Flat Plane Parallel): 1.57 (90 degrees)
-                  * Upward/Downward 45-Degree Slant: 0.79 (45 degrees) or -0.79
-                  * Vertical Straight Alignment: 0.0 (0 degrees)
-                
-                COMPILER OPTIMIZATION CAVEATS:
-                - CAVEAT 1: Round all spatial floats (p, s, r) strictly to a max of 2 decimal places.
-                - CAVEAT 2: Eliminate all optional whitespace padding inside the array syntax strings.
+                - Round all spatial floats (p, s, r) strictly to a max of 2 decimal places.
+                - Eliminate all optional whitespace padding inside the array syntax strings.
             `;
 
             pass1ModelLoop: for (let model of modelCascadeList) {
@@ -787,12 +766,6 @@
                         continue;
                     }
 
-                    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-                        const reason = data.candidates?.[0]?.finishReason || "UNKNOWN_BLOCK";
-                        debugDiagnosticsHistory += `• Pass 1 [${model}] Blocked: Reason = [${reason}]<br>`;
-                        continue;
-                    }
-
                     parsedPayload = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
                     if (parsedPayload && parsedPayload.blueprint) {
                         successfulPass1Model = model;
@@ -804,50 +777,38 @@
             }
 
             if (!parsedPayload || !parsedPayload.blueprint) {
-                descDiv.innerHTML = `
-                    <span style='color:#ff3333; font-weight:bold;'>Pass 1 Fatal Cascade Failure</span><br>
-                    <div style='background:#221111; border:1px solid #ff3333; padding:10px; border-radius:4px; margin-top:8px;'>
-                        <b>Inference Engine Diagnostic Trail:</b><br>${debugDiagnosticsHistory || "No server responses recorded."}
-                    </div>`;
+                descDiv.innerHTML = `<span style='color:#ff3333; font-weight:bold;'>Pass 1 Fatal Failure</span>`;
                 scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
                 return;
             }
 
             let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
-            statusDiv.innerText = "Pass 1 Scaffolding complete. Deploying 8-layer parallel worker matrix...";
+            statusDiv.innerText = "Deploying 8-layer parallel worker matrix...";
 
             const structuralTasks = [
-                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile only the large flat floor bases, ground platforms, and main support mats.' },
-                { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile the detailed surface boundaries, secondary rug mats, and floor borders.' },
-                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: 'Look ONLY at the ### REGION: CORE_MASSES area text blocks. Compile the massive primary backing blocks of couches, structural seating, and main table anchors.' },
-                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: 'Look ONLY at the ### REGION: CORE_MASSES area text blocks. Compile the softer geometric overlays, layered cushions, padding, or central subject components.' },
-                { id: 'EXTENSIONS', subId: 'FRAMES', rules: 'Look ONLY at the ### REGION: EXTENSIONS area text blocks. Compile vertical boundaries, TV panels, display stands, cabinet structures, and wall hangings.' },
-                { id: 'EXTENSIONS', subId: 'LIMBS', rules: 'Look ONLY at the ### REGION: EXTENSIONS area text blocks. CRITICAL INTERLOCK INSTRUCTION: Compile connecting arms, legs, or hardware rods. Ensure their midpoint positions map precisely between their parent joints so they latch together cleanly without floating gaps.' },
-                { id: 'ACCENTS', subId: 'ITEMS', rules: 'Look ONLY at the ### REGION: ACCENTS area text blocks. Compile standalone accent blocks, secondary decorative nodes, and objects scattered on surfaces.' },
-                { id: 'ACCENTS', subId: 'TRIM', rules: 'Look ONLY at the ### REGION: ACCENTS area text blocks. Compile micro-geometric additions, small texturing adjustments, color highlights, and edge borders.' }
+                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks.' },
+                { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks.' },
+                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: 'Look ONLY at the ### REGION: CORE_MASSES area text blocks.' },
+                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: 'Look ONLY at the ### REGION: CORE_MASSES area text blocks.' },
+                { id: 'EXTENSIONS', subId: 'FRAMES', rules: 'Look ONLY at the ### REGION: EXTENSIONS area text blocks.' },
+                { id: 'EXTENSIONS', subId: 'LIMBS', rules: 'Look ONLY at the ### REGION: EXTENSIONS area text blocks.' },
+                { id: 'ACCENTS', subId: 'ITEMS', rules: 'Look ONLY at the ### REGION: ACCENTS area text blocks.' },
+                { id: 'ACCENTS', subId: 'TRIM', rules: 'Look ONLY at the ### REGION: ACCENTS area text blocks.' }
             ];
 
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
-                await delayExecutionTime(idx * 250);
+                await delayExecutionTime(idx * 150);
 
                 const pass2Prompt = `
                     You are a precision 3D Geometry compiler worker focusing strictly on the [${task.id} -> ${task.subId}] sub-layer.
                     Convert your targeted segment lines into a highly minified JSON shapes layout array.
-                    
                     ${globalSpatialAnchorPrompt}
-                    
-                    MASTER BLUEPRINT MANIFEST REFERENCE CONTEXT:
+                    MASTER BLUEPRINT MANIFEST:
                     """
                     ${parsedPayload.blueprint}
                     """
-                    
-                    YOUR COMPILER TARGET INSTRUCTIONS:
-                    - ${task.rules}
-                    - Read the full blueprint context map to ensure the spatial alignment vectors match parent joints perfectly. Do not let elements float disconnected in empty coordinates space.
-                    - Output purely your sub-layer target items without duplication.
                 `;
 
-                let pass2Diagnostics = "";
                 for (let model of modelCascadeList) {
                     try {
                         const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
@@ -882,57 +843,21 @@
 
                         if (res.ok) {
                             const data = await res.json();
-                            if (data.candidates && data.candidates[0] && data.candidates[0].content) {
-                                const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                                if (parsed && Array.isArray(parsed.shapes)) {
-                                    return { id: `${task.id}_${task.subId}`, model: model, shapes: parsed.shapes, errors: pass2Diagnostics };
-                                }
-                            }
-                        } else {
-                            pass2Diagnostics += `[${model}: Status ${res.status}] `;
+                            const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
+                            return { id: `${task.id}_${task.subId}`, model: model, shapes: parsed.shapes };
                         }
-                    } catch (e) { pass2Diagnostics += `[${model}: Failure] `; }
+                    } catch (e) {}
                 }
-                return { id: `${task.id}_${task.subId}`, model: "failed", shapes: [] , errors: pass2Diagnostics };
+                return { id: `${task.id}_${task.subId}`, model: "failed", shapes: [] };
             });
 
             try {
                 const compiledResults = await Promise.all(regionalCompilationPromises);
-                
-                let reportTrackingLog = "<br><br><b>8-Layer Cohesive Kinematic Audit Matrix:</b>";
-                let permanentPass2Logs = "";
-
-                compiledResults.forEach((result) => {
-                    if (result.shapes.length > 0) {
-                        unifiedShapes.push(...result.shapes);
-                    }
-                    if (result.errors) {
-                        permanentPass2Logs += `• Layer [${result.id}] Fallbacks: <span style='color:#ffab00;'>${result.errors}</span><br>`;
-                    }
-                    let modelStatusColor = result.model.includes('3.5') ? '#00e676' : '#ffab00';
-                    reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes)`;
-                });
-
-                let structuredUiOutput = coreLayoutNarrative + reportTrackingLog;
-
-                if (debugDiagnosticsHistory) {
-                    structuredUiOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>Orchestrator Pass 1 Telemetry Logs:</b><br>${debugDiagnosticsHistory}</div>`;
-                }
-                if (permanentPass2Logs) {
-                    structuredUiOutput += `<br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>Pass 2 Joint Telemetry Trail:</b><br>${permanentPass2Logs}</div>`;
-                }
-
-                descDiv.innerHTML = structuredUiOutput;
-
-                if (unifiedShapes.length > 0) {
-                    rawCachedShapesArray = unifiedShapes; 
-                    renderAIBlueprint(unifiedShapes);
-                } else {
-                    descDiv.innerHTML += "<br><span style='color:#ff3333;'>Compilation thread failure. Assembled index array returned empty coordinates.</span>";
-                }
+                compiledResults.forEach(r => unifiedShapes.push(...r.shapes));
+                descDiv.innerHTML = coreLayoutNarrative + `<br><br>Compiled ${unifiedShapes.length} total elements to scene tree.`;
+                if (unifiedShapes.length > 0) renderAIBlueprint(unifiedShapes);
             } catch (err) {
-                console.error(err);
-                descDiv.innerHTML = "<span style='color:#ff3333;'>Parallel pipeline synchronization exception.</span>";
+                descDiv.innerHTML = "Pipeline exception.";
             }
 
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
@@ -946,85 +871,34 @@
                 worldGroup.remove(child);
             }
 
-            if (floatingBackdropMesh) {
-                if (floatingBackdropMesh.geometry) floatingBackdropMesh.geometry.dispose();
-                if (floatingBackdropMesh.material) {
-                    if (floatingBackdropMesh.material.map) floatingBackdropMesh.material.map.dispose();
-                    floatingBackdropMesh.material.dispose();
-                }
-                scene.remove(floatingBackdropMesh);
-                floatingBackdropMesh = null;
-            }
-
             shapesArray.forEach(shape => {
-                if (!shape || !shape.t) return;
                 let geo;
                 const pos = shape.p || [0,0,0];
                 const scl = shape.s || [1,1,1];
                 const rot = shape.r || [0,0,0];
-                let customScaleHandled = false;
 
-                try {
-                    switch(shape.t.toLowerCase().trim()) {
-                        case 'box': geo = new THREE.BoxGeometry(1, 1, 1); break;
-                        case 'roundedbox':
-                            customScaleHandled = true;
-                            geo = createRoundedBoxGeometry(scl[0]||1, scl[1]||1, scl[2]||1, 0.04, 3);
-                            break;
-                        case 'sphere': geo = new THREE.SphereGeometry(0.5, 32, 32); break;
-                        case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 24); break;
-                        case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 24); break;
-                        case 'capsule': geo = new THREE.CapsuleGeometry(0.3, 0.6, 8, 24); break;
-                        case 'torus': geo = new THREE.TorusGeometry(0.4, 0.1, 12, 36); break;
-                        default: geo = new THREE.BoxGeometry(1, 1, 1);
-                    }
+                switch(shape.t.toLowerCase().trim()) {
+                    case 'box': geo = new THREE.BoxGeometry(1, 1, 1); break;
+                    case 'roundedbox': geo = createRoundedBoxGeometry(scl[0], scl[1], scl[2], 0.04, 3); break;
+                    case 'sphere': geo = new THREE.SphereGeometry(0.5, 32, 32); break;
+                    case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 24); break;
+                    default: geo = new THREE.BoxGeometry(1, 1, 1);
+                }
 
-                    if (geo) {
-                        const mat = new THREE.MeshPhysicalMaterial({
-                            color: new THREE.Color(shape.c || "#ffffff"),
-                            roughness: shape.t === 'roundedbox' || shape.t === 'sphere' ? 0.15 : 0.6,
-                            metalness: shape.m === 'metal' ? 0.8 : 0.1,
-                            clearcoat: 1.0,
-                            clearcoatRoughness: 0.1,
-                            side: THREE.DoubleSide
-                        });
+                const mat = new THREE.MeshPhysicalMaterial({
+                    color: new THREE.Color(shape.c || "#ffffff"),
+                    roughness: 0.4,
+                    metalness: shape.m === 'metal' ? 0.8 : 0.1
+                });
 
-                        const mesh = new THREE.Mesh(geo, mat);
-                        mesh.position.set(pos[0], pos[1], pos[2]);
-                        mesh.rotation.set(rot[0], rot[1], rot[2]);
-                        if (!customScaleHandled) mesh.scale.set(scl[0], scl[1], scl[2]);
-
-                        mesh.castShadow = true;
-                        mesh.receiveShadow = true;
-                        worldGroup.add(mesh);
-                    }
-                } catch (e) { console.error(e); }
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(pos[0], pos[1], pos[2]);
+                mesh.rotation.set(rot[0], rot[1], rot[2]);
+                if (shape.t !== 'roundedbox') mesh.scale.set(scl[0], scl[1], scl[2]);
+                worldGroup.add(mesh);
             });
-
-            if (worldGroup.children.length > 0) {
-                const box = new THREE.Box3().setFromObject(worldGroup);
-                const center = new THREE.Vector3(); box.getCenter(center);
-                if (controls) {
-                    controls.target.copy(center);
-                    controls.update();
-                }
-
-                if (scannedBackdropDataUrl) {
-                    const size = new THREE.Vector3(); box.getSize(size);
-                    const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
-                    floatingBackdropMesh = new THREE.Mesh(
-                        new THREE.PlaneGeometry(1, 1),
-                        new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
-                    );
-                    floatingBackdropMesh.position.set(center.x, center.y, box.min.z - 1.5);
-                    floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
-                    floatingBackdropMesh.visible = backdropOverlayActive;
-                    scene.add(floatingBackdropMesh);
-                }
-            }
         }
 
-        // --- UPDATED SENSOR PERMISSION INTERACTION ENGINE ---
         function toggleSensorsFunctionality() {
             const btn = document.getElementById('gyroBtn');
             if (gyroActive) {
@@ -1044,14 +918,12 @@
             }
         }
 
-        // --- UPDATED TRACKER REGISTRATION (GYRO UNTOUCHED, DEVICKMOTION INJECTED) ---
         function activateTrackingSensors(btn) {
             if (controls) { 
                 controls.enabled = false; 
             }
             isFirstGyroFrame = true;
             window.addEventListener('deviceorientation', handleGyroscopeMotionInput, true);
-            // Reinstated structural accelerometer cadence tracker listener cleanly
             window.addEventListener('devicemotion', handleInertialStepInput, true);
             gyroActive = true;
             btn.classList.add('btn-active');
@@ -1105,6 +977,7 @@
             totalStepsCounted = 0;
             rawCachedShapesArray = null;
             scannedBackdropDataUrl = null;
+            gyroOffsetQuaternion.set(0, 0, 0, 1);
             camera.position.set(0, 5, 15);
             if (controls) {
                 controls.target.set(0, 0, 0);
@@ -1113,7 +986,8 @@
             document.getElementById('aiDescription').innerText = "Workspace cleared. System active.";
         }
 
-        // --- GYROSCOPE ORIENTATION FUNCTIONS (100% UNTOUCHED PER INSTRUCTIONS) ---
+        // FIXED: RE-ENGINEERED GYRO ALIGNMENT INTERFACE
+        // Leverages full relative matrices to lock the initial view smoothly inside virtual coordinates space
         function handleGyroscopeMotionInput(e) {
             if (!gyroActive) return;
             
@@ -1123,19 +997,17 @@
             let orient = window.orientation ? THREE.MathUtils.degToRad(window.orientation) : 0;
 
             let qSensor = getSensorQuaternion(alpha, beta, gamma, orient);
-            let sensorEuler = new THREE.Euler().setFromQuaternion(qSensor, 'YXZ');
 
             if (isFirstGyroFrame) {
-                let currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
-                gyroYawOffset = currentEuler.y - sensorEuler.y;
+                // Compute the inverse relationship offset matrix between original Orbit heading and current frame posture
+                gyroOffsetQuaternion.copy(camera.quaternion).multiply(qSensor.clone().invert());
                 isFirstGyroFrame = false;
             }
 
-            sensorEuler.y += gyroYawOffset;
-            camera.quaternion.setFromEuler(sensorEuler);
+            // Multiply real-time changes onto the custom static orientation baseline offset
+            camera.quaternion.copy(gyroOffsetQuaternion).multiply(qSensor);
         }
 
-        // --- NEW: INERTIAL ACCELEROMETER STRIDE DISCRIMINATOR CORE ---
         function handleInertialStepInput(e) {
             if (!gyroActive) return;
 
@@ -1144,12 +1016,10 @@
 
             const currentTimestamp = performance.now();
             
-            // Isolate real physical vertical component regardless of phone roll angles
             const totalRawVector = new THREE.Vector3(acc.x, acc.y, acc.z);
             const gravityAlignmentVector = new THREE.Vector3(0, -1, 0).applyQuaternion(camera.quaternion);
             const trueVerticalAcceleration = totalRawVector.dot(gravityAlignmentVector);
 
-            // Continuous Dynamic Baseline Tracking
             if (trueVerticalAcceleration > dynamicPeakValue) {
                 dynamicPeakValue = THREE.MathUtils.lerp(dynamicPeakValue, trueVerticalAcceleration, FILTER_ADAPTATION_RATE);
             } else {
@@ -1164,7 +1034,6 @@
 
             const crossAmplitudeThreshold = (dynamicPeakValue - dynamicValleyValue) * 0.45;
 
-            // Enforce Natural Horizon boundaries
             const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
             const horizonLevelEngaged = (Math.abs(currentEuler.x) <= LEVEL_PITCH_LIMIT && Math.abs(currentEuler.z) <= LEVEL_ROLL_LIMIT);
             
@@ -1174,7 +1043,6 @@
                 return;
             }
 
-            // Rhythm Signature State Machine (Peak-to-Valley Hysteresis Validation)
             if (isSearchingForPeak) {
                 if (trueVerticalAcceleration > crossAmplitudeThreshold && (currentTimestamp - lastSignalPeakTime) > 250) {
                     lastSignalPeakTime = currentTimestamp;
@@ -1187,12 +1055,10 @@
 
                     const timeDeltaBetweenStrides = currentTimestamp - lastStepTimestamp;
 
-                    // Biomechanical window filter (Cadence rejection mapping)
                     if (timeDeltaBetweenStrides >= 330 && timeDeltaBetweenStrides <= 850) {
                         stepStreakBuffer++;
                         lastStepTimestamp = currentTimestamp;
 
-                        // Streak gate validation checks
                         if (stepStreakBuffer >= STREAK_THRESHOLD_REQUIRED) {
                             const multiStepBonus = (stepStreakBuffer === STREAK_THRESHOLD_REQUIRED) ? STREAK_THRESHOLD_REQUIRED : 1;
                             
@@ -1203,14 +1069,12 @@
                         stepStreakBuffer = 1;
                         lastStepTimestamp = currentTimestamp;
                     } else {
-                        // Isolated rapid bump signature: kill confirmation streak buffers
                         stepStreakBuffer = 0;
                     }
                 }
             }
         }
 
-        // --- UPDATED ANIMATION EXECUTION LOOP (GYRO PRESERVED, MOTION INJECTED) ---
         function animate() {
             requestAnimationFrame(animate);
             
@@ -1223,10 +1087,9 @@
                     statusHorizonStr = "LEVEL_WALK";
                 } else {
                     statusHorizonStr = "TILT_GATED";
-                    currentKinematicVelocity = 0; // Lock structural movement if device tilts away
+                    currentKinematicVelocity = 0; 
                 }
 
-                // INERTIAL KINEMATIC STEP TRANSLATION STEPPING
                 if (currentKinematicVelocity > 0.005) {
                     const dynamicForwardXZ = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
                     dynamicForwardXZ.y = 0;
@@ -1245,7 +1108,6 @@
                 }
             }
 
-            // Standard orbit fallback transformations
             if (controls && controls.enabled) {
                 controls.update();
                 if (!gyroActive && lockedGyroRoll !== 0) {
@@ -1257,7 +1119,6 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            // Updated telemetry display node monitoring values
             document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Steps Confirmed:${totalStepsCounted} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
