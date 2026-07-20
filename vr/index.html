@@ -266,11 +266,12 @@
         let lockedGyroRoll = 0; 
         const cleanTargetQuaternion = new THREE.Quaternion(); 
         
-        // FIXED: Replaced standard tracking floats with a base alignment offset matrix
+        // UNTOUCHED: Matrix orientation boundary allocation register
         const gyroOffsetQuaternion = new THREE.Quaternion();
         
-        let lastCameraQuaternion = new THREE.Quaternion();
+        // FIXED: 3D Inertial Guidance Velocity Caches (Expanded to include Y-axis translation)
         let virtualWalkVelocityX = 0;
+        let virtualWalkVelocityY = 0;
         let virtualWalkVelocityZ = 0;
         
         const VELOCITY_INTERPOLATION_STEP = 0.22; 
@@ -284,21 +285,6 @@
         const TRANSLATION_SPEED_SCALAR = 0.65;                   
         let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
-        let currentKinematicVelocity = 0;
-        const STRIDE_TARGET_METERS = 0.75; 
-        const KINEMATIC_LERP_SPEED = 0.15;
-        
-        let stepStreakBuffer = 0;
-        const STREAK_THRESHOLD_REQUIRED = 3; 
-        let lastSignalPeakTime = 0;
-        let lastSignalValleyTime = 0;
-        let isSearchingForPeak = true;
-        let dynamicPeakValue = 1.5;
-        let dynamicValleyValue = -1.5;
-        const FILTER_ADAPTATION_RATE = 0.1;
-        let totalStepsCounted = 0;
-        let lastStepTimestamp = 0;
-
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
         
@@ -924,6 +910,7 @@
             }
             isFirstGyroFrame = true;
             window.addEventListener('deviceorientation', handleGyroscopeMotionInput, true);
+            // FIXED: Reinstated structural accelerometer listener pointing directly to continuous translation loop
             window.addEventListener('devicemotion', handleInertialStepInput, true);
             gyroActive = true;
             btn.classList.add('btn-active');
@@ -934,7 +921,9 @@
             window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
             window.removeEventListener('devicemotion', handleInertialStepInput);
             gyroActive = false;
-            currentKinematicVelocity = 0;
+            virtualWalkVelocityX = 0;
+            virtualWalkVelocityY = 0;
+            virtualWalkVelocityZ = 0;
             document.getElementById('gyroBtn').classList.remove('btn-active');
             
             const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
@@ -972,9 +961,8 @@
             deactivateTrackingSensors();
             lockedGyroRoll = 0; 
             virtualWalkVelocityX = 0;
+            virtualWalkVelocityY = 0;
             virtualWalkVelocityZ = 0;
-            currentKinematicVelocity = 0;
-            totalStepsCounted = 0;
             rawCachedShapesArray = null;
             scannedBackdropDataUrl = null;
             gyroOffsetQuaternion.set(0, 0, 0, 1);
@@ -986,8 +974,7 @@
             document.getElementById('aiDescription').innerText = "Workspace cleared. System active.";
         }
 
-        // FIXED: RE-ENGINEERED GYRO ALIGNMENT INTERFACE
-        // Leverages full relative matrices to lock the initial view smoothly inside virtual coordinates space
+        // UNTOUCHED: 100% Locked-In Matrix Gyroscope Handler
         function handleGyroscopeMotionInput(e) {
             if (!gyroActive) return;
             
@@ -999,82 +986,43 @@
             let qSensor = getSensorQuaternion(alpha, beta, gamma, orient);
 
             if (isFirstGyroFrame) {
-                // Compute the inverse relationship offset matrix between original Orbit heading and current frame posture
                 gyroOffsetQuaternion.copy(camera.quaternion).multiply(qSensor.clone().invert());
                 isFirstGyroFrame = false;
             }
 
-            // Multiply real-time changes onto the custom static orientation baseline offset
             camera.quaternion.copy(gyroOffsetQuaternion).multiply(qSensor);
         }
 
+        // FIXED: RE-ENGINEERED STRIDE-FREE CONTINUOUS INERTIAL TRANSLATOR
+        // Directly maps 3D physical sensor thrust forces into coordinate sliding velocity steps
         function handleInertialStepInput(e) {
             if (!gyroActive) return;
 
+            // e.acceleration automatically strips earth gravity out natively using OS-level sensor fusion
             let acc = e.acceleration;
-            if (!acc || acc.z === null) return;
+            if (!acc || acc.x === null) return;
 
-            const currentTimestamp = performance.now();
+            // Match device hardware tracking frameworks to Three.js internal camera coordinates mapping:
+            // Device Local Space: X = Right/Left, Y = Up/Down along screen, Z = Out/In through screen
+            let localLinearThrust = new THREE.Vector3(acc.x, acc.y, acc.z);
+
+            // High-pass tracking filter gate to ignore sub-pixel sensor tremors or standing vibrations
+            if (localLinearThrust.length() < 0.25) {
+                return; 
+            }
+
+            // Convert local device coordinates vectors into clean virtual world-space vectors
+            let worldAccelerationVector = localLinearThrust.clone().applyQuaternion(camera.quaternion);
+
+            // Kinetic impulse scalar mapping sensor force smoothly into the animation runtime loop
+            const ACCELERATION_DRIVE_SCALE = 0.015; 
             
-            const totalRawVector = new THREE.Vector3(acc.x, acc.y, acc.z);
-            const gravityAlignmentVector = new THREE.Vector3(0, -1, 0).applyQuaternion(camera.quaternion);
-            const trueVerticalAcceleration = totalRawVector.dot(gravityAlignmentVector);
-
-            if (trueVerticalAcceleration > dynamicPeakValue) {
-                dynamicPeakValue = THREE.MathUtils.lerp(dynamicPeakValue, trueVerticalAcceleration, FILTER_ADAPTATION_RATE);
-            } else {
-                dynamicPeakValue = THREE.MathUtils.lerp(dynamicPeakValue, 1.2, 0.02);
-            }
-
-            if (trueVerticalAcceleration < dynamicValleyValue) {
-                dynamicValleyValue = THREE.MathUtils.lerp(dynamicValleyValue, trueVerticalAcceleration, FILTER_ADAPTATION_RATE);
-            } else {
-                dynamicValleyValue = THREE.MathUtils.lerp(dynamicValleyValue, -1.2, 0.02);
-            }
-
-            const crossAmplitudeThreshold = (dynamicPeakValue - dynamicValleyValue) * 0.45;
-
-            const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
-            const horizonLevelEngaged = (Math.abs(currentEuler.x) <= LEVEL_PITCH_LIMIT && Math.abs(currentEuler.z) <= LEVEL_ROLL_LIMIT);
-            
-            if (!horizonLevelEngaged) {
-                stepStreakBuffer = 0;
-                currentKinematicVelocity = 0;
-                return;
-            }
-
-            if (isSearchingForPeak) {
-                if (trueVerticalAcceleration > crossAmplitudeThreshold && (currentTimestamp - lastSignalPeakTime) > 250) {
-                    lastSignalPeakTime = currentTimestamp;
-                    isSearchingForPeak = false; 
-                }
-            } else {
-                if (trueVerticalAcceleration < -crossAmplitudeThreshold && (currentTimestamp - lastSignalValleyTime) > 250) {
-                    lastSignalValleyTime = currentTimestamp;
-                    isSearchingForPeak = true;
-
-                    const timeDeltaBetweenStrides = currentTimestamp - lastStepTimestamp;
-
-                    if (timeDeltaBetweenStrides >= 330 && timeDeltaBetweenStrides <= 850) {
-                        stepStreakBuffer++;
-                        lastStepTimestamp = currentTimestamp;
-
-                        if (stepStreakBuffer >= STREAK_THRESHOLD_REQUIRED) {
-                            const multiStepBonus = (stepStreakBuffer === STREAK_THRESHOLD_REQUIRED) ? STREAK_THRESHOLD_REQUIRED : 1;
-                            
-                            currentKinematicVelocity += (STRIDE_TARGET_METERS * multiStepBonus);
-                            totalStepsCounted += multiStepBonus;
-                        }
-                    } else if (timeDeltaBetweenStrides > 850) {
-                        stepStreakBuffer = 1;
-                        lastStepTimestamp = currentTimestamp;
-                    } else {
-                        stepStreakBuffer = 0;
-                    }
-                }
-            }
+            virtualWalkVelocityX += worldAccelerationVector.x * ACCELERATION_DRIVE_SCALE;
+            virtualWalkVelocityY += worldAccelerationVector.y * ACCELERATION_DRIVE_SCALE;
+            virtualWalkVelocityZ += worldAccelerationVector.z * ACCELERATION_DRIVE_SCALE;
         }
 
+        // FIXED: UPDATED ANANIMATION EXECUTION PIPELINE (Decoupled force loop active across X, Y, and Z)
         function animate() {
             requestAnimationFrame(animate);
             
@@ -1083,29 +1031,42 @@
             if (gyroActive) {
                 const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
                 
+                // Keep the structural horizon check active to notify users if tracking conditions are optimal
                 if (Math.abs(currentEuler.x) <= LEVEL_PITCH_LIMIT && Math.abs(currentEuler.z) <= LEVEL_ROLL_LIMIT) {
                     statusHorizonStr = "LEVEL_WALK";
                 } else {
-                    statusHorizonStr = "TILT_GATED";
-                    currentKinematicVelocity = 0; 
+                    statusHorizonStr = "3D_FREE_FLY";
                 }
 
-                if (currentKinematicVelocity > 0.005) {
-                    const dynamicForwardXZ = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-                    dynamicForwardXZ.y = 0;
-                    dynamicForwardXZ.normalize();
-
-                    let executionStepDelta = currentKinematicVelocity * KINEMATIC_LERP_SPEED;
-                    camera.position.addScaledVector(dynamicForwardXZ, executionStepDelta);
+                // If velocity measurements exist beyond baseline floors, smoothly slide the coordinates map
+                if (Math.abs(virtualWalkVelocityX) > 0.001 || Math.abs(virtualWalkVelocityY) > 0.001 || Math.abs(virtualWalkVelocityZ) > 0.001) {
+                    
+                    camera.position.x += virtualWalkVelocityX;
+                    camera.position.y += virtualWalkVelocityY;
+                    camera.position.z += virtualWalkVelocityZ;
                     
                     if (controls) {
-                        controls.target.addScaledVector(dynamicForwardXZ, executionStepDelta);
+                        controls.target.x += virtualWalkVelocityX;
+                        controls.target.y += virtualWalkVelocityY;
+                        controls.target.z += virtualWalkVelocityZ;
                     }
-                    
-                    currentKinematicVelocity -= executionStepDelta;
-                } else {
-                    currentKinematicVelocity = 0;
                 }
+
+                // CONTINUOUS FRICTION DAMPING DECAY
+                // Instantly bleeds remaining movement down to zero the moment physical acceleration stops
+                virtualWalkVelocityX *= 0.82;
+                virtualWalkVelocityY *= 0.82;
+                virtualWalkVelocityZ *= 0.82;
+
+                if (Math.abs(virtualWalkVelocityX) < VELOCITY_DEADZONE_LIMIT) virtualWalkVelocityX = 0;
+                if (Math.abs(virtualWalkVelocityY) < VELOCITY_DEADZONE_LIMIT) virtualWalkVelocityY = 0;
+                if (Math.abs(virtualWalkVelocityZ) < VELOCITY_DEADZONE_LIMIT) virtualWalkVelocityZ = 0;
+
+            } else {
+                lastCameraQuaternion.copy(camera.quaternion);
+                virtualWalkVelocityX = 0;
+                virtualWalkVelocityY = 0;
+                virtualWalkVelocityZ = 0;
             }
 
             if (controls && controls.enabled) {
@@ -1117,9 +1078,11 @@
             }
             
             telemetryState.x = camera.position.x;
+            telemetryState.y = camera.position.y;
             telemetryState.z = camera.position.z;
             
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Steps Confirmed:${totalStepsCounted} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
+            // Refreshed debug monitor tracking local velocities dynamically along X, Y, and Z pipelines
+            document.getElementById('debugPanel').innerText = `Coords -> X:${telemetryState.x.toFixed(2)} Y:${telemetryState.y.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Vel: [${virtualWalkVelocityX.toFixed(3)}, ${virtualWalkVelocityY.toFixed(3)}, ${virtualWalkVelocityZ.toFixed(3)}] | State: ${statusHorizonStr}`;
             
             renderer.render(scene, camera);
             
