@@ -784,26 +784,28 @@
                 return;
             }
 
+            // FIXED: Re-mapped compilation layers to exactly 4 structural zones to prevent header parsing collision and index drops
             const structuralTasks = [
-                { id: 'FOUNDATION', subId: 'PRIMITIVES', header: '== FOUNDATION ==' },
-                { id: 'FOUNDATION', subId: 'SURFACE', header: '== FOUNDATION ==' },
-                { id: 'CORE_MASSES', subId: 'FURNITURE', header: '== CORE_MASSES ==' },
-                { id: 'CORE_MASSES', subId: 'CUSHIONS', header: '== CORE_MASSES ==' },
-                { id: 'EXTENSIONS', subId: 'FRAMES', header: '== EXTENSIONS ==' },
-                { id: 'EXTENSIONS', subId: 'LIMBS', header: '== EXTENSIONS ==' },
-                { id: 'ACCENTS', subId: 'ITEMS', header: '== ACCENTS ==' },
-                { id: 'ACCENTS', subId: 'TRIM', header: '== ACCENTS ==' }
+                { id: 'ZONE_FOUNDATION', header: '== FOUNDATION ==' },
+                { id: 'ZONE_CORE_MASSES', header: '== CORE_MASSES ==' },
+                { id: 'ZONE_EXTENSIONS', header: '== EXTENSIONS ==' },
+                { id: 'ZONE_ACCENTS', header: '== ACCENTS ==' }
             ];
 
             let permanentPass2Logs = "";
 
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
-                await delayExecutionTime(idx * 150);
+                await delayExecutionTime(idx * 200);
 
+                // FIXED: Explicitly forced 1:1 conversion instructions so models don't collapse long strings into simple placeholder nodes
                 const pass2Prompt = `
-                    You are a precision 3D Geometry compiler worker focusing strictly on compiling the sub-layer rules for [${task.id} -> ${task.subId}].
-                    Locate the specific section marked by the header "${task.header}" within the MASTER BLUEPRINT MANIFEST.
-                    Ignore lines under other headers. Convert every descriptive primitive entry under that section into its high-fidelity structural node inside the minified JSON shapes array.
+                    You are an expert high-fidelity 3D Geometry compiler worker focusing strictly on parsing the blueprint lines inside the region block: "${task.header}".
+                    
+                    TASK INSTRUCTIONS:
+                    1. Read the MASTER BLUEPRINT MANIFEST.
+                    2. Locate the section block underneath the specific header "${task.header}".
+                    3. Extract and parse EVERY SINGLE list item entry under this section. Do NOT summarize. Do NOT omit details. Do NOT compress multiple items into a single primitive shape.
+                    4. Convert each individual entry into its high-fidelity structural node inside the required JSON shapes output array.
                     
                     ${globalSpatialAnchorPrompt}
                     MASTER BLUEPRINT MANIFEST:
@@ -814,8 +816,7 @@
 
                 for (let model of modelCascadeList) {
                     try {
-                        statusDiv.innerText = `Pass 2: Compiling [${task.id}] via ${model}...`;
-                        // FIXED: Corrected endpoint path typo from 'genergenerativelanguage' to 'generativelanguage' to recover network traffic execution
+                        statusDiv.innerText = `Pass 2: Extracting [${task.id}] via ${model}...`;
                         const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -849,25 +850,25 @@
                         if (res.ok) {
                             const data = await res.json();
                             const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                            return { id: `${task.id}_${task.subId}`, model: model, shapes: parsed.shapes };
+                            return { id: task.id, model: model, shapes: parsed.shapes };
                         } else {
-                            permanentPass2Logs += `• Layer [${task.id}_${task.subId}] Fallback: ${model} failed (Status ${res.status})br>`;
+                            permanentPass2Logs += `• Layer [${task.id}] Fallback: ${model} failed (Status ${res.status})<br>`;
                         }
                     } catch (e) {
-                        permanentPass2Logs += `• Layer [${task.id}_${task.subId}] Exception: ${model} encountered tracking error<br>`;
+                        permanentPass2Logs += `• Layer [${task.id}] Exception: ${model} encountered tracking error<br>`;
                     }
                 }
-                return { id: `${task.id}_${task.subId}`, model: "failed", shapes: [] };
+                return { id: task.id, model: "failed", shapes: [] };
             });
 
             try {
                 const compiledResults = await Promise.all(regionalCompilationPromises);
                 
-                let reportTrackingLog = "<br><br><b>8-Layer Cohesive Matrix Architecture Audit:</b>";
+                let reportTrackingLog = "<br><br><b>4-Zone Restored Architecture Audit:</b>";
                 compiledResults.forEach((result) => {
                     unifiedShapes.push(...result.shapes);
                     let modelStatusColor = result.model.includes('3.5') || result.model.includes('3.1') ? '#00e676' : '#ffab00';
-                    reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes)`;
+                    reportTrackingLog += `<br>• Zone [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes)`;
                 });
 
                 let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
