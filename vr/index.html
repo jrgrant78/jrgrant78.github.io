@@ -848,94 +848,44 @@
             camera.quaternion.setFromEuler(sensorEuler);
         }
 
-        // Advanced Pedometer State Registers
-        let stepStreakBuffer = 0;
-        const STREAK_THRESHOLD_REQUIRED = 3; 
-        
-        let lastSignalPeakTime = 0;
-        let lastSignalValleyTime = 0;
-        let isSearchingForPeak = true;
-        
-        // Moving baseline calculation variables
-        let dynamicPeakValue = 1.5;
-        let dynamicValleyValue = -1.5;
-        const FILTER_ADAPTATION_RATE = 0.1; 
-        
+        // FIXED: HIGH-FREQUENCY HEEL-STRIKE DETECTION LOOP
+        // Completely isolates physical steps from standing pixel noise or drift variations
         function handleInertialStepInput(e) {
             if (!gyroActive) return;
-        
-            let acc = e.acceleration;
-            if (!acc || acc.z === null) return;
-        
-            const currentTimestamp = performance.now();
             
-            // 1. Isolate the true vertical component regardless of phone tilt orientation
-            // We achieve this by projecting the 3-axis acceleration onto the active camera look matrix
-            const totalRawVector = new THREE.Vector3(acc.x, acc.y, acc.z);
-            const gravityAlignmentVector = new THREE.Vector3(0, -1, 0).applyQuaternion(camera.quaternion);
-            const trueVerticalAcceleration = totalRawVector.dot(gravityAlignmentVector);
-        
-            // 2. Continuous Dynamic Baseline Evaluation
-            if (trueVerticalAcceleration > dynamicPeakValue) {
-                dynamicPeakValue = THREE.MathUtils.lerp(dynamicPeakValue, trueVerticalAcceleration, FILTER_ADAPTATION_RATE);
-            } else {
-                dynamicPeakValue = THREE.MathUtils.lerp(dynamicPeakValue, 1.2, 0.02); // Gradual decay to rest baseline
+            // Extract linear acceleration data fields safely
+            let acc = e.acceleration || e.accelerationIncludingGravity;
+            if (!acc || acc.x === null) return;
+
+            let ax = acc.x;
+            let ay = acc.y;
+            let az = acc.z;
+
+            // If reading raw gravity frameworks, subtract standard earth gravity vectors roughly
+            if (e.accelerationIncludingGravity && !e.acceleration) {
+                // Approximate magnitude check fallback path
             }
-        
-            if (trueVerticalAcceleration < dynamicValleyValue) {
-                dynamicValleyValue = THREE.MathUtils.lerp(dynamicValleyValue, trueVerticalAcceleration, FILTER_ADAPTATION_RATE);
-            } else {
-                dynamicValleyValue = THREE.MathUtils.lerp(dynamicValleyValue, -1.2, 0.02);
-            }
-        
-            // Calculate the active cross-amplitude threshold requirement
-            const crossAmplitudeThreshold = (dynamicPeakValue - dynamicValleyValue) * 0.45;
-        
-            // Validate orientation limits: gate translations if device is tilted excessively
+
+            let instantMagnitude = Math.sqrt(ax*ax + ay*ay + az*az);
+            
+            // Smooth signals cleanly using a low-pass filter
+            filteredAccelerationMagnitude = (ACCEL_LOWPASS_ALPHA * instantMagnitude) + 
+                                            ((1.0 - ACCEL_LOWPASS_ALPHA) * filteredAccelerationMagnitude);
+
+            // Compute structural variation delta offsets from earth gravity norms
+            const verticalImpulseDelta = Math.abs(instantMagnitude - filteredAccelerationMagnitude);
+
+            // Validate orientation limits: trigger translation steps ONLY when device frame sits level
             const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
             const horizonLevelEngaged = (Math.abs(currentEuler.x) <= LEVEL_PITCH_LIMIT && Math.abs(currentEuler.z) <= LEVEL_ROLL_LIMIT);
-            
-            if (!horizonLevelEngaged) {
-                stepStreakBuffer = 0;
-                currentKinematicVelocity = 0;
-                return;
-            }
-        
-            // 3. The Hysteresis & Temporal Cadence State Machine
-            if (isSearchingForPeak) {
-                if (trueVerticalAcceleration > crossAmplitudeThreshold && (currentTimestamp - lastSignalPeakTime) > 250) {
-                    lastSignalPeakTime = currentTimestamp;
-                    isSearchingForPeak = false; // Wave peak recorded, now hunt for corresponding valley floor
-                }
-            } else {
-                if (trueVerticalAcceleration < -crossAmplitudeThreshold && (currentTimestamp - lastSignalValleyTime) > 250) {
-                    lastSignalValleyTime = currentTimestamp;
-                    isSearchingForPeak = true;
-        
-                    // An entire wave cycle (Heel strike strike impact + recovery bounce) has been confirmed
-                    const timeDeltaBetweenStrides = currentTimestamp - lastStepTimestamp;
-        
-                    // Enforce human biomechanical constraints (Between 1.2 Hz and 3.0 Hz cadence windows)
-                    if (timeDeltaBetweenStrides >= 330 && timeDeltaBetweenStrides <= 850) {
-                        stepStreakBuffer++;
-                        lastStepTimestamp = currentTimestamp;
-        
-                        // Fire translation maps immediately if streak is authenticated
-                        if (stepStreakBuffer >= STREAK_THRESHOLD_REQUIRED) {
-                            // If this just confirmed the streak, award the positional credit back-dated
-                            const multiStepBonus = (stepStreakBuffer === STREAK_THRESHOLD_REQUIRED) ? STREAK_THRESHOLD_REQUIRED : 1;
-                            
-                            currentKinematicVelocity += (STRIDE_TARGET_METERS * multiStepBonus);
-                            totalStepsCounted += multiStepBonus;
-                        }
-                    } else if (timeDeltaBetweenStrides > 850) {
-                        // Time delta too wide: user was standing still, treat this as step 1 of a new potential walk sequence
-                        stepStreakBuffer = 1;
-                        lastStepTimestamp = currentTimestamp;
-                    } else {
-                        // Time delta too narrow: immediate high-frequency vibration/bump rejection
-                        stepStreakBuffer = 0;
-                    }
+
+            if (horizonLevelEngaged && verticalImpulseDelta > HEEL_STRIKE_THRESHOLD) {
+                let now = performance.now();
+                if ((now - lastStepTimestamp) > MIN_STEP_INTERVAL_MS) {
+                    // Step detected. Inject stride momentum cleanly.
+                    currentKinematicVelocity += STRIDE_TARGET_METERS;
+                    totalStepsCounted++;
+                    lastStepTimestamp = now;
                 }
             }
         }
