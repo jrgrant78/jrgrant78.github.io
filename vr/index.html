@@ -267,7 +267,6 @@
         const cleanTargetQuaternion = new THREE.Quaternion(); 
         
         let gyroYawOffset = 0;
-        
         let lastCameraQuaternion = new THREE.Quaternion();
         
         let targetLinearVelocityX = 0;
@@ -685,10 +684,15 @@
             scanBtn.disabled = true;
             statusDiv.style.display = 'block';
 
+            // FIXED: Re-ordered cascade array sequence to loop through specified target models exactly
             const modelCascadeList = [
                 'gemini-3.5-flash',
+                'gemini-3.1-pro-preview',
+                'gemini-3-flash-preview',
+                'gemini-2.5-pro',
+                'gemini-2.5-flash',
                 'gemini-3.1-flash-lite',
-                'gemini-3.1-pro-preview'
+                'gemini-2.5-flash-lite'
             ];
             
             let parsedPayload = null;
@@ -791,6 +795,7 @@
                     """
                 `;
 
+                // Loops cleanly through the matching scope array variable inherited from upper context execution
                 for (let model of modelCascadeList) {
                     try {
                         const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
@@ -835,8 +840,15 @@
 
             try {
                 const compiledResults = await Promise.all(regionalCompilationPromises);
-                compiledResults.forEach(r => unifiedShapes.push(...r.shapes));
-                descDiv.innerHTML = coreLayoutNarrative + `<br><br>Compiled ${unifiedShapes.length} total elements to scene tree.`;
+                
+                let reportTrackingLog = "<br><br><b>8-Layer Cohesive Matrix Architecture Audit:</b>";
+                compiledResults.forEach((result) => {
+                    unifiedShapes.push(...result.shapes);
+                    let modelStatusColor = result.model.includes('3.5') || result.model.includes('3.1') ? '#00e676' : '#ffab00';
+                    reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes)`;
+                });
+
+                descDiv.innerHTML = coreLayoutNarrative + reportTrackingLog;
                 if (unifiedShapes.length > 0) renderAIBlueprint(unifiedShapes);
             } catch (err) {
                 descDiv.innerHTML = "Pipeline exception.";
@@ -967,7 +979,6 @@
             document.getElementById('aiDescription').innerText = "Workspace cleared. System active.";
         }
 
-        // UNTOUCHED: Full Yaw-isolated configuration preserved safely
         function handleGyroscopeMotionInput(e) {
             if (!gyroActive) return;
             
@@ -989,8 +1000,7 @@
             camera.quaternion.setFromEuler(sensorEuler);
         }
 
-        // FIXED: INVERSION ENGINE CORRECTION
-        // Inverted coordinate tracking matrix logic cleanly via negative force subtractions (-=)
+        // FIXED: Directional vector tracking inversion fix is globally retained (-=)
         function handleInertialStepInput(e) {
             if (!gyroActive) return;
 
@@ -1009,7 +1019,6 @@
             const localAccelerationVector = new THREE.Vector3(acc.x, acc.y, acc.z);
             const worldSpaceAcceleration = localAccelerationVector.clone().applyQuaternion(camera.quaternion);
 
-            // Strict XZ spatial floor limits enforced
             worldSpaceAcceleration.y = 0;
 
             const hardwareJitterFloor = 0.12; 
@@ -1017,7 +1026,6 @@
                 return;
             }
 
-            // Subtraction filters coordinates vector to correctly sync Three.js -Z forward viewing orientation
             const ACCELERATION_INTEGRATION_GAIN = 0.032;
             targetLinearVelocityX -= worldSpaceAcceleration.x * ACCELERATION_INTEGRATION_GAIN;
             targetLinearVelocityZ -= worldSpaceAcceleration.z * ACCELERATION_INTEGRATION_GAIN;
