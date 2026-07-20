@@ -267,7 +267,6 @@
         let lockedGyroRoll = 0; 
         const cleanTargetQuaternion = new THREE.Quaternion(); 
         
-        // FIXED: Rotational frame tracking states to insulate calculations from panning artifacts
         let lastCameraQuaternion = new THREE.Quaternion();
         let virtualWalkVelocityX = 0;
         let virtualWalkVelocityZ = 0;
@@ -277,7 +276,7 @@
         let motionTracker;
         const LEVEL_PITCH_LIMIT = THREE.MathUtils.degToRad(20);  
         const LEVEL_ROLL_LIMIT = THREE.MathUtils.degToRad(15);   
-        const ROTATIONAL_BLANKING_THRESHOLD = 0.006; // Radian limit to blank visual translation force during pans
+        const ROTATIONAL_BLANKING_THRESHOLD = 0.006; 
         
         const TRANSLATION_SPEED_SCALAR = 0.45;                   
         let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
@@ -381,7 +380,6 @@
                 let rawPan = -(totalVectorX / 9.0) * 0.25;
                 let rawScale = (totalExpansion / 9.0) * 0.015;
 
-                // FIXED: Adjusted deadzone floors to cleanly block pixel level changes from auto-exposure drift
                 if (Math.abs(rawPan) < 0.12) rawPan = 0;
                 if (Math.abs(rawScale) < 0.09) rawScale = 0;
 
@@ -455,13 +453,6 @@
         }
 
         function init3D() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const urlKey = urlParams.get('key');
-            if (urlKey) {
-                document.getElementById('apiKeyField').value = urlKey.trim();
-                document.getElementById('aiDescription').innerHTML = "Ready to scan scene!<br>Gemini API Key loaded.";
-            }
-
             const canvas = document.getElementById('canvas3d');
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x06060a);
@@ -572,6 +563,7 @@
             }
         }
 
+        // Processing of manual frame asset configuration trees
         function handleDeviceFileSelection(e) {
             const targetFile = e.target.files[0];
             if (!targetFile) return;
@@ -1095,7 +1087,6 @@
             camera.quaternion.setFromEuler(sensorEuler);
         }
 
-        // FIXED: Complete integration of Momentum Damping and Rotational Feature Blanking
         function animate() {
             requestAnimationFrame(animate);
             
@@ -1104,7 +1095,6 @@
             if (gyroActive && motionTracker) {
                 const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
                 
-                // FIXED: Calculate real-time angular drift deltas between frame renders
                 const angularDriftDelta = camera.quaternion.angleTo(lastCameraQuaternion);
                 lastCameraQuaternion.copy(camera.quaternion);
 
@@ -1115,8 +1105,6 @@
                     visualTelemetry.scaleFlow = trackingData.scale;
                     visualTelemetry.panFlow = trackingData.pan;
                     
-                    // FIXED: ROTATIONAL MOTION BLANKING
-                    // If the device is turning faster than our filter threshold, ignore pixel telemetry shifts to prevent drift
                     if (angularDriftDelta < ROTATIONAL_BLANKING_THRESHOLD) {
                         const dynamicForwardXZ = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
                         dynamicForwardXZ.y = 0; 
@@ -1126,8 +1114,9 @@
                         dynamicRightXZ.y = 0; 
                         dynamicRightXZ.normalize();
 
-                        // Map tracking increments straight onto physical momentum velocity scales
-                        const impulseForceZ = -trackingData.scale * TRANSLATION_SPEED_SCALAR;
+                        // FIXED: Removed the negative multiplier step. 
+                        // Visual expansion now maps cleanly into standard positive forward velocity vectors.
+                        const impulseForceZ = trackingData.scale * TRANSLATION_SPEED_SCALAR;
                         const impulseForceX = trackingData.pan * TRANSLATION_SPEED_SCALAR;
                         
                         virtualWalkVelocityZ += impulseForceZ;
@@ -1142,12 +1131,9 @@
                     visualTelemetry.gated = true;
                 }
 
-                // FIXED: MOMENTUM FRICTION LERP LOOP
-                // Constantly decay structural velocities via friction factors, then apply to camera positions
                 virtualWalkVelocityZ *= VELOCITY_FRICTION_DECAY;
                 virtualWalkVelocityX *= VELOCITY_FRICTION_DECAY;
 
-                // Stop tracking completely once momentum falls within baseline boundaries
                 if (Math.abs(virtualWalkVelocityZ) < VELOCITY_DEADZONE_LIMIT) virtualWalkVelocityZ = 0;
                 if (Math.abs(virtualWalkVelocityX) < VELOCITY_DEADZONE_LIMIT) virtualWalkVelocityX = 0;
 
@@ -1169,7 +1155,6 @@
                     }
                 }
             } else {
-                // Ensure quaternion history caches even when optical walking is not engaged
                 lastCameraQuaternion.copy(camera.quaternion);
             }
 
