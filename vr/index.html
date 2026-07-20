@@ -266,19 +266,24 @@
         let lockedGyroRoll = 0; 
         const cleanTargetQuaternion = new THREE.Quaternion(); 
         
+        // UNTOUCHED: Full Relative Quaternion tracking block preserved cleanly
         const gyroOffsetQuaternion = new THREE.Quaternion();
         
-        // World-Space Continuous Velocity Components
-        let virtualWalkVelocityX = 0;
-        let virtualWalkVelocityZ = 0;
+        let lastCameraQuaternion = new THREE.Quaternion();
         
-        // Friction loop variables tuned for smooth momentum dissipation
-        const FRICTION_DECAY_COEFF = 0.84; 
+        // FIXED: CONTINUOUS PROPORTIONAL VELOCITY REGISTERS
+        let targetLinearVelocityX = 0;
+        let targetLinearVelocityZ = 0;
+        const VELOCITY_INTERPOLATION_STEP = 0.22; 
         const VELOCITY_DEADZONE_LIMIT = 0.001;
 
         let motionTracker;
         const LEVEL_PITCH_LIMIT = THREE.MathUtils.degToRad(20);  
         const LEVEL_ROLL_LIMIT = THREE.MathUtils.degToRad(15);   
+        const ROTATIONAL_BLANKING_THRESHOLD = 0.005; 
+        
+        const TRANSLATION_SPEED_SCALAR = 0.65;                   
+        let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
@@ -296,6 +301,112 @@
 
         const ICON_CAMERA_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/></svg>`;
         const ICON_PHOTO_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"></polyline></svg>`;
+
+        class MultiPointMotionTracker {
+            constructor() {
+                this.canvas = document.createElement('canvas');
+                this.canvas.width = 64;
+                this.canvas.height = 64;
+                this.ctx = this.canvas.getContext('2d');
+                this.prevBuffer = new Uint8ClampedArray(64 * 64);
+                this.initialized = false;
+                
+                this.trackingPoints = [
+                    {x: 16, y: 16}, {x: 32, y: 16}, {x: 48, y: 16},
+                    {x: 16, y: 32}, {x: 32, y: 32}, {x: 48, y: 32},
+                    {x: 16, y: 48}, {x: 32, y: 48}, {x: 48, y: 48}
+                ];
+            }
+
+            analyze(video) {
+                if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) return { scale: 0, pan: 0 };
+                
+                this.ctx.drawImage(video, 0, 0, 64, 64);
+                const frameData = this.ctx.getImageData(0, 0, 64, 64).data;
+                
+                let curBuffer = new Uint8ClampedArray(64 * 64);
+                let curTotalLuma = 0;
+                let prevTotalLuma = 0;
+
+                for (let i = 0; i < 64 * 64; i++) {
+                    curBuffer[i] = (frameData[i*4] + frameData[i*4+1] + frameData[i*4+2]) / 3;
+                    curTotalLuma += curBuffer[i];
+                    if (this.initialized) prevTotalLuma += this.prevBuffer[i];
+                }
+
+                if (!this.initialized) {
+                    this.prevBuffer.set(curBuffer);
+                    this.initialized = true;
+                    return { scale: 0, pan: 0 };
+                }
+
+                const lumaBalanceOffset = (curTotalLuma - prevTotalLuma) / 4096.0;
+
+                let totalVectorX = 0;
+                let totalExpansion = 0;
+                const searchRadius = 5;
+                
+                let activeMotionBlocksCount = 0;
+
+                for (let pt of this.trackingPoints) {
+                    let bestSAD = Infinity;
+                    let mvX = 0;
+                    let mvY = 0;
+
+                    for (let sy = -searchRadius; sy <= searchRadius; sy++) {
+                        for (let sx = -searchRadius; sx <= searchRadius; sx++) {
+                            let sad = 0;
+                            for (let wy = -1; wy <= 1; wy++) {
+                                for (let wx = -1; wx <= 1; wx++) {
+                                    const oldX = pt.x + wx;
+                                    const oldY = pt.y + wy;
+                                    const newX = pt.x + wx + sx;
+                                    const newY = pt.y + wy + sy;
+
+                                    if (oldX >= 0 && oldX < 64 && oldY >= 0 && oldY < 64 &&
+                                        newX >= 0 && newX < 64 && newY >= 0 && newY < 64) {
+                                        const normalizedCurPixel = curBuffer[newY * 64 + newX] - lumaBalanceOffset;
+                                        sad += Math.abs(normalizedCurPixel - this.prevBuffer[oldY * 64 + oldX]);
+                                    }
+                                }
+                            }
+
+                            if (sad < bestSAD) {
+                                bestSAD = sad;
+                                mvX = sx;
+                                mvY = sy;
+                            }
+                        }
+                    }
+
+                    if (mvX !== 0 || mvY !== 0) {
+                        activeMotionBlocksCount++;
+                    }
+
+                    totalVectorX += mvX;
+                    const vecFromCenterValX = pt.x - 32;
+                    const vecFromCenterValY = pt.y - 32;
+                    totalExpansion += (mvX * vecFromCenterValX) + (mvY * vecFromCenterValY);
+                }
+
+                this.prevBuffer.set(curBuffer);
+
+                if (activeMotionBlocksCount < 5) {
+                    return { scale: 0, pan: 0 };
+                }
+
+                let rawPan = -(totalVectorX / 9.0) * 0.25;
+                let rawScale = (totalExpansion / 9.0) * 0.015;
+
+                if (Math.abs(rawPan) < 0.14) rawPan = 0;
+                if (Math.abs(rawScale) < 0.10) rawScale = 0;
+
+                return {
+                    scale: THREE.MathUtils.clamp(rawScale, -0.2, 0.2),
+                    pan: THREE.MathUtils.clamp(rawPan, -0.2, 0.2)
+                };
+            }
+        }
 
         const getSensorQuaternion = (function () {
             const zee = new THREE.Vector3( 0, 0, 1 );
@@ -379,6 +490,8 @@
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
             initOrbitControls();
+            
+            motionTracker = new MultiPointMotionTracker();
 
             const grid = new THREE.GridHelper(50, 25, 0x1f1f2e, 0x111116);
             grid.position.y = -3;
@@ -430,7 +543,6 @@
             }
         }
 
-        // Processing of manual frame asset configurations
         function toggleInputSourceMode(e) {
             if(e) e.stopPropagation();
             
@@ -597,6 +709,11 @@
                 ### REGION: EXTENSIONS
                 ### REGION: ACCENTS
                 
+                STRICT KINEMATIC CHAINING LAW:
+                - All limb paths (arms, legs, sticks, structures) MUST be calculated sequentially. 
+                - If a main core body cylinder sits at position [0, 0, 0] with scale [1, 2, 1], the limbs MUST attach directly to its outer shell boundary.
+                - No disconnected joints or floating parts allowed. Lower limb parts (forearms, hands, lower framing columns) must have their exact starting vector base anchor positioned flush against the tip of their parent upper limb joint.
+                
                 Format each text entry line exactly like this template:
                 "- type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
             `;
@@ -604,8 +721,20 @@
             const globalSpatialAnchorPrompt = `
                 Global Space Coordinates Alignment Protocol:
                 - Center origin point is at (0, 0, 0). Ground floor elements sit fixed at y = -3.
-                - Round all spatial floats (p, s, r) strictly to a max of 2 decimal places.
-                - Eliminate all optional whitespace padding inside the array syntax strings.
+                
+                STRICT KINEMATIC CHAIN MECHANICS:
+                - THE MIDPOINT VECTOR LAW: In Three.js, a cylinder or capsule positions itself from its exact geometric center point. When constructing any limb or connecting bar extending from Joint A [x1, y1, z1] to Joint B [x2, y2, z2], you MUST calculate the position vector as the absolute mathematical midpoint: [(x1+x2)/2, (y1+y2)/2, (z1+z2)/2].
+                - PARENT ANCHORING MANDATE: Forearms must touch upper arms, upper arms must touch torsos, legs must meet structural bases perfectly.
+                
+                EXPLICIT ANGULAR RADIAN ROTATION LOOKUP:
+                - To angle elements realistically without detached drift, look up and apply these precise Euler pitch/roll constants inside your rotation array [r_x, r_y, r_z]:
+                  * Perfect Horizontal (Flat Plane Parallel): 1.57 (90 degrees)
+                  * Upward/Downward 45-Degree Slant: 0.79 (45 degrees) or -0.79
+                  * Vertical Straight Alignment: 0.0 (0 degrees)
+                
+                COMPILER OPTIMIZATION CAVEATS:
+                - CAVEAT 1: Round all spatial floats (p, s, r) strictly to a max of 2 decimal places.
+                - CAVEAT 2: Eliminate all optional whitespace padding inside the array syntax strings.
             `;
 
             pass1ModelLoop: for (let model of modelCascadeList) {
@@ -640,6 +769,12 @@
                         continue;
                     }
 
+                    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+                        const reason = data.candidates?.[0]?.finishReason || "UNKNOWN_BLOCK";
+                        debugDiagnosticsHistory += `• Pass 1 [${model}] Blocked: Reason = [${reason}]<br>`;
+                        continue;
+                    }
+
                     parsedPayload = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
                     if (parsedPayload && parsedPayload.blueprint) {
                         successfulPass1Model = model;
@@ -651,38 +786,50 @@
             }
 
             if (!parsedPayload || !parsedPayload.blueprint) {
-                descDiv.innerHTML = `<span style='color:#ff3333; font-weight:bold;'>Pass 1 Fatal Failure</span>`;
+                descDiv.innerHTML = `
+                    <span style='color:#ff3333; font-weight:bold;'>Pass 1 Fatal Cascade Failure</span><br>
+                    <div style='background:#221111; border:1px solid #ff3333; padding:10px; border-radius:4px; margin-top:8px;'>
+                        <b>Inference Engine Diagnostic Trail:</b><br>${debugDiagnosticsHistory || "No server responses recorded."}
+                    </div>`;
                 scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
                 return;
             }
 
             let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
-            statusDiv.innerText = "Deploying 8-layer parallel worker matrix...";
+            statusDiv.innerText = "Pass 1 Scaffolding complete. Deploying 8-layer parallel worker matrix...";
 
             const structuralTasks = [
-                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks.' },
-                { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks.' },
-                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: 'Look ONLY at the ### REGION: CORE_MASSES area text blocks.' },
-                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: 'Look ONLY at the ### REGION: CORE_MASSES area text blocks.' },
-                { id: 'EXTENSIONS', subId: 'FRAMES', rules: 'Look ONLY at the ### REGION: EXTENSIONS area text blocks.' },
-                { id: 'EXTENSIONS', subId: 'LIMBS', rules: 'Look ONLY at the ### REGION: EXTENSIONS area text blocks.' },
-                { id: 'ACCENTS', subId: 'ITEMS', rules: 'Look ONLY at the ### REGION: ACCENTS area text blocks.' },
-                { id: 'ACCENTS', subId: 'TRIM', rules: 'Look ONLY at the ### REGION: ACCENTS area text blocks.' }
+                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile only the large flat floor bases, ground platforms, and main support mats.' },
+                { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile the detailed surface boundaries, secondary rug mats, and floor borders.' },
+                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: 'Look ONLY at the ### REGION: CORE_MASSES area text blocks. Compile the massive primary backing blocks of couches, structural seating, and main table anchors.' },
+                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: 'Look ONLY at the ### REGION: CORE_MASSES area text blocks. Compile the softer geometric overlays, layered cushions, padding, or central subject components.' },
+                { id: 'EXTENSIONS', subId: 'FRAMES', rules: 'Look ONLY at the ### REGION: EXTENSIONS area text blocks. Compile vertical boundaries, TV panels, display stands, cabinet structures, and wall hangings.' },
+                { id: 'EXTENSIONS', subId: 'LIMBS', rules: 'Look ONLY at the ### REGION: EXTENSIONS area text blocks. CRITICAL INTERLOCK INSTRUCTION: Compile connecting arms, legs, or hardware rods. Ensure their midpoint positions map precisely between their parent joints so they latch together cleanly without floating gaps.' },
+                { id: 'ACCENTS', subId: 'ITEMS', rules: 'Look ONLY at the ### REGION: ACCENTS area text blocks. Compile standalone accent blocks, secondary decorative nodes, and objects scattered on surfaces.' },
+                { id: 'ACCENTS', subId: 'TRIM', rules: 'Look ONLY at the ### REGION: ACCENTS area text blocks. Compile micro-geometric additions, small texturing adjustments, color highlights, and edge borders.' }
             ];
 
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
-                await delayExecutionTime(idx * 150);
+                await delayExecutionTime(idx * 250);
 
                 const pass2Prompt = `
                     You are a precision 3D Geometry compiler worker focusing strictly on the [${task.id} -> ${task.subId}] sub-layer.
                     Convert your targeted segment lines into a highly minified JSON shapes layout array.
+                    
                     ${globalSpatialAnchorPrompt}
-                    MASTER BLUEPRINT MANIFEST:
+                    
+                    MASTER BLUEPRINT MANIFEST REFERENCE CONTEXT:
                     """
                     ${parsedPayload.blueprint}
                     """
+                    
+                    YOUR COMPILER TARGET INSTRUCTIONS:
+                    - ${task.rules}
+                    - Read the full blueprint context map to ensure the spatial alignment vectors match parent joints perfectly. Do not let elements float disconnected in empty coordinates space.
+                    - Output purely your sub-layer target items without duplication.
                 `;
 
+                let pass2Diagnostics = "";
                 for (let model of modelCascadeList) {
                     try {
                         const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
@@ -717,21 +864,57 @@
 
                         if (res.ok) {
                             const data = await res.json();
-                            const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                            return { id: `${task.id}_${task.subId}`, model: model, shapes: parsed.shapes };
+                            if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+                                const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
+                                if (parsed && Array.isArray(parsed.shapes)) {
+                                    return { id: `${task.id}_${task.subId}`, model: model, shapes: parsed.shapes, errors: pass2Diagnostics };
+                                }
+                            }
+                        } else {
+                            pass2Diagnostics += `[${model}: Status ${res.status}] `;
                         }
-                    } catch (e) {}
+                    } catch (e) { pass2Diagnostics += `[${model}: Failure] `; }
                 }
-                return { id: `${task.id}_${task.subId}`, model: "failed", shapes: [] };
+                return { id: `${task.id}_${task.subId}`, model: "failed", shapes: [] , errors: pass2Diagnostics };
             });
 
             try {
                 const compiledResults = await Promise.all(regionalCompilationPromises);
-                compiledResults.forEach(r => unifiedShapes.push(...r.shapes));
-                descDiv.innerHTML = coreLayoutNarrative + `<br><br>Compiled ${unifiedShapes.length} total elements to scene tree.`;
-                if (unifiedShapes.length > 0) renderAIBlueprint(unifiedShapes);
+                
+                let reportTrackingLog = "<br><br><b>8-Layer Cohesive Kinematic Audit Matrix:</b>";
+                let permanentPass2Logs = "";
+
+                compiledResults.forEach((result) => {
+                    if (result.shapes.length > 0) {
+                        unifiedShapes.push(...result.shapes);
+                    }
+                    if (result.errors) {
+                        permanentPass2Logs += `• Layer [${result.id}] Fallbacks: <span style='color:#ffab00;'>${result.errors}</span><br>`;
+                    }
+                    let modelStatusColor = result.model.includes('3.5') ? '#00e676' : '#ffab00';
+                    reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes)`;
+                });
+
+                let structuredUiOutput = coreLayoutNarrative + reportTrackingLog;
+
+                if (debugDiagnosticsHistory) {
+                    structuredUiOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>Orchestrator Pass 1 Telemetry Logs:</b><br>${debugDiagnosticsHistory}</div>`;
+                }
+                if (permanentPass2Logs) {
+                    structuredUiOutput += `<br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>Pass 2 Joint Telemetry Trail:</b><br>${permanentPass2Logs}</div>`;
+                }
+
+                descDiv.innerHTML = structuredUiOutput;
+
+                if (unifiedShapes.length > 0) {
+                    rawCachedShapesArray = unifiedShapes; 
+                    renderAIBlueprint(unifiedShapes);
+                } else {
+                    descDiv.innerHTML += "<br><span style='color:#ff3333;'>Compilation thread failure. Assembled index array returned empty coordinates.</span>";
+                }
             } catch (err) {
-                descDiv.innerHTML = "Pipeline exception.";
+                console.error(err);
+                descDiv.innerHTML = "<span style='color:#ff3333;'>Parallel pipeline synchronization exception.</span>";
             }
 
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
@@ -745,32 +928,82 @@
                 worldGroup.remove(child);
             }
 
+            if (floatingBackdropMesh) {
+                if (floatingBackdropMesh.geometry) floatingBackdropMesh.geometry.dispose();
+                if (floatingBackdropMesh.material) {
+                    if (floatingBackdropMesh.material.map) floatingBackdropMesh.material.map.dispose();
+                    floatingBackdropMesh.material.dispose();
+                }
+                scene.remove(floatingBackdropMesh);
+                floatingBackdropMesh = null;
+            }
+
             shapesArray.forEach(shape => {
+                if (!shape || !shape.t) return;
                 let geo;
                 const pos = shape.p || [0,0,0];
                 const scl = shape.s || [1,1,1];
                 const rot = shape.r || [0,0,0];
+                let customScaleHandled = false;
 
-                switch(shape.t.toLowerCase().trim()) {
-                    case 'box': geo = new THREE.BoxGeometry(1, 1, 1); break;
-                    case 'roundedbox': geo = createRoundedBoxGeometry(scl[0], scl[1], scl[2], 0.04, 3); break;
-                    case 'sphere': geo = new THREE.SphereGeometry(0.5, 32, 32); break;
-                    case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 24); break;
-                    default: geo = new THREE.BoxGeometry(1, 1, 1);
+                try {
+                    switch(shape.t.toLowerCase().trim()) {
+                        case 'box': geo = new THREE.BoxGeometry(1, 1, 1); break;
+                        case 'roundedbox':
+                            customScaleHandled = true;
+                            geo = createRoundedBoxGeometry(scl[0]||1, scl[1]||1, scl[2]||1, 0.04, 3);
+                            break;
+                        case 'sphere': geo = new THREE.SphereGeometry(0.5, 32, 32); break;
+                        case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 24); break;
+                        case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 24); break;
+                        case 'capsule': geo = new THREE.CapsuleGeometry(0.3, 0.6, 8, 24); break;
+                        case 'torus': geo = new THREE.TorusGeometry(0.4, 0.1, 12, 36); break;
+                        default: geo = new THREE.BoxGeometry(1, 1, 1);
+                    }
+
+                    if (geo) {
+                        const mat = new THREE.MeshPhysicalMaterial({
+                            color: new THREE.Color(shape.c || "#ffffff"),
+                            roughness: shape.t === 'roundedbox' || shape.t === 'sphere' ? 0.15 : 0.6,
+                            metalness: shape.m === 'metal' ? 0.8 : 0.1,
+                            clearcoat: 1.0,
+                            clearcoatRoughness: 0.1,
+                            side: THREE.DoubleSide
+                        });
+
+                        const mesh = new THREE.Mesh(geo, mat);
+                        mesh.position.set(pos[0], pos[1], pos[2]);
+                        mesh.rotation.set(rot[0], rot[1], rot[2]);
+                        if (!customScaleHandled) mesh.scale.set(scl[0], scl[1], scl[2]);
+
+                        mesh.castShadow = true;
+                        mesh.receiveShadow = true;
+                        worldGroup.add(mesh);
+                    }
+                } catch (e) { console.error(e); }
+            });
+
+            if (worldGroup.children.length > 0) {
+                const box = new THREE.Box3().setFromObject(worldGroup);
+                const center = new THREE.Vector3(); box.getCenter(center);
+                if (controls) {
+                    controls.target.copy(center);
+                    controls.update();
                 }
 
-                const mat = new THREE.MeshPhysicalMaterial({
-                    color: new THREE.Color(shape.c || "#ffffff"),
-                    roughness: 0.4,
-                    metalness: shape.m === 'metal' ? 0.8 : 0.1
-                });
-
-                const mesh = new THREE.Mesh(geo, mat);
-                mesh.position.set(pos[0], pos[1], pos[2]);
-                mesh.rotation.set(rot[0], rot[1], rot[2]);
-                if (shape.t !== 'roundedbox') mesh.scale.set(scl[0], scl[1], scl[2]);
-                worldGroup.add(mesh);
-            });
+                if (scannedBackdropDataUrl) {
+                    const size = new THREE.Vector3(); box.getSize(size);
+                    const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
+                    floatingBackdropMesh = new THREE.Mesh(
+                        new THREE.PlaneGeometry(1, 1),
+                        new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
+                    );
+                    floatingBackdropMesh.position.set(center.x, center.y, box.min.z - 1.5);
+                    floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
+                    floatingBackdropMesh.visible = backdropOverlayActive;
+                    scene.add(floatingBackdropMesh);
+                }
+            }
         }
 
         function toggleSensorsFunctionality() {
@@ -808,8 +1041,8 @@
             window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
             window.removeEventListener('devicemotion', handleInertialStepInput);
             gyroActive = false;
-            virtualWalkVelocityX = 0;
-            virtualWalkVelocityZ = 0;
+            targetLinearVelocityX = 0;
+            targetLinearVelocityZ = 0;
             document.getElementById('gyroBtn').classList.remove('btn-active');
             
             const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
@@ -846,8 +1079,8 @@
             }
             deactivateTrackingSensors();
             lockedGyroRoll = 0; 
-            virtualWalkVelocityX = 0;
-            virtualWalkVelocityZ = 0;
+            targetLinearVelocityX = 0;
+            targetLinearVelocityZ = 0;
             rawCachedShapesArray = null;
             scannedBackdropDataUrl = null;
             gyroOffsetQuaternion.set(0, 0, 0, 1);
@@ -859,7 +1092,7 @@
             document.getElementById('aiDescription').innerText = "Workspace cleared. System active.";
         }
 
-        // GYRO FUNCTIONS (100% LOCKED AND UNTOUCHED PER INSTRUCTIONS)
+        // UNTOUCHED: Full Relative Quaternion processing sequence preserved explicitly
         function handleGyroscopeMotionInput(e) {
             if (!gyroActive) return;
             
@@ -878,50 +1111,43 @@
             camera.quaternion.copy(gyroOffsetQuaternion).multiply(qSensor);
         }
 
-        // FIXED: RE-ENGINEERED LINEAR ACCELERATION PROJECTION
-        // Strips step counters completely. Maps pure force impulses seamlessly onto the World X/Z plane.
+        // FIXED: CONTINUOUS PROPORTIONAL ACCELERATION INTEGRATOR
+        // Drops discrete step thresholds; transforms forces into instantaneous XZ coordinate deltas.
         function handleInertialStepInput(e) {
             if (!gyroActive) return;
 
-            // Extract native raw linear acceleration matrix (with gravity auto-removed by OS)
-            let acc = e.acceleration;
+            let acc = e.acceleration; // Hardware isolated linear acceleration (decoupled from static gravity)
             if (!acc || acc.x === null) return;
 
-            // Define modern orientation logic boundaries
+            // Natural Horizon orientation safety check
             const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
             const horizonLevelEngaged = (Math.abs(currentEuler.x) <= LEVEL_PITCH_LIMIT && Math.abs(currentEuler.z) <= LEVEL_ROLL_LIMIT);
             
             if (!horizonLevelEngaged) {
-                virtualWalkVelocityX = 0;
-                virtualWalkVelocityZ = 0;
+                targetLinearVelocityX = 0;
+                targetLinearVelocityZ = 0;
                 return;
             }
 
-            // Generate a 3D vector representing local hardware acceleration forces
+            // 1. Transform local 3D phone acceleration into world coordinates using active gyro direction matrices
             const localAccelerationVector = new THREE.Vector3(acc.x, acc.y, acc.z);
+            const worldSpaceAcceleration = localAccelerationVector.clone().applyQuaternion(camera.quaternion);
 
-            // Project device-space acceleration into absolute world space via camera orientation
-            const worldSpaceAcceleration = localAccelerationVector.applyQuaternion(camera.quaternion);
-
-            // STRICT PROTECTION GATING: Strip out world Y axis adjustments entirely
+            // 2. STRICTOR COORDINATE PLANE CONSTRAINT (Forced zeroing of Y-axis tracking data)
             worldSpaceAcceleration.y = 0;
 
-            // Apply a tight high-pass noise floor gate to wipe out resting electronic bias variations
-            const NOISE_FLOOR_CUTOFF = 0.22; // m/s^2
-            
-            if (Math.abs(worldSpaceAcceleration.x) < NOISE_FLOOR_CUTOFF) worldSpaceAcceleration.x = 0;
-            else worldSpaceAcceleration.x -= Math.sign(worldSpaceAcceleration.x) * NOISE_FLOOR_CUTOFF;
+            // 3. Noise Floor Gating to absorb passive resting IMU chatter
+            const hardwareJitterFloor = 0.12; 
+            if (worldSpaceAcceleration.length() < hardwareJitterFloor) {
+                return;
+            }
 
-            if (Math.abs(worldSpaceAcceleration.z) < NOISE_FLOOR_CUTOFF) worldSpaceAcceleration.z = 0;
-            else worldSpaceAcceleration.z -= Math.sign(worldSpaceAcceleration.z) * NOISE_FLOOR_CUTOFF;
-
-            // Single integration scaling gain to smoothly interpolate tracking speeds fluidly
-            const KINEMATIC_GAIN_FACTOR = 0.045;
-            virtualWalkVelocityX += worldSpaceAcceleration.x * KINEMATIC_GAIN_FACTOR;
-            virtualWalkVelocityZ += worldSpaceAcceleration.z * KINEMATIC_GAIN_FACTOR;
+            // 4. Proportional Force Mapping (Gauges speed/distance directly off the movement magnitude)
+            const ACCELERATION_INTEGRATION_GAIN = 0.032;
+            targetLinearVelocityX += worldSpaceAcceleration.x * ACCELERATION_INTEGRATION_GAIN;
+            targetLinearVelocityZ += worldSpaceAcceleration.z * ACCELERATION_INTEGRATION_GAIN;
         }
 
-        // FIXED: CONTINUOUS VELOCITY 업데이트 ENGINE LOOP
         function animate() {
             requestAnimationFrame(animate);
             
@@ -932,29 +1158,31 @@
                 
                 if (Math.abs(currentEuler.x) <= LEVEL_PITCH_LIMIT && Math.abs(currentEuler.z) <= LEVEL_ROLL_LIMIT) {
                     statusHorizonStr = "LEVEL_WALK";
-                    
-                    // Constantly execute exponential velocity decay to slide to a crisp stop when physical forces cease
-                    virtualWalkVelocityX *= FRICTION_DECAY_COEFF;
-                    virtualWalkVelocityZ *= FRICTION_DECAY_COEFF;
-
-                    // Absolute zero hard-stop floor clamp
-                    if (Math.abs(virtualWalkVelocityX) < VELOCITY_DEADZONE_LIMIT) virtualWalkVelocityX = 0;
-                    if (Math.abs(virtualWalkVelocityZ) < VELOCITY_DEADZONE_LIMIT) virtualWalkVelocityZ = 0;
-
-                    // Apply active velocity shifts directly to positions along the zeroed Y plane
-                    if (virtualWalkVelocityX !== 0 || virtualWalkVelocityZ !== 0) {
-                        camera.position.x += virtualWalkVelocityX;
-                        camera.position.z += virtualWalkVelocityZ;
-                        
-                        if (controls) {
-                            controls.target.x += virtualWalkVelocityX;
-                            controls.target.z += virtualWalkVelocityZ;
-                        }
-                    }
                 } else {
                     statusHorizonStr = "TILT_GATED";
-                    virtualWalkVelocityX = 0;
-                    virtualWalkVelocityZ = 0;
+                    targetLinearVelocityX = 0;
+                    targetLinearVelocityZ = 0;
+                }
+
+                // FIXED: FLUID VECTOR TRANSLATION MODEL WITH ANTI-DRIFT BRAKING
+                // Continuous friction damping factor safely sheds integrated velocity when motion drops
+                const INTEGRATION_LEAK_DECAY = 0.84;
+                targetLinearVelocityX *= INTEGRATION_LEAK_DECAY;
+                targetLinearVelocityZ *= INTEGRATION_LEAK_DECAY;
+
+                // Enforce immediate zeroing clamp when integrated momentum drops below active motion baselines
+                if (Math.abs(targetLinearVelocityX) < VELOCITY_DEADZONE_LIMIT) targetLinearVelocityX = 0;
+                if (Math.abs(targetLinearVelocityZ) < VELOCITY_DEADZONE_LIMIT) targetLinearVelocityZ = 0;
+
+                if (targetLinearVelocityX !== 0 || targetLinearVelocityZ !== 0) {
+                    // Inject position alterations strictly to horizontal coordinate components (Y is left completely untouched)
+                    camera.position.x += targetLinearVelocityX;
+                    camera.position.z += targetLinearVelocityZ;
+                    
+                    if (controls) {
+                        controls.target.x += targetLinearVelocityX;
+                        controls.target.z += targetLinearVelocityZ;
+                    }
                 }
             }
 
@@ -969,8 +1197,8 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            // Updated readouts to track the real-time continuous glide velocity logs
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${virtualWalkVelocityX.toFixed(3)} VelZ:${virtualWalkVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
+            // Updated telemetry monitors to track continuous directional plane velocities
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
             
