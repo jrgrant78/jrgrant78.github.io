@@ -270,13 +270,16 @@
         let lastCameraQuaternion = new THREE.Quaternion();
         let virtualWalkVelocityX = 0;
         let virtualWalkVelocityZ = 0;
+        
+        // Friction parameters tuned to isolate movement momentum
+        const VELOCITY_FRICTION_DECAY = 0.78; 
+        const VELOCITY_DEADZONE_LIMIT = 0.002;
 
         let motionTracker;
         const LEVEL_PITCH_LIMIT = THREE.MathUtils.degToRad(20);  
         const LEVEL_ROLL_LIMIT = THREE.MathUtils.degToRad(15);   
-        const ROTATIONAL_BLANKING_THRESHOLD = 0.006; 
+        const ROTATIONAL_BLANKING_THRESHOLD = 0.005; 
         
-        // FIXED: Balanced speed scaler to map to pixel shifts comfortably
         const TRANSLATION_SPEED_SCALAR = 0.55;                   
         let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
@@ -297,7 +300,6 @@
         const ICON_CAMERA_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/></svg>`;
         const ICON_PHOTO_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 
-        // FIXED: Complete integration of zero-motion structural preference biases
         class MultiPointMotionTracker {
             constructor() {
                 this.canvas = document.createElement('canvas');
@@ -324,8 +326,15 @@
                 const frameData = this.ctx.getImageData(0, 0, 64, 64).data;
                 
                 let curBuffer = new Uint8ClampedArray(64 * 64);
+                let curTotalLuma = 0;
+                let prevTotalLuma = 0;
+
+                // FIXED: LUMINANCE BALANCE NORMALIZATION LOOP
+                // We map out total frame brightness values ahead of block comparison to isolate exposure shifts from steps
                 for (let i = 0; i < 64 * 64; i++) {
                     curBuffer[i] = (frameData[i*4] + frameData[i*4+1] + frameData[i*4+2]) / 3;
+                    curTotalLuma += curBuffer[i];
+                    if (this.initialized) prevTotalLuma += this.prevBuffer[i];
                 }
 
                 if (!this.initialized) {
@@ -334,34 +343,20 @@
                     return { scale: 0, pan: 0 };
                 }
 
+                // Determine dynamic balance change offsets
+                const lumaBalanceOffset = (curTotalLuma - prevTotalLuma) / 4096.0;
+
                 let totalVectorX = 0;
                 let totalExpansion = 0;
                 const searchRadius = 5;
 
                 for (let pt of this.trackingPoints) {
-                    // FIXED: Calculate static base SAD to firmly anchor zero-motion states
-                    let staticSAD = 0;
-                    for (let wy = -1; wy <= 1; wy++) {
-                        for (let wx = -1; wx <= 1; wx++) {
-                            const tx = pt.x + wx;
-                            const ty = pt.y + wy;
-                            if (tx >= 0 && tx < 64 && ty >= 0 && ty < 64) {
-                                staticSAD += Math.abs(curBuffer[ty * 64 + tx] - this.prevBuffer[ty * 64 + tx]);
-                            }
-                        }
-                    }
-
-                    let bestSAD = staticSAD;
+                    let bestSAD = Infinity;
                     let mvX = 0;
                     let mvY = 0;
-                    
-                    // FIXED: Threshold padding. Alternative vectors must beat zero-motion by a clear margin to pass noise gates
-                    let thresholdPadding = staticSAD * 0.20 + 3.0;
 
                     for (let sy = -searchRadius; sy <= searchRadius; sy++) {
                         for (let sx = -searchRadius; sx <= searchRadius; sx++) {
-                            if (sx === 0 && sy === 0) continue;
-                            
                             let sad = 0;
                             for (let wy = -1; wy <= 1; wy++) {
                                 for (let wx = -1; wx <= 1; wx++) {
@@ -372,12 +367,14 @@
 
                                     if (oldX >= 0 && oldX < 64 && oldY >= 0 && oldY < 64 &&
                                         newX >= 0 && newX < 64 && newY >= 0 && newY < 64) {
-                                        sad += Math.abs(curBuffer[newY * 64 + newX] - this.prevBuffer[oldY * 64 + oldX]);
+                                        // FIXED: Subtract brightness drift variations dynamically during the matching stage
+                                        const normalizedCurPixel = curBuffer[newY * 64 + newX] - lumaBalanceOffset;
+                                        sad += Math.abs(normalizedCurPixel - this.prevBuffer[oldY * 64 + oldX]);
                                     }
                                 }
                             }
 
-                            if (sad + thresholdPadding < bestSAD) {
+                            if (sad < bestSAD) {
                                 bestSAD = sad;
                                 mvX = sx;
                                 mvY = sy;
@@ -388,7 +385,8 @@
                     totalVectorX += mvX;
                     const vecFromCenterValX = pt.x - 32;
                     const vecFromCenterValY = pt.y - 32;
-                    totalExpansion += (mvX * vecFromCenterValX) + (mvY * vecFromCenterValY);
+                    const expansionFactorContribution = (mvX * vecFromCenterValX) + (mvY * vecFromCenterValY);
+                    totalExpansion += expansionFactorContribution;
                 }
 
                 this.prevBuffer.set(curBuffer);
@@ -396,19 +394,16 @@
                 let rawPan = -(totalVectorX / 9.0) * 0.25;
                 let rawScale = (totalExpansion / 9.0) * 0.015;
 
-                if (Math.abs(rawPan) < 0.05) rawPan = 0;
-                if (Math.abs(rawScale) < 0.04) rawScale = 0;
+                // Restrict filters tightly to cleanly block noise
+                if (Math.abs(rawPan) < 0.15) rawPan = 0;
+                if (Math.abs(rawScale) < 0.12) rawScale = 0;
 
-                this.smoothPan += 0.15 * (rawPan - this.smoothPan);
-                this.smoothScale += 0.15 * (rawScale - this.smoothScale);
-
-                // FIXED: Hard snap smoothed outputs to absolute zero if they drop below baseline floors
-                if (Math.abs(this.smoothPan) < 0.01) this.smoothPan = 0;
-                if (Math.abs(this.smoothScale) < 0.01) this.smoothScale = 0;
+                this.smoothPan += 0.12 * (rawPan - this.smoothPan);
+                this.smoothScale += 0.12 * (rawScale - this.smoothScale);
 
                 return {
-                    scale: this.smoothScale,
-                    pan: this.smoothPan
+                    scale: THREE.MathUtils.clamp(this.smoothScale, -0.2, 0.2),
+                    pan: THREE.MathUtils.clamp(this.smoothPan, -0.2, 0.2)
                 };
             }
         }
@@ -472,7 +467,7 @@
             throw new Error("Mismatched block bounds.");
         }
 
-        // FIXED: Restored complete Query string API-Key injection parser
+        // FIXED: Restored URL parameter extraction setup safely inside initialization sequence
         function init3D() {
             const urlParams = new URLSearchParams(window.location.search);
             const urlKey = urlParams.get('key');
@@ -750,7 +745,7 @@
             pass1ModelLoop: for (let model of modelCascadeList) {
                 try {
                     statusDiv.innerText = `Pass 1: Prompting ${model}...`;
-                    const res = await fetch seaw(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
+                    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -812,7 +807,7 @@
                 { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile only the large flat floor bases, ground platforms, and main support mats.' },
                 { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile the detailed surface boundaries, secondary rug mats, and floor borders.' },
                 { id: 'CORE_MASSES', subId: 'FURNITURE', rules: 'Look ONLY at the ### REGION: CORE_MASSES area text blocks. Compile the massive primary backing blocks of couches, structural seating, and main table anchors.' },
-                { id: 'CORE_MASSES', subId: 'FURNITURE', subId: 'CUSHIONS', rules: 'Look ONLY at the ### REGION: CORE_MASSES area text blocks. Compile the softer geometric overlays, layered cushions, padding, or central subject components.' },
+                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: 'Look ONLY at the ### REGION: CORE_MASSES area text blocks. Compile the softer geometric overlays, layered cushions, padding, or central subject components.' },
                 { id: 'EXTENSIONS', subId: 'FRAMES', rules: 'Look ONLY at the ### REGION: EXTENSIONS area text blocks. Compile vertical boundaries, TV panels, display stands, cabinet structures, and wall hangings.' },
                 { id: 'EXTENSIONS', subId: 'LIMBS', rules: 'Look ONLY at the ### REGION: EXTENSIONS area text blocks. CRITICAL INTERLOCK INSTRUCTION: Compile connecting arms, legs, or hardware rods. Ensure their midpoint positions map precisely between their parent joints so they latch together cleanly without floating gaps.' },
                 { id: 'ACCENTS', subId: 'ITEMS', rules: 'Look ONLY at the ### REGION: ACCENTS area text blocks. Compile standalone accent blocks, secondary decorative nodes, and objects scattered on surfaces.' },
@@ -842,7 +837,7 @@
                 let pass2Diagnostics = "";
                 for (let model of modelCascadeList) {
                     try {
-                        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
+                        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -1133,23 +1128,43 @@
                     visualTelemetry.panFlow = trackingData.pan;
                     
                     if (angularDriftDelta < ROTATIONAL_BLANKING_THRESHOLD) {
-                        // FIXED: Replaced additive velocity accumulation with instantaneous direct mapping.
-                        // This forces velocity to instantly zero out when tracking vectors clear, preventing runaways.
-                        virtualWalkVelocityZ = trackingData.scale * TRANSLATION_SPEED_SCALAR;
-                        virtualWalkVelocityX = trackingData.pan * TRANSLATION_SPEED_SCALAR;
+                        let impulseForceZ = trackingData.scale * TRANSLATION_SPEED_SCALAR;
+                        let impulseForceX = trackingData.pan * TRANSLATION_SPEED_SCALAR;
+
+                        // FIXED: IMPULSE FORCE HIGH-PASS FILTER
+                        // Instantly starve small camera noise to prevent it from entering the velocity buffer
+                        if (Math.abs(impulseForceZ) < 0.015) impulseForceZ = 0;
+                        if (Math.abs(impulseForceX) < 0.015) impulseForceX = 0;
+                        
+                        // FIXED: MOMENTUM ACCUMULATION OVERHAUL
+                        // Instantly dump velocity loops to zero if there is no active macro impulse detected
+                        if (impulseForceZ === 0) {
+                            virtualWalkVelocityZ *= 0.3; 
+                        } else {
+                            virtualWalkVelocityZ += impulseForceZ;
+                        }
+
+                        if (impulseForceX === 0) {
+                            virtualWalkVelocityX *= 0.3;
+                        } else {
+                            virtualWalkVelocityX += impulseForceX;
+                        }
                     } else {
                         statusHorizonStr = "PAN_BLANKED";
-                        virtualWalkVelocityZ = 0;
-                        virtualWalkVelocityX = 0;
                     }
 
                     visualTelemetry.gated = false;
                 } else {
                     statusHorizonStr = "TILT_GATED";
                     visualTelemetry.gated = true;
-                    virtualWalkVelocityZ = 0;
-                    virtualWalkVelocityX = 0;
                 }
+
+                // Smoothly fade remaining momentum transitions down via standard damping decay
+                virtualWalkVelocityZ *= VELOCITY_FRICTION_DECAY;
+                virtualWalkVelocityX *= VELOCITY_FRICTION_DECAY;
+
+                if (Math.abs(virtualWalkVelocityZ) < VELOCITY_DEADZONE_LIMIT) virtualWalkVelocityZ = 0;
+                if (Math.abs(virtualWalkVelocityX) < VELOCITY_DEADZONE_LIMIT) virtualWalkVelocityX = 0;
 
                 if (virtualWalkVelocityZ !== 0 || virtualWalkVelocityX !== 0) {
                     const dynamicForwardXZ = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -1183,7 +1198,7 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | StepZ:${virtualWalkVelocityZ.toFixed(3)} StepX:${virtualWalkVelocityX.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelZ:${virtualWalkVelocityZ.toFixed(3)} VelX:${virtualWalkVelocityX.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
             
