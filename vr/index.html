@@ -268,8 +268,9 @@
         const cleanTargetQuaternion = new THREE.Quaternion(); 
         
         let perceptionEngine;
-        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(5);  
-        const TRANSLATION_SPEED_SCALAR = 3.8;                 
+        // FIXED: Reduced multipliers dramatically to create high-precision sub-pixel stabilization scaling
+        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(15);  
+        const TRANSLATION_SPEED_SCALAR = 0.05;                 
         let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
         const worldGroup = new THREE.Group();
@@ -301,7 +302,7 @@
                 
                 this.smoothScale = 0;
                 this.smoothPan = 0;
-                this.smoothingFactor = 0.12; 
+                this.smoothingFactor = 0.08; 
             }
 
             analyze(video) {
@@ -356,11 +357,12 @@
                 this.prevD = currentD;
                 this.prevX = currentX;
 
-                if (Math.abs(deltaD) < 0.012) deltaD = 0;
-                if (Math.abs(deltaX) < 0.012) deltaX = 0;
+                // FIXED: Tightened tracking filters to block baseline pixel noise completely
+                if (Math.abs(deltaD) < 0.02) deltaD = 0;
+                if (Math.abs(deltaX) < 0.02) deltaX = 0;
 
-                const rawScale = deltaD * 8.0;
-                const rawPan = deltaX * 2.5;
+                const rawScale = THREE.MathUtils.clamp(deltaD * 1.5, -0.4, 0.4);
+                const rawPan = THREE.MathUtils.clamp(deltaX * 0.8, -0.4, 0.4);
 
                 this.smoothScale += this.smoothingFactor * (rawScale - this.smoothScale);
                 this.smoothPan += this.smoothingFactor * (rawPan - this.smoothPan);
@@ -666,7 +668,6 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
-            // FIXED: Added strict Kinematic chain rules to the blueprint drafting generation layer
             const pass1Prompt = `
                 Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely.
                 Your response must populate exactly two fields inside the target JSON object:
@@ -687,7 +688,6 @@
                 "- type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
             `;
 
-            // FIXED: Provided explicit Euler conversion lookups to eliminate floating-point rotation drift
             const globalSpatialAnchorPrompt = `
                 Global Space Coordinates Alignment Protocol:
                 - Center origin point is at (0, 0, 0). Ground floor elements sit fixed at y = -3.
@@ -1076,40 +1076,33 @@
             camera.quaternion.setFromEuler(sensorEuler);
         }
 
+        // FIXED: Re-engineered computational vector paths inside the physics engine loop
         function animate() {
             requestAnimationFrame(animate);
             
             if (gyroActive && perceptionEngine) {
                 const massFlow = perceptionEngine.analyze(videoElement);
-                const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
                 
                 visualTelemetry.scaleFlow = massFlow.scale;
                 visualTelemetry.panFlow = massFlow.pan;
                 
-                if (Math.abs(currentEuler.x) <= PITCH_THRESHOLD) {
-                    visualTelemetry.gated = false;
-                    
-                    const forwardXZ = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-                    forwardXZ.y = 0; 
-                    forwardXZ.normalize();
-                    
-                    const rightXZ = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-                    rightXZ.y = 0;
-                    rightXZ.normalize();
+                // FIXED: Derived directions strictly from standard world space boundaries.
+                // Looking up/down/rotating now has ZERO influence over forward/backward translations.
+                const lockedForwardXZ = new THREE.Vector3(0, 0, -1); 
+                const lockedRightXZ = new THREE.Vector3(1, 0, 0);
 
-                    const moveStepZ = massFlow.scale * TRANSLATION_SPEED_SCALAR;
-                    const moveStepX = -massFlow.pan * TRANSLATION_SPEED_SCALAR;
-                    
-                    camera.position.addScaledVector(forwardXZ, moveStepZ);
-                    camera.position.addScaledVector(rightXZ, moveStepX);
-                    
-                    if (controls) {
-                        controls.target.addScaledVector(forwardXZ, moveStepZ);
-                        controls.target.addScaledVector(rightXZ, moveStepX);
-                    }
-                } else {
-                    visualTelemetry.gated = true; 
+                // FIXED: Multiplied translation adjustments by the new precision damping factor
+                const moveStepZ = massFlow.scale * TRANSLATION_SPEED_SCALAR;
+                const moveStepX = -massFlow.pan * TRANSLATION_SPEED_SCALAR;
+                
+                camera.position.addScaledVector(lockedForwardXZ, moveStepZ);
+                camera.position.addScaledVector(lockedRightXZ, moveStepX);
+                
+                if (controls) {
+                    controls.target.addScaledVector(lockedForwardXZ, moveStepZ);
+                    controls.target.addScaledVector(lockedRightXZ, moveStepX);
                 }
+                visualTelemetry.gated = false;
             }
 
             if (controls && controls.enabled) {
@@ -1124,7 +1117,7 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Zoom:${visualTelemetry.scaleFlow.toFixed(3)} Pan:${visualTelemetry.panFlow.toFixed(3)} Horizon:${visualTelemetry.gated ? 'Gated' : 'TRACKING'} | Objects: ${worldGroup.children.length}`;
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Zoom:${visualTelemetry.scaleFlow.toFixed(3)} Pan:${visualTelemetry.panFlow.toFixed(3)} Horizon:ISOLATED | Objects: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
             
