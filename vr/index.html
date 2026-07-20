@@ -610,7 +610,6 @@
             }
         }
 
-        // Helper promise function to enforce explicit delays between parallel network calls
         const delayExecutionTime = ms => new Promise(res => setTimeout(res, ms));
 
         async function captureAndScanFrame() {
@@ -656,13 +655,10 @@
             scanBtn.disabled = true;
             statusDiv.style.display = 'block';
 
-            // Model cascading tracking array configurations
             const modelCascadeList = [
                 'gemini-3.5-flash',
                 'gemini-3.1-flash-lite',
-                'gemini-3.1-pro-preview',
-                'gemini-2.5-pro',
-                'gemini-2.5-flash'
+                'gemini-3.1-pro-preview'
             ];
             
             let parsedPayload = null;
@@ -670,6 +666,7 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
+            // FIXED: Softened rigid absolute float caps to allow the lower 3.1 fallback engine to safely output structural elements without throwing errors
             const pass1Prompt = `
                 Act as an advanced 3D Spatial Scaffolder. Analyze this image frame completely.
                 Your response must populate exactly two fields inside the target JSON object:
@@ -681,13 +678,13 @@
                 ### REGION: LIMBS
                 ### REGION: PORTRAIT
                 
-                STRICT SPATIAL ANCHOR & SCALE LAWS:
+                SPATIAL ALIGNMENT RULES:
                 - Ground floor platform surface is fixed at elevation y = -3.
                 - Body dress center mass spans strictly between y = -1.2 and y = 0.8. The shoulders sit right at y = 0.8.
                 - The Neck cylinder MUST span from y = 0.8 to y = 1.2, plugging directly into the top of the dress torso.
                 - The Head skull sphere center mass is fixed tightly at elevation y = 1.6. Proportions must look natural.
-                - CONFORMAL DRAPING DIRECTIVE: Long cascading hair shapes are ordered to wrap closely around the neck and shoulders. Hair shapes must originate around the head (y = 1.6 to 2.2) and travel directly DOWNWARD along the sides and back, following the contour of the shoulders past y = 0.8 down to y = 0.2.
-                - HARD PRIMITIVE SCALE LIMIT: For all hair sub-components under ### REGION: PORTRAIT, individual scale thickness (width/depth or X/Z dimensions) MUST NEVER exceed 0.15. They must be thin ribbons or slim capsules, not thick logs or pillars. Long length (Y scale between 1.0 and 2.5) is permitted to capture flow. They must have subtle downwards rotations, never point outwards or upwards like spikes.
+                - CONFORMAL DRAPING LAW: Long cascading hair shapes are ordered to wrap closely around the neck and shoulders. Hair shapes must originate around the head (y = 1.6 to 2.2) and travel directly DOWNWARD along the sides and back, following the contour of the shoulders past y = 0.8 down to y = 0.2.
+                - RENDER AS LONG THIN STRIPS: Make sure hair pieces are long, narrow vertical ribbons that drape straight down alongside the neck. Do not point them outwards or upwards.
                 
                 Format each text entry line exactly like this template:
                 "- type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
@@ -699,8 +696,8 @@
                 - Body dress center mass spans strictly between y = -1.2 and y = 0.8. The shoulders sit right at y = 0.8.
                 - The Neck cylinder MUST span from y = 0.8 to y = 1.2, plugging directly into the top of the dress torso.
                 - The Head skull sphere center mass is fixed tightly at elevation y = 1.6. Proportions must look natural.
-                - CONFORMAL DRAPING DIRECTIVE: Long cascading hair shapes are ordered to wrap closely around the neck and shoulders. Hair shapes must originate around the head (y = 1.6 to 2.2) and travel directly DOWNWARD along the sides and back, following the contour of the shoulders past y = 0.8 down to y = 0.2.
-                - HARD PRIMITIVE SCALE LIMIT: For all hair sub-components under ### REGION: PORTRAIT, individual scale thickness (width/depth or X/Z dimensions) MUST NEVER exceed 0.15. They must be thin ribbons or slim capsules, not thick logs or pillars. Long length (Y scale between 1.0 and 2.5) is permitted to capture flow. They must have subtle downwards rotations, never point outwards or upwards like spikes.
+                - CONFORMAL DRAPING LAW: Long cascading hair shapes are ordered to wrap closely around the neck and shoulders. Hair shapes must originate around the head (y = 1.6 to 2.2) and travel directly DOWNWARD along the sides and back, following the contour of the shoulders past y = 0.8 down to y = 0.2.
+                - RENDER AS LONG THIN STRIPS: Make sure hair pieces are long, narrow vertical ribbons that drape straight down alongside the neck. Do not point them outwards or upwards.
             `;
 
             pass1ModelLoop: for (let model of modelCascadeList) {
@@ -724,20 +721,20 @@
 
                     if (!res.ok) {
                         const errorDetailsText = await res.text();
-                        debugDiagnosticsHistory += `• ${model} HTTP Error ${res.status}: ${errorDetailsText.substring(0, 120)}...<br>`;
+                        debugDiagnosticsHistory += `• Pass 1 [${model}] Error ${res.status}: ${errorDetailsText.substring(0, 100)}...<br>`;
                         continue;
                     }
 
                     const data = await res.json();
                     
                     if (data.error) {
-                        debugDiagnosticsHistory += `• ${model} API Error: ${data.error.message}<br>`;
+                        debugDiagnosticsHistory += `• Pass 1 [${model}] API Error: ${data.error.message}<br>`;
                         continue;
                     }
 
                     if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
                         const reason = data.candidates?.[0]?.finishReason || "UNKNOWN_BLOCK";
-                        debugDiagnosticsHistory += `• ${model} Blocked: Finish reason code = [${reason}]<br>`;
+                        debugDiagnosticsHistory += `• Pass 1 [${model}] Blocked: Reason = [${reason}]<br>`;
                         continue;
                     }
 
@@ -747,7 +744,7 @@
                         break pass1ModelLoop; 
                     }
                 } catch (e) { 
-                    debugDiagnosticsHistory += `• ${model} Exception: ${e.message}<br>`;
+                    debugDiagnosticsHistory += `• Pass 1 [${model}] Exception: ${e.message}<br>`;
                 }
             }
 
@@ -755,24 +752,29 @@
                 descDiv.innerHTML = `
                     <span style='color:#ff3333; font-weight:bold;'>Pass 1 Fatal Cascade Failure</span><br>
                     <div style='background:#221111; border:1px solid #ff3333; padding:10px; border-radius:4px; margin-top:8px;'>
-                        <b>Inference Engine Diagnostic Trail:</b><br>${debugDiagnosticsHistory || "No server responses recorded. Check device internet stability."}
+                        <b>Inference Engine Diagnostic Trail:</b><br>${debugDiagnosticsHistory || "No server responses recorded."}
                     </div>`;
                 scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
                 return;
             }
 
-            descDiv.innerHTML = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
+            // FIXED: Always inject the underlying failure history for premium models at the top of the card so it can be verified in real time
+            let permanentHeaderLog = "";
+            if (debugDiagnosticsHistory) {
+                permanentHeaderLog = `<div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; margin-bottom:10px; font-family:monospace; font-size:0.9em;'><b>Orchestrator Telemetry Logs:</b><br>${debugDiagnosticsHistory}</div>`;
+            }
+
+            descDiv.innerHTML = `${permanentHeaderLog}<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
 
             const structuralTasks = [
                 { id: 'FOUNDATION', rules: 'Compile the bottom green pedestal layout. Force 20+ shapes.', staggerDelay: 0 },
                 { id: 'WARDROBE', rules: 'Compile the blue dress geometry. Ensure solid contiguous boxes sitting between y = -1.2 and y = 0.8.', staggerDelay: 350 },
                 { id: 'LIMBS', rules: 'Compile complete connected limb extensions. Attach upper arms directly to the torso sides at shoulder height (y = 0.8). Ensure forearms, hands, calves, and feet are fully written.', staggerDelay: 700 },
-                { id: 'PORTRAIT', rules: 'CRITICAL CONFORMAL HAIR LAW: Lock the Neck cylinder base flat against the torso top at y = 0.8, extending to y = 1.2. Render the head sphere centered exactly at y = 1.6. Generate 25+ overlapping hair capsules originating at the top of the head (y = 2.0) and force them to extend directly DOWNWARD following the curvature of the shoulders down to y = 0.2. Enforce the scale ceiling: X and Z dimensions of these primitives must remain below 0.15. Do not output thick log primitives or upward rotations.', staggerDelay: 1050 }
+                { id: 'PORTRAIT', rules: 'CRITICAL CONFORMAL HAIR LAW: Lock the Neck cylinder base flat against the torso top at y = 0.8, extending to y = 1.2. Render the head sphere centered exactly at y = 1.6. Generate 25+ overlapping hair capsules originating at the top of the head (y = 2.0) and force them to extend directly DOWNWARD following the curvature of the shoulders down to y = 0.2. Ensure they are long, narrow vertical strips that drape down tightly along the sides. Do not output wide logs or upward rotations.', staggerDelay: 1050 }
             ];
 
             const splitSegments = parsedPayload.blueprint.split(/### REGION:\s*/i);
 
-            // FIXED: Integrated a strict stagger delay mapping pattern to bypass concurrent request limits (429) on high-tier models
             const regionalCompilationPromises = structuralTasks.map(async (task) => {
                 await delayExecutionTime(task.staggerDelay);
                 
@@ -799,6 +801,7 @@
                     - Translate every single written text line item into the structural JSON output. Do not truncate early or drop sections.
                 `;
 
+                let pass2Diagnostics = "";
                 for (let model of modelCascadeList) {
                     try {
                         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
@@ -836,28 +839,39 @@
                             if (data.candidates && data.candidates[0] && data.candidates[0].content) {
                                 const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
                                 if (parsed && Array.isArray(parsed.shapes)) {
-                                    return { id: task.id, model: model, shapes: parsed.shapes };
+                                    return { id: task.id, model: model, shapes: parsed.shapes, errors: pass2Diagnostics };
                                 }
                             }
+                        } else {
+                            const txt = await res.text();
+                            pass2Diagnostics += `[${model}: Error ${res.status}] `;
                         }
-                    } catch (e) { console.warn(`Pass 2 exception on zone ${task.id} via ${model}:`, e); }
+                    } catch (e) { pass2Diagnostics += `[${model}: Exception] `; }
                 }
-                return { id: task.id, model: "failed", shapes: [] };
+                return { id: task.id, model: "failed", shapes: [], errors: pass2Diagnostics };
             });
 
             try {
                 statusDiv.innerText = "Launching staggered parallel compilation pipelines...";
                 const compiledResults = await Promise.all(regionalCompilationPromises);
                 
-                // FIXED: Enhanced UI reporting trail to show explicitly which model compiled which individual sector
                 let reportTrackingLog = "<br><br><b>Sector Compilation Audit Matrix:</b>";
+                let permanentPass2Logs = "";
+
                 compiledResults.forEach((result) => {
                     if (result.shapes.length > 0) {
                         unifiedShapes.push(...result.shapes);
                     }
+                    if (result.errors) {
+                        permanentPass2Logs += `• Zone [${result.id}] Failures: <span style='color:#ffab00;'>${result.errors}</span><br>`;
+                    }
                     let modelStatusColor = result.model.includes('3.5') ? '#00e676' : '#ffab00';
                     reportTrackingLog += `<br>• Zone [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes)`;
                 });
+
+                if (permanentPass2Logs) {
+                    descDiv.innerHTML = `<div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; margin-bottom:10px; font-family:monospace; font-size:0.9em;'><b>Pass 2 Telemetry Failures:</b><br>${permanentPass2Logs}</div>` + descDiv.innerHTML;
+                }
 
                 if (unifiedShapes.length > 0) {
                     descDiv.innerHTML += reportTrackingLog;
