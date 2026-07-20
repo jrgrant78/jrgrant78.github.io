@@ -703,32 +703,38 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
-            // FIXED: Redesigned prompt hierarchy to force strict anatomical breakdown and organic complexity, eliminating blocky abstractions.
+            // FIXED: Enforced explicit architectural region headers in the base orchestrator text mapping prompt
             const pass1Prompt = `
-                Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely.
-                CRITICAL INSTRUCTION: You MUST avoid primitive blocky placeholders. Break down all organic subjects and complex objects into high-density, highly-articulated components with proper structural anatomy and skeletal proportions.
+                Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely and break it down into an intricate 3D scene representation composed of multiple high-fidelity primitive forms.
                 
-                Human Anatomy Rules:
-                - Do NOT render humans as a single box or cylinder.
-                - Deconstruct them into separate torso halves, distinct head volumes, realistic custom hair flow blocks, distinct limb segments (shoulders, upper arms, lower arms, thighs, calves), hands, and feet.
-                - Position limbs with accurate rotation offsets to model human standing/skeletal posture, connected exactly at natural pivot points.
-                
-                Complex Object Rules:
-                - Sculpt statues, pedestals, or sculpture bases (e.g., a turtle) with distinct composite parts: individual head volumes, main body shell geometry patterns, distinct flippers/feet, and multi-tier support rings.
-                
-                Environment Rules:
-                - Capture detailed background tree foliage patterns, supporting poles/pipes, and detailed variable-colored ground plates.
-
                 Your response must populate exactly two fields inside the target JSON object:
-                1. description: Provide a detailed text summary describing the exact subjects observed.
-                2. blueprint: An architectural text blueprint manifest listing descriptive primitives categorized under headers.
-                Format entry lines exactly like this template:
-                "- type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
+                1. description: Provide a detailed text summary describing the exact subjects observed, their physical layout, poses, textures, and depth.
+                2. blueprint: An architectural text blueprint manifest listing descriptive primitives categorized under exact structural region headers.
+                
+                You must capture organic details (e.g., body silhouettes, limbs, rounded contours of stone/sculptural shapes) and structural environmental depth assets (e.g., tree canopies, support poles, background planes). Avoid over-simplification. Break objects down into high-density constituent groups of at least 40-80 individual primitives total.
+                
+                Format the blueprint exactly using these exact four regional section headers:
+                
+                == FOUNDATION ==
+                (Include ground meshes, landscape steps, pedestals, and base structural platforms here)
+                
+                == CORE_MASSES ==
+                (Include primary body volumes, large organic shapes, torsos, primary structures, main structural weights here)
+                
+                == EXTENSIONS ==
+                (Include limbs, arms, legs, poles, branches, necks, supporting elements here)
+                
+                == ACCENTS ==
+                (Include detailed facial elements, clothing layers, shoes, surface ornaments, details, light features here)
+                
+                Format entry lines under headers exactly like this template:
+                "- type=[box|roundedbox|sphere|cylinder|cone|capsule|torus|plane], material=[metal|matte|glossy|organic], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
             `;
 
             const globalSpatialAnchorPrompt = `
                 Global Space Coordinates Alignment Protocol:
                 - Center origin point is at (0, 0, 0).
+                - Ground plane or base foundation sits at Y=0.
             `;
 
             pass1ModelLoop: for (let model of modelCascadeList) {
@@ -779,15 +785,16 @@
                 return;
             }
 
+            // FIXED: Re-mapped compilation layers to match explicit structural boundary scopes
             const structuralTasks = [
-                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at FOUNDATION.' },
-                { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Look ONLY at FOUNDATION.' },
-                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: 'Look ONLY at CORE_MASSES.' },
-                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: 'Look ONLY at CORE_MASSES.' },
-                { id: 'EXTENSIONS', subId: 'FRAMES', rules: 'Look ONLY at EXTENSIONS.' },
-                { id: 'EXTENSIONS', subId: 'LIMBS', rules: 'Look ONLY at EXTENSIONS.' },
-                { id: 'ACCENTS', subId: 'ITEMS', rules: 'Look ONLY at ACCENTS.' },
-                { id: 'ACCENTS', subId: 'TRIM', rules: 'Look ONLY at ACCENTS.' }
+                { id: 'FOUNDATION', subId: 'PRIMITIVES', header: '== FOUNDATION ==' },
+                { id: 'FOUNDATION', subId: 'SURFACE', header: '== FOUNDATION ==' },
+                { id: 'CORE_MASSES', subId: 'FURNITURE', header: '== CORE_MASSES ==' },
+                { id: 'CORE_MASSES', subId: 'CUSHIONS', header: '== CORE_MASSES ==' },
+                { id: 'EXTENSIONS', subId: 'FRAMES', header: '== EXTENSIONS ==' },
+                { id: 'EXTENSIONS', subId: 'LIMBS', header: '== EXTENSIONS ==' },
+                { id: 'ACCENTS', subId: 'ITEMS', header: '== ACCENTS ==' },
+                { id: 'ACCENTS', subId: 'TRIM', header: '== ACCENTS ==' }
             ];
 
             let permanentPass2Logs = "";
@@ -795,10 +802,12 @@
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
                 await delayExecutionTime(idx * 150);
 
+                // FIXED: Isolated Pass 2 generation to specifically extract details under its allocated header only
                 const pass2Prompt = `
-                    You are a precision 3D Geometry compiler worker focusing strictly on the [${task.id} -> ${task.subId}] sub-layer.
-                    Convert your targeted segment lines into a highly dense, minified JSON shapes layout array. Do NOT skip joints or detailed organic shapes. Ensure parts fit seamlessly.
-                    Allowed geometric types (t): "box", "roundedbox", "sphere", "cylinder", "cone", "capsule". Use "capsule" and "roundedbox" for body limbs/joints and "cone" for tapered vectors/hair modules.
+                    You are a precision 3D Geometry compiler worker focusing strictly on compiling the sub-layer rules for [${task.id} -> ${task.subId}].
+                    Locate the specific section marked by the header "${task.header}" within the MASTER BLUEPRINT MANIFEST.
+                    Ignore lines under other headers. Convert every descriptive primitive entry under that section into its high-fidelity structural node inside the minified JSON shapes array.
+                    
                     ${globalSpatialAnchorPrompt}
                     MASTER BLUEPRINT MANIFEST:
                     """
@@ -809,7 +818,7 @@
                 for (let model of modelCascadeList) {
                     try {
                         statusDiv.innerText = `Pass 2: Compiling [${task.id}] via ${model}...`;
-                        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
+                        const res = await fetch('https://genergenerativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -824,8 +833,7 @@
                                                 items: {
                                                     type: "OBJECT",
                                                     properties: {
-                                                        t: { type: "STRING" }, // box, roundedbox, sphere, cylinder, cone, capsule
-                                                        m: { type: "STRING" }, c: { type: "STRING" },
+                                                        t: { type: "STRING" }, m: { type: "STRING" }, c: { type: "STRING" },
                                                         p: { type: "ARRAY", items: { type: "NUMBER" } },
                                                         s: { type: "ARRAY", items: { type: "NUMBER" } },
                                                         r: { type: "ARRAY", items: { type: "NUMBER" } },
@@ -880,7 +888,7 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
-        // FIXED: Expanded the compilation parser switch statement to natively map capsule and cone primitives dynamically.
+        // FIXED: Expanded geometry factory suite and material matrix parser to map highly detailed organic forms
         function renderAIBlueprint(shapesArray) {
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
@@ -902,26 +910,54 @@
                     case 'roundedbox': geo = createRoundedBoxGeometry(scl[0], scl[1], scl[2], 0.04, 3); break;
                     case 'sphere': geo = new THREE.SphereGeometry(0.5, 32, 32); break;
                     case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 24); break;
-                    case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 16); break;
-                    case 'capsule': geo = new THREE.CapsuleGeometry(0.3, 0.5, 4, 12); break;
+                    case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 32); break;
+                    case 'capsule': geo = new THREE.CapsuleGeometry(0.3, 0.6, 8, 16); break;
+                    case 'torus': geo = new THREE.TorusGeometry(0.4, 0.15, 12, 48); break;
+                    case 'plane': geo = new THREE.PlaneGeometry(1, 1); break;
                     default: geo = new THREE.BoxGeometry(1, 1, 1);
+                }
+
+                let roughnessVal = 0.5;
+                let metalnessVal = 0.0;
+                let clearcoatVal = 0.0;
+                let emissiveVal = new THREE.Color(0x000000);
+                
+                const matStr = (shape.m || 'matte').toLowerCase().trim();
+                if (matStr.includes('metal') || matStr.includes('chrome')) {
+                    metalnessVal = 0.9;
+                    roughnessVal = 0.15;
+                } else if (matStr.includes('glass') || matStr.includes('glossy')) {
+                    roughnessVal = 0.05;
+                    clearcoatVal = 1.0;
+                } else if (matStr.includes('organic') || matStr.includes('fabric') || matStr.includes('skin') || matStr.includes('leaves')) {
+                    roughnessVal = 0.85;
+                } else if (matStr.includes('emissive') || matStr.includes('light') || matStr.includes('glow')) {
+                    emissiveVal = new THREE.Color(shape.c || "#ffffff");
                 }
 
                 const mat = new THREE.MeshPhysicalMaterial({
                     color: new THREE.Color(shape.c || "#ffffff"),
-                    roughness: 0.4,
-                    metalness: shape.m === 'metal' ? 0.8 : 0.1
+                    roughness: roughnessVal,
+                    metalness: metalnessVal,
+                    clearcoat: clearcoatVal,
+                    emissive: emissiveVal,
+                    emissiveIntensity: emissiveVal.getHex() > 0 ? 1.2 : 0.0,
+                    side: THREE.DoubleSide
                 });
 
                 const mesh = new THREE.Mesh(geo, mat);
                 mesh.position.set(pos[0], pos[1], pos[2]);
                 mesh.rotation.set(rot[0], rot[1], rot[2]);
                 
-                // Keep scale logic clean while allowing custom procedural extensions
-                if (shape.t !== 'roundedbox') mesh.scale.set(scl[0], scl[1], scl[2]);
+                if (shape.t !== 'roundedbox') {
+                    mesh.scale.set(scl[0], scl[1], scl[2]);
+                }
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
                 worldGroup.add(mesh);
             });
 
+            // Standardized scene-clearing and centering protocol ($Y=0$, centered X/Z)
             if (worldGroup.children.length > 0) {
                 const box = new THREE.Box3().setFromObject(worldGroup);
                 const center = new THREE.Vector3(); 
@@ -1066,6 +1102,7 @@
                 return;
             }
 
+            // Balanced Axis-Decoupled Locomotion Engine constants locked cleanly as configured
             const ACCELERATION_INTEGRATION_GAIN_Z = 0.025;
             const ACCELERATION_INTEGRATION_GAIN_X = 0.006; 
             targetLinearVelocityX -= worldSpaceAcceleration.x * ACCELERATION_INTEGRATION_GAIN_X;
