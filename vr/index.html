@@ -784,7 +784,6 @@
                 return;
             }
 
-            // FIXED: Re-mapped compilation layers to exactly 4 structural zones to prevent header parsing collision and index drops
             const structuralTasks = [
                 { id: 'ZONE_FOUNDATION', header: '== FOUNDATION ==' },
                 { id: 'ZONE_CORE_MASSES', header: '== CORE_MASSES ==' },
@@ -797,15 +796,24 @@
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
                 await delayExecutionTime(idx * 200);
 
-                // FIXED: Explicitly forced 1:1 conversion instructions so models don't collapse long strings into simple placeholder nodes
+                // FIXED: Embedded explicit translation map matrix layout requirements so compile models translate text keys to minified JSON keys properly
                 const pass2Prompt = `
                     You are an expert high-fidelity 3D Geometry compiler worker focusing strictly on parsing the blueprint lines inside the region block: "${task.header}".
                     
                     TASK INSTRUCTIONS:
                     1. Read the MASTER BLUEPRINT MANIFEST.
-                    2. Locate the section block underneath the specific header "${task.header}".
-                    3. Extract and parse EVERY SINGLE list item entry under this section. Do NOT summarize. Do NOT omit details. Do NOT compress multiple items into a single primitive shape.
-                    4. Convert each individual entry into its high-fidelity structural node inside the required JSON shapes output array.
+                    2. Locate the specific section block underneath the header "${task.header}".
+                    3. Extract and parse EVERY SINGLE list item entry under this section. Do NOT summarize. Do NOT omit details.
+                    4. Convert each individual text entry into its corresponding object node inside the required JSON shapes array.
+                    
+                    TRANSLATION DICTIONARY DICT KEY (CRITICAL):
+                    You MUST map the attributes from the manifest text into the minified JSON schema keys exactly as follows:
+                    - Map 'type' value directly to the 't' key string parameter.
+                    - Map 'material' value directly to the 'm' key string parameter.
+                    - Map 'color' value directly to the 'c' key string parameter.
+                    - Map 'position' numbers array directly to the 'p' key array parameter.
+                    - Map 'scale' numbers array directly to the 's' key array parameter.
+                    - Map 'rotation' numbers array directly to the 'r' key array parameter.
                     
                     ${globalSpatialAnchorPrompt}
                     MASTER BLUEPRINT MANIFEST:
@@ -835,7 +843,7 @@
                                                         t: { type: "STRING" }, m: { type: "STRING" }, c: { type: "STRING" },
                                                         p: { type: "ARRAY", items: { type: "NUMBER" } },
                                                         s: { type: "ARRAY", items: { type: "NUMBER" } },
-                                                        r: { type: "ARRAY", items: { type: "NUMBER" } },
+                                                        r: { type: "ARRAY", items: { type: "NUMBER" } }
                                                     },
                                                     required: ["t", "m", "c", "p", "s", "r"]
                                                 }
@@ -850,7 +858,7 @@
                         if (res.ok) {
                             const data = await res.json();
                             const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                            return { id: task.id, model: model, shapes: parsed.shapes };
+                            return { id: task.id, model: model, shapes: parsed.shapes || [] };
                         } else {
                             permanentPass2Logs += `• Layer [${task.id}] Fallback: ${model} failed (Status ${res.status})<br>`;
                         }
