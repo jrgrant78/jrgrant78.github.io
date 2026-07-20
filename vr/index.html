@@ -666,7 +666,6 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
-            // FIXED: Softened rigid absolute float caps to allow the lower 3.1 fallback engine to safely output structural elements without throwing errors
             const pass1Prompt = `
                 Act as an advanced 3D Spatial Scaffolder. Analyze this image frame completely.
                 Your response must populate exactly two fields inside the target JSON object:
@@ -758,13 +757,8 @@
                 return;
             }
 
-            // FIXED: Always inject the underlying failure history for premium models at the top of the card so it can be verified in real time
-            let permanentHeaderLog = "";
-            if (debugDiagnosticsHistory) {
-                permanentHeaderLog = `<div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; margin-bottom:10px; font-family:monospace; font-size:0.9em;'><b>Orchestrator Telemetry Logs:</b><br>${debugDiagnosticsHistory}</div>`;
-            }
-
-            descDiv.innerHTML = `${permanentHeaderLog}<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
+            // FIXED: Locked standard description block down into independent string variable to defer execution ordering
+            let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
 
             const structuralTasks = [
                 { id: 'FOUNDATION', rules: 'Compile the bottom green pedestal layout. Force 20+ shapes.', staggerDelay: 0 },
@@ -843,12 +837,11 @@
                                 }
                             }
                         } else {
-                            const txt = await res.text();
-                            pass2Diagnostics += `[${model}: Error ${res.status}] `;
+                            pass2Diagnostics += `[${model}: Status ${res.status}] `;
                         }
-                    } catch (e) { pass2Diagnostics += `[${model}: Exception] `; }
+                    } catch (e) { pass2Diagnostics += `[${model}: Failure] `; }
                 }
-                return { id: task.id, model: "failed", shapes: [], errors: pass2Diagnostics };
+                return { id: task.id, model: "failed", shapes: [] , errors: pass2Diagnostics };
             });
 
             try {
@@ -863,22 +856,29 @@
                         unifiedShapes.push(...result.shapes);
                     }
                     if (result.errors) {
-                        permanentPass2Logs += `• Zone [${result.id}] Failures: <span style='color:#ffab00;'>${result.errors}</span><br>`;
+                        permanentPass2Logs += `• Zone [${result.id}] Fallbacks: <span style='color:#ffab00;'>${result.errors}</span><br>`;
                     }
                     let modelStatusColor = result.model.includes('3.5') ? '#00e676' : '#ffab00';
                     reportTrackingLog += `<br>• Zone [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes)`;
                 });
 
+                // FIXED: Reordered UI string concatenation flow sequence to strictly map all diagnostic windows below standard descriptions
+                let structuredUiOutput = coreLayoutNarrative + reportTrackingLog;
+
+                if (debugDiagnosticsHistory) {
+                    structuredUiOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>Orchestrator Pass 1 Telemetry Logs:</b><br>${debugDiagnosticsHistory}</div>`;
+                }
                 if (permanentPass2Logs) {
-                    descDiv.innerHTML = `<div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; margin-bottom:10px; font-family:monospace; font-size:0.9em;'><b>Pass 2 Telemetry Failures:</b><br>${permanentPass2Logs}</div>` + descDiv.innerHTML;
+                    structuredUiOutput += `<br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>Pass 2 Parallel Telemetry Trail:</b><br>${permanentPass2Logs}</div>`;
                 }
 
+                descDiv.innerHTML = structuredUiOutput;
+
                 if (unifiedShapes.length > 0) {
-                    descDiv.innerHTML += reportTrackingLog;
                     rawCachedShapesArray = unifiedShapes; 
                     renderAIBlueprint(unifiedShapes);
                 } else {
-                    descDiv.innerHTML = "<span style='color:#ff3333;'>Compilation thread failure. Assembled index array returned empty coordinates.</span>";
+                    descDiv.innerHTML += "<br><span style='color:#ff3333;'>Compilation thread failure. Assembled index array returned empty coordinates.</span>";
                 }
             } catch (err) {
                 console.error(err);
