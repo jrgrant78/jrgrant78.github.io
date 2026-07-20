@@ -265,13 +265,12 @@
         let isFirstGyroFrame = false;
         let gyroYawOffset = 0; 
         let lockedGyroRoll = 0; 
-        const cleanTargetQuaternion = new THREE.Quaternion();
-        const prevGyroQuaternion = new THREE.Quaternion(); 
+        const cleanTargetQuaternion = new THREE.Quaternion(); 
         
         let perceptionEngine;
-        // FIXED: Restored walking velocity vector scale to a responsive, balanced output value
-        const TRANSLATION_SPEED_SCALAR = 2.5;                 
-        let visualTelemetry = { scaleFlow: 0, panFlow: 0, trackingStatus: 'IDLE' };
+        // FIXED: Scaling factor optimized precisely for real-world walking translation velocities
+        const TRANSLATION_SPEED_SCALAR = 0.45;                 
+        let visualTelemetry = { scaleFlow: 0, panFlow: 0 };
         
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
@@ -290,85 +289,108 @@
         const ICON_CAMERA_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/></svg>`;
         const ICON_PHOTO_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 
-        class RadialMassPerceptionEngine {
+        // FIXED: Reengineered from simple luma matching into a Multi-Point Block Matching Tracking Engine
+        class MultiPointMotionTrackerEngine {
             constructor() {
                 this.canvas = document.createElement('canvas');
-                this.canvas.width = 32;
-                this.canvas.height = 32;
+                this.canvas.width = 48;
+                this.canvas.height = 48;
                 this.ctx = this.canvas.getContext('2d');
-                this.prevD = 0;
-                this.prevX = 0;
-                this.initialized = false;
                 
-                this.smoothScale = 0;
+                this.prevBuffer = new Uint8ClampedArray(48 * 48);
+                this.currBuffer = new Uint8ClampedArray(48 * 48);
+                this.initialized = false;
+
+                // 4 Static Multi-Point Feature Quadrant Anchors [x, y]
+                this.trackingPoints = [
+                    { x: 12, y: 12 }, // Top-Left
+                    { x: 36, y: 12 }, // Top-Right
+                    { x: 12, y: 36 }, // Bottom-Left
+                    { x: 36, y: 36 }  // Bottom-Right
+                ];
+                
                 this.smoothPan = 0;
-                this.smoothingFactor = 0.15; 
+                this.smoothScale = 0;
             }
 
             analyze(video) {
                 if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) return { scale: 0, pan: 0 };
                 
-                this.ctx.drawImage(video, 0, 0, 32, 32);
-                const rawPixels = this.ctx.getImageData(0, 0, 32, 32).data;
+                this.ctx.drawImage(video, 0, 0, 48, 48);
+                const frameData = this.ctx.getImageData(0, 0, 48, 48).data;
                 
-                let rowSum = new Float32Array(32);
-                let colSum = new Float32Array(32);
-                
-                for (let y = 0; y < 32; y++) {
-                    for (let x = 0; x < 32; x++) {
-                        const idx = (y * 32 + x) * 4;
-                        const luma = (rawPixels[idx] + rawPixels[idx + 1] + rawPixels[idx + 2]) / 3.0;
-                        rowSum[y] += luma;
-                        colSum[x] += luma;
-                    }
+                // Cache grayscale luma conversion
+                for (let i = 0; i < 48 * 48; i++) {
+                    const idx = i * 4;
+                    this.currBuffer[i] = (frameData[idx] * 0.299 + frameData[idx+1] * 0.587 + frameData[idx+2] * 0.114);
                 }
-
-                let massLeft = 0, weightLeft = 0;
-                let massRight = 0, weightRight = 0;
-                let massTotal = 0, weightTotal = 0;
-
-                for (let x = 0; x < 32; x++) {
-                    massTotal += x * colSum[x];
-                    weightTotal += colSum[x];
-                    if (x < 16) {
-                        massLeft += x * colSum[x];
-                        weightLeft += colSum[x];
-                    } else {
-                        massRight += x * colSum[x];
-                        weightRight += colSum[x];
-                    }
-                }
-
-                const centerX_L = weightLeft > 0 ? massLeft / weightLeft : 0;
-                const centerX_R = weightRight > 0 ? massRight / weightRight : 16;
-                const currentD = centerX_R - centerX_L; 
-                const currentX = weightTotal > 0 ? massTotal / weightTotal : 16;
 
                 if (!this.initialized) {
-                    this.prevD = currentD;
-                    this.prevX = currentX;
+                    this.prevBuffer.set(this.currBuffer);
                     this.initialized = true;
                     return { scale: 0, pan: 0 };
                 }
 
-                let deltaD = currentD - this.prevD;
-                let deltaX = currentX - this.prevX;
+                let vectors = [];
+                const searchWindow = 3; // Window size for search boundaries
+                const blockSize = 4;    // Neighborhood match footprint
 
-                this.prevD = currentD;
-                this.prevX = currentX;
+                // Run Mean Absolute Difference Block Matching over our multi-point anchors
+                for (let pt of this.trackingPoints) {
+                    let bestDx = 0;
+                    let bestDy = 0;
+                    let minMad = Infinity;
 
-                if (Math.abs(deltaD) < 0.015) deltaD = 0;
-                if (Math.abs(deltaX) < 0.015) deltaX = 0;
+                    for (let sy = -searchWindow; sy <= searchWindow; sy++) {
+                        for (let sx = -searchWindow; sx <= searchWindow; sx++) {
+                            let mad = 0;
+                            // Evaluate structural similarities over block footprint
+                            for (let by = -blockSize; by <= blockSize; by++) {
+                                for (let bx = -blockSize; bx <= blockSize; bx++) {
+                                    const pxPrev = pt.x + bx;
+                                    const pyPrev = pt.y + by;
+                                    const pxCurr = pt.x + bx + sx;
+                                    const pyCurr = pt.y + by + sy;
 
-                const rawScale = deltaD * 4.5;
-                const rawPan = deltaX * 1.8;
+                                    if (pxPrev >= 0 && pxPrev < 48 && pyPrev >= 0 && pyPrev < 48 &&
+                                        pxCurr >= 0 && pxCurr < 48 && pyCurr >= 0 && pyCurr < 48) {
+                                        const valPrev = this.prevBuffer[pyPrev * 48 + pxPrev];
+                                        const valCurr = this.currBuffer[pyCurr * 48 + pxCurr];
+                                        mad += Math.abs(valPrev - valCurr);
+                                    }
+                                }
+                            }
+                            if (mad < minMad) {
+                                minMad = mad;
+                                bestDx = sx;
+                                bestDy = sy;
+                            }
+                        }
+                    }
+                    vectors.push({ dx: bestDx, dy: bestDy });
+                }
 
-                this.smoothScale += this.smoothingFactor * (rawScale - this.smoothScale);
-                this.smoothPan += this.smoothingFactor * (rawPan - this.smoothPan);
+                this.prevBuffer.set(this.currBuffer);
+
+                // Slide Factor: Calculated from global horizontal offsets
+                let aggregatePan = (vectors[0].dx + vectors[1].dx + vectors[2].dx + vectors[3].dx) / 4.0;
+
+                // Scale Factor: Expansion (moving forward) vs Contraction (moving backward)
+                let leftSpan = vectors[0].dx + vectors[2].dx;
+                let rightSpan = vectors[1].dx + vectors[3].dx;
+                let aggregateScale = rightSpan - leftSpan; 
+
+                // Noise gating
+                if (Math.abs(aggregatePan) < 0.15) aggregatePan = 0;
+                if (Math.abs(aggregateScale) < 0.15) aggregateScale = 0;
+
+                // High-frequency interpolation damping
+                this.smoothPan += 0.15 * (aggregatePan - this.smoothPan);
+                this.smoothScale += 0.15 * (aggregateScale - this.smoothScale);
 
                 return {
-                    scale: this.smoothScale,
-                    pan: this.smoothPan
+                    pan: THREE.MathUtils.clamp(this.smoothPan * 0.1, -1, 1),
+                    scale: THREE.MathUtils.clamp(this.smoothScale * 0.08, -1, 1)
                 };
             }
         }
@@ -456,7 +478,7 @@
 
             initOrbitControls();
             
-            perceptionEngine = new RadialMassPerceptionEngine();
+            perceptionEngine = new MultiPointMotionTrackerEngine();
 
             const grid = new THREE.GridHelper(50, 25, 0x1f1f2e, 0x111116);
             grid.position.y = -3;
@@ -1075,52 +1097,34 @@
             camera.quaternion.setFromEuler(sensorEuler);
         }
 
-        // FIXED: Re-architected animation loop to cleanly separate Gyro Look from Video Walking
+        // FIXED: The loop completely decouples visual block tracking from the gyro matrix
         function animate() {
             requestAnimationFrame(animate);
             
-            if (gyroActive && perceptionEngine) {
-                const massFlow = perceptionEngine.analyze(videoElement);
+            // Track movement if a camera feed is available (regardless of gyro status)
+            if (perceptionEngine && videoElement && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
+                const motionTelemetry = perceptionEngine.analyze(videoElement);
                 
-                visualTelemetry.scaleFlow = massFlow.scale;
-                visualTelemetry.panFlow = massFlow.pan;
+                visualTelemetry.scaleFlow = motionTelemetry.scale;
+                visualTelemetry.panFlow = motionTelemetry.pan;
                 
-                // FIXED: Calculate the exact frame-to-frame angular delta of device rotation
-                const gyroDeltaAngle = prevGyroQuaternion.angleTo(camera.quaternion);
-                prevGyroQuaternion.copy(camera.quaternion);
+                // FIXED: Direct axis mapping to standard, locked world space dimensions.
+                // Looking up, down, or turning around via gyro has 0 mathematical effect on these vectors.
+                const absoluteWorldForward = new THREE.Vector3(0, 0, -1); 
+                const absoluteWorldRight = new THREE.Vector3(1, 0, 0);
 
-                // FIXED: GYRO ATTENUATION GATE
-                // If the device is turning quickly (> 0.008 rad/frame), ignore visual flow calculations.
-                // This ensures looking around has absolutely NO cross-contamination effect on walking!
-                if (gyroDeltaAngle > 0.008) {
-                    visualTelemetry.trackingStatus = 'TURNING (GATED)';
-                } else {
-                    visualTelemetry.trackingStatus = 'WALK ACTIVE';
-
-                    // FIXED: Direction vectors now map cleanly relative to the camera's horizontal heading.
-                    // This permits looking up/down/tilted without modifying translation steps.
-                    const walkForwardVector = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-                    walkForwardVector.y = 0; 
-                    walkForwardVector.normalize();
-                    
-                    const walkRightVector = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-                    walkRightVector.y = 0;
-                    walkRightVector.normalize();
-
-                    const moveStepZ = massFlow.scale * TRANSLATION_SPEED_SCALAR;
-                    const moveStepX = -massFlow.pan * TRANSLATION_SPEED_SCALAR;
-                    
-                    camera.position.addScaledVector(walkForwardVector, moveStepZ);
-                    camera.position.addScaledVector(walkRightVector, moveStepX);
-                    
-                    if (controls) {
-                        controls.target.addScaledVector(walkForwardVector, moveStepZ);
-                        controls.target.addScaledVector(walkRightVector, moveStepX);
-                    }
+                // Compute real-time translation displacements
+                const walkStepZ = motionTelemetry.scale * TRANSLATION_SPEED_SCALAR;
+                const slideStepX = -motionTelemetry.pan * TRANSLATION_SPEED_SCALAR;
+                
+                // Translate camera coordinate positions smoothly across the matrix floor
+                camera.position.addScaledVector(absoluteWorldForward, walkStepZ);
+                camera.position.addScaledVector(absoluteWorldRight, slideStepX);
+                
+                if (controls) {
+                    controls.target.addScaledVector(absoluteWorldForward, walkStepZ);
+                    controls.target.addScaledVector(absoluteWorldRight, slideStepX);
                 }
-            } else {
-                visualTelemetry.trackingStatus = 'ORBIT CONTROLS';
-                prevGyroQuaternion.copy(camera.quaternion);
             }
 
             if (controls && controls.enabled) {
@@ -1135,7 +1139,7 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Motion: ${visualTelemetry.trackingStatus} | Objects: ${worldGroup.children.length}`;
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | WalkVelo:${visualTelemetry.scaleFlow.toFixed(3)} SlideVelo:${visualTelemetry.panFlow.toFixed(3)} | Objects: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
             
