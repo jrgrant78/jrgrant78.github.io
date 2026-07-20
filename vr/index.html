@@ -703,8 +703,12 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
+            // FIXED: Upgraded Prompt Heuristics to strictly prohibit massive single-block bounding boxes. 
+            // Mandates Micro-Primitive Component Deconstruction (breaking down humans, statues, and structures into compound primitive limbs/shells).
             const pass1Prompt = `
                 Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely.
+                CRITICAL DIRECTIVE: Do not represent objects as single large bounding boxes. You must perform Micro-Primitive Component Deconstruction. 
+                Deconstruct complex subjects (like figures, animals, or status objects) into compound clusters of smaller primitives (e.g., separate shells, trunks, head volumes, distinct limbs, structural supports).
                 Your response must populate exactly two fields inside the target JSON object:
                 1. description: Provide a detailed text summary describing the exact subjects observed.
                 2. blueprint: An architectural text blueprint manifest listing descriptive primitives categorized under headers.
@@ -783,7 +787,7 @@
 
                 const pass2Prompt = `
                     You are a precision 3D Geometry compiler worker focusing strictly on the [${task.id} -> ${task.subId}] sub-layer.
-                    Convert your targeted segment lines into a highly minified JSON shapes layout array.
+                    Convert your targeted segment lines into a highly minified JSON shapes layout array. Ensure all composite clusters are emitted accurately.
                     ${globalSpatialAnchorPrompt}
                     MASTER BLUEPRINT MANIFEST:
                     """
@@ -885,6 +889,7 @@
                     case 'roundedbox': geo = createRoundedBoxGeometry(scl[0], scl[1], scl[2], 0.04, 3); break;
                     case 'sphere': geo = new THREE.SphereGeometry(0.5, 32, 32); break;
                     case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 24); break;
+                    case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 32); break;
                     default: geo = new THREE.BoxGeometry(1, 1, 1);
                 }
 
@@ -898,6 +903,9 @@
                 mesh.position.set(pos[0], pos[1], pos[2]);
                 mesh.rotation.set(rot[0], rot[1], rot[2]);
                 if (shape.t !== 'roundedbox') mesh.scale.set(scl[0], scl[1], scl[2]);
+                
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
                 worldGroup.add(mesh);
             });
 
@@ -1045,7 +1053,7 @@
                 return;
             }
 
-            // FIXED: Decoupled tracking gain multipliers to suppress lateral X sensitivity while leaving Z intact
+            // PRESERVED LOCOMOTION SETTINGS: Decoupled axis scalars locked intact.
             const ACCELERATION_INTEGRATION_GAIN_Z = 0.025;
             const ACCELERATION_INTEGRATION_GAIN_X = 0.006; 
             targetLinearVelocityX -= worldSpaceAcceleration.x * ACCELERATION_INTEGRATION_GAIN_X;
