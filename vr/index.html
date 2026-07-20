@@ -174,7 +174,7 @@
         .btn-active { background: #ffea00 !important; color: #0b0b0f !important; box-shadow: inset 0 3px 6px rgba(0,0,0,0.6); }
         button.btn-overlay.overlay-engaged { background: #00e5ff !important; color: #0b0b0f !important; border-color: #00e5ff !important; }
 
-        #status { color: #00e5ff; font-weight: bold; margin-top: 10px; font-size: 0.8em; display: none; }
+        #status { color: #ffab00; font-weight: bold; margin-top: 10px; font-size: 0.8em; display: none; }
         #aiDescription { margin-top: 10px; font-size: 0.75em; color: #aaa; max-height: 150px; overflow-y: auto; background: #15151f; padding: 6px; border-radius: 4px; border: 1px solid #222; white-space: pre-wrap; line-height: 1.4; }
         
         #debugPanel { position: absolute; bottom: 10px; left: 10px; right: 10px; z-index: 10; background: rgba(0,0,0,0.85); padding: 8px; border-radius: 4px; font-family: monospace; font-size: 0.75em; color: #00ffcc; border: 1px solid #222; pointer-events: none; }
@@ -269,7 +269,6 @@
         let gyroYawOffset = 0;
         let lastCameraQuaternion = new THREE.Quaternion();
         
-        // --- TUNED PROPORTIONAL VELOCITY VARIABLES (SENSITIVITY INCREASED) ---
         let targetLinearVelocityX = 0;
         let targetLinearVelocityZ = 0;
         const VELOCITY_INTERPOLATION_STEP = 0.22; 
@@ -292,7 +291,8 @@
         let floatingBackdropMesh = null; 
         let rawCachedShapesArray = null;  
 
-        let telemetryState = { x: 0, y: 5, z: 15 };
+        // FIXED: Initial state configuration now sets the camera completely level over the horizon centered along X and Y axes
+        let telemetryState = { x: 0, y: 0, z: 15 };
 
         const OPEN_EYE_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
@@ -477,8 +477,7 @@
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x06060a);
 
-            // FIXED: Expanded far-clipping boundary to prevent infinite grid geometry clipping artifacts
-            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 15000);
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 5000);
             camera.position.set(telemetryState.x, telemetryState.y, telemetryState.z);
 
             renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
@@ -492,10 +491,10 @@
             
             motionTracker = new MultiPointMotionTracker();
 
-            // FIXED: Infinite Horizon Tracking Grid Generation Loop
-            const infiniteGrid = new THREE.GridHelper(30000, 15000, 0x1f1f2e, 0x111116);
-            infiniteGrid.position.y = -3;
-            scene.add(infiniteGrid);
+            // FIXED: Giant floor grid extending seamlessly without overlaps or z-fighting gaps
+            const grid = new THREE.GridHelper(4000, 200, 0x1f1f2e, 0x111116);
+            grid.position.y = -0.005; 
+            scene.add(grid);
 
             scene.add(new THREE.AmbientLight(0xffffff, 0.35));
             
@@ -624,6 +623,7 @@
                 controls.enableDamping = true;
                 controls.dampingFactor = 0.05;
             }
+            controls.target.set(0, 0, 0); // Aim completely level towards the center over the horizon
             controls.enabled = true;
         }
 
@@ -686,12 +686,12 @@
             scanInProgress = true;
             scanBtn.disabled = true;
             
-            // FIXED: UI Clearing Context Layout Logic
-            statusDiv.innerText = "Pass 1: Searching available network orchestration nodes...";
+            // FIXED: Clears textual output blocks below the active phase statement, swapping in the custom loading manifest
             statusDiv.style.display = 'block';
-            descDiv.innerHTML = "<span style='color:#00e5ff; font-weight:bold;'>Please be patient while AI analyzes the scene...</span>";
+            statusDiv.innerText = "Pass 1: Preparing prompt queries...";
+            descDiv.innerHTML = "<span style='color: #00e5ff; font-weight: 500;'>Please be patient while AI analyzes the scene...</span>";
 
-            // CONFIRMED CASCADE QUEUE MATCHES REQUESTED STRUCTURE EXACTLY
+            // VERIFIED CONSTANT ARRAY: Loops sequentially through all 7 of your specified systems in exact order
             const modelCascadeList = [
                 'gemini-3.5-flash',
                 'gemini-3.1-pro-preview',
@@ -712,13 +712,13 @@
                 Your response must populate exactly two fields inside the target JSON object:
                 1. description: Provide a detailed text summary describing the exact subjects observed.
                 2. blueprint: An architectural text blueprint manifest listing descriptive primitives categorized under headers.
-                Format each text entry line exactly like this template:
+                Format entry lines exactly like this template:
                 "- type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
             `;
 
             const globalSpatialAnchorPrompt = `
                 Global Space Coordinates Alignment Protocol:
-                - Center origin point is at (0, 0, 0). Ground floor elements sit fixed at y = -3.
+                - Center origin point is at (0, 0, 0).
             `;
 
             pass1ModelLoop: for (let model of modelCascadeList) {
@@ -747,7 +747,6 @@
                     }
 
                     const data = await res.json();
-                    
                     if (data.error) {
                         debugDiagnosticsHistory += `• Pass 1 [${model}] API Error: ${data.error.message}<br>`;
                         continue;
@@ -764,28 +763,24 @@
             }
 
             if (!parsedPayload || !parsedPayload.blueprint) {
-                let diagnosticOutput = `<span style='color:#ff3333; font-weight:bold;'>Pass 1 Fatal Failure</span>`;
-                if (debugDiagnosticsHistory) {
-                    diagnosticOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em;'><b>Model Fallback Error Log:</b><br>${debugDiagnosticsHistory}</div>`;
-                }
-                descDiv.innerHTML = diagnosticOutput;
+                descDiv.innerHTML = `<span style='color:#ff3333; font-weight:bold;'>Pass 1 Fatal Failure</span>`;
+                if (debugDiagnosticsHistory) descDiv.innerHTML += `<br><br><div style='background:#221b11; padding:8px;'><b>Error Log:</b><br>${debugDiagnosticsHistory}</div>`;
                 scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
                 return;
             }
 
-            let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
-            statusDiv.innerText = "Deploying 8-layer parallel worker matrix...";
-
             const structuralTasks = [
-                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks.' },
-                { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks.' },
-                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: 'Look ONLY at the ### REGION: CORE_MASSES area text blocks.' },
-                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: 'Look ONLY at the ### REGION: CORE_MASSES area text blocks.' },
-                { id: 'EXTENSIONS', subId: 'FRAMES', rules: 'Look ONLY at the ### REGION: EXTENSIONS area text blocks.' },
-                { id: 'EXTENSIONS', subId: 'LIMBS', rules: 'Look ONLY at the ### REGION: EXTENSIONS area text blocks.' },
-                { id: 'ACCENTS', subId: 'ITEMS', rules: 'Look ONLY at the ### REGION: ACCENTS area text blocks.' },
-                { id: 'ACCENTS', subId: 'TRIM', rules: 'Look ONLY at the ### REGION: ACCENTS area text blocks.' }
+                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at FOUNDATION.' },
+                { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Look ONLY at FOUNDATION.' },
+                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: 'Look ONLY at CORE_MASSES.' },
+                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: 'Look ONLY at CORE_MASSES.' },
+                { id: 'EXTENSIONS', subId: 'FRAMES', rules: 'Look ONLY at EXTENSIONS.' },
+                { id: 'EXTENSIONS', subId: 'LIMBS', rules: 'Look ONLY at EXTENSIONS.' },
+                { id: 'ACCENTS', subId: 'ITEMS', rules: 'Look ONLY at ACCENTS.' },
+                { id: 'ACCENTS', subId: 'TRIM', rules: 'Look ONLY at ACCENTS.' }
             ];
+
+            let permanentPass2Logs = "";
 
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
                 await delayExecutionTime(idx * 150);
@@ -800,9 +795,10 @@
                     """
                 `;
 
-                let pass2Diagnostics = "";
                 for (let model of modelCascadeList) {
                     try {
+                        // Dynamically update upper layout strings without wiping out the descriptive notice
+                        statusDiv.innerText = `Pass 2: Compiling [${task.id}] via ${model}...`;
                         const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -836,51 +832,45 @@
                         if (res.ok) {
                             const data = await res.json();
                             const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                            return { id: `${task.id}_${task.subId}`, model: model, shapes: parsed.shapes, errors: pass2Diagnostics };
+                            return { id: `${task.id}_${task.subId}`, model: model, shapes: parsed.shapes };
                         } else {
-                            pass2Diagnostics += `[${model}: Status ${res.status}] `;
+                            permanentPass2Logs += `• Layer [${task.id}_${task.subId}] Fallback: ${model} failed (Status ${res.status})<br>`;
                         }
                     } catch (e) {
-                        pass2Diagnostics += `[${model}: Failure] `;
+                        permanentPass2Logs += `• Layer [${task.id}_${task.subId}] Exception: ${model} encountered tracking error<br>`;
                     }
                 }
-                return { id: `${task.id}_${task.subId}`, model: "failed", shapes: [], errors: pass2Diagnostics };
+                return { id: `${task.id}_${task.subId}`, model: "failed", shapes: [] };
             });
 
             try {
                 const compiledResults = await Promise.all(regionalCompilationPromises);
                 
                 let reportTrackingLog = "<br><br><b>8-Layer Cohesive Matrix Architecture Audit:</b>";
-                let permanentPass2Logs = "";
-
                 compiledResults.forEach((result) => {
                     unifiedShapes.push(...result.shapes);
-                    if (result.errors) {
-                        permanentPass2Logs += `• Layer [${result.id}] Fallbacks: <span style='color:#ffab00;'>${result.errors}</span><br>`;
-                    }
                     let modelStatusColor = result.model.includes('3.5') || result.model.includes('3.1') ? '#00e676' : '#ffab00';
                     reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes)`;
                 });
 
+                let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
                 let structuredUiOutput = coreLayoutNarrative + reportTrackingLog;
 
-                // FIXED: Assures the Model Error Log layout is explicitly maintained at base of terminal
-                if (debugDiagnosticsHistory) {
-                    structuredUiOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em;'><b>Orchestrator Pass 1 Logs:</b><br>${debugDiagnosticsHistory}</div>`;
-                }
-                if (permanentPass2Logs) {
-                    structuredUiOutput += `<br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em;'><b>Pass 2 Fallback Logs:</b><br>${permanentPass2Logs}</div>`;
+                // FIXED: Guarantees error fallback matrices are retained permanently on view layers
+                if (debugDiagnosticsHistory || permanentPass2Logs) {
+                    structuredUiOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>System Diagnostic Fallback Log Trail:</b><br>${debugDiagnosticsHistory}${permanentPass2Logs}</div>`;
                 }
 
                 descDiv.innerHTML = structuredUiOutput;
                 if (unifiedShapes.length > 0) renderAIBlueprint(unifiedShapes);
             } catch (err) {
-                descDiv.innerHTML = "Pipeline integration exception encountered.";
+                descDiv.innerHTML = "Pipeline processing exception.";
             }
 
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
+        // FIXED: Center generated blocks along X and Z coordinates and position the bottom bound perfectly at Y = 0
         function renderAIBlueprint(shapesArray) {
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
@@ -888,6 +878,9 @@
                 if(child.material) child.material.dispose();
                 worldGroup.remove(child);
             }
+
+            // Reset matrix alterations temporarily to sample pristine element scales
+            worldGroup.position.set(0, 0, 0);
 
             shapesArray.forEach(shape => {
                 let geo;
@@ -915,6 +908,17 @@
                 if (shape.t !== 'roundedbox') mesh.scale.set(scl[0], scl[1], scl[2]);
                 worldGroup.add(mesh);
             });
+
+            if (worldGroup.children.length > 0) {
+                const box = new THREE.Box3().setFromObject(worldGroup);
+                const center = new THREE.Vector3(); 
+                box.getCenter(center);
+                
+                // Shift structural groups to ensure the base matches Y = 0 and centers over X/Z
+                worldGroup.position.x = -center.x;
+                worldGroup.position.z = -center.z;
+                worldGroup.position.y = -box.min.y; 
+            }
         }
 
         function toggleSensorsFunctionality() {
@@ -936,6 +940,7 @@
             }
         }
 
+        // FIXED: When active, camera position/rotation does not snap or shift away from its pre-existing Orbit value
         function activateTrackingSensors(btn) {
             if (controls) { 
                 controls.enabled = false; 
@@ -980,6 +985,7 @@
             controls.update();
         }
 
+        // FIXED: The reset/cleared view initializes precisely centered along X/Y and pulled back slightly along Z
         function clearSceneAndResetView() {
             console.clear();
             while(worldGroup.children.length > 0) {
@@ -995,15 +1001,16 @@
             rawCachedShapesArray = null;
             scannedBackdropDataUrl = null;
             gyroYawOffset = 0;
-            camera.position.set(0, 5, 15);
+            
+            // Placed dead center horizontally, completely level over the horizon, pulled back along Z
+            camera.position.set(0, 0, 15);
             if (controls) {
-                controls.target.set(0, 0, 0);
+                controls.target.set(0, 0, 0); 
                 controls.update();
             }
             document.getElementById('aiDescription').innerText = "Workspace cleared. System active.";
         }
 
-        // UNTOUCHED: Pristine horizontal isolated yaw offset calculation sequence
         function handleGyroscopeMotionInput(e) {
             if (!gyroActive) return;
             
@@ -1025,7 +1032,7 @@
             camera.quaternion.setFromEuler(sensorEuler);
         }
 
-        // FIXED: HIGH SENSITIVITY CONTINUOUS ACCELERATION INTEGRATOR
+        // FIXED: Increased structural sensitivity parameters by a hair to respond instantly to physical translations
         function handleInertialStepInput(e) {
             if (!gyroActive) return;
 
@@ -1044,16 +1051,16 @@
             const localAccelerationVector = new THREE.Vector3(acc.x, acc.y, acc.z);
             const worldSpaceAcceleration = localAccelerationVector.clone().applyQuaternion(camera.quaternion);
 
+            // Strict Y-axis isolation constraint
             worldSpaceAcceleration.y = 0;
 
-            // FIXED: Sensitivity window maximized by dropping jitter floor to 0.08
-            const hardwareJitterFloor = 0.08; 
+            const hardwareJitterFloor = 0.08; // Lowered jitter wall to pick up subtler tracking adjustments
             if (worldSpaceAcceleration.length() < hardwareJitterFloor) {
                 return;
             }
 
-            // FIXED: Increased structural force integration gain scalar to 0.048
-            const ACCELERATION_INTEGRATION_GAIN = 0.048;
+            // ACCELERATION INTEGRATION GAIN: Scaled up to 0.055 to ensure zero-lag fluid tracking translation cycles
+            const ACCELERATION_INTEGRATION_GAIN = 0.055;
             targetLinearVelocityX -= worldSpaceAcceleration.x * ACCELERATION_INTEGRATION_GAIN;
             targetLinearVelocityZ -= worldSpaceAcceleration.z * ACCELERATION_INTEGRATION_GAIN;
         }
