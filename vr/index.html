@@ -685,7 +685,6 @@
             scanBtn.disabled = true;
             statusDiv.style.display = 'block';
 
-            // Restoring your exact model cascade tracking loop list
             const modelCascadeList = [
                 'gemini-3.5-flash',
                 'gemini-3.1-pro-preview',
@@ -699,7 +698,6 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
-            // MERGED COMPONENT: High fidelity Kinematic constraint layout descriptors from old code
             const pass1Prompt = `
                 Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely.
                 Your response must populate exactly two fields inside the target JSON object:
@@ -717,10 +715,9 @@
                 - No disconnected joints or floating parts allowed. Lower limb parts (forearms, hands, lower framing columns) must have their exact starting vector base anchor positioned flush against the tip of their parent upper limb joint.
                 
                 Format each text entry line exactly like this template:
-                "- type=[box|roundedbox|sphere|cylinder|cone|capsule|plane], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z], color=[hex], roughness=[0.0-1.0], metalness=[0.0-1.0], transmission=[0.0-1.0]"
+                "- type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
             `;
 
-            // MERGED COMPONENT: Midpoint rules & angular constants to guarantee perfect interlocking meshes
             const globalSpatialAnchorPrompt = `
                 Global Space Coordinates Alignment Protocol:
                 - Center origin point is at (0, 0, 0). Ground level/floor planes should sit exactly at y = 0.
@@ -788,7 +785,6 @@
                 return;
             }
 
-            // MERGED COMPONENT: Restoring the exact 8 distinct granular architectural worker sub-layers
             const structuralTasks = [
                 { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile only the large flat floor bases, ground platforms, and main support mats.' },
                 { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile the detailed surface boundaries, secondary rug mats, and floor borders.' },
@@ -802,7 +798,6 @@
 
             let permanentPass2Logs = "";
 
-            // CRITICAL UPGRADE FIX: Pass 2 processes via sequential pacing loops without image payload attachments to avoid 429 rate limit blockades
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
                 await delayExecutionTime(idx * 250);
 
@@ -879,9 +874,11 @@
                 
                 let reportTrackingLog = "<br><br><b>8-Layer High Density Balanced Core Audit Verification Log:</b>";
                 compiledResults.forEach((result) => {
-                    unifiedShapes.push(...result.shapes);
+                    if (result && Array.isArray(result.shapes)) {
+                        unifiedShapes.push(...result.shapes);
+                    }
                     let modelStatusColor = result.model.includes('pro') || result.model.includes('3.5') ? '#00e676' : '#ffab00';
-                    reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes successfully parsed)`;
+                    reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes ? result.shapes.length : 0} nodes successfully parsed)`;
                 });
 
                 let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
@@ -892,9 +889,16 @@
                 }
 
                 descDiv.innerHTML = structuredUiOutput;
-                if (unifiedShapes.length > 0) renderAIBlueprint(unifiedShapes);
+                if (unifiedShapes.length > 0) {
+                    rawCachedShapesArray = unifiedShapes;
+                    renderAIBlueprint(unifiedShapes);
+                } else {
+                    descDiv.innerHTML += "<br><span style='color:#ffea00;'>Warning: Pipeline completed, but the total accumulated shape array contains 0 elements.</span>";
+                }
             } catch (err) {
-                descDiv.innerHTML = "Pipeline processing exception occurred.";
+                // UPGRADE: Prints the real engine error message directly to the screen for visual debugging
+                console.error(err);
+                descDiv.innerHTML = `<span style='color:#ff3333; font-weight:bold;'>Pipeline processing exception occurred:</span> <code style='background:#221111; color:#ff8888; padding:3px;'>${err.message}</code>`;
             }
 
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
@@ -908,21 +912,34 @@
                 worldGroup.remove(child);
             }
 
-            worldGroup.position.set(0, 0, 0);
+            if (floatingBackdropMesh) {
+                if (floatingBackdropMesh.geometry) floatingBackdropMesh.geometry.dispose();
+                if (floatingBackdropMesh.material) {
+                    if (floatingBackdropMesh.material.map) floatingBackdropMesh.material.map.dispose();
+                    floatingBackdropMesh.material.dispose();
+                }
+                scene.remove(floatingBackdropMesh);
+                floatingBackdropMesh = null;
+            }
 
             shapesArray.forEach(shape => {
+                // CRITICAL FIX: Safe defensive type guard checks to catch partial or missing JSON layout strings gracefully
+                if (!shape || typeof shape !== 'object') return;
+                
                 let geo;
                 const pos = shape.p || [0,0,0];
                 const scl = shape.s || [1,1,1];
                 const rot = shape.r || [0,0,0];
-                const primitiveType = shape.t.toLowerCase().trim();
+                
+                // Fallback safely to a baseline mesh style if type field is corrupted
+                const primitiveType = shape.t ? String(shape.t).toLowerCase().trim() : 'box';
 
                 switch(primitiveType) {
                     case 'box': 
                         geo = new THREE.BoxGeometry(1, 1, 1); 
                         break;
                     case 'roundedbox': 
-                        geo = createRoundedBoxGeometry(scl[0], scl[1], scl[2], Math.min(scl[0], scl[1], scl[2]) * 0.15, 4); 
+                        geo = createRoundedBoxGeometry(scl[0]||1, scl[1]||1, scl[2]||1, Math.min(scl[0]||1, scl[1]||1, scl[2]||1) * 0.15, 4); 
                         break;
                     case 'sphere': 
                         geo = new THREE.SphereGeometry(0.5, 32, 32); 
@@ -975,9 +992,23 @@
                 const center = new THREE.Vector3(); 
                 box.getCenter(center);
                 
-                worldGroup.position.x = -center.x;
-                worldGroup.position.z = -center.z;
-                worldGroup.position.y = -box.min.y; 
+                if (controls) {
+                    controls.target.copy(center);
+                    controls.update();
+                }
+
+                if (scannedBackdropDataUrl) {
+                    const size = new THREE.Vector3(); box.getSize(size);
+                    const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
+                    floatingBackdropMesh = new THREE.Mesh(
+                        new THREE.PlaneGeometry(1, 1),
+                        new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
+                    );
+                    floatingBackdropMesh.position.set(center.x, center.y, box.min.z - 1.5);
+                    floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
+                    floatingBackdropMesh.visible = backdropOverlayActive;
+                    scene.add(floatingBackdropMesh);
+                }
             }
         }
 
@@ -1089,6 +1120,7 @@
             camera.quaternion.setFromEuler(sensorEuler);
         }
 
+        // Restored original version kinetic-mass video telemetry analysis mapping handlers
         function handleInertialStepInput(e) {
             if (!gyroActive) return;
 
