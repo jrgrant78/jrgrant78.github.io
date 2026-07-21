@@ -703,17 +703,17 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
-            // FIXED: Hardcoded clear, distinct domain boundaries so Pass 1 generates an explicit list architecture
+            // FIXED: Explicitly defined section blocks so Pass 1 generates content under expected text nodes
             const pass1Prompt = `
                 Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely and break it down into an intricate 3D scene representation composed of multiple high-fidelity primitive forms.
                 
                 Your response must populate exactly two fields inside the target JSON object:
-                1. description: Provide a detailed text summary describing the exact subjects observed, their physical layout, organic structures, clothing/skin textures, poses, and environmental context.
+                1. description: Provide a detailed text summary describing the exact subjects observed, their physical layout, organic curves, garments, poses, and surroundings.
                 2. blueprint: An architectural text blueprint manifest listing descriptive primitives categorized under exact structural region headers.
                 
-                You MUST capture organic details (e.g., body silhouettes, limbs, rounded contours of a human subject, clothing folds, specific sculptural elements) and structural background assets (e.g., tree canopies, background foliage planes, support frames). Avoid over-simplification. Break objects down into high-density constituent groups of at least 40-80 individual primitives total across the whole scene to avoid over-simplification.
+                You MUST capture organic shapes (e.g., body volumes, limbs, contours of an organic subject, clothing layers, custom sculptural baselines) and background objects (e.g., trees, support framework, environment scenery). Avoid over-simplification. Generate a dense, complete list of at least 40-80 individual primitives total.
                 
-                Format the blueprint text exactly using these exact four headers:
+                You MUST structure your blueprint precisely with the following four exact header names:
                 == FOUNDATION ==
                 == CORE_MASSES ==
                 == EXTENSIONS ==
@@ -777,16 +777,16 @@
                 return;
             }
 
-            // FIXED: Restored the original 8-layer parallel list layout from your base script while defining rigid rules for each pass
+            // FIXED: Restored original 8-layer filter tasks, pointing rules strictly to the restored Pass 1 headers
             const structuralTasks = [
-                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: "Look ONLY at entries under '== FOUNDATION =='. Extract main base platforms, ground planes, and large floor blocks." },
-                { id: 'FOUNDATION', subId: 'SURFACE', rules: "Look ONLY at entries under '== FOUNDATION =='. Extract fine surface details on the ground, steps, terrain variations, and base texturing blocks." },
-                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: "Look ONLY at entries under '== CORE_MASSES =='. Extract major central volumes, large structural masses, main object torsos, or central blocks." },
-                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: "Look ONLY at entries under '== CORE_MASSES =='. Extract secondary supporting volumes, soft curves, connected layered masses, or rounded contours." },
-                { id: 'EXTENSIONS', subId: 'FRAMES', rules: "Look ONLY at entries under '== EXTENSIONS =='. Extract structural frames, columns, long poles, branches, or outer geometric outlines." },
-                { id: 'EXTENSIONS', subId: 'LIMBS', rules: "Look ONLY at entries under '== EXTENSIONS =='. Extract organic extensions, limbs, arms, legs, or specialized structural linkages." },
-                { id: 'ACCENTS', subId: 'ITEMS', rules: "Look ONLY at entries under '== ACCENTS =='. Extract small props, standalone decorations, facial elements, shoes, or distinct surface attachments." },
-                { id: 'ACCENTS', subId: 'TRIM', rules: "Look ONLY at entries under '== ACCENTS =='. Extract fine details, clothing seams, edge highlights, or decorative borders." }
+                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: "Look ONLY under '== FOUNDATION =='. Extract base steps, ground scenery platforms, and large floor grids." },
+                { id: 'FOUNDATION', subId: 'SURFACE', rules: "Look ONLY under '== FOUNDATION =='. Extract floor contours, micro-terrain shifts, or base rocks." },
+                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: "Look ONLY under '== CORE_MASSES =='. Extract the primary central volumes, main body torso masses, or center structural forms." },
+                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: "Look ONLY under '== CORE_MASSES =='. Extract secondary layered shapes, rounded curves, garments, or soft connected masses." },
+                { id: 'EXTENSIONS', subId: 'FRAMES', rules: "Look ONLY under '== EXTENSIONS =='. Extract scaffolding columns, vertical lines, frames, or background posts." },
+                { id: 'EXTENSIONS', subId: 'LIMBS', rules: "Look ONLY under '== EXTENSIONS =='. Extract organic limbs, arms, legs, extensions, or side branches." },
+                { id: 'ACCENTS', subId: 'ITEMS', rules: "Look ONLY under '== ACCENTS =='. Extract decorative properties, face details, ornaments, shoes, or distinct elements." },
+                { id: 'ACCENTS', subId: 'TRIM', rules: "Look ONLY under '== ACCENTS =='. Extract fine detail lines, edge variations, borders, or texturing shapes." }
             ];
 
             let permanentPass2Logs = "";
@@ -794,29 +794,27 @@
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
                 await delayExecutionTime(idx * 150);
 
-                // FIXED: Injected an un-deconstructible 1:1 schema translation template mapping directly to JSON object keys (t, m, c, p, s, r) to prevent any key mismatch drops
+                // FIXED: Embedded strict translation dictionary criteria mapping properties directly to short JSON keys to eliminate token drop down constraints
                 const pass2Prompt = `
                     You are a precision 3D Geometry compiler worker focusing strictly on the [${task.id} -> ${task.subId}] sub-layer.
                     
-                    COMPILATION RULES:
-                    1. Read the MASTER BLUEPRINT MANIFEST.
-                    2. Filter content based on your sub-layer assignment rules: ${task.rules}
-                    3. Convert EVERY matching primitive text line item into its corresponding object node inside the required JSON shapes output array. Do NOT summarize or skip lines.
+                    COMPILATION INSTRUCTIONS:
+                    1. Read the MASTER BLUEPRINT MANIFEST text.
+                    2. Filter your focus based on these specific rules: ${task.rules}
+                    3. Convert EVERY matching primitive text list entry within that section into an object node inside the required JSON shapes array. Do NOT summarize. Do NOT omit details or truncate lines.
                     
-                    CRITICAL KEY TRANSLATION GLOSSARY:
-                    You MUST map the parameters from the blueprint text directly to the minified JSON schema keys using this exact mapping structure:
-                    - Map 'type' value directly to the JSON key "t" (e.g., "box", "roundedbox", "sphere", "cylinder", "cone", "capsule", "torus", "plane")
-                    - Map 'material' value directly to the JSON key "m" (e.g., "metal", "matte", "glossy", "organic")
-                    - Map 'color' value directly to the JSON key "c" (e.g., "#ffffff")
-                    - Map 'position' numbers array directly to the JSON key "p" (e.g., [x, y, z])
-                    - Map 'scale' numbers array directly to the JSON key "s" (e.g., [x, y, z])
-                    - Map 'rotation' numbers array directly to the JSON key "r" (e.g., [x, y, z])
+                    CRITICAL KEY TRANSLATION DICTIONARY:
+                    You MUST write the JSON properties using single-character keys mapped from the text attributes exactly like this:
+                    - 'type' maps to "t" (Values: "box", "roundedbox", "sphere", "cylinder", "cone", "capsule", "torus", "plane")
+                    - 'material' maps to "m" (Values: "metal", "matte", "glossy", "organic")
+                    - 'color' maps to "c" (Hex string value)
+                    - 'position' maps to "p" (Numbers array: [x, y, z])
+                    - 'scale' maps to "s" (Numbers array: [x, y, z])
+                    - 'rotation' maps to "r" (Numbers array: [x, y, z])
                     
-                    EXACT MAPPING REFERENCE EXAMPLE:
-                    If you parse this text line: "- type=sphere, material=organic, color=#3366ff, position=[1,2,3], scale=[0.5,0.5,0.5], rotation=[0,0,0]"
-                    You MUST write this JSON object into the shapes array: {"t": "sphere", "m": "organic", "c": "#3366ff", "p": [1,2,3], "s": [0.5,0.5,0.5], "r": [0,0,0]}
-                    
-                    If no lines match your rule assignment, return an empty array for the "shapes" property.
+                    MAPPING REFERENCE PAIR EXAMPLE:
+                    Text: "- type=capsule, material=organic, color=#00ff00, position=[0,1,0], scale=[1,2,1], rotation=[0,0,0]"
+                    Output Array Node: {"t": "capsule", "m": "organic", "c": "#00ff00", "p": [0,1,0], "s": [1,2,1], "r": [0,0,0]}
                     
                     MASTER BLUEPRINT MANIFEST:
                     """
@@ -897,7 +895,7 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
-        // FIXED: Re-added extensive geometry mapping configurations and high-end physical materials to render complex smooth subjects
+        // FIXED: Remapped full 3D geometry vocabulary engine options to cleanly render high-fidelity shapes
         function renderAIBlueprint(shapesArray) {
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
@@ -966,7 +964,6 @@
                 worldGroup.add(mesh);
             });
 
-            // Center geometry flat onto the world terrain grid center origin (Y=0)
             if (worldGroup.children.length > 0) {
                 const box = new THREE.Box3().setFromObject(worldGroup);
                 const center = new THREE.Vector3(); 
@@ -1111,7 +1108,6 @@
                 return;
             }
 
-            // Decoupled Axis-Sensitivity Locomotion coefficients remain fully intact as configured
             const ACCELERATION_INTEGRATION_GAIN_Z = 0.025;
             const ACCELERATION_INTEGRATION_GAIN_X = 0.006; 
             targetLinearVelocityX -= worldSpaceAcceleration.x * ACCELERATION_INTEGRATION_GAIN_X;
