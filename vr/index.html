@@ -22,29 +22,24 @@
             display: flex;
             flex-direction: column;
             gap: 12px;
+            width: auto;
+            max-width: fit-content;
         }
         
-        /* Self-healing collapsing layout rules */
-        #controls.collapsed {
-            right: auto;
-            width: fit-content;
-        }
-
         .main-interface {
             display: flex;
             flex-direction: row;
-            justify-content: bimodal;
-            align-items: stretch; /* Forces camera window height to match left side perfectly */
+            justify-content: flex-start;
+            align-items: stretch;
             gap: 12px;
-            width: 100%;
         }
 
         #leftContainer {
-            display: flex;
+            display: inline-flex;
             flex-direction: column;
             gap: 6px;
             flex-shrink: 0;
-            width: 108px; /* Strict bounds: 3 buttons * 32px + 2 gaps * 6px */
+            width: 108px; /* Snug containment constraint: (32px * 3) + (6px gap * 2) */
         }
 
         .title-row {
@@ -117,26 +112,31 @@
         .btn-active { background: #ffea00 !important; color: #0b0b0f !important; box-shadow: inset 0 3px 6px rgba(0,0,0,0.6); }
         button.btn-overlay.overlay-engaged { background: #00e5ff !important; color: #0b0b0f !important; border-color: #00e5ff !important; }
 
+        /* Camera Viewport Height Constraints Match Left Panel Perfectly */
         #cameraWindow { 
-            position: relative;
-            height: auto; /* Governed explicitly by left container layout alignment scale */
-            aspect-ratio: 4 / 3; /* Structured shape geometry context */
+            flex-shrink: 0;
             border: 2px solid #00e5ff; 
             border-radius: 6px; 
             overflow: hidden; 
             background: #000; 
             box-shadow: 0 4px 15px rgba(0,0,0,0.5); 
             box-sizing: border-box;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            position: relative;
+            aspect-ratio: 16 / 9; 
         }
-        #cameraFeed { width: 100%; height: 100%; object-fit: cover; display: block; }
         
-        #libraryPreview { width: 100%; height: 100%; object-fit: cover; display: none; cursor: pointer; }
-        #folderPlaceholder { 
-            width: 100%; 
-            height: 100%; 
+        /* Absolute position guards remove child dimensions from parent layout calculations */
+        #cameraFeed, #libraryPreview, #folderPlaceholder { 
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            margin: 0;
+            padding: 0;
+        }
+        #folderPlaceholder {
             display: none; 
             align-items: center; 
             justify-content: center; 
@@ -171,7 +171,7 @@
             width: 100%;
         }
         #status { color: #ffab00; font-weight: bold; margin-top: 4px; font-size: 0.8em; display: none; }
-        #aiDescription { font-size: 0.75em; color: #aaa; max-height: 150px; overflow-y: auto; background: #15151f; padding: 6px; border-radius: 4px; border: 1px solid #222; white-space: pre-wrap; line-height: 1.4; width: 100%; box-sizing: border-box; }
+        #aiDescription { margin-top: 4px; font-size: 0.75em; color: #aaa; max-height: 150px; overflow-y: auto; background: #15151f; padding: 6px; border-radius: 4px; border: 1px solid #222; white-space: pre-wrap; line-height: 1.4; width: 100%; box-sizing: border-box; }
         
         #debugPanel { position: absolute; bottom: 10px; left: 10px; right: 10px; z-index: 10; background: rgba(0,0,0,0.85); padding: 8px; border-radius: 4px; font-family: monospace; font-size: 0.75em; color: #00ffcc; border: 1px solid #222; pointer-events: none; }
         
@@ -185,12 +185,12 @@
 
     <div id="controls">
         <div class="main-interface">
-            <!-- 4-Row Bounded Left Container Setup -->
+            <!-- Left 4-Row Container Matrix -->
             <div id="leftContainer">
-                <!-- Row 1: App Title Banner -->
+                <!-- Row 1: Title Header -->
                 <div class="title-row">Spatial Sculptor AR</div>
                 
-                <!-- Row 2: Persistent Utility Icons -->
+                <!-- Row 2: Persistent Utility Navigation Icons -->
                 <div class="icon-row">
                     <button id="uiToggleBtn" title="Toggle UI Controls">
                         <svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -211,14 +211,14 @@
                     </button>
                 </div>
                 
-                <!-- Collapsible System Sub-Panel Structure -->
+                <!-- Minimize Panel Layer Block -->
                 <div id="togglePanel">
-                    <!-- Row 3: API Alignment Pass -->
+                    <!-- Row 3: API Key Field -->
                     <div class="input-row">
                         <input type="password" id="apiKeyField" class="key-input" placeholder="Key...">
                     </div>
                     
-                    <!-- Row 4: Sized-Matched Structural Triggers -->
+                    <!-- Row 4: Size-Matched Micro Action Controls -->
                     <div class="btn-toolbar" id="toolbarNode">
                         <button id="scanBtn" class="action-btn btn-scan" title="Scan Environment">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -242,7 +242,7 @@
                 </div>
             </div>
             
-            <!-- Contextually Height-Bounded Viewport -->
+            <!-- Right-Aligned Adaptive Height Camera Viewport -->
             <div id="cameraWindow">
                 <video id="cameraFeed" autoplay playsinline muted></video>
                 <img id="libraryPreview" alt="Device selection display element">
@@ -260,7 +260,7 @@
             </div>
         </div>
         
-        <!-- Bottom Dynamic Information Stack Panel -->
+        <!-- Bottom Screen-Width Terminal Diagnostic Console Panel -->
         <div id="lowerContent">
             <input type="file" id="fileInput" accept="image/*" style="display: none;">
             <div id="status">Deconstructing spatial geometry orientation...</div>
@@ -617,27 +617,23 @@
             reader.readAsDataURL(targetFile);
         }
 
-        // UPGRADED COMPONENT: Fully reactive DOM viewport compression/deconstruction handler mapping
+        // Expanded control macro handles complete core UI minimization loop targets smoothly
         function toggleControlPanelsVisibility() {
             const togglePanel = document.getElementById('togglePanel');
-            const toggleBtn = document.getElementById('uiToggleBtn');
-            const cameraWin = document.getElementById('cameraWindow');
+            const cameraWindow = document.getElementById('cameraWindow');
             const lowerContent = document.getElementById('lowerContent');
-            const controlsContainer = document.getElementById('controls');
+            const toggleBtn = document.getElementById('uiToggleBtn');
 
-            controlsContainer.classList.toggle('collapsed');
-            const isCollapsed = controlsContainer.classList.contains('collapsed');
-
-            if (isCollapsed) {
+            if (togglePanel.style.display === 'none') {
+                togglePanel.style.display = '';
+                cameraWindow.style.display = '';
+                lowerContent.style.display = '';
+                toggleBtn.innerHTML = OPEN_EYE_SVG;
+            } else {
                 togglePanel.style.display = 'none';
-                cameraWin.style.display = 'none';
+                cameraWindow.style.display = 'none';
                 lowerContent.style.display = 'none';
                 toggleBtn.innerHTML = CLOSED_EYE_SVG;
-            } else {
-                togglePanel.style.display = 'flex';
-                cameraWin.style.display = 'flex';
-                lowerContent.style.display = 'block';
-                toggleBtn.innerHTML = OPEN_EYE_SVG;
             }
         }
 
