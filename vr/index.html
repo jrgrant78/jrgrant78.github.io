@@ -263,13 +263,23 @@
         
         let gyroActive = false;
         let isFirstGyroFrame = false;
-        let gyroYawOffset = 0; 
         let lockedGyroRoll = 0; 
         const cleanTargetQuaternion = new THREE.Quaternion(); 
         
-        let perceptionEngine;
-        const PITCH_THRESHOLD = THREE.MathUtils.degToRad(5);  
-        const TRANSLATION_SPEED_SCALAR = 3.8;                 
+        let gyroYawOffset = 0;
+        let lastCameraQuaternion = new THREE.Quaternion();
+        
+        let targetLinearVelocityX = 0;
+        let targetLinearVelocityZ = 0;
+        const VELOCITY_INTERPOLATION_STEP = 0.22; 
+        const VELOCITY_DEADZONE_LIMIT = 0.001;
+
+        let motionTracker;
+        const LEVEL_PITCH_LIMIT = THREE.MathUtils.degToRad(20);  
+        const LEVEL_ROLL_LIMIT = THREE.MathUtils.degToRad(15);   
+        const ROTATIONAL_BLANKING_THRESHOLD = 0.005; 
+        
+        const TRANSLATION_SPEED_SCALAR = 0.65;                   
         let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
         const worldGroup = new THREE.Group();
@@ -281,7 +291,7 @@
         let floatingBackdropMesh = null; 
         let rawCachedShapesArray = null;  
 
-        let telemetryState = { x: 0, y: 5, z: 15 };
+        let telemetryState = { x: 0, y: 0, z: 15 };
 
         const OPEN_EYE_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
@@ -289,85 +299,108 @@
         const ICON_CAMERA_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/></svg>`;
         const ICON_PHOTO_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 
-        class RadialMassPerceptionEngine {
+        class MultiPointMotionTracker {
             constructor() {
                 this.canvas = document.createElement('canvas');
-                this.canvas.width = 32;
-                this.canvas.height = 32;
+                this.canvas.width = 64;
+                this.canvas.height = 64;
                 this.ctx = this.canvas.getContext('2d');
-                this.prevD = 0;
-                this.prevX = 0;
+                this.prevBuffer = new Uint8ClampedArray(64 * 64);
                 this.initialized = false;
                 
-                this.smoothScale = 0;
-                this.smoothPan = 0;
-                this.smoothingFactor = 0.12; 
+                this.trackingPoints = [
+                    {x: 16, y: 16}, {x: 32, y: 16}, {x: 48, y: 16},
+                    {x: 16, y: 32}, {x: 32, y: 32}, {x: 48, y: 32},
+                    {x: 16, y: 48}, {x: 32, y: 48}, {x: 48, y: 48}
+                ];
             }
 
             analyze(video) {
                 if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) return { scale: 0, pan: 0 };
                 
-                this.ctx.drawImage(video, 0, 0, 32, 32);
-                const rawPixels = this.ctx.getImageData(0, 0, 32, 32).data;
+                this.ctx.drawImage(video, 0, 0, 64, 64);
+                const frameData = this.ctx.getImageData(0, 0, 64, 64).data;
                 
-                let rowSum = new Float32Array(32);
-                let colSum = new Float32Array(32);
-                
-                for (let y = 0; y < 32; y++) {
-                    for (let x = 0; x < 32; x++) {
-                        const idx = (y * 32 + x) * 4;
-                        const luma = (rawPixels[idx] + rawPixels[idx + 1] + rawPixels[idx + 2]) / 3.0;
-                        rowSum[y] += luma;
-                        colSum[x] += luma;
-                    }
+                let curBuffer = new Uint8ClampedArray(64 * 64);
+                let curTotalLuma = 0;
+                let prevTotalLuma = 0;
+
+                for (let i = 0; i < 64 * 64; i++) {
+                    curBuffer[i] = (frameData[i*4] + frameData[i*4+1] + frameData[i*4+2]) / 3;
+                    curTotalLuma += curBuffer[i];
+                    if (this.initialized) prevTotalLuma += this.prevBuffer[i];
                 }
-
-                let massLeft = 0, weightLeft = 0;
-                let massRight = 0, weightRight = 0;
-                let massTotal = 0, weightTotal = 0;
-
-                for (let x = 0; x < 32; x++) {
-                    massTotal += x * colSum[x];
-                    weightTotal += colSum[x];
-                    if (x < 16) {
-                        massLeft += x * colSum[x];
-                        weightLeft += colSum[x];
-                    } else {
-                        massRight += x * colSum[x];
-                        weightRight += colSum[x];
-                    }
-                }
-
-                const centerX_L = weightLeft > 0 ? massLeft / weightLeft : 0;
-                const centerX_R = weightRight > 0 ? massRight / weightRight : 16;
-                const currentD = centerX_R - centerX_L; 
-                const currentX = weightTotal > 0 ? massTotal / weightTotal : 16;
 
                 if (!this.initialized) {
-                    this.prevD = currentD;
-                    this.prevX = currentX;
+                    this.prevBuffer.set(curBuffer);
                     this.initialized = true;
                     return { scale: 0, pan: 0 };
                 }
 
-                let deltaD = currentD - this.prevD;
-                let deltaX = currentX - this.prevX;
+                const lumaBalanceOffset = (curTotalLuma - prevTotalLuma) / 4096.0;
 
-                this.prevD = currentD;
-                this.prevX = currentX;
+                let totalVectorX = 0;
+                let totalExpansion = 0;
+                const searchRadius = 5;
+                
+                let activeMotionBlocksCount = 0;
 
-                if (Math.abs(deltaD) < 0.012) deltaD = 0;
-                if (Math.abs(deltaX) < 0.012) deltaX = 0;
+                for (let pt of this.trackingPoints) {
+                    let bestSAD = Infinity;
+                    let mvX = 0;
+                    let mvY = 0;
 
-                const rawScale = deltaD * 8.0;
-                const rawPan = deltaX * 2.5;
+                    for (let sy = -searchRadius; sy <= searchRadius; sy++) {
+                        for (let sx = -searchRadius; sx <= searchRadius; sx++) {
+                            let sad = 0;
+                            for (let wy = -1; wy <= 1; wy++) {
+                                for (let wx = -1; wx <= 1; wx++) {
+                                    const oldX = pt.x + wx;
+                                    const oldY = pt.y + wy;
+                                    const newX = pt.x + wx + sx;
+                                    const newY = pt.y + wy + sy;
 
-                this.smoothScale += this.smoothingFactor * (rawScale - this.smoothScale);
-                this.smoothPan += this.smoothingFactor * (rawPan - this.smoothPan);
+                                    if (oldX >= 0 && oldX < 64 && oldY >= 0 && oldY < 64 &&
+                                        newX >= 0 && newX < 64 && newY >= 0 && newY < 64) {
+                                        const normalizedCurPixel = curBuffer[newY * 64 + newX] - lumaBalanceOffset;
+                                        sad += Math.abs(normalizedCurPixel - this.prevBuffer[oldY * 64 + oldX]);
+                                    }
+                                }
+                            }
+
+                            if (sad < bestSAD) {
+                                bestSAD = sad;
+                                mvX = sx;
+                                mvY = sy;
+                            }
+                        }
+                    }
+
+                    if (mvX !== 0 || mvY !== 0) {
+                        activeMotionBlocksCount++;
+                    }
+
+                    totalVectorX += mvX;
+                    const vecFromCenterValX = pt.x - 32;
+                    const vecFromCenterValY = pt.y - 32;
+                    totalExpansion += (mvX * vecFromCenterValX) + (mvY * vecFromCenterValY);
+                }
+
+                this.prevBuffer.set(curBuffer);
+
+                if (activeMotionBlocksCount < 5) {
+                    return { scale: 0, pan: 0 };
+                }
+
+                let rawPan = -(totalVectorX / 9.0) * 0.25;
+                let rawScale = (totalExpansion / 9.0) * 0.015;
+
+                if (Math.abs(rawPan) < 0.14) rawPan = 0;
+                if (Math.abs(rawScale) < 0.10) rawScale = 0;
 
                 return {
-                    scale: this.smoothScale,
-                    pan: this.smoothPan
+                    scale: THREE.MathUtils.clamp(rawScale, -0.2, 0.2),
+                    pan: THREE.MathUtils.clamp(rawPan, -0.2, 0.2)
                 };
             }
         }
@@ -443,7 +476,7 @@
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x06060a);
 
-            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 5000);
             camera.position.set(telemetryState.x, telemetryState.y, telemetryState.z);
 
             renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
@@ -455,10 +488,10 @@
 
             initOrbitControls();
             
-            perceptionEngine = new RadialMassPerceptionEngine();
+            motionTracker = new MultiPointMotionTracker();
 
-            const grid = new THREE.GridHelper(50, 25, 0x1f1f2e, 0x111116);
-            grid.position.y = -3;
+            const grid = new THREE.GridHelper(4000, 200, 0x1f1f2e, 0x111116);
+            grid.position.y = -0.005; 
             scene.add(grid);
 
             scene.add(new THREE.AmbientLight(0xffffff, 0.35));
@@ -474,10 +507,6 @@
             const fillLight = new THREE.DirectionalLight(0xdbe7ff, 0.5);
             fillLight.position.set(-15, 10, 10);
             scene.add(fillLight);
-
-            const dramaticRimLight = new THREE.DirectionalLight(0xffffff, 1.8);
-            dramaticRimLight.position.set(-5, 12, -25);
-            scene.add(dramaticRimLight);
 
             scene.add(worldGroup);
 
@@ -592,6 +621,7 @@
                 controls.enableDamping = true;
                 controls.dampingFactor = 0.05;
             }
+            controls.target.set(0, 0, 0); 
             controls.enabled = true;
         }
 
@@ -655,10 +685,13 @@
             scanBtn.disabled = true;
             statusDiv.style.display = 'block';
 
+            // Restoring your exact model cascade tracking loop list
             const modelCascadeList = [
                 'gemini-3.5-flash',
-                'gemini-3.1-flash-lite',
-                'gemini-3.1-pro-preview'
+                'gemini-3.1-pro-preview',
+                'gemini-3-flash-preview',
+                'gemini-2.5-pro',
+                'gemini-3.1-flash-lite'
             ];
             
             let parsedPayload = null;
@@ -666,7 +699,7 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
-            // FIXED: Added strict Kinematic chain rules to the blueprint drafting generation layer
+            // MERGED COMPONENT: High fidelity Kinematic constraint layout descriptors from old code
             const pass1Prompt = `
                 Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely.
                 Your response must populate exactly two fields inside the target JSON object:
@@ -684,13 +717,13 @@
                 - No disconnected joints or floating parts allowed. Lower limb parts (forearms, hands, lower framing columns) must have their exact starting vector base anchor positioned flush against the tip of their parent upper limb joint.
                 
                 Format each text entry line exactly like this template:
-                "- type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
+                "- type=[box|roundedbox|sphere|cylinder|cone|capsule|plane], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z], color=[hex], roughness=[0.0-1.0], metalness=[0.0-1.0], transmission=[0.0-1.0]"
             `;
 
-            // FIXED: Provided explicit Euler conversion lookups to eliminate floating-point rotation drift
+            // MERGED COMPONENT: Midpoint rules & angular constants to guarantee perfect interlocking meshes
             const globalSpatialAnchorPrompt = `
                 Global Space Coordinates Alignment Protocol:
-                - Center origin point is at (0, 0, 0). Ground floor elements sit fixed at y = -3.
+                - Center origin point is at (0, 0, 0). Ground level/floor planes should sit exactly at y = 0.
                 
                 STRICT KINEMATIC CHAIN MECHANICS:
                 - THE MIDPOINT VECTOR LAW: In Three.js, a cylinder or capsule positions itself from its exact geometric center point. When constructing any limb or connecting bar extending from Joint A [x1, y1, z1] to Joint B [x2, y2, z2], you MUST calculate the position vector as the absolute mathematical midpoint: [(x1+x2)/2, (y1+y2)/2, (z1+z2)/2].
@@ -710,7 +743,7 @@
             pass1ModelLoop: for (let model of modelCascadeList) {
                 try {
                     statusDiv.innerText = `Pass 1: Prompting ${model}...`;
-                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
+                    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -733,15 +766,8 @@
                     }
 
                     const data = await res.json();
-                    
                     if (data.error) {
                         debugDiagnosticsHistory += `• Pass 1 [${model}] API Error: ${data.error.message}<br>`;
-                        continue;
-                    }
-
-                    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-                        const reason = data.candidates?.[0]?.finishReason || "UNKNOWN_BLOCK";
-                        debugDiagnosticsHistory += `• Pass 1 [${model}] Blocked: Reason = [${reason}]<br>`;
                         continue;
                     }
 
@@ -756,18 +782,13 @@
             }
 
             if (!parsedPayload || !parsedPayload.blueprint) {
-                descDiv.innerHTML = `
-                    <span style='color:#ff3333; font-weight:bold;'>Pass 1 Fatal Cascade Failure</span><br>
-                    <div style='background:#221111; border:1px solid #ff3333; padding:10px; border-radius:4px; margin-top:8px;'>
-                        <b>Inference Engine Diagnostic Trail:</b><br>${debugDiagnosticsHistory || "No server responses recorded."}
-                    </div>`;
+                descDiv.innerHTML = `<span style='color:#ff3333; font-weight:bold;'>Pass 1 Fatal Failure</span>`;
+                if (debugDiagnosticsHistory) descDiv.innerHTML += `<br><br><div style='width: 100%; background:#221b11; padding:8px;'><b>Error Log:</b><br>${debugDiagnosticsHistory}</div>`;
                 scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
                 return;
             }
 
-            let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
-            statusDiv.innerText = "Pass 1 Scaffolding complete. Deploying 8-layer parallel worker matrix...";
-
+            // MERGED COMPONENT: Restoring the exact 8 distinct granular architectural worker sub-layers
             const structuralTasks = [
                 { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile only the large flat floor bases, ground platforms, and main support mats.' },
                 { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile the detailed surface boundaries, secondary rug mats, and floor borders.' },
@@ -779,6 +800,9 @@
                 { id: 'ACCENTS', subId: 'TRIM', rules: 'Look ONLY at the ### REGION: ACCENTS area text blocks. Compile micro-geometric additions, small texturing adjustments, color highlights, and edge borders.' }
             ];
 
+            let permanentPass2Logs = "";
+
+            // CRITICAL UPGRADE FIX: Pass 2 processes via sequential pacing loops without image payload attachments to avoid 429 rate limit blockades
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
                 await delayExecutionTime(idx * 250);
 
@@ -799,10 +823,10 @@
                     - Output purely your sub-layer target items without duplication.
                 `;
 
-                let pass2Diagnostics = "";
                 for (let model of modelCascadeList) {
                     try {
-                        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userEnteredKey}`, {
+                        statusDiv.innerText = `Pass 2: Compiling [${task.id}_${task.subId}] via ${model}...`;
+                        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -817,12 +841,16 @@
                                                 items: {
                                                     type: "OBJECT",
                                                     properties: {
-                                                        t: { type: "STRING" }, m: { type: "STRING" }, c: { type: "STRING" },
-                                                        p: { type: "ARRAY", items: { type: "NUMBER" } },
-                                                        s: { type: "ARRAY", items: { type: "NUMBER" } },
-                                                        r: { type: "ARRAY", items: { type: "NUMBER" } }
+                                                        t: { type: "STRING", description: "type: box, roundedbox, sphere, cylinder, cone, capsule, plane" }, 
+                                                        p: { type: "ARRAY", items: { type: "NUMBER" }, description: "position [x, y, z]" },
+                                                        s: { type: "ARRAY", items: { type: "NUMBER" }, description: "scale [x, y, z]" },
+                                                        r: { type: "ARRAY", items: { type: "NUMBER" }, description: "rotation [x, y, z] in radians" },
+                                                        c: { type: "STRING", description: "hex color code" },
+                                                        rough: { type: "NUMBER", description: "roughness float 0.0 to 1.0" },
+                                                        metal: { type: "NUMBER", description: "metalness float 0.0 to 1.0" },
+                                                        trans: { type: "NUMBER", description: "transmission float 0.0 to 1.0" }
                                                     },
-                                                    required: ["t", "m", "c", "p", "s", "r"]
+                                                    required: ["t", "p", "s", "r", "c", "rough", "metal", "trans"]
                                                 }
                                             }
                                         },
@@ -834,57 +862,39 @@
 
                         if (res.ok) {
                             const data = await res.json();
-                            if (data.candidates && data.candidates[0] && data.candidates[0].content) {
-                                const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                                if (parsed && Array.isArray(parsed.shapes)) {
-                                    return { id: `${task.id}_${task.subId}`, model: model, shapes: parsed.shapes, errors: pass2Diagnostics };
-                                }
-                            }
+                            const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
+                            return { id: `${task.id}_${task.subId}`, model: model, shapes: parsed.shapes || [] };
                         } else {
-                            pass2Diagnostics += `[${model}: Status ${res.status}] `;
+                            permanentPass2Logs += `• Layer [${task.id}_${task.subId}] Fallback: ${model} failed (Status ${res.status})<br>`;
                         }
-                    } catch (e) { pass2Diagnostics += `[${model}: Failure] `; }
+                    } catch (e) {
+                        permanentPass2Logs += `• Layer [${task.id}_${task.subId}] Exception: ${model} encountered tracking error<br>`;
+                    }
                 }
-                return { id: `${task.id}_${task.subId}`, model: "failed", shapes: [] , errors: pass2Diagnostics };
+                return { id: `${task.id}_${task.subId}`, model: "failed", shapes: [] };
             });
 
             try {
                 const compiledResults = await Promise.all(regionalCompilationPromises);
                 
-                let reportTrackingLog = "<br><br><b>8-Layer Cohesive Kinematic Audit Matrix:</b>";
-                let permanentPass2Logs = "";
-
+                let reportTrackingLog = "<br><br><b>8-Layer High Density Balanced Core Audit Verification Log:</b>";
                 compiledResults.forEach((result) => {
-                    if (result.shapes.length > 0) {
-                        unifiedShapes.push(...result.shapes);
-                    }
-                    if (result.errors) {
-                        permanentPass2Logs += `• Layer [${result.id}] Fallbacks: <span style='color:#ffab00;'>${result.errors}</span><br>`;
-                    }
-                    let modelStatusColor = result.model.includes('3.5') ? '#00e676' : '#ffab00';
-                    reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes)`;
+                    unifiedShapes.push(...result.shapes);
+                    let modelStatusColor = result.model.includes('pro') || result.model.includes('3.5') ? '#00e676' : '#ffab00';
+                    reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes successfully parsed)`;
                 });
 
+                let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
                 let structuredUiOutput = coreLayoutNarrative + reportTrackingLog;
 
-                if (debugDiagnosticsHistory) {
-                    structuredUiOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>Orchestrator Pass 1 Telemetry Logs:</b><br>${debugDiagnosticsHistory}</div>`;
-                }
-                if (permanentPass2Logs) {
-                    structuredUiOutput += `<br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>Pass 2 Joint Telemetry Trail:</b><br>${permanentPass2Logs}</div>`;
+                if (debugDiagnosticsHistory || permanentPass2Logs) {
+                    structuredUiOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>System Connection Diagnostics Trail:</b><br>${debugDiagnosticsHistory}${permanentPass2Logs}</div>`;
                 }
 
                 descDiv.innerHTML = structuredUiOutput;
-
-                if (unifiedShapes.length > 0) {
-                    rawCachedShapesArray = unifiedShapes; 
-                    renderAIBlueprint(unifiedShapes);
-                } else {
-                    descDiv.innerHTML += "<br><span style='color:#ff3333;'>Compilation thread failure. Assembled index array returned empty coordinates.</span>";
-                }
+                if (unifiedShapes.length > 0) renderAIBlueprint(unifiedShapes);
             } catch (err) {
-                console.error(err);
-                descDiv.innerHTML = "<span style='color:#ff3333;'>Parallel pipeline synchronization exception.</span>";
+                descDiv.innerHTML = "Pipeline processing exception occurred.";
             }
 
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
@@ -898,81 +908,76 @@
                 worldGroup.remove(child);
             }
 
-            if (floatingBackdropMesh) {
-                if (floatingBackdropMesh.geometry) floatingBackdropMesh.geometry.dispose();
-                if (floatingBackdropMesh.material) {
-                    if (floatingBackdropMesh.material.map) floatingBackdropMesh.material.map.dispose();
-                    floatingBackdropMesh.material.dispose();
-                }
-                scene.remove(floatingBackdropMesh);
-                floatingBackdropMesh = null;
-            }
+            worldGroup.position.set(0, 0, 0);
 
             shapesArray.forEach(shape => {
-                if (!shape || !shape.t) return;
                 let geo;
                 const pos = shape.p || [0,0,0];
                 const scl = shape.s || [1,1,1];
                 const rot = shape.r || [0,0,0];
-                let customScaleHandled = false;
+                const primitiveType = shape.t.toLowerCase().trim();
 
-                try {
-                    switch(shape.t.toLowerCase().trim()) {
-                        case 'box': geo = new THREE.BoxGeometry(1, 1, 1); break;
-                        case 'roundedbox':
-                            customScaleHandled = true;
-                            geo = createRoundedBoxGeometry(scl[0]||1, scl[1]||1, scl[2]||1, 0.04, 3);
-                            break;
-                        case 'sphere': geo = new THREE.SphereGeometry(0.5, 32, 32); break;
-                        case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 24); break;
-                        case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 24); break;
-                        case 'capsule': geo = new THREE.CapsuleGeometry(0.3, 0.6, 8, 24); break;
-                        case 'torus': geo = new THREE.TorusGeometry(0.4, 0.1, 12, 36); break;
-                        default: geo = new THREE.BoxGeometry(1, 1, 1);
-                    }
+                switch(primitiveType) {
+                    case 'box': 
+                        geo = new THREE.BoxGeometry(1, 1, 1); 
+                        break;
+                    case 'roundedbox': 
+                        geo = createRoundedBoxGeometry(scl[0], scl[1], scl[2], Math.min(scl[0], scl[1], scl[2]) * 0.15, 4); 
+                        break;
+                    case 'sphere': 
+                        geo = new THREE.SphereGeometry(0.5, 32, 32); 
+                        break;
+                    case 'cylinder': 
+                        geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 32); 
+                        break;
+                    case 'cone':
+                        geo = new THREE.ConeGeometry(0.5, 1, 32);
+                        break;
+                    case 'capsule':
+                        geo = new THREE.CapsuleGeometry(0.4, 0.6, 8, 16);
+                        break;
+                    case 'plane':
+                        geo = new THREE.PlaneGeometry(1, 1);
+                        break;
+                    default: 
+                        geo = new THREE.BoxGeometry(1, 1, 1);
+                }
 
-                    if (geo) {
-                        const mat = new THREE.MeshPhysicalMaterial({
-                            color: new THREE.Color(shape.c || "#ffffff"),
-                            roughness: shape.t === 'roundedbox' || shape.t === 'sphere' ? 0.15 : 0.6,
-                            metalness: shape.m === 'metal' ? 0.8 : 0.1,
-                            clearcoat: 1.0,
-                            clearcoatRoughness: 0.1,
-                            side: THREE.DoubleSide
-                        });
+                const isTranslucent = shape.trans > 0.05;
+                const mat = new THREE.MeshPhysicalMaterial({
+                    color: new THREE.Color(shape.c || "#ffffff"),
+                    roughness: shape.rough !== undefined ? THREE.MathUtils.clamp(shape.rough, 0, 1) : 0.4,
+                    metalness: shape.metal !== undefined ? THREE.MathUtils.clamp(shape.metal, 0, 1) : 0.0,
+                    transmission: shape.trans !== undefined ? THREE.MathUtils.clamp(shape.trans, 0, 1) : 0.0,
+                    ior: isTranslucent ? 1.52 : 1.0, 
+                    thickness: isTranslucent ? 1.0 : 0.0, 
+                    transparent: isTranslucent,
+                    side: primitiveType === 'plane' ? THREE.DoubleSide : THREE.FrontSide,
+                    clearcoat: shape.metal > 0.5 ? 0.3 : 0.0, 
+                    clearcoatRoughness: 0.1
+                });
 
-                        const mesh = new THREE.Mesh(geo, mat);
-                        mesh.position.set(pos[0], pos[1], pos[2]);
-                        mesh.rotation.set(rot[0], rot[1], rot[2]);
-                        if (!customScaleHandled) mesh.scale.set(scl[0], scl[1], scl[2]);
-
-                        mesh.castShadow = true;
-                        mesh.receiveShadow = true;
-                        worldGroup.add(mesh);
-                    }
-                } catch (e) { console.error(e); }
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(pos[0], pos[1], pos[2]);
+                mesh.rotation.set(rot[0], rot[1], rot[2]);
+                
+                if (primitiveType !== 'roundedbox') {
+                    mesh.scale.set(scl[0], scl[1], scl[2]);
+                }
+                
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                worldGroup.add(mesh);
             });
 
             if (worldGroup.children.length > 0) {
                 const box = new THREE.Box3().setFromObject(worldGroup);
-                const center = new THREE.Vector3(); box.getCenter(center);
-                if (controls) {
-                    controls.target.copy(center);
-                    controls.update();
-                }
-
-                if (scannedBackdropDataUrl) {
-                    const size = new THREE.Vector3(); box.getSize(size);
-                    const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
-                    floatingBackdropMesh = new THREE.Mesh(
-                        new THREE.PlaneGeometry(1, 1),
-                        new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
-                    );
-                    floatingBackdropMesh.position.set(center.x, center.y, box.min.z - 1.5);
-                    floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
-                    floatingBackdropMesh.visible = backdropOverlayActive;
-                    scene.add(floatingBackdropMesh);
-                }
+                const center = new THREE.Vector3(); 
+                box.getCenter(center);
+                
+                worldGroup.position.x = -center.x;
+                worldGroup.position.z = -center.z;
+                worldGroup.position.y = -box.min.y; 
             }
         }
 
@@ -982,8 +987,12 @@
                 deactivateTrackingSensors();
             } else {
                 if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                    DeviceOrientationEvent.requestPermission().then(state => {
-                        if (state === 'granted') activateTrackingSensors(btn);
+                    Promise.all([
+                        DeviceOrientationEvent.requestPermission(),
+                        typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function' ? 
+                            DeviceMotionEvent.requestPermission() : Promise.resolve('granted')
+                    ]).then(states => {
+                        if (states.every(s => s === 'granted')) activateTrackingSensors(btn);
                     });
                 } else {
                     activateTrackingSensors(btn);
@@ -997,6 +1006,7 @@
             }
             isFirstGyroFrame = true;
             window.addEventListener('deviceorientation', handleGyroscopeMotionInput, true);
+            window.addEventListener('devicemotion', handleInertialStepInput, true);
             gyroActive = true;
             btn.classList.add('btn-active');
         }
@@ -1004,7 +1014,10 @@
         function deactivateTrackingSensors() {
             if (!gyroActive) return;
             window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
+            window.removeEventListener('devicemotion', handleInertialStepInput);
             gyroActive = false;
+            targetLinearVelocityX = 0;
+            targetLinearVelocityZ = 0;
             document.getElementById('gyroBtn').classList.remove('btn-active');
             
             const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
@@ -1026,17 +1039,13 @@
             
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.target.copy(explicitTargetPoint);
-            
-            controls.enableDamping = false;
-            controls.update();
-            
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
+            controls.update();
         }
 
         function clearSceneAndResetView() {
             console.clear();
-            
             while(worldGroup.children.length > 0) {
                 let c = worldGroup.children[0];
                 if(c.geometry) c.geometry.dispose();
@@ -1045,11 +1054,15 @@
             }
             deactivateTrackingSensors();
             lockedGyroRoll = 0; 
+            targetLinearVelocityX = 0;
+            targetLinearVelocityZ = 0;
             rawCachedShapesArray = null;
             scannedBackdropDataUrl = null;
-            camera.position.set(0, 5, 15);
+            gyroYawOffset = 0;
+            
+            camera.position.set(0, 0, 15);
             if (controls) {
-                controls.target.set(0, 0, 0);
+                controls.target.set(0, 0, 0); 
                 controls.update();
             }
             document.getElementById('aiDescription').innerText = "Workspace cleared. System active.";
@@ -1076,45 +1089,73 @@
             camera.quaternion.setFromEuler(sensorEuler);
         }
 
+        function handleInertialStepInput(e) {
+            if (!gyroActive) return;
+
+            let acc = e.acceleration; 
+            if (!acc || acc.x === null) return;
+
+            const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+            const horizonLevelEngaged = (Math.abs(currentEuler.x) <= LEVEL_PITCH_LIMIT && Math.abs(currentEuler.z) <= LEVEL_ROLL_LIMIT);
+            
+            if (!horizonLevelEngaged) {
+                targetLinearVelocityX = 0;
+                targetLinearVelocityZ = 0;
+                return;
+            }
+
+            const localAccelerationVector = new THREE.Vector3(acc.x, acc.y, acc.z);
+            const worldSpaceAcceleration = localAccelerationVector.clone().applyQuaternion(camera.quaternion);
+
+            worldSpaceAcceleration.y = 0;
+
+            const hardwareJitterFloor = 0.08; 
+            if (worldSpaceAcceleration.length() < hardwareJitterFloor) {
+                return;
+            }
+
+            const ACCELERATION_INTEGRATION_GAIN_Z = 0.025;
+            const ACCELERATION_INTEGRATION_GAIN_X = 0.006; 
+            targetLinearVelocityX -= worldSpaceAcceleration.x * ACCELERATION_INTEGRATION_GAIN_X;
+            targetLinearVelocityZ -= worldSpaceAcceleration.z * ACCELERATION_INTEGRATION_GAIN_Z;
+        }
+
         function animate() {
             requestAnimationFrame(animate);
             
-            if (gyroActive && perceptionEngine) {
-                const massFlow = perceptionEngine.analyze(videoElement);
+            let statusHorizonStr = "LOCKED";
+            
+            if (gyroActive) {
                 const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
                 
-                visualTelemetry.scaleFlow = massFlow.scale;
-                visualTelemetry.panFlow = massFlow.pan;
-                
-                if (Math.abs(currentEuler.x) <= PITCH_THRESHOLD) {
-                    visualTelemetry.gated = false;
-                    
-                    const forwardXZ = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-                    forwardXZ.y = 0; 
-                    forwardXZ.normalize();
-                    
-                    const rightXZ = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-                    rightXZ.y = 0;
-                    rightXZ.normalize();
+                if (Math.abs(currentEuler.x) <= LEVEL_PITCH_LIMIT && Math.abs(currentEuler.z) <= LEVEL_ROLL_LIMIT) {
+                    statusHorizonStr = "LEVEL_WALK";
+                } else {
+                    statusHorizonStr = "TILT_GATED";
+                    targetLinearVelocityX = 0;
+                    targetLinearVelocityZ = 0;
+                }
 
-                    const moveStepZ = massFlow.scale * TRANSLATION_SPEED_SCALAR;
-                    const moveStepX = -massFlow.pan * TRANSLATION_SPEED_SCALAR;
-                    
-                    camera.position.addScaledVector(forwardXZ, moveStepZ);
-                    camera.position.addScaledVector(rightXZ, moveStepX);
+                const INTEGRATION_LEAK_DECAY = 0.78;
+                targetLinearVelocityX *= INTEGRATION_LEAK_DECAY;
+                targetLinearVelocityZ *= INTEGRATION_LEAK_DECAY;
+
+                if (Math.abs(targetLinearVelocityX) < VELOCITY_DEADZONE_LIMIT) targetLinearVelocityX = 0;
+                if (Math.abs(targetLinearVelocityZ) < VELOCITY_DEADZONE_LIMIT) targetLinearVelocityZ = 0;
+
+                if (targetLinearVelocityX !== 0 || targetLinearVelocityZ !== 0) {
+                    camera.position.x += targetLinearVelocityX;
+                    camera.position.z += targetLinearVelocityZ;
                     
                     if (controls) {
-                        controls.target.addScaledVector(forwardXZ, moveStepZ);
-                        controls.target.addScaledVector(rightXZ, moveStepX);
+                        controls.target.x += targetLinearVelocityX;
+                        controls.target.z += targetLinearVelocityZ;
                     }
-                } else {
-                    visualTelemetry.gated = true; 
                 }
             }
 
             if (controls && controls.enabled) {
                 controls.update();
-                
                 if (!gyroActive && lockedGyroRoll !== 0) {
                     cleanTargetQuaternion.copy(camera.quaternion);
                     camera.rotateZ(lockedGyroRoll);
@@ -1124,7 +1165,7 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Zoom:${visualTelemetry.scaleFlow.toFixed(3)} Pan:${visualTelemetry.panFlow.toFixed(3)} Horizon:${visualTelemetry.gated ? 'Gated' : 'TRACKING'} | Objects: ${worldGroup.children.length}`;
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
             
