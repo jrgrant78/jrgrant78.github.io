@@ -243,7 +243,7 @@
                 <input type="password" id="apiKeyField" class="key-input" placeholder="Enter Gemini API Key...">
                 <button id="overlayToggleBtn" class="btn-overlay" title="Toggle Image Alignment Plane">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline>
+                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polygon>
                     </svg>
                 </button>
             </div>
@@ -683,11 +683,8 @@
 
             scanInProgress = true;
             scanBtn.disabled = true;
-            
             statusDiv.style.display = 'block';
-            statusDiv.innerText = "Pass 1: Analyzing spatial scene outline...";
-            descDiv.innerHTML = "<span style='color: #00e5ff; font-weight: 500;'>Please be patient while AI builds the spatial skeleton...</span>";
-
+            
             const modelCascadeList = [
                 'gemini-3.5-flash',
                 'gemini-3.1-pro-preview',
@@ -696,107 +693,121 @@
                 'gemini-3.1-flash-lite'
             ];
             
-            let parsedPayload = null;
             let unifiedShapes = [];
-            let successfulPass1Model = "none";
-            let debugDiagnosticsHistory = "";
+            let permanentPipelineLogs = "";
+            let overallSummaryText = "High-Density Deep Quadrant Scanning Execution Active:\n";
 
-            // Pass 1 now acts as a stable architectural description guide, preventing token block overflows
-            const pass1Prompt = `
-                Act as an expert 3D Computer Vision Orchestrator. Analyze this image frame carefully.
-                Provide a highly detailed spatial breakdown analysis describing all visible objects, structural assemblies, physical elements, boundaries, and textures.
-                Your response must populate exactly one string field: "description".
-            `;
-
-            pass1ModelLoop: for (let model of modelCascadeList) {
-                try {
-                    statusDiv.innerText = `Pass 1: Orchestrating via ${model}...`;
-                    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            contents: [{ parts: [{ text: pass1Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }],
-                            generationConfig: { 
-                                responseMimeType: "application/json",
-                                responseSchema: {
-                                    type: "OBJECT",
-                                    properties: { description: { type: "STRING" } },
-                                    required: ["description"]
-                                }
-                            }
-                        })
-                    });
-
-                    if (!res.ok) {
-                        const errorDetailsText = await res.text();
-                        debugDiagnosticsHistory += `• Pass 1 [${model}] Error ${res.status}: ${errorDetailsText.substring(0, 100)}...<br>`;
-                        continue;
-                    }
-
-                    const data = await res.json();
-                    if (data.error) {
-                        debugDiagnosticsHistory += `• Pass 1 [${model}] API Error: ${data.error.message}<br>`;
-                        continue;
-                    }
-
-                    parsedPayload = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                    if (parsedPayload && parsedPayload.description) {
-                        successfulPass1Model = model;
-                        break pass1ModelLoop; 
-                    }
-                } catch (e) { 
-                    debugDiagnosticsHistory += `• Pass 1 [${model}] Exception: ${e.message}<br>`;
-                }
-            }
-
-            if (!parsedPayload || !parsedPayload.description) {
-                descDiv.innerHTML = `<span style='color:#ff3333; font-weight:bold;'>Pass 1 Fatal Failure</span>`;
-                if (debugDiagnosticsHistory) descDiv.innerHTML += `<br><br><div style='width: 100%; background:#221b11; padding:8px;'><b>Error Log:</b><br>${debugDiagnosticsHistory}</div>`;
-                scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
-                return;
-            }
-
-            // High-density tasks mapped over distinct pipelines
+            // Enforcing hyper-focused parsing tasks to isolate context sizes perfectly
             const structuralTasks = [
-                { id: 'FOUNDATION', subId: 'PRIMITIVES', filter: 'Generate ground levels, floors, and basic supporting base planes. You must output between 25 to 35 discrete, high-density micro-primitives for this section.' },
-                { id: 'CORE_MASSES', subId: 'FURNITURE', filter: 'Generate central structures, bodies, and main components. Break massive objects down into 25 to 35 separate interlocking shapes.' },
-                { id: 'EXTENSIONS', subId: 'FRAMES', filter: 'Generate peripheral features, boundaries, limbs, slats, brackets, and support joints. Output 25 to 35 separate detailed shape objects.' },
-                { id: 'ACCENTS', subId: 'ITEMS', filter: 'Generate fine details, decorative accessories, edges, and texture overlays. Output 25 to 35 independent tiny accent nodes.' }
+                { 
+                    id: 'FOUNDATION', 
+                    subId: 'PRIMITIVES', 
+                    descPrompt: 'Examine the image and provide an ultra-detailed, step-by-step description of only the floor, ground structure, base extensions, and massive supporting bottom structures. Explicitly identify and list 25 to 35 separate sub-sections or segments.',
+                    geomPrompt: 'Generate between 25 to 35 separate, precise micro-primitive nodes capturing the architectural ground elements listed in your blueprint analysis. Do not combine them.'
+                },
+                { 
+                    id: 'CORE_MASSES', 
+                    subId: 'FURNITURE', 
+                    descPrompt: 'Examine the image and provide an ultra-detailed, step-by-step description of only the primary central bodies, solid masses, and main structures. Deconstruct large volumes into 25 to 35 individual interlocking segments or panels.',
+                    geomPrompt: 'Generate between 25 to 35 separate, precise micro-primitive nodes capturing the primary core mass configurations. Map components piece-by-piece.'
+                },
+                { 
+                    id: 'EXTENSIONS', 
+                    subId: 'FRAMES', 
+                    descPrompt: 'Examine the image and provide an ultra-detailed, step-by-step description of only peripheral appendages, supporting limbs, structural frames, slats, borders, handles, and connection joints. Explicitly describe 25 to 35 distinct physical connections.',
+                    geomPrompt: 'Generate between 25 to 35 separate, precise micro-primitive nodes capturing all skeletal structural frames, legs, slats, and joint pins.'
+                },
+                { 
+                    id: 'ACCENTS', 
+                    subId: 'ITEMS', 
+                    descPrompt: 'Examine the image and provide an ultra-detailed, step-by-step description of only micro-embellishments, small surface additions, tiny switches, buttons, seam overlays, and fine accent textures. Identify 25 to 35 separate miniature focal spots.',
+                    geomPrompt: 'Generate between 25 to 35 separate, precise micro-primitive nodes mapping the tiny accent elements and decorative overlays.'
+                }
             ];
 
-            let permanentPass2Logs = "";
+            // CRITICAL UPGRADE: Complete context separation loop per quadrant
+            for (let i = 0; i < structuralTasks.length; i++) {
+                const task = structuralTasks[i];
+                let layerDescriptionText = "";
+                let successfulDescModel = "failed";
 
-            const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
-                await delayExecutionTime(idx * 200);
-
-                // Pass 2 is now fully Multimodal! Each model looks at the raw image directly for maximum precision.
-                const pass2Prompt = `
-                    You are an advanced 3D Vision Geometry Engine focusing exclusively on the [${task.id} -> ${task.subId}] layer.
-                    
-                    Target Area Focus Constraint: ${task.filter}
-                    
-                    Coordinate System Instructions:
-                    - Absolute center origin of target matter is at (0, 0, 0).
-                    - Ground / floor level sits cleanly at y = 0.
-                    - X = Horizontal, Y = Height, Z = Depth.
-                    
-                    DENSITY DIRECTIVE: 
-                    You MUST generate between 25 to 35 distinct, small, tight micro-primitive shapes that match the reference scan image exactly. Do not aggregate objects into one large box. Construct structures piece-by-piece using interconnected boxes, roundedboxes, cylinders, spheres, cones, capsules, and planes.
-                    
-                    Contextual Analysis Guide:
-                    ${parsedPayload.description}
-                `;
+                // --- PIPELINE STAGE 1: Focused Multimodal Quadrant Description Pass ---
+                statusDiv.innerText = `[${i+1}/4] Deep Analysis: Parsing ${task.id}...`;
+                descDiv.innerHTML = `<span style='color: #00e5ff;'>Isolating vision engine context strictly onto <b>${task.id}</b> structures...</span>`;
 
                 for (let model of modelCascadeList) {
                     try {
-                        statusDiv.innerText = `Pass 2: Compiling Layer [${task.id}] via ${model}...`;
                         const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                                 contents: [{ 
                                     parts: [
-                                        { text: pass2Prompt },
+                                        { text: `Act as a 3D vision decomposition engine. ${task.descPrompt}` }, 
+                                        { inlineData: { mimeType: "image/jpeg", data: base64Image } }
+                                    ] 
+                                }],
+                                generationConfig: { 
+                                    responseMimeType: "application/json",
+                                    responseSchema: {
+                                        type: "OBJECT",
+                                        properties: { blueprint_analysis: { type: "STRING" } },
+                                        required: ["blueprint_analysis"]
+                                    }
+                                }
+                            })
+                        });
+
+                        if (res.ok) {
+                            const data = await res.json();
+                            const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
+                            layerDescriptionText = parsed.blueprint_analysis;
+                            successfulDescModel = model;
+                            break;
+                        }
+                    } catch (e) {
+                        console.warn(`Layer description fallback on model ${model}`);
+                    }
+                }
+
+                if (!layerDescriptionText) {
+                    permanentPipelineLogs += `• Layer [${task.id}] failed Description Pass.<br>`;
+                    continue; 
+                }
+
+                overallSummaryText += `\n[${task.id} Analysis via ${successfulDescModel}]: Done.`;
+
+                await delayExecutionTime(150);
+
+                // --- PIPELINE STAGE 2: Targeted Multimodal Quadrant Geometry Generation Pass ---
+                statusDiv.innerText = `[${i+1}/4] Mesh Synthesis: Compiling ${task.id} Shapes...`;
+                
+                let layerShapes = [];
+                let successfulGeomModel = "failed";
+
+                const geometryPrompt = `
+                    You are an advanced 3D Vision Geometry Compiler focused strictly on compiling the [${task.id} -> ${task.subId}] layer nodes array.
+                    
+                    GEOMETRY DIRECTIVE: ${task.geomPrompt}
+                    
+                    Coordinate Parameters:
+                    - Center origin of scene is (0, 0, 0). Floor level sits flush at y = 0.
+                    
+                    Layer Reference Mapping Blueprint:
+                    """
+                    ${layerDescriptionText}
+                    """
+                `;
+
+                for (let model of modelCascadeList) {
+                    try {
+                        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{ 
+                                    parts: [
+                                        { text: geometryPrompt },
                                         { inlineData: { mimeType: "image/jpeg", data: base64Image } }
                                     ] 
                                 }], 
@@ -832,38 +843,34 @@
                         if (res.ok) {
                             const data = await res.json();
                             const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                            return { id: `${task.id}_${task.subId}`, model: model, shapes: parsed.shapes || [] };
-                        } else {
-                            permanentPass2Logs += `• Layer [${task.id}_${task.subId}] Fallback: ${model} failed (Status ${res.status})<br>`;
+                            layerShapes = parsed.shapes || [];
+                            successfulGeomModel = model;
+                            break;
                         }
                     } catch (e) {
-                        permanentPass2Logs += `• Layer [${task.id}_${task.subId}] Exception: ${model} encountered tracking error<br>`;
+                        console.warn(`Layer compilation fallback on model ${model}`);
                     }
                 }
-                return { id: `${task.id}_${task.subId}`, model: "failed", shapes: [] };
-            });
 
-            try {
-                const compiledResults = await Promise.all(regionalCompilationPromises);
-                
-                let reportTrackingLog = "<br><br><b>4-Quadrant High Fidelity Scan Density Audit:</b>";
-                compiledResults.forEach((result) => {
-                    unifiedShapes.push(...result.shapes);
-                    let modelStatusColor = result.model.includes('pro') || result.model.includes('3.5') ? '#00e676' : '#ffab00';
-                    reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes successfully parsed)`;
-                });
-
-                let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
-                let structuredUiOutput = coreLayoutNarrative + reportTrackingLog;
-
-                if (debugDiagnosticsHistory || permanentPass2Logs) {
-                    structuredUiOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>System Diagnostic Fallback Log Trail:</b><br>${debugDiagnosticsHistory}${permanentPass2Logs}</div>`;
+                if (layerShapes.length > 0) {
+                    unifiedShapes.push(...layerShapes);
+                    permanentPipelineLogs += `• Layer [${task.id}] -> Text: <b>${successfulDescModel}</b> | Mesh: <b>${successfulGeomModel}</b> (<span style='color:#00e676;'>${layerShapes.length} nodes</span>)<br>`;
+                } else {
+                    permanentPipelineLogs += `• Layer [${task.id}] failed Geometry Synthesis Pass.<br>`;
                 }
 
-                descDiv.innerHTML = structuredUiOutput;
-                if (unifiedShapes.length > 0) renderAIBlueprint(unifiedShapes);
-            } catch (err) {
-                descDiv.innerHTML = "Pipeline processing exception.";
+                await delayExecutionTime(150);
+            }
+
+            // Render output matrix report summary
+            let finalUiLog = `<b>[Pipeline Process Execution Report]</b><br>${overallSummaryText.replace(/\n/g, '<br>')}`;
+            finalUiLog += `<br><br><b>High Fidelity Sub-Pass Architecture Verification Log:</b><br>${permanentPipelineLogs}`;
+            descDiv.innerHTML = finalUiLog;
+
+            if (unifiedShapes.length > 0) {
+                renderAIBlueprint(unifiedShapes);
+            } else {
+                descDiv.innerHTML += "<br><br><span style='color:#ff3333;'>Error: Pipeline was executed but returned zero nodes. Check key bounds or network traffic logs.</span>";
             }
 
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
