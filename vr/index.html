@@ -688,14 +688,9 @@
             statusDiv.innerText = "Pass 1: Preparing prompt queries...";
             descDiv.innerHTML = "<span style='color: #00e5ff; font-weight: 500;'>Please be patient while AI analyzes the scene...</span>";
 
-            // FIXED: Fully compliant 2026 cascade configuration completely removing gemini-2.5-flash-lite
             const modelCascadeList = [
-                'gemini-3.5-flash',
-                'gemini-3.1-pro-preview',
-                'gemini-3-flash-preview',
                 'gemini-2.5-pro',
-                'gemini-2.5-flash',
-                'gemini-3.1-flash-lite'
+                'gemini-2.5-flash'
             ];
             
             let parsedPayload = null;
@@ -703,34 +698,22 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
-            // FIXED: Kept safe 2-property schema while enforcing 8 strict tracking section tags for high-density generation paths
             const pass1Prompt = `
-                Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely.
+                Act as an expert 3D Computer Vision Spatial Scaffolder. Analyze this image frame carefully.
+                Your goal is to deconstruct the visual objects into a highly accurate, tightly fitting spatial blueprint.
                 
-                Your response must populate exactly two fields inside the target JSON object layout structure:
-                1. description: Provide a detailed text summary describing the exact subjects observed, their anatomy, garment profiles, layout, poses, textures, and depth distributions.
-                2. blueprint: An architectural text blueprint manifest listing a massive swarm of descriptive primitives categorized under headers.
+                Coordinate System Discipline:
+                - The absolute center origin of the primary subject matter is at (0, 0, 0).
+                - Ground level/floor planes should sit exactly at y = 0.
+                - X-axis is horizontal alignment, Y-axis is vertical height, Z-axis is depth.
+                - Deconstruct complex assemblies into combinations of small primitives aligned tightly together along shared boundary edges without overlapping gaps.
                 
-                CRITICAL SCENE DENSITY LAWS: To model organic shapes (human bodies, fluid clothing folds, natural curves, background scenery) smoothly, you MUST outline a dense cluster of between 25 and 35 separate primitive items per section. Avoid giant bounding block short-cuts. Kitbash components out of overlapping elements.
+                Your response must populate exactly two fields inside the target JSON object:
+                1. description: Provide a detailed architectural analysis of the subjects, their proximity, spatial layout, and structural material properties.
+                2. blueprint: A meticulous manifest listing descriptive primitives categorized under logical headers.
                 
-                You MUST break your blueprint text block down into these 8 exact header tracking tokens:
-                == FOUNDATION_PRIMITIVES ==
-                == FOUNDATION_SURFACE ==
-                == CORE_MASSES_FURNITURE ==
-                == CORE_MASSES_CUSHIONS ==
-                == EXTENSIONS_FRAMES ==
-                == EXTENSIONS_LIMBS ==
-                == ACCENTS_ITEMS ==
-                == ACCENTS_TRIM ==
-                
-                Format item description lines under those tokens exactly like this template:
-                "- type=[box|roundedbox|sphere|cylinder|cone|capsule|torus|plane], material=[metal|matte|glossy|organic], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
-            `;
-
-            const globalSpatialAnchorPrompt = `
-                Global Space Coordinates Alignment Protocol:
-                - Center origin point is at (0, 0, 0).
-                - Ground plane or base foundation sits at Y=0.
+                Format entry lines exactly like this template:
+                "- type=[box|roundedbox|sphere|cylinder|cone|capsule|plane], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z], color=[hex], roughness=[0.0-1.0], metalness=[0.0-1.0], transmission=[0.0-1.0]"
             `;
 
             pass1ModelLoop: for (let model of modelCascadeList) {
@@ -781,16 +764,11 @@
                 return;
             }
 
-            // FIXED: Locked filter rules straight onto the explicit subheaders written by Pass 1 to maximize extraction density loops
             const structuralTasks = [
-                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: "Look ONLY at entry items under the section header token '== FOUNDATION_PRIMITIVES =='." },
-                { id: 'FOUNDATION', subId: 'SURFACE', rules: "Look ONLY at entry items under the section header token '== FOUNDATION_SURFACE =='." },
-                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: "Look ONLY at entry items under the section header token '== CORE_MASSES_FURNITURE =='." },
-                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: "Look ONLY at entry items under the section header token '== CORE_MASSES_CUSHIONS =='." },
-                { id: 'EXTENSIONS', subId: 'FRAMES', rules: "Look ONLY at entry items under the section header token '== EXTENSIONS_FRAMES =='." },
-                { id: 'EXTENSIONS', subId: 'LIMBS', rules: "Look ONLY at entry items under the section header token '== EXTENSIONS_LIMBS =='." },
-                { id: 'ACCENTS', subId: 'ITEMS', rules: "Look ONLY at entry items under the section header token '== ACCENTS_ITEMS =='." },
-                { id: 'ACCENTS', subId: 'TRIM', rules: "Look ONLY at entry items under the section header token '== ACCENTS_TRIM =='." }
+                { id: 'FOUNDATION', subId: 'PRIMITIVES', filter: 'Extract only core ground, base support systems, and massive structural floors.' },
+                { id: 'CORE_MASSES', subId: 'FURNITURE', filter: 'Extract only the central solid masses, primary object bodies, or large structural parts.' },
+                { id: 'EXTENSIONS', subId: 'FRAMES', filter: 'Extract only peripheral appendages, supporting limbs, borders, handles, or armatures.' },
+                { id: 'ACCENTS', subId: 'ITEMS', filter: 'Extract fine decorative embellishments, surface accessories, overlays, and small accent details.' }
             ];
 
             let permanentPass2Logs = "";
@@ -798,30 +776,14 @@
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
                 await delayExecutionTime(idx * 150);
 
-                // FIXED: Embedded translation guide template inside Pass 2 to route parsed details straight into minified schema tokens without drops
                 const pass2Prompt = `
-                    You are a precision 3D Geometry compiler worker focusing strictly on processing layout rows for the zone: [${task.id} -> ${task.subId}].
-                    Filter your focus and parse your values using these criteria: ${task.rules}
+                    You are a precision 3D Geometry compiler worker focusing strictly on the [${task.id} -> ${task.subId}] layer.
+                    Task Directive: ${task.filter}
                     
-                    COMPILATION LAWS:
-                    1. Read the MASTER BLUEPRINT MANIFEST.
-                    2. Convert EVERY SINGLE separate entry line belonging to that specific segment into its own distinct item block inside the JSON "shapes" array. Do NOT skip items, summarize rows, or group coordinates together. You must return between 25 and 35 elements for your zone.
+                    Convert those targeted architectural lines into a highly minified JSON shapes layout array. 
+                    Do not extrapolate elements outside your assigned directive scope.
                     
-                    CRITICAL 1:1 KEY MAP DICTIONARY:
-                    You MUST write the output attributes using single-character schema parameters mapped precisely as follows:
-                    - 'type' translates directly to JSON key string property "t" (Allowed values: "box", "roundedbox", "sphere", "cylinder", "cone", "capsule", "torus", "plane")
-                    - 'material' translates directly to JSON key string property "m" (Allowed values: "metal", "matte", "glossy", "organic")
-                    - 'color' translates directly to JSON key string property "c" (Hex color string value)
-                    - 'position' translates directly to JSON key float numbers array property "p" ([x, y, z])
-                    - 'scale' translates directly to JSON key float numbers array property "s" ([x, y, z])
-                    - 'rotation' translates directly to JSON key float numbers array property "r" ([x, y, z])
-                    
-                    MAPPING REFERENCE PAIR TEMPLATE EXAMPLE:
-                    Text: "- type=capsule, material=organic, color=#00e5ff, position=[0,1,2], scale=[0.5,1,0.5], rotation=[0,0,0]"
-                    Output JSON Array Node: {"t": "capsule", "m": "organic", "c": "#00e5ff", "p": [0,1,2], "s": [0.5,1,0.5], "r": [0,0,0]}
-                    
-                    ${globalSpatialAnchorPrompt}
-                    MASTER BLUEPRINT MANIFEST:
+                    MASTER BLUEPRINT TO COMPILE:
                     """
                     ${parsedPayload.blueprint}
                     """
@@ -845,12 +807,16 @@
                                                 items: {
                                                     type: "OBJECT",
                                                     properties: {
-                                                        t: { type: "STRING" }, m: { type: "STRING" }, c: { type: "STRING" },
-                                                        p: { type: "ARRAY", items: { type: "NUMBER" } },
-                                                        s: { type: "ARRAY", items: { type: "NUMBER" } },
-                                                        r: { type: "ARRAY", items: { type: "NUMBER" } },
+                                                        t: { type: "STRING", description: "type: box, roundedbox, sphere, cylinder, cone, capsule, plane" }, 
+                                                        p: { type: "ARRAY", items: { type: "NUMBER" }, description: "position [x, y, z]" },
+                                                        s: { type: "ARRAY", items: { type: "NUMBER" }, description: "scale [x, y, z]" },
+                                                        r: { type: "ARRAY", items: { type: "NUMBER" }, description: "rotation [x, y, z] in radians" },
+                                                        c: { type: "STRING", description: "hex color code" },
+                                                        rough: { type: "NUMBER", description: "roughness float 0.0 to 1.0" },
+                                                        metal: { type: "NUMBER", description: "metalness float 0.0 to 1.0" },
+                                                        trans: { type: "NUMBER", description: "transmission float 0.0 to 1.0 for translucent structures" }
                                                     },
-                                                    required: ["t", "m", "c", "p", "s", "r"]
+                                                    required: ["t", "p", "s", "r", "c", "rough", "metal", "trans"]
                                                 }
                                             }
                                         },
@@ -863,7 +829,7 @@
                         if (res.ok) {
                             const data = await res.json();
                             const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                            return { id: `${task.id}_${task.subId}`, model: model, shapes: parsed.shapes || [] };
+                            return { id: `${task.id}_${task.subId}`, model: model, shapes: parsed.shapes };
                         } else {
                             permanentPass2Logs += `• Layer [${task.id}_${task.subId}] Fallback: ${model} failed (Status ${res.status})<br>`;
                         }
@@ -877,10 +843,10 @@
             try {
                 const compiledResults = await Promise.all(regionalCompilationPromises);
                 
-                let reportTrackingLog = "<br><br><b>8-Layer Cohesive Matrix Architecture Audit:</b>";
+                let reportTrackingLog = "<br><br><b>4-Layer Multi-Pass High Fidelity Synthesis Audit:</b>";
                 compiledResults.forEach((result) => {
                     unifiedShapes.push(...result.shapes);
-                    let modelStatusColor = result.model.includes('failed') ? '#ff1744' : '#00e676';
+                    let modelStatusColor = result.model.includes('pro') ? '#00e676' : '#ffab00';
                     reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes)`;
                 });
 
@@ -900,7 +866,6 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
-        // FIXED: Expanded geometry options array and added adaptive PBR rendering parameters to construct complex organic silhouettes cleanly
         function renderAIBlueprint(shapesArray) {
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
@@ -916,54 +881,56 @@
                 const pos = shape.p || [0,0,0];
                 const scl = shape.s || [1,1,1];
                 const rot = shape.r || [0,0,0];
+                const primitiveType = shape.t.toLowerCase().trim();
 
-                switch(shape.t.toLowerCase().trim()) {
-                    case 'box': geo = new THREE.BoxGeometry(1, 1, 1); break;
-                    case 'roundedbox': geo = createRoundedBoxGeometry(scl[0], scl[1], scl[2], 0.04, 3); break;
-                    case 'sphere': geo = new THREE.SphereGeometry(0.5, 32, 32); break;
-                    case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 24); break;
-                    case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 32); break;
-                    case 'capsule': geo = new THREE.CapsuleGeometry(0.3, 0.6, 8, 16); break;
-                    case 'torus': geo = new THREE.TorusGeometry(0.4, 0.15, 12, 48); break;
-                    case 'plane': geo = new THREE.PlaneGeometry(1, 1); break;
-                    default: geo = new THREE.BoxGeometry(1, 1, 1);
+                switch(primitiveType) {
+                    case 'box': 
+                        geo = new THREE.BoxGeometry(1, 1, 1); 
+                        break;
+                    case 'roundedbox': 
+                        geo = createRoundedBoxGeometry(scl[0], scl[1], scl[2], Math.min(scl[0], scl[1], scl[2]) * 0.15, 4); 
+                        break;
+                    case 'sphere': 
+                        geo = new THREE.SphereGeometry(0.5, 32, 32); 
+                        break;
+                    case 'cylinder': 
+                        geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 32); 
+                        break;
+                    case 'cone':
+                        geo = new THREE.ConeGeometry(0.5, 1, 32);
+                        break;
+                    case 'capsule':
+                        geo = new THREE.CapsuleGeometry(0.4, 0.6, 8, 16);
+                        break;
+                    case 'plane':
+                        geo = new THREE.PlaneGeometry(1, 1);
+                        break;
+                    default: 
+                        geo = new THREE.BoxGeometry(1, 1, 1);
                 }
 
-                let roughnessVal = 0.5;
-                let metalnessVal = 0.0;
-                let clearcoatVal = 0.0;
-                let emissiveVal = new THREE.Color(0x000000);
-                
-                const matStr = (shape.m || 'matte').toLowerCase().trim();
-                if (matStr.includes('metal') || matStr.includes('chrome')) {
-                    metalnessVal = 0.9;
-                    roughnessVal = 0.15;
-                } else if (matStr.includes('glass') || matStr.includes('glossy')) {
-                    roughnessVal = 0.05;
-                    clearcoatVal = 1.0;
-                } else if (matStr.includes('organic') || matStr.includes('fabric') || matStr.includes('skin') || matStr.includes('leaves')) {
-                    roughnessVal = 0.85;
-                } else if (matStr.includes('emissive') || matStr.includes('light') || matStr.includes('glow')) {
-                    emissiveVal = new THREE.Color(shape.c || "#ffffff");
-                }
-
+                const isTranslucent = shape.trans > 0.05;
                 const mat = new THREE.MeshPhysicalMaterial({
                     color: new THREE.Color(shape.c || "#ffffff"),
-                    roughness: roughnessVal,
-                    metalness: metalnessVal,
-                    clearcoat: clearcoatVal,
-                    emissive: emissiveVal,
-                    emissiveIntensity: emissiveVal.getHex() > 0 ? 1.2 : 0.0,
-                    side: THREE.DoubleSide
+                    roughness: shape.rough !== undefined ? THREE.MathUtils.clamp(shape.rough, 0, 1) : 0.4,
+                    metalness: shape.metal !== undefined ? THREE.MathUtils.clamp(shape.metal, 0, 1) : 0.0,
+                    transmission: shape.trans !== undefined ? THREE.MathUtils.clamp(shape.trans, 0, 1) : 0.0,
+                    ior: isTranslucent ? 1.52 : 1.0, 
+                    thickness: isTranslucent ? 1.0 : 0.0, 
+                    transparent: isTranslucent,
+                    side: primitiveType === 'plane' ? THREE.DoubleSide : THREE.FrontSide,
+                    clearcoat: shape.metal > 0.5 ? 0.3 : 0.0, 
+                    clearcoatRoughness: 0.1
                 });
 
                 const mesh = new THREE.Mesh(geo, mat);
                 mesh.position.set(pos[0], pos[1], pos[2]);
                 mesh.rotation.set(rot[0], rot[1], rot[2]);
                 
-                if (shape.t !== 'roundedbox') {
+                if (primitiveType !== 'roundedbox') {
                     mesh.scale.set(scl[0], scl[1], scl[2]);
                 }
+                
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
                 worldGroup.add(mesh);
