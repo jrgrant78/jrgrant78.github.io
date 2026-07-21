@@ -243,7 +243,7 @@
                 <input type="password" id="apiKeyField" class="key-input" placeholder="Enter Gemini API Key...">
                 <button id="overlayToggleBtn" class="btn-overlay" title="Toggle Image Alignment Plane">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline>
+                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polygon points="2 17 12 22 22 17"></polygon>
                     </svg>
                 </button>
             </div>
@@ -296,7 +296,7 @@
         const OPEN_EYE_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
 
-        const ICON_CAMERA_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/>></svg>`;
+        const ICON_CAMERA_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/></svg>`;
         const ICON_PHOTO_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 
         class MultiPointMotionTracker {
@@ -689,13 +689,10 @@
             descDiv.innerHTML = "<span style='color: #00e5ff; font-weight: 500;'>Please be patient while AI analyzes the scene...</span>";
 
             const modelCascadeList = [
-                'gemini-3.5-flash',
-                'gemini-3.1-pro-preview',
-                'gemini-3-flash-preview',
-                'gemini-2.5-pro',
                 'gemini-2.5-flash',
-                'gemini-3.1-flash-lite',
-                'gemini-2.5-flash-lite'
+                'gemini-2.5-pro',
+                'gemini-1.5-pro',
+                'gemini-1.5-flash'
             ];
             
             let parsedPayload = null;
@@ -703,23 +700,29 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
-            // FIXED: Explicitly defined section blocks so Pass 1 generates content under expected text nodes
+            // FIXED: Shifted Pass 1 layout to map explicitly to 8 structural layer keys to guarantee dense node listings
             const pass1Prompt = `
-                Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely and break it down into an intricate 3D scene representation composed of multiple high-fidelity primitive forms.
+                Act as an expert high-density 3D Spatial Scaffolder. Analyze this image frame completely and translate it into a massive, highly organic 3D scene representation composed of a dense swarm of high-fidelity primitives.
+                
+                To construct organic forms, complex subjects, garments, limbs, facial features, or environmental details, DO NOT use single large bounding shapes. Instead, kitbash them out of dozens of micro-primitives (e.g., overlapping small spheres, capsules, cones, and toruses) to sculpt smooth silhouettes, musculature, cloth folds, contours, and depth.
                 
                 Your response must populate exactly two fields inside the target JSON object:
                 1. description: Provide a detailed text summary describing the exact subjects observed, their physical layout, organic curves, garments, poses, and surroundings.
-                2. blueprint: An architectural text blueprint manifest listing descriptive primitives categorized under exact structural region headers.
+                2. blueprint: An architectural text blueprint manifest listing descriptive primitives categorized under 8 distinct structural region subheaders.
                 
-                You MUST capture organic shapes (e.g., body volumes, limbs, contours of an organic subject, clothing layers, custom sculptural baselines) and background objects (e.g., trees, support framework, environment scenery). Avoid over-simplification. Generate a dense, complete list of at least 40-80 individual primitives total.
+                CRITICAL SCENE DENSITY MANDATE: You MUST generate between 25 and 35 distinct primitive entry lines for EACH of the 8 subheaders below, achieving a dense scene containing between 200 and 280 total nodes.
                 
-                You MUST structure your blueprint precisely with the following four exact header names:
-                == FOUNDATION ==
-                == CORE_MASSES ==
-                == EXTENSIONS ==
-                == ACCENTS ==
+                You MUST structure your blueprint precisely with the following 8 exact subheader tokens:
+                == FOUNDATION_PRIMITIVES ==
+                == FOUNDATION_SURFACE ==
+                == CORE_MASSES_FURNITURE ==
+                == CORE_MASSES_CUSHIONS ==
+                == EXTENSIONS_FRAMES ==
+                == EXTENSIONS_LIMBS ==
+                == ACCENTS_ITEMS ==
+                == ACCENTS_TRIM ==
                 
-                Format entry lines under headers exactly like this template:
+                Format every single entry line under these subheaders exactly like this template:
                 "- type=[box|roundedbox|sphere|cylinder|cone|capsule|torus|plane], material=[metal|matte|glossy|organic], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
             `;
 
@@ -777,16 +780,16 @@
                 return;
             }
 
-            // FIXED: Restored original 8-layer filter tasks, pointing rules strictly to the restored Pass 1 headers
+            // FIXED: Locked target queries down to look directly for the 8 custom layout blocks built in Pass 1
             const structuralTasks = [
-                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: "Look ONLY under '== FOUNDATION =='. Extract base steps, ground scenery platforms, and large floor grids." },
-                { id: 'FOUNDATION', subId: 'SURFACE', rules: "Look ONLY under '== FOUNDATION =='. Extract floor contours, micro-terrain shifts, or base rocks." },
-                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: "Look ONLY under '== CORE_MASSES =='. Extract the primary central volumes, main body torso masses, or center structural forms." },
-                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: "Look ONLY under '== CORE_MASSES =='. Extract secondary layered shapes, rounded curves, garments, or soft connected masses." },
-                { id: 'EXTENSIONS', subId: 'FRAMES', rules: "Look ONLY under '== EXTENSIONS =='. Extract scaffolding columns, vertical lines, frames, or background posts." },
-                { id: 'EXTENSIONS', subId: 'LIMBS', rules: "Look ONLY under '== EXTENSIONS =='. Extract organic limbs, arms, legs, extensions, or side branches." },
-                { id: 'ACCENTS', subId: 'ITEMS', rules: "Look ONLY under '== ACCENTS =='. Extract decorative properties, face details, ornaments, shoes, or distinct elements." },
-                { id: 'ACCENTS', subId: 'TRIM', rules: "Look ONLY under '== ACCENTS =='. Extract fine detail lines, edge variations, borders, or texturing shapes." }
+                { id: 'FOUNDATION', subId: 'PRIMITIVES', searchToken: '== FOUNDATION_PRIMITIVES ==' },
+                { id: 'FOUNDATION', subId: 'SURFACE', searchToken: '== FOUNDATION_SURFACE ==' },
+                { id: 'CORE_MASSES', subId: 'FURNITURE', searchToken: '== CORE_MASSES_FURNITURE ==' },
+                { id: 'CORE_MASSES', subId: 'CUSHIONS', searchToken: '== CORE_MASSES_CUSHIONS ==' },
+                { id: 'EXTENSIONS', subId: 'FRAMES', searchToken: '== EXTENSIONS_FRAMES ==' },
+                { id: 'EXTENSIONS', subId: 'LIMBS', searchToken: '== EXTENSIONS_LIMBS ==' },
+                { id: 'ACCENTS', subId: 'ITEMS', searchToken: '== ACCENTS_ITEMS ==' },
+                { id: 'ACCENTS', subId: 'TRIM', searchToken: '== ACCENTS_TRIM ==' }
             ];
 
             let permanentPass2Logs = "";
@@ -794,14 +797,15 @@
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
                 await delayExecutionTime(idx * 150);
 
-                // FIXED: Embedded strict translation dictionary criteria mapping properties directly to short JSON keys to eliminate token drop down constraints
+                // FIXED: Embedded strict mapping matrix logic forcing sub-workers to output a 1:1 array count match for text lines found
                 const pass2Prompt = `
-                    You are a precision 3D Geometry compiler worker focusing strictly on the [${task.id} -> ${task.subId}] sub-layer.
+                    You are a precision 3D Geometry compiler worker focusing strictly on the subheader section block: "${task.searchToken}".
                     
                     COMPILATION INSTRUCTIONS:
                     1. Read the MASTER BLUEPRINT MANIFEST text.
-                    2. Filter your focus based on these specific rules: ${task.rules}
-                    3. Convert EVERY matching primitive text list entry within that section into an object node inside the required JSON shapes array. Do NOT summarize. Do NOT omit details or truncate lines.
+                    2. Locate the specific section block immediately following the exact subheader token "${task.searchToken}".
+                    3. Extract and parse EVERY SINGLE separate primitive text line item under that subheader until the next subheader block.
+                    4. You MUST convert each matching text line into its own independent object node inside the required JSON "shapes" output array. Do NOT skip lines, do NOT combine lines, and do NOT truncate the data. If there are 30 lines under this section, your shapes array MUST contain exactly 30 elements.
                     
                     CRITICAL KEY TRANSLATION DICTIONARY:
                     You MUST write the JSON properties using single-character keys mapped from the text attributes exactly like this:
@@ -813,8 +817,8 @@
                     - 'rotation' maps to "r" (Numbers array: [x, y, z])
                     
                     MAPPING REFERENCE PAIR EXAMPLE:
-                    Text: "- type=capsule, material=organic, color=#00ff00, position=[0,1,0], scale=[1,2,1], rotation=[0,0,0]"
-                    Output Array Node: {"t": "capsule", "m": "organic", "c": "#00ff00", "p": [0,1,0], "s": [1,2,1], "r": [0,0,0]}
+                    Text Line: "- type=capsule, material=organic, color=#00e5ff, position=[0.1,1.2,-0.5], scale=[0.2,0.5,0.2], rotation=[0,0,0]"
+                    Output Array Node: {"t": "capsule", "m": "organic", "c": "#00e5ff", "p": [0.1,1.2,-0.5], "s": [0.2,0.5,0.2], "r": [0,0,0]}
                     
                     MASTER BLUEPRINT MANIFEST:
                     """
@@ -875,7 +879,7 @@
                 let reportTrackingLog = "<br><br><b>8-Layer High-Fidelity Restored Architecture Audit:</b>";
                 compiledResults.forEach((result) => {
                     unifiedShapes.push(...result.shapes);
-                    let modelStatusColor = result.model.includes('3.5') || result.model.includes('3.1') ? '#00e676' : '#ffab00';
+                    let modelStatusColor = result.model.includes('pro') ? '#00e676' : '#ffab00';
                     reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes)`;
                 });
 
@@ -895,7 +899,6 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
-        // FIXED: Remapped full 3D geometry vocabulary engine options to cleanly render high-fidelity shapes
         function renderAIBlueprint(shapesArray) {
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
