@@ -10,7 +10,8 @@
         #controls { 
             position: absolute; 
             top: 10px; 
-            left: 10px; right: 10px; 
+            left: 10px; 
+            right: 10px; 
             z-index: 10; 
             background: rgba(15,15,22,0.9); 
             padding: 12px; 
@@ -450,23 +451,17 @@
         }
 
         function extractCleanJsonObject(rawText) {
-            let cleaned = rawText.trim();
-            if (cleaned.startsWith("```json")) cleaned = cleaned.substring(7);
-            else if (cleaned.startsWith("```")) cleaned = cleaned.substring(3);
-            if (cleaned.endsWith("```")) cleaned = cleaned.substring(0, cleaned.length - 3);
-            cleaned = cleaned.trim();
-
-            const firstOpen = cleaned.indexOf('{');
+            const firstOpen = rawText.indexOf('{');
             if (firstOpen === -1) throw new Error("Object boundary missing.");
             let depth = 0;
-            for (let i = firstOpen; i < cleaned.length; i++) {
-                if (cleaned[i] === '{') depth++;
-                else if (cleaned[i] === '}') {
+            for (let i = firstOpen; i < rawText.length; i++) {
+                if (rawText[i] === '{') depth++;
+                else if (rawText[i] === '}') {
                     depth--;
-                    if (depth === 0) return cleaned.substring(firstOpen, i + 1);
+                    if (depth === 0) return rawText.substring(firstOpen, i + 1);
                 }
             }
-            return cleaned;
+            throw new Error("Mismatched block bounds.");
         }
 
         function init3D() {
@@ -690,8 +685,8 @@
             scanBtn.disabled = true;
             
             statusDiv.style.display = 'block';
-            statusDiv.innerText = "Pass 1: Executing Orchestrator...";
-            descDiv.innerHTML = "<span style='color: #00e5ff; font-weight: 500;'>Mapping layout bounds...</span>";
+            statusDiv.innerText = "Pass 1: Preparing prompt queries...";
+            descDiv.innerHTML = "<span style='color: #00e5ff; font-weight: 500;'>Please be patient while AI analyzes the scene...</span>";
 
             const modelCascadeList = [
                 'gemini-3.5-flash',
@@ -708,42 +703,24 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
-            // FIXED: Handcoded clear, distinct block boundaries so Pass 1 prints under explicit tags
             const pass1Prompt = `
-                Act as the Master 3D Spatial Scaffolder. Analyze this image scene completely and translate its structural contents, silhouettes, clothing folds, anatomical forms, and background elements into a high-density primitive manifest description.
-                
-                Your response must populate exactly two fields inside the target JSON object layout:
-                1. description: Provide a detailed text summary describing the exact subjects observed, their physical layout, organic curves, garments, poses, and environmental context.
-                2. blueprint: An architectural text blueprint mapping the structural primitives divided into 8 clear semantic layers.
-                
-                CRITICAL DENSITY MANDATE: For each of the 8 subheaders below, you MUST outline a detailed layout containing between 25 and 35 distinct primitive items per section (totalling 200–280 elements overall across the scene). To capture highly organic shapes, bodies, limbs, or fluid garments, do NOT use single large bounding box shortcuts. Instead, map out multiple overlapping clusters of micro-primitives (spheres, roundedboxes, capsules, cylinders, toruses, cones) to seamlessly sculpt smooth silhouettes and realistic contours.
-                
-                You MUST format the blueprint text property precisely using these 8 exact unescaped section tracking tags:
-                [FOUNDATION_PRIMITIVES]
-                [FOUNDATION_SURFACE]
-                [CORE_MASSES_FURNITURE]
-                [CORE_MASSES_CUSHIONS]
-                [EXTENSIONS_FRAMES]
-                [EXTENSIONS_LIMBS]
-                [ACCENTS_ITEMS]
-                [ACCENTS_TRIM]
-                
-                Format each item description line under those tags precisely using this text template:
-                "- type=[box|roundedbox|sphere|cylinder|cone|capsule|torus|plane], material=[metal|matte|glossy|organic], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
-                
-                Do NOT use curly braces {} anywhere inside your textual description or blueprint values to ensure safe JSON parsing bounds.
+                Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely.
+                Your response must populate exactly two fields inside the target JSON object:
+                1. description: Provide a detailed text summary describing the exact subjects observed.
+                2. blueprint: An architectural text blueprint manifest listing descriptive primitives categorized under headers.
+                Format entry lines exactly like this template:
+                "- type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
             `;
 
             const globalSpatialAnchorPrompt = `
                 Global Space Coordinates Alignment Protocol:
                 - Center origin point is at (0, 0, 0).
-                - Ground plane or base foundation sits at Y=0.
             `;
 
             pass1ModelLoop: for (let model of modelCascadeList) {
                 try {
                     statusDiv.innerText = `Pass 1: Prompting ${model}...`;
-                    const res = await fetch('[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/)' + model + ':generateContent?key=' + userEnteredKey, {
+                    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -761,7 +738,7 @@
 
                     if (!res.ok) {
                         const errorDetailsText = await res.text();
-                        debugDiagnosticsHistory += `• Pass 1 [${model}] Error ${res.status}: ${errorDetailsText.substring(0, 80)}...<br>`;
+                        debugDiagnosticsHistory += `• Pass 1 [${model}] Error ${res.status}: ${errorDetailsText.substring(0, 100)}...<br>`;
                         continue;
                     }
 
@@ -788,16 +765,15 @@
                 return;
             }
 
-            // FIXED: Parallel tasks route matching guidelines combined directly with exact text block identifiers to eliminate parsing thread dropouts
             const structuralTasks = [
-                { id: 'FOUNDATION', subId: 'PRIMITIVES', searchToken: '[FOUNDATION_PRIMITIVES]' },
-                { id: 'FOUNDATION', subId: 'SURFACE', searchToken: '[FOUNDATION_SURFACE]' },
-                { id: 'CORE_MASSES', subId: 'FURNITURE', searchToken: '[CORE_MASSES_FURNITURE]' },
-                { id: 'CORE_MASSES', subId: 'CUSHIONS', searchToken: '[CORE_MASSES_CUSHIONS]' },
-                { id: 'EXTENSIONS', subId: 'FRAMES', searchToken: '[EXTENSIONS_FRAMES]' },
-                { id: 'EXTENSIONS', subId: 'LIMBS', searchToken: '[EXTENSIONS_LIMBS]' },
-                { id: 'ACCENTS', subId: 'ITEMS', searchToken: '[ACCENTS_ITEMS]' },
-                { id: 'ACCENTS', subId: 'TRIM', searchToken: '[ACCENTS_TRIM]' }
+                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at FOUNDATION.' },
+                { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Look ONLY at FOUNDATION.' },
+                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: 'Look ONLY at CORE_MASSES.' },
+                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: 'Look ONLY at CORE_MASSES.' },
+                { id: 'EXTENSIONS', subId: 'FRAMES', rules: 'Look ONLY at EXTENSIONS.' },
+                { id: 'EXTENSIONS', subId: 'LIMBS', rules: 'Look ONLY at EXTENSIONS.' },
+                { id: 'ACCENTS', subId: 'ITEMS', rules: 'Look ONLY at ACCENTS.' },
+                { id: 'ACCENTS', subId: 'TRIM', rules: 'Look ONLY at ACCENTS.' }
             ];
 
             let permanentPass2Logs = "";
@@ -805,28 +781,10 @@
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
                 await delayExecutionTime(idx * 150);
 
-                // FIXED: Direct natural language extraction prompt running against the exact 2026 model stack array
                 const pass2Prompt = `
-                    You are a precision 3D Geometry compiler worker focusing strictly on the layer block lines listed directly under the tracking header tag: "${task.searchToken}".
-                    
-                    COMPILATION INSTRUCTIONS:
-                    1. Read the MASTER BLUEPRINT MANIFEST text provided below.
-                    2. Locate the specific section block lines listed directly underneath the tracking tag header "${task.searchToken}" until the next section block tag.
-                    3. Convert EVERY SINGLE separate text line entry inside that section into its own independent object node inside the required JSON "shapes" layout array. Do NOT skip items, do NOT compress nodes, and do NOT truncate rows. You are required to extract between 25 and 35 complete nodes to create a dense cohesive subject mesh.
-                    
-                    CRITICAL KEY TRANSLATION DICTIONARY Matrix:
-                    You MUST write the JSON array elements using single-character parameter keys mapped from the text fields exactly as follows:
-                    - Map text attribute 'type' directly to JSON key string property "t" (Values: "box", "roundedbox", "sphere", "cylinder", "cone", "capsule", "torus", "plane")
-                    - Map text attribute 'material' directly to JSON key string property "m" (Values: "metal", "matte", "glossy", "organic")
-                    - Map text attribute 'color' directly to JSON key string property "c" (Hex string color code)
-                    - Map text attribute 'position' directly to JSON key float numbers array property "p" ([x, y, z])
-                    - Map text attribute 'scale' directly to JSON key float numbers array property "s" ([x, y, z])
-                    - Map text attribute 'rotation' directly to JSON key float numbers array property "r" ([x, y, z])
-                    
-                    MAPPING REFERENCE PAIR EXAMPLE:
-                    Line entry: "- type=capsule, material=organic, color=#00e5ff, position=[0,1.5,0], scale=[0.4,1.2,0.4], rotation=[0,0,0]"
-                    JSON array node: {"t": "capsule", "m": "organic", "c": "#00e5ff", "p": [0,1.5,0], "s": [0.4,1.2,0.4], "r": [0,0,0]}
-                    
+                    You are a precision 3D Geometry compiler worker focusing strictly on the [${task.id} -> ${task.subId}] sub-layer.
+                    Convert your targeted segment lines into a highly minified JSON shapes layout array.
+                    ${globalSpatialAnchorPrompt}
                     MASTER BLUEPRINT MANIFEST:
                     """
                     ${parsedPayload.blueprint}
@@ -835,8 +793,8 @@
 
                 for (let model of modelCascadeList) {
                     try {
-                        statusDiv.innerText = `Pass 2: Compiling [${task.id}_${task.subId}] via ${model}...`;
-                        const res = await fetch('[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/)' + model + ':generateContent?key=' + userEnteredKey, {
+                        statusDiv.innerText = `Pass 2: Compiling [${task.id}] via ${model}...`;
+                        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -869,7 +827,7 @@
                         if (res.ok) {
                             const data = await res.json();
                             const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                            return { id: `${task.id}_${task.subId}`, model: model, shapes: parsed.shapes || [] };
+                            return { id: `${task.id}_${task.subId}`, model: model, shapes: parsed.shapes };
                         } else {
                             permanentPass2Logs += `• Layer [${task.id}_${task.subId}] Fallback: ${model} failed (Status ${res.status})<br>`;
                         }
@@ -883,10 +841,10 @@
             try {
                 const compiledResults = await Promise.all(regionalCompilationPromises);
                 
-                let reportTrackingLog = "<br><br><b>8-Layer Cohesive Matrix Restored Architecture Audit:</b>";
+                let reportTrackingLog = "<br><br><b>8-Layer Cohesive Matrix Architecture Audit:</b>";
                 compiledResults.forEach((result) => {
                     unifiedShapes.push(...result.shapes);
-                    let modelStatusColor = result.model.includes('failed') ? '#ff1744' : '#00e676';
+                    let modelStatusColor = result.model.includes('3.5') || result.model.includes('3.1') ? '#00e676' : '#ffab00';
                     reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes)`;
                 });
 
@@ -906,7 +864,6 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
-        // FIXED: Re-added extensive geometry mapping configurations and advanced physical materials to render complex smooth subjects
         function renderAIBlueprint(shapesArray) {
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
@@ -928,50 +885,19 @@
                     case 'roundedbox': geo = createRoundedBoxGeometry(scl[0], scl[1], scl[2], 0.04, 3); break;
                     case 'sphere': geo = new THREE.SphereGeometry(0.5, 32, 32); break;
                     case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 24); break;
-                    case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 32); break;
-                    case 'capsule': geo = new THREE.CapsuleGeometry(0.3, 0.6, 8, 16); break;
-                    case 'torus': geo = new THREE.TorusGeometry(0.4, 0.15, 12, 48); break;
-                    case 'plane': geo = new THREE.PlaneGeometry(1, 1); break;
                     default: geo = new THREE.BoxGeometry(1, 1, 1);
-                }
-
-                let roughnessVal = 0.5;
-                let metalnessVal = 0.0;
-                let clearcoatVal = 0.0;
-                let emissiveVal = new THREE.Color(0x000000);
-                
-                const matStr = (shape.m || 'matte').toLowerCase().trim();
-                if (matStr.includes('metal') || matStr.includes('chrome')) {
-                    metalnessVal = 0.9;
-                    roughnessVal = 0.15;
-                } else if (matStr.includes('glass') || matStr.includes('glossy')) {
-                    roughnessVal = 0.05;
-                    clearcoatVal = 1.0;
-                } else if (matStr.includes('organic') || matStr.includes('fabric') || matStr.includes('skin') || matStr.includes('leaves')) {
-                    roughnessVal = 0.85;
-                } else if (matStr.includes('emissive') || matStr.includes('light') || matStr.includes('glow')) {
-                    emissiveVal = new THREE.Color(shape.c || "#ffffff");
                 }
 
                 const mat = new THREE.MeshPhysicalMaterial({
                     color: new THREE.Color(shape.c || "#ffffff"),
-                    roughness: roughnessVal,
-                    metalness: metalnessVal,
-                    clearcoat: clearcoatVal,
-                    emissive: emissiveVal,
-                    emissiveIntensity: emissiveVal.getHex() > 0 ? 1.2 : 0.0,
-                    side: THREE.DoubleSide
+                    roughness: 0.4,
+                    metalness: shape.m === 'metal' ? 0.8 : 0.1
                 });
 
                 const mesh = new THREE.Mesh(geo, mat);
                 mesh.position.set(pos[0], pos[1], pos[2]);
                 mesh.rotation.set(rot[0], rot[1], rot[2]);
-                
-                if (shape.t !== 'roundedbox') {
-                    mesh.scale.set(scl[0], scl[1], scl[2]);
-                }
-                mesh.castShadow = true;
-                mesh.receiveShadow = true;
+                if (shape.t !== 'roundedbox') mesh.scale.set(scl[0], scl[1], scl[2]);
                 worldGroup.add(mesh);
             });
 
@@ -1119,6 +1045,7 @@
                 return;
             }
 
+            // FIXED: Decoupled tracking gain multipliers to suppress lateral X sensitivity while leaving Z intact
             const ACCELERATION_INTEGRATION_GAIN_Z = 0.025;
             const ACCELERATION_INTEGRATION_GAIN_X = 0.006; 
             targetLinearVelocityX -= worldSpaceAcceleration.x * ACCELERATION_INTEGRATION_GAIN_X;
