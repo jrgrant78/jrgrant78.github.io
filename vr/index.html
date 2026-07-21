@@ -10,8 +10,7 @@
         #controls { 
             position: absolute; 
             top: 10px; 
-            left: 10px; 
-            right: 10px; 
+            left: 10px; right: 10px; 
             z-index: 10; 
             background: rgba(15,15,22,0.9); 
             padding: 12px; 
@@ -456,7 +455,7 @@
             else if (cleaned.startsWith("```")) cleaned = cleaned.substring(3);
             if (cleaned.endsWith("```")) cleaned = cleaned.substring(0, cleaned.length - 3);
             cleaned = cleaned.trim();
-            
+
             const firstOpen = cleaned.indexOf('{');
             if (firstOpen === -1) throw new Error("Object boundary missing.");
             let depth = 0;
@@ -467,7 +466,7 @@
                     if (depth === 0) return cleaned.substring(firstOpen, i + 1);
                 }
             }
-            return cleaned; 
+            return cleaned;
         }
 
         function init3D() {
@@ -691,10 +690,9 @@
             scanBtn.disabled = true;
             
             statusDiv.style.display = 'block';
-            statusDiv.innerText = "Pass 1: Running Orchestrator Model Cascade...";
-            descDiv.innerHTML = "<span style='color: #00e5ff; font-weight: 500;'>Analyzing composition layout and bounds...</span>";
+            statusDiv.innerText = "Pass 1: Executing Orchestrator...";
+            descDiv.innerHTML = "<span style='color: #00e5ff; font-weight: 500;'>Mapping layout bounds...</span>";
 
-            // FIXED: Restored your exact 2026 model cascade array to eliminate 405 Method Not Allowed exceptions
             const modelCascadeList = [
                 'gemini-3.5-flash',
                 'gemini-3.1-pro-preview',
@@ -710,16 +708,17 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
+            // FIXED: Handcoded clear, distinct block boundaries so Pass 1 prints under explicit tags
             const pass1Prompt = `
                 Act as the Master 3D Spatial Scaffolder. Analyze this image scene completely and translate its structural contents, silhouettes, clothing folds, anatomical forms, and background elements into a high-density primitive manifest description.
                 
-                Your response must populate exactly two properties inside the target JSON object layout:
-                1. description: A clear textual overview detailing the subjects observed, their physical layout, poses, textures, and depth spacing context.
+                Your response must populate exactly two fields inside the target JSON object layout:
+                1. description: Provide a detailed text summary describing the exact subjects observed, their physical layout, organic curves, garments, poses, and environmental context.
                 2. blueprint: An architectural text blueprint mapping the structural primitives divided into 8 clear semantic layers.
                 
-                CRITICAL DENSITY REQUIREMENT: For each of the 8 subheaders below, you MUST outline a detailed layout containing between 25 and 35 distinct primitive items per section (totalling 200–280 elements overall). To capture highly organic shapes, bodies, limbs, or fluid garments, do NOT use large block placeholders. Instead, map out multiple overlapping clusters of micro-primitives (spheres, capsules, cylinders, toruses) to seamlessly sculpt realistic contours.
+                CRITICAL DENSITY MANDATE: For each of the 8 subheaders below, you MUST outline a detailed layout containing between 25 and 35 distinct primitive items per section (totalling 200–280 elements overall across the scene). To capture highly organic shapes, bodies, limbs, or fluid garments, do NOT use single large bounding box shortcuts. Instead, map out multiple overlapping clusters of micro-primitives (spheres, roundedboxes, capsules, cylinders, toruses, cones) to seamlessly sculpt smooth silhouettes and realistic contours.
                 
-                You MUST format the blueprint string property precisely using these 8 exact section tracking tags:
+                You MUST format the blueprint text property precisely using these 8 exact unescaped section tracking tags:
                 [FOUNDATION_PRIMITIVES]
                 [FOUNDATION_SURFACE]
                 [CORE_MASSES_FURNITURE]
@@ -753,10 +752,7 @@
                                 responseMimeType: "application/json",
                                 responseSchema: {
                                     type: "OBJECT",
-                                    properties: { 
-                                        description: { type: "STRING" }, 
-                                        blueprint: { type: "STRING" } 
-                                    },
+                                    properties: { description: { type: "STRING" }, blueprint: { type: "STRING" } },
                                     required: ["description", "blueprint"]
                                 }
                             }
@@ -765,7 +761,7 @@
 
                     if (!res.ok) {
                         const errorDetailsText = await res.text();
-                        debugDiagnosticsHistory += `• Pass 1 [${model}] Status ${res.status}: ${errorDetailsText.substring(0, 80)}...<br>`;
+                        debugDiagnosticsHistory += `• Pass 1 [${model}] Error ${res.status}: ${errorDetailsText.substring(0, 80)}...<br>`;
                         continue;
                     }
 
@@ -786,13 +782,13 @@
             }
 
             if (!parsedPayload || !parsedPayload.blueprint) {
-                descDiv.innerHTML = `<span style='color:#ff3333; font-weight:bold;'>Pass 1 Fatal Failure</span><br><br>` + 
-                                    `<div style='width: 100%; background:#221b11; border:1px solid #ff3333; padding:10px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box;'>` +
-                                    `<b>System Diagnostics Log Trail:</b><br>${debugDiagnosticsHistory || "All candidate model connections rejected. Confirm API key validity and network visibility."}</div>`;
+                descDiv.innerHTML = `<span style='color:#ff3333; font-weight:bold;'>Pass 1 Fatal Failure</span>`;
+                if (debugDiagnosticsHistory) descDiv.innerHTML += `<br><br><div style='width: 100%; background:#221b11; padding:8px;'><b>Error Log:</b><br>${debugDiagnosticsHistory}</div>`;
                 scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
                 return;
             }
 
+            // FIXED: Parallel tasks route matching guidelines combined directly with exact text block identifiers to eliminate parsing thread dropouts
             const structuralTasks = [
                 { id: 'FOUNDATION', subId: 'PRIMITIVES', searchToken: '[FOUNDATION_PRIMITIVES]' },
                 { id: 'FOUNDATION', subId: 'SURFACE', searchToken: '[FOUNDATION_SURFACE]' },
@@ -809,28 +805,27 @@
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
                 await delayExecutionTime(idx * 150);
 
-                // FIXED: Direct natural language extraction prompt running against the corrected 2026 model stack array
+                // FIXED: Direct natural language extraction prompt running against the exact 2026 model stack array
                 const pass2Prompt = `
-                    You are a precision 3D Geometry compiler worker focusing strictly on the layer block: [${task.id} -> ${task.subId}].
-                    Your assigned target area in the manifest text is marked by the tracking tag: "${task.searchToken}".
+                    You are a precision 3D Geometry compiler worker focusing strictly on the layer block lines listed directly under the tracking header tag: "${task.searchToken}".
                     
                     COMPILATION INSTRUCTIONS:
                     1. Read the MASTER BLUEPRINT MANIFEST text provided below.
-                    2. Locate the specific section block lines listed directly underneath the tracking tag header "${task.searchToken}".
-                    3. Convert EVERY SINGLE descriptive text primitive item entry listed in that section into its own separate object node element inside the required JSON "shapes" array. Do NOT skip items, do NOT compress nodes, and do NOT truncate rows. You are required to output between 25 and 35 complete nodes to create high density organic subjects.
+                    2. Locate the specific section block lines listed directly underneath the tracking tag header "${task.searchToken}" until the next section block tag.
+                    3. Convert EVERY SINGLE separate text line entry inside that section into its own independent object node inside the required JSON "shapes" layout array. Do NOT skip items, do NOT compress nodes, and do NOT truncate rows. You are required to extract between 25 and 35 complete nodes to create a dense cohesive subject mesh.
                     
-                    CRITICAL KEY TRANSLATION DICTIONARY:
-                    You MUST write the output elements using single-character parameter keys mapped from the text attributes exactly as follows:
-                    - 'type' translates directly to JSON key string property "t" (Values: "box", "roundedbox", "sphere", "cylinder", "cone", "capsule", "torus", "plane")
-                    - 'material' translates directly to JSON key string property "m" (Values: "metal", "matte", "glossy", "organic")
-                    - 'color' translates directly to JSON key string property "c" (Hex string color code)
-                    - 'position' translates directly to JSON key float numbers array property "p" ([x, y, z])
-                    - 'scale' translates directly to JSON key float numbers array property "s" ([x, y, z])
-                    - 'rotation' translates directly to JSON key float numbers array property "r" ([x, y, z])
+                    CRITICAL KEY TRANSLATION DICTIONARY Matrix:
+                    You MUST write the JSON array elements using single-character parameter keys mapped from the text fields exactly as follows:
+                    - Map text attribute 'type' directly to JSON key string property "t" (Values: "box", "roundedbox", "sphere", "cylinder", "cone", "capsule", "torus", "plane")
+                    - Map text attribute 'material' directly to JSON key string property "m" (Values: "metal", "matte", "glossy", "organic")
+                    - Map text attribute 'color' directly to JSON key string property "c" (Hex string color code)
+                    - Map text attribute 'position' directly to JSON key float numbers array property "p" ([x, y, z])
+                    - Map text attribute 'scale' directly to JSON key float numbers array property "s" ([x, y, z])
+                    - Map text attribute 'rotation' directly to JSON key float numbers array property "r" ([x, y, z])
                     
-                    MAPPING REFERENCE POINT EXAMPLE:
-                    Line entry: "- type=capsule, material=organic, color=#00e5ff, position=[0,1,0], scale=[0.5,1,0.5], rotation=[0,0,0]"
-                    JSON array node: {"t": "capsule", "m": "organic", "c": "#00e5ff", "p": [0,1,0], "s": [0.5,1,0.5], "r": [0,0,0]}
+                    MAPPING REFERENCE PAIR EXAMPLE:
+                    Line entry: "- type=capsule, material=organic, color=#00e5ff, position=[0,1.5,0], scale=[0.4,1.2,0.4], rotation=[0,0,0]"
+                    JSON array node: {"t": "capsule", "m": "organic", "c": "#00e5ff", "p": [0,1.5,0], "s": [0.4,1.2,0.4], "r": [0,0,0]}
                     
                     MASTER BLUEPRINT MANIFEST:
                     """
@@ -888,7 +883,7 @@
             try {
                 const compiledResults = await Promise.all(regionalCompilationPromises);
                 
-                let reportTrackingLog = "<br><br><b>8-Layer High-Fidelity Restored Architecture Audit:</b>";
+                let reportTrackingLog = "<br><br><b>8-Layer Cohesive Matrix Restored Architecture Audit:</b>";
                 compiledResults.forEach((result) => {
                     unifiedShapes.push(...result.shapes);
                     let modelStatusColor = result.model.includes('failed') ? '#ff1744' : '#00e676';
@@ -898,8 +893,8 @@
                 let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
                 let structuredUiOutput = coreLayoutNarrative + reportTrackingLog;
 
-                if (permanentPass2Logs) {
-                    structuredUiOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>System Diagnostic Fallback Log Trail:</b><br>${permanentPass2Logs}</div>`;
+                if (debugDiagnosticsHistory || permanentPass2Logs) {
+                    structuredUiOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>System Diagnostic Fallback Log Trail:</b><br>${debugDiagnosticsHistory}${permanentPass2Logs}</div>`;
                 }
 
                 descDiv.innerHTML = structuredUiOutput;
@@ -911,6 +906,7 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
+        // FIXED: Re-added extensive geometry mapping configurations and advanced physical materials to render complex smooth subjects
         function renderAIBlueprint(shapesArray) {
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
