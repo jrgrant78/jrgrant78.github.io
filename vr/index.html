@@ -296,7 +296,7 @@
         const OPEN_EYE_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
 
-        const ICON_CAMERA_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/></svg>`;
+        const ICON_CAMERA_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/> shift</svg>`;
         const ICON_PHOTO_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 
         class MultiPointMotionTracker {
@@ -688,7 +688,6 @@
             statusDiv.innerText = "Pass 1: Preparing prompt queries...";
             descDiv.innerHTML = "<span style='color: #00e5ff; font-weight: 500;'>Please be patient while AI analyzes the scene...</span>";
 
-            // Integrated target cascade list minus items 5 and 7
             const modelCascadeList = [
                 'gemini-3.5-flash',
                 'gemini-3.1-pro-preview',
@@ -702,19 +701,24 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
+            // CRITICAL UPGRADE: Hard-coded structural minimum density parameters to combat "lazy evaluation" shortcuts
             const pass1Prompt = `
                 Act as an expert 3D Computer Vision Spatial Scaffolder. Analyze this image frame carefully.
-                Your goal is to deconstruct the visual objects into a highly accurate, tightly fitting spatial blueprint.
+                Your goal is to deconstruct the visual objects into a highly dense, ultra-granular spatial blueprint mimicking a dense point-cloud mesh scan.
                 
                 Coordinate System Discipline:
                 - The absolute center origin of the primary subject matter is at (0, 0, 0).
                 - Ground level/floor planes should sit exactly at y = 0.
                 - X-axis is horizontal alignment, Y-axis is vertical height, Z-axis is depth.
-                - Deconstruct complex assemblies into combinations of small primitives aligned tightly together along shared boundary edges without overlapping gaps.
+                
+                High Density & Detail Mandate (CRITICAL):
+                - Do NOT use single large bounding boxes to capture objects. You must explicitly break structures down into multiple fine micro-primitives. For instance, a chair must not be one single block; it must be mapped as four separate legs, sub-panels for seats, distinct slats for the backrest, and joint couplers.
+                - You are REQUIRED to generate between 25 to 35 separate, precise micro-primitive rows under EACH of the 4 quadrants/categories below. 
+                - The total blueprint array must span between 100 to 140 total interlocking lines across the whole scene to resolve complex scanned details.
                 
                 Your response must populate exactly two fields inside the target JSON object:
-                1. description: Provide a detailed architectural analysis of the subjects, their proximity, spatial layout, and structural material properties.
-                2. blueprint: A meticulous manifest listing descriptive primitives categorized under logical headers.
+                1. description: Provide a detailed architectural analysis of the subjects, their proximity, and material details.
+                2. blueprint: A meticulous text manifest categorizing your 100+ required entries under the distinct section headers: [FOUNDATION], [CORE_MASSES], [EXTENSIONS], and [ACCENTS]. Ensure every section has 25 to 35 item entries.
                 
                 Format entry lines exactly like this template:
                 "- type=[box|roundedbox|sphere|cylinder|cone|capsule|plane], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z], color=[hex], roughness=[0.0-1.0], metalness=[0.0-1.0], transmission=[0.0-1.0]"
@@ -769,10 +773,10 @@
             }
 
             const structuralTasks = [
-                { id: 'FOUNDATION', subId: 'PRIMITIVES', filter: 'Extract only core ground, base support systems, and massive structural floors.' },
-                { id: 'CORE_MASSES', subId: 'FURNITURE', filter: 'Extract only the central solid masses, primary object bodies, or large structural parts.' },
-                { id: 'EXTENSIONS', subId: 'FRAMES', filter: 'Extract only peripheral appendages, supporting limbs, borders, handles, or armatures.' },
-                { id: 'ACCENTS', subId: 'ITEMS', filter: 'Extract fine decorative embellishments, surface accessories, overlays, and small accent details.' }
+                { id: 'FOUNDATION', subId: 'PRIMITIVES', filter: 'Extract only core ground, base support systems, and massive structural floors. Maintain the full array of 25-35 distinct sub-entries provided in the master text layout.' },
+                { id: 'CORE_MASSES', subId: 'FURNITURE', filter: 'Extract only the central solid masses, primary object bodies, or large structural parts. Process every single entry line without condensing or combining pieces.' },
+                { id: 'EXTENSIONS', subId: 'FRAMES', filter: 'Extract only peripheral appendages, supporting limbs, borders, handles, or armatures. Output each independent micro-element item accurately.' },
+                { id: 'ACCENTS', subId: 'ITEMS', filter: 'Extract fine decorative embellishments, surface accessories, overlays, and small accent details. Keep the micro-elements discrete.' }
             ];
 
             let permanentPass2Logs = "";
@@ -780,12 +784,13 @@
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
                 await delayExecutionTime(idx * 150);
 
+                // CRITICAL UPGRADE: Forcing the Compiler Worker to execute EVERY line without optimizations or merges
                 const pass2Prompt = `
                     You are a precision 3D Geometry compiler worker focusing strictly on the [${task.id} -> ${task.subId}] layer.
                     Task Directive: ${task.filter}
                     
-                    Convert those targeted architectural lines into a highly minified JSON shapes layout array. 
-                    Do not extrapolate elements outside your assigned directive scope.
+                    Convert EVERY single configuration text line listed under the corresponding header area into its explicit JSON shape object. 
+                    Do NOT drop, merge, optimize, or condense items. If there are 25-35 architectural lines under your target category, you must emit a matched output array containing all 25-35 distinct shape node entries.
                     
                     MASTER BLUEPRINT TO COMPILE:
                     """
