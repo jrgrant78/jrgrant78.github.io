@@ -243,7 +243,7 @@
                 <input type="password" id="apiKeyField" class="key-input" placeholder="Enter Gemini API Key...">
                 <button id="overlayToggleBtn" class="btn-overlay" title="Toggle Image Alignment Plane">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polygon>
+                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline>
                     </svg>
                 </button>
             </div>
@@ -685,6 +685,7 @@
             scanBtn.disabled = true;
             statusDiv.style.display = 'block';
             
+            // Your exact targeted cascade list sequence
             const modelCascadeList = [
                 'gemini-3.5-flash',
                 'gemini-3.1-pro-preview',
@@ -693,109 +694,109 @@
                 'gemini-3.1-flash-lite'
             ];
             
+            let parsedPayload = null;
             let unifiedShapes = [];
             let permanentPipelineLogs = "";
-            let overallSummaryText = "High-Density Deep Quadrant Scanning Execution Active:\n";
+            let successfulDescModel = "failed";
 
-            // Enforcing hyper-focused parsing tasks to isolate context sizes perfectly
-            const structuralTasks = [
-                { 
-                    id: 'FOUNDATION', 
-                    subId: 'PRIMITIVES', 
-                    descPrompt: 'Examine the image and provide an ultra-detailed, step-by-step description of only the floor, ground structure, base extensions, and massive supporting bottom structures. Explicitly identify and list 25 to 35 separate sub-sections or segments.',
-                    geomPrompt: 'Generate between 25 to 35 separate, precise micro-primitive nodes capturing the architectural ground elements listed in your blueprint analysis. Do not combine them.'
-                },
-                { 
-                    id: 'CORE_MASSES', 
-                    subId: 'FURNITURE', 
-                    descPrompt: 'Examine the image and provide an ultra-detailed, step-by-step description of only the primary central bodies, solid masses, and main structures. Deconstruct large volumes into 25 to 35 individual interlocking segments or panels.',
-                    geomPrompt: 'Generate between 25 to 35 separate, precise micro-primitive nodes capturing the primary core mass configurations. Map components piece-by-piece.'
-                },
-                { 
-                    id: 'EXTENSIONS', 
-                    subId: 'FRAMES', 
-                    descPrompt: 'Examine the image and provide an ultra-detailed, step-by-step description of only peripheral appendages, supporting limbs, structural frames, slats, borders, handles, and connection joints. Explicitly describe 25 to 35 distinct physical connections.',
-                    geomPrompt: 'Generate between 25 to 35 separate, precise micro-primitive nodes capturing all skeletal structural frames, legs, slats, and joint pins.'
-                },
-                { 
-                    id: 'ACCENTS', 
-                    subId: 'ITEMS', 
-                    descPrompt: 'Examine the image and provide an ultra-detailed, step-by-step description of only micro-embellishments, small surface additions, tiny switches, buttons, seam overlays, and fine accent textures. Identify 25 to 35 separate miniature focal spots.',
-                    geomPrompt: 'Generate between 25 to 35 separate, precise micro-primitive nodes mapping the tiny accent elements and decorative overlays.'
+            // --- UPGRADED PASS 1: Single Request, Deep Multi-Quadrant Sub-Blueprint Mapping ---
+            statusDiv.innerText = "Pass 1: Parsing Scene Quadrants...";
+            descDiv.innerHTML = "<span style='color: #00e5ff;'>Orchestrating dense structural segmentation breakdown...</span>";
+
+            const pass1Prompt = `
+                Act as an expert 3D Computer Vision Orchestrator. Analyze this image frame carefully.
+                Your task is to provide an ultra-granular, high-density analysis of the scene broken down explicitly by layer quadrants.
+                
+                You must populate all 5 fields inside the response JSON object:
+                1. description: General textual configuration summary of the subject matter space.
+                2. foundation_blueprint: A step-by-step descriptive mapping listing exactly 25 to 35 individual floor/ground support parts.
+                3. core_blueprint: A step-by-step descriptive mapping listing exactly 25 to 35 central solid body parts.
+                4. extensions_blueprint: A step-by-step descriptive mapping listing exactly 25 to 35 frames, limbs, structural joints, or armatures.
+                5. accents_blueprint: A step-by-step descriptive mapping listing exactly 25 to 35 independent tiny surface decorations or accent overlays.
+                
+                Do not combine elements into simple shapes. Ensure every blueprint layer field lists its target range of discrete micro-components.
+            `;
+
+            for (let model of modelCascadeList) {
+                try {
+                    statusDiv.innerText = `Pass 1: Analyzing via ${model}...`;
+                    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ 
+                                parts: [
+                                    { text: pass1Prompt }, 
+                                    { inlineData: { mimeType: "image/jpeg", data: base64Image } }
+                                ] 
+                            }],
+                            generationConfig: { 
+                                responseMimeType: "application/json",
+                                responseSchema: {
+                                    type: "OBJECT",
+                                    properties: { 
+                                        description: { type: "STRING" },
+                                        foundation_blueprint: { type: "STRING" },
+                                        core_blueprint: { type: "STRING" },
+                                        extensions_blueprint: { type: "STRING" },
+                                        accents_blueprint: { type: "STRING" }
+                                    },
+                                    required: ["description", "foundation_blueprint", "core_blueprint", "extensions_blueprint", "accents_blueprint"]
+                                }
+                            }
+                        })
+                    });
+
+                    if (res.ok) {
+                        const data = await res.json();
+                        parsedPayload = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
+                        successfulDescModel = model;
+                        break;
+                    } else {
+                        const errTxt = await res.text();
+                        console.warn(`Pass 1 [${model}] failed: ${errTxt}`);
+                    }
+                } catch (e) {
+                    console.warn(`Pass 1 [${model}] exception: ${e.message}`);
                 }
+            }
+
+            if (!parsedPayload) {
+                descDiv.innerHTML = `<span style='color:#ff3333; font-weight:bold;'>Pass 1 Network Failure: All cascading models failed or returned token blocks. Verify key permissions or look at console logs.</span>`;
+                scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
+                return;
+            }
+
+            permanentPipelineLogs += `• Pass 1 Orchestrator: <b>${successfulDescModel}</b> (Structural Skeleton Generated)<br>`;
+
+            // Core multi-pass geometry compilation parameters
+            const structuralTasks = [
+                { id: 'FOUNDATION', key: 'foundation_blueprint', hint: 'Generate 25 to 35 discrete primitive nodes covering floors, structural bases, and ground bounds.' },
+                { id: 'CORE_MASSES', key: 'core_blueprint', hint: 'Generate 25 to 35 separate interlocking shapes mapping the main volumetric component groups.' },
+                { id: 'EXTENSIONS', key: 'extensions_blueprint', hint: 'Generate 25 to 35 precise micro-elements covering thin lines, legs, frames, panels, and knuckles.' },
+                { id: 'ACCENTS', key: 'accents_blueprint', hint: 'Generate 25 to 35 independent tiny accent nodes, finish details, and edge additions.' }
             ];
 
-            // CRITICAL UPGRADE: Complete context separation loop per quadrant
+            // --- PASS 2: Sequential Multimodal Mesh Generation (With Rate-Limit Isolation Guardrails) ---
             for (let i = 0; i < structuralTasks.length; i++) {
                 const task = structuralTasks[i];
-                let layerDescriptionText = "";
-                let successfulDescModel = "failed";
-
-                // --- PIPELINE STAGE 1: Focused Multimodal Quadrant Description Pass ---
-                statusDiv.innerText = `[${i+1}/4] Deep Analysis: Parsing ${task.id}...`;
-                descDiv.innerHTML = `<span style='color: #00e5ff;'>Isolating vision engine context strictly onto <b>${task.id}</b> structures...</span>`;
-
-                for (let model of modelCascadeList) {
-                    try {
-                        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                contents: [{ 
-                                    parts: [
-                                        { text: `Act as a 3D vision decomposition engine. ${task.descPrompt}` }, 
-                                        { inlineData: { mimeType: "image/jpeg", data: base64Image } }
-                                    ] 
-                                }],
-                                generationConfig: { 
-                                    responseMimeType: "application/json",
-                                    responseSchema: {
-                                        type: "OBJECT",
-                                        properties: { blueprint_analysis: { type: "STRING" } },
-                                        required: ["blueprint_analysis"]
-                                    }
-                                }
-                            })
-                        });
-
-                        if (res.ok) {
-                            const data = await res.json();
-                            const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                            layerDescriptionText = parsed.blueprint_analysis;
-                            successfulDescModel = model;
-                            break;
-                        }
-                    } catch (e) {
-                        console.warn(`Layer description fallback on model ${model}`);
-                    }
-                }
-
-                if (!layerDescriptionText) {
-                    permanentPipelineLogs += `• Layer [${task.id}] failed Description Pass.<br>`;
-                    continue; 
-                }
-
-                overallSummaryText += `\n[${task.id} Analysis via ${successfulDescModel}]: Done.`;
-
-                await delayExecutionTime(150);
-
-                // --- PIPELINE STAGE 2: Targeted Multimodal Quadrant Geometry Generation Pass ---
-                statusDiv.innerText = `[${i+1}/4] Mesh Synthesis: Compiling ${task.id} Shapes...`;
-                
                 let layerShapes = [];
                 let successfulGeomModel = "failed";
 
+                statusDiv.innerText = `Pass 2 [${i+1}/4]: Compiling ${task.id}...`;
+                descDiv.innerHTML = `<span style='color: #ffea00;'>Compiling dense coordinates array for <b>${task.id}</b>...</span>`;
+
                 const geometryPrompt = `
-                    You are an advanced 3D Vision Geometry Compiler focused strictly on compiling the [${task.id} -> ${task.subId}] layer nodes array.
+                    You are an advanced 3D Computer Vision Mesh Compiler focused strictly on creating the [${task.id}] layer array.
                     
-                    GEOMETRY DIRECTIVE: ${task.geomPrompt}
+                    GEOMETRY DIRECTIVE: ${task.hint}
                     
-                    Coordinate Parameters:
-                    - Center origin of scene is (0, 0, 0). Floor level sits flush at y = 0.
+                    Spatial Reference Scale Rules:
+                    - Scene root center point origin is at (0, 0, 0). Floor level sits completely flush at y = 0.
                     
-                    Layer Reference Mapping Blueprint:
+                    Target Layer Segment Blueprint Blueprint:
                     """
-                    ${layerDescriptionText}
+                    ${parsedPayload[task.key]}
                     """
                 `;
 
@@ -845,32 +846,36 @@
                             const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
                             layerShapes = parsed.shapes || [];
                             successfulGeomModel = model;
-                            break;
+                            break; 
+                        } else {
+                            const errTxt = await res.text();
+                            console.warn(`Pass 2 [${task.id}] with model [${model}] failed: ${errTxt}`);
                         }
                     } catch (e) {
-                        console.warn(`Layer compilation fallback on model ${model}`);
+                        console.warn(`Pass 2 [${task.id}] exception on model [${model}]: ${e.message}`);
                     }
                 }
 
                 if (layerShapes.length > 0) {
                     unifiedShapes.push(...layerShapes);
-                    permanentPipelineLogs += `• Layer [${task.id}] -> Text: <b>${successfulDescModel}</b> | Mesh: <b>${successfulGeomModel}</b> (<span style='color:#00e676;'>${layerShapes.length} nodes</span>)<br>`;
+                    permanentPipelineLogs += `• Layer [${task.id}] compiled via <b>${successfulGeomModel}</b> (<span style='color:#00e676;'>+${layerShapes.length} nodes</span>)<br>`;
                 } else {
-                    permanentPipelineLogs += `• Layer [${task.id}] failed Geometry Synthesis Pass.<br>`;
+                    permanentPipelineLogs += `• Layer [${task.id}] failed or rejected format parsing constraints.<br>`;
                 }
 
-                await delayExecutionTime(150);
+                // Short pacing delay window to guarantee server-side rate limits do not trip
+                await delayExecutionTime(400);
             }
 
-            // Render output matrix report summary
-            let finalUiLog = `<b>[Pipeline Process Execution Report]</b><br>${overallSummaryText.replace(/\n/g, '<br>')}`;
-            finalUiLog += `<br><br><b>High Fidelity Sub-Pass Architecture Verification Log:</b><br>${permanentPipelineLogs}`;
+            // Print finalized structural telemetry validation metrics
+            let finalUiLog = `<b>[Spatial Processing Summary Orchestration]</b><br>${parsedPayload.description}`;
+            finalUiLog += `<br><br><b>High Fidelity Multi-Pass Audit Diagnostics Log:</b><br>${permanentPipelineLogs}`;
             descDiv.innerHTML = finalUiLog;
 
             if (unifiedShapes.length > 0) {
                 renderAIBlueprint(unifiedShapes);
             } else {
-                descDiv.innerHTML += "<br><br><span style='color:#ff3333;'>Error: Pipeline was executed but returned zero nodes. Check key bounds or network traffic logs.</span>";
+                descDiv.innerHTML += "<br><br><span style='color:#ff3333;'>Error: Pipeline parsed structural layout successfully but geometry synthesis output remained empty. Verify asset details or scale metrics.</span>";
             }
 
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
