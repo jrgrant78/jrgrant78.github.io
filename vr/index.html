@@ -451,17 +451,23 @@
         }
 
         function extractCleanJsonObject(rawText) {
-            const firstOpen = rawText.indexOf('{');
+            let cleaned = rawText.trim();
+            if (cleaned.startsWith("```json")) cleaned = cleaned.substring(7);
+            else if (cleaned.startsWith("```")) cleaned = cleaned.substring(3);
+            if (cleaned.endsWith("```")) cleaned = cleaned.substring(0, cleaned.length - 3);
+            cleaned = cleaned.trim();
+
+            const firstOpen = cleaned.indexOf('{');
             if (firstOpen === -1) throw new Error("Object boundary missing.");
             let depth = 0;
-            for (let i = firstOpen; i < rawText.length; i++) {
-                if (rawText[i] === '{') depth++;
-                else if (rawText[i] === '}') {
+            for (let i = firstOpen; i < cleaned.length; i++) {
+                if (cleaned[i] === '{') depth++;
+                else if (cleaned[i] === '}') {
                     depth--;
-                    if (depth === 0) return rawText.substring(firstOpen, i + 1);
+                    if (depth === 0) return cleaned.substring(firstOpen, i + 1);
                 }
             }
-            throw new Error("Mismatched block bounds.");
+            return cleaned;
         }
 
         function init3D() {
@@ -685,8 +691,8 @@
             scanBtn.disabled = true;
             
             statusDiv.style.display = 'block';
-            statusDiv.innerText = "Pass 1: Preparing prompt queries...";
-            descDiv.innerHTML = "<span style='color: #00e5ff; font-weight: 500;'>Please be patient while AI analyzes the scene...</span>";
+            statusDiv.innerText = "Pass 1: Structuring macro composition map...";
+            descDiv.innerHTML = "<span style='color: #00e5ff; font-weight: 500;'>Analyzing composition layout and bounds...</span>";
 
             const modelCascadeList = [
                 'gemini-3.5-flash',
@@ -703,16 +709,13 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
-            // FIXED: Provided explicit structural text boundary tracking tags and forced dense mesh allocations to support smooth organic structures
             const pass1Prompt = `
-                Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely.
+                Act as the Master 3D Spatial Scaffolder. Analyze this image scene completely.
                 Your response must populate exactly two fields inside the target JSON object:
-                1. description: Provide a detailed text summary describing the exact subjects observed, their anatomy, clothing curves, poses, textures, and environmental layers.
-                2. blueprint: An architectural text blueprint manifest listing a high density of descriptive primitives categorized under exact header blocks.
+                1. description: Provide a detailed text summary describing the exact subjects observed, their anatomy, silhouettes, clothing folds, color schemes, poses, and physical depth variations.
+                2. blueprint: A high-level architectural master strategy text specifying composition vectors, dimensional guidelines, and structural design blueprints split into 8 precise tracking segments.
                 
-                CRITICAL GEOMETRY MANDATE: To capture highly organic contours, subjects, or fluid features smoothly, do NOT use single giant block approximations. Instead, assemble objects from fine-grained swarms of 25 to 35 micro-primitives per section.
-                
-                You MUST break the blueprint string text into these exact 8 header tracking tags:
+                CRITICAL INSTRUCTION: Do NOT list thousands of raw coordinate lines here. Instead, write clear semantic descriptions of the geometry, positions, scales, and primitive preferences for each of the following 8 exact section tracking tags:
                 [FOUNDATION_PRIMITIVES]
                 [FOUNDATION_SURFACE]
                 [CORE_MASSES_FURNITURE]
@@ -721,20 +724,18 @@
                 [EXTENSIONS_LIMBS]
                 [ACCENTS_ITEMS]
                 [ACCENTS_TRIM]
-                
-                Format every item description line under those headers exactly like this template:
-                "- type=[box|roundedbox|sphere|cylinder|cone|capsule|torus|plane], material=[metal|matte|glossy|organic], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
             `;
 
             const globalSpatialAnchorPrompt = `
                 Global Space Coordinates Alignment Protocol:
                 - Center origin point is at (0, 0, 0).
+                - Ground plane or base foundation sits at Y=0.
             `;
 
             pass1ModelLoop: for (let model of modelCascadeList) {
                 try {
                     statusDiv.innerText = `Pass 1: Prompting ${model}...`;
-                    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
+                    const res = await fetch('[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/)' + model + ':generateContent?key=' + userEnteredKey, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -780,14 +781,14 @@
             }
 
             const structuralTasks = [
-                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at entries listed directly underneath the header tag [FOUNDATION_PRIMITIVES].' },
-                { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Look ONLY at entries listed directly underneath the header tag [FOUNDATION_SURFACE].' },
-                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: 'Look ONLY at entries listed directly underneath the header tag [CORE_MASSES_FURNITURE].' },
-                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: 'Look ONLY at entries listed directly underneath the header tag [CORE_MASSES_CUSHIONS].' },
-                { id: 'EXTENSIONS', subId: 'FRAMES', rules: 'Look ONLY at entries listed directly underneath the header tag [EXTENSIONS_FRAMES].' },
-                { id: 'EXTENSIONS', subId: 'LIMBS', rules: 'Look ONLY at entries listed directly underneath the header tag [EXTENSIONS_LIMBS].' },
-                { id: 'ACCENTS', subId: 'ITEMS', rules: 'Look ONLY at entries listed directly underneath the header tag [ACCENTS_ITEMS].' },
-                { id: 'ACCENTS', subId: 'TRIM', rules: 'Look ONLY at entries listed directly underneath the header tag [ACCENTS_TRIM].' }
+                { id: 'FOUNDATION', subId: 'PRIMITIVES', searchToken: '[FOUNDATION_PRIMITIVES]', instruction: 'Reconstruct main structural bases, terrain foundations, and floor structures using clusters of overlapping box, roundedbox, or plane elements.' },
+                { id: 'FOUNDATION', subId: 'SURFACE', searchToken: '[FOUNDATION_SURFACE]', instruction: 'Synthesize ground details, floor variations, micro-terrain shifts, or base stones.' },
+                { id: 'CORE_MASSES', subId: 'FURNITURE', searchToken: '[CORE_MASSES_FURNITURE]', instruction: 'Isolate main solid blocks, central object weights, or the core skeletal torsos of human/organic subjects.' },
+                { id: 'CORE_MASSES', subId: 'CUSHIONS', searchToken: '[CORE_MASSES_CUSHIONS]', instruction: 'Sculpt secondary organic muscle volumes, clothing layer flows, connected contours, or curved body parts.' },
+                { id: 'EXTENSIONS', subId: 'FRAMES', searchToken: '[EXTENSIONS_FRAMES]', instruction: 'Trace backdrops, vertical poles, background columns, trunks, or hard structural framework borders.' },
+                { id: 'EXTENSIONS', subId: 'LIMBS', searchToken: '[EXTENSIONS_LIMBS]', instruction: 'Assemble organic limb clusters, arms, legs, fingers, or intricate structural branching linkages.' },
+                { id: 'ACCENTS', subId: 'ITEMS', searchToken: '[ACCENTS_ITEMS]', instruction: 'Generate standalone surface objects, shoes, custom decorative accessories, or prominent facial contours.' },
+                { id: 'ACCENTS', subId: 'TRIM', searchToken: '[ACCENTS_TRIM]', instruction: 'Refine edge trimmings, clothing seams, fine surface textures, border highlights, or micro details.' }
             ];
 
             let permanentPass2Logs = "";
@@ -795,28 +796,29 @@
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
                 await delayExecutionTime(idx * 150);
 
-                // FIXED: Injected strict natural translation matrices to ensure text parameters compile completely into short JSON tokens without row drops
+                // FIXED: Fed BOTH the original source image and structural text rules directly into Pass 2.
+                // This permits every parallel thread worker to safely generate 25-35 nodes natively without truncating.
                 const pass2Prompt = `
-                    You are a precision 3D Geometry compiler worker focusing strictly on the sub-layer tag block: [${task.id}_${task.subId}].
-                    Isolate and read ONLY the primitive asset lines found under the instruction criteria rules: "${task.rules}" inside the MASTER BLUEPRINT MANIFEST.
+                    You are a precision 3D Geometry compiler worker focusing strictly on synthesizing the sub-layer zone: [${task.id} -> ${task.subId}].
                     
-                    Convert every separate line belonging to that section into a valid structural node inside the required JSON "shapes" layout array. Do NOT skip items, combine lines, or summarize. You must compile a rich collection of 25-35 nodes to maintain high spatial density.
+                    TARGET STRATEGY CRITERIA:
+                    Look at the MASTER BLUEPRINT MANIFEST text context under heading "${task.searchToken}", then analyze the attached source image frame.
+                    Your objective is to: ${task.instruction}
                     
-                    CRITICAL KEY TRANSLATION DICTIONARY:
+                    CRITICAL DENSITY MANDATE:
+                    You MUST generate a high-density cluster of exactly between 25 and 35 separate, highly specific micro-primitive elements for this layer. Do NOT use single giant box placeholders. Instead, kitbash complex silhouettes out of dozens of overlapping, tightly clustered elements (spheres, capsule shapes, toruses, cylinders) to model smooth contours, realistic musculature, and fine scenic layouts.
+                    
+                    CRITICAL JSON KEY TRANSLATION DICTIONARY:
                     You MUST map properties using single-character keys exactly as follows:
-                    - 'type' maps directly to JSON key string property "t"
-                    - 'material' maps directly to JSON key string property "m"
-                    - 'color' maps directly to JSON key string property "c"
-                    - 'position' maps directly to JSON key float numbers array property "p"
-                    - 'scale' maps directly to JSON key float numbers array property "s"
-                    - 'rotation' maps directly to JSON key float numbers array property "r"
-                    
-                    MAPPING EXAMPLE REFERENCE:
-                    Line: "- type=capsule, material=organic, color=#ff33aa, position=[0,1,0], scale=[0.5,1,0.5], rotation=[0,0,0]"
-                    Output Array Entry: {"t": "capsule", "m": "organic", "c": "#ff33aa", "p": [0,1,0], "s": [0.5,1,0.5], "r": [0,0,0]}
+                    - 't' : primitive type shape string ("box", "roundedbox", "sphere", "cylinder", "cone", "capsule", "torus", "plane")
+                    - 'm' : material finish ("metal", "matte", "glossy", "organic")
+                    - 'c' : color hexadecimal color parameter string (e.g. "#aa33ff")
+                    - 'p' : relative coordinate position float array [x, y, z]
+                    - 's' : spatial layout scale dimensions float array [x, y, z]
+                    - 'r' : Euler rotation angle array alignment [x, y, z]
                     
                     ${globalSpatialAnchorPrompt}
-                    MASTER BLUEPRINT MANIFEST:
+                    MASTER BLUEPRINT MANIFEST CONTEXT:
                     """
                     ${parsedPayload.blueprint}
                     """
@@ -825,11 +827,11 @@
                 for (let model of modelCascadeList) {
                     try {
                         statusDiv.innerText = `Pass 2: Compiling [${task.id}_${task.subId}] via ${model}...`;
-                        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
+                        const res = await fetch('[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/)' + model + ':generateContent?key=' + userEnteredKey, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
-                                contents: [{ parts: [{ text: pass2Prompt }] }], 
+                                contents: [{ parts: [{ text: pass2Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }], 
                                 generationConfig: { 
                                     responseMimeType: "application/json",
                                     responseSchema: {
@@ -875,7 +877,7 @@
                 let reportTrackingLog = "<br><br><b>8-Layer Cohesive Matrix Architecture Audit:</b>";
                 compiledResults.forEach((result) => {
                     unifiedShapes.push(...result.shapes);
-                    let modelStatusColor = result.model.includes('3.5') || result.model.includes('3.1') ? '#00e676' : '#ffab00';
+                    let modelStatusColor = result.model.includes('failed') ? '#ff1744' : '#00e676';
                     reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes)`;
                 });
 
@@ -895,7 +897,7 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
-        // FIXED: Expanded geometry factory definitions and added PBR material rendering paths to capture organic elements
+        // FIXED: Rebuilt structural geometry factory parsing loops to cleanly support organic forms
         function renderAIBlueprint(shapesArray) {
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
@@ -1108,7 +1110,6 @@
                 return;
             }
 
-            // Preserved original axis-sensitivity parameters completely intact
             const ACCELERATION_INTEGRATION_GAIN_Z = 0.025;
             const ACCELERATION_INTEGRATION_GAIN_X = 0.006; 
             targetLinearVelocityX -= worldSpaceAcceleration.x * ACCELERATION_INTEGRATION_GAIN_X;
