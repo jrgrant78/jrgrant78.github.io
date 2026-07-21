@@ -296,7 +296,7 @@
         const OPEN_EYE_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
 
-        const ICON_CAMERA_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/></svg>`;
+        const ICON_CAMERA_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/>></svg>`;
         const ICON_PHOTO_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 
         class MultiPointMotionTracker {
@@ -703,29 +703,21 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
-            // FIXED: Enforced explicit block boundaries and structural details to avoid primitive collapsing
+            // FIXED: Hardcoded clear, distinct domain boundaries so Pass 1 generates an explicit list architecture
             const pass1Prompt = `
                 Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely and break it down into an intricate 3D scene representation composed of multiple high-fidelity primitive forms.
                 
                 Your response must populate exactly two fields inside the target JSON object:
-                1. description: Provide a detailed text summary describing the exact subjects observed, their physical layout, poses, textures, and depth.
+                1. description: Provide a detailed text summary describing the exact subjects observed, their physical layout, organic structures, clothing/skin textures, poses, and environmental context.
                 2. blueprint: An architectural text blueprint manifest listing descriptive primitives categorized under exact structural region headers.
                 
-                You must capture organic details (e.g., body silhouettes, limbs, rounded contours of stone/sculptural shapes) and structural environmental depth assets (e.g., tree canopies, support poles, background planes). Avoid over-simplification. Break objects down into high-density constituent groups of at least 40-80 individual primitives total.
+                You MUST capture organic details (e.g., body silhouettes, limbs, rounded contours of a human subject, clothing folds, specific sculptural elements) and structural background assets (e.g., tree canopies, background foliage planes, support frames). Avoid over-simplification. Break objects down into high-density constituent groups of at least 40-80 individual primitives total across the whole scene to avoid over-simplification.
                 
-                Format the blueprint exactly using these exact four regional section headers:
-                
+                Format the blueprint text exactly using these exact four headers:
                 == FOUNDATION ==
-                (Include ground meshes, landscape steps, pedestals, and base structural platforms here)
-                
                 == CORE_MASSES ==
-                (Include primary body volumes, large organic shapes, torsos, primary structures, main structural weights here)
-                
                 == EXTENSIONS ==
-                (Include limbs, arms, legs, poles, branches, necks, supporting elements here)
-                
                 == ACCENTS ==
-                (Include detailed facial elements, clothing layers, shoes, surface ornaments, details, light features here)
                 
                 Format entry lines under headers exactly like this template:
                 "- type=[box|roundedbox|sphere|cylinder|cone|capsule|torus|plane], material=[metal|matte|glossy|organic], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
@@ -785,39 +777,47 @@
                 return;
             }
 
-            // FIXED: Switched loop to 4 unified structural zones to remove thread collision issues
+            // FIXED: Restored the original 8-layer parallel list layout from your base script while defining rigid rules for each pass
             const structuralTasks = [
-                { id: 'ZONE_FOUNDATION', header: '== FOUNDATION ==' },
-                { id: 'ZONE_CORE_MASSES', header: '== CORE_MASSES ==' },
-                { id: 'ZONE_EXTENSIONS', header: '== EXTENSIONS ==' },
-                { id: 'ZONE_ACCENTS', header: '== ACCENTS ==' }
+                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: "Look ONLY at entries under '== FOUNDATION =='. Extract main base platforms, ground planes, and large floor blocks." },
+                { id: 'FOUNDATION', subId: 'SURFACE', rules: "Look ONLY at entries under '== FOUNDATION =='. Extract fine surface details on the ground, steps, terrain variations, and base texturing blocks." },
+                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: "Look ONLY at entries under '== CORE_MASSES =='. Extract major central volumes, large structural masses, main object torsos, or central blocks." },
+                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: "Look ONLY at entries under '== CORE_MASSES =='. Extract secondary supporting volumes, soft curves, connected layered masses, or rounded contours." },
+                { id: 'EXTENSIONS', subId: 'FRAMES', rules: "Look ONLY at entries under '== EXTENSIONS =='. Extract structural frames, columns, long poles, branches, or outer geometric outlines." },
+                { id: 'EXTENSIONS', subId: 'LIMBS', rules: "Look ONLY at entries under '== EXTENSIONS =='. Extract organic extensions, limbs, arms, legs, or specialized structural linkages." },
+                { id: 'ACCENTS', subId: 'ITEMS', rules: "Look ONLY at entries under '== ACCENTS =='. Extract small props, standalone decorations, facial elements, shoes, or distinct surface attachments." },
+                { id: 'ACCENTS', subId: 'TRIM', rules: "Look ONLY at entries under '== ACCENTS =='. Extract fine details, clothing seams, edge highlights, or decorative borders." }
             ];
 
             let permanentPass2Logs = "";
 
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
-                await delayExecutionTime(idx * 200);
+                await delayExecutionTime(idx * 150);
 
-                // FIXED: Integrated a strict translation map to seamlessly link descriptive text parameters with minified schema tokens
+                // FIXED: Injected an un-deconstructible 1:1 schema translation template mapping directly to JSON object keys (t, m, c, p, s, r) to prevent any key mismatch drops
                 const pass2Prompt = `
-                    You are an expert high-fidelity 3D Geometry compiler worker focusing strictly on parsing the blueprint lines inside the region block: "${task.header}".
+                    You are a precision 3D Geometry compiler worker focusing strictly on the [${task.id} -> ${task.subId}] sub-layer.
                     
-                    TASK INSTRUCTIONS:
+                    COMPILATION RULES:
                     1. Read the MASTER BLUEPRINT MANIFEST.
-                    2. Locate the section block underneath the header "${task.header}".
-                    3. Extract and parse EVERY SINGLE list item entry under this section. Do NOT summarize. Do NOT omit details or collapse lines.
-                    4. Convert each individual text entry into its corresponding object node inside the required JSON shapes array.
+                    2. Filter content based on your sub-layer assignment rules: ${task.rules}
+                    3. Convert EVERY matching primitive text line item into its corresponding object node inside the required JSON shapes output array. Do NOT summarize or skip lines.
                     
-                    TRANSLATION DICTIONARY MAP KEY (CRITICAL):
-                    You MUST map the attributes from the manifest text into the minified JSON schema keys exactly as follows:
-                    - Map 'type' value directly to the 't' key string parameter.
-                    - Map 'material' value directly to the 'm' key string parameter.
-                    - Map 'color' value directly to the 'c' key string parameter.
-                    - Map 'position' numbers array directly to the 'p' key array parameter.
-                    - Map 'scale' numbers array directly to the 's' key array parameter.
-                    - Map 'rotation' numbers array directly to the 'r' key array parameter.
+                    CRITICAL KEY TRANSLATION GLOSSARY:
+                    You MUST map the parameters from the blueprint text directly to the minified JSON schema keys using this exact mapping structure:
+                    - Map 'type' value directly to the JSON key "t" (e.g., "box", "roundedbox", "sphere", "cylinder", "cone", "capsule", "torus", "plane")
+                    - Map 'material' value directly to the JSON key "m" (e.g., "metal", "matte", "glossy", "organic")
+                    - Map 'color' value directly to the JSON key "c" (e.g., "#ffffff")
+                    - Map 'position' numbers array directly to the JSON key "p" (e.g., [x, y, z])
+                    - Map 'scale' numbers array directly to the JSON key "s" (e.g., [x, y, z])
+                    - Map 'rotation' numbers array directly to the JSON key "r" (e.g., [x, y, z])
                     
-                    ${globalSpatialAnchorPrompt}
+                    EXACT MAPPING REFERENCE EXAMPLE:
+                    If you parse this text line: "- type=sphere, material=organic, color=#3366ff, position=[1,2,3], scale=[0.5,0.5,0.5], rotation=[0,0,0]"
+                    You MUST write this JSON object into the shapes array: {"t": "sphere", "m": "organic", "c": "#3366ff", "p": [1,2,3], "s": [0.5,0.5,0.5], "r": [0,0,0]}
+                    
+                    If no lines match your rule assignment, return an empty array for the "shapes" property.
+                    
                     MASTER BLUEPRINT MANIFEST:
                     """
                     ${parsedPayload.blueprint}
@@ -826,7 +826,7 @@
 
                 for (let model of modelCascadeList) {
                     try {
-                        statusDiv.innerText = `Pass 2: Extracting [${task.id}] via ${model}...`;
+                        statusDiv.innerText = `Pass 2: Compiling [${task.id}_${task.subId}] via ${model}...`;
                         const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -845,7 +845,7 @@
                                                         t: { type: "STRING" }, m: { type: "STRING" }, c: { type: "STRING" },
                                                         p: { type: "ARRAY", items: { type: "NUMBER" } },
                                                         s: { type: "ARRAY", items: { type: "NUMBER" } },
-                                                        r: { type: "ARRAY", items: { type: "NUMBER" } }
+                                                        r: { type: "ARRAY", items: { type: "NUMBER" } },
                                                     },
                                                     required: ["t", "m", "c", "p", "s", "r"]
                                                 }
@@ -860,25 +860,25 @@
                         if (res.ok) {
                             const data = await res.json();
                             const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                            return { id: task.id, model: model, shapes: parsed.shapes || [] };
+                            return { id: `${task.id}_${task.subId}`, model: model, shapes: parsed.shapes || [] };
                         } else {
-                            permanentPass2Logs += `• Layer [${task.id}] Fallback: ${model} failed (Status ${res.status})<br>`;
+                            permanentPass2Logs += `• Layer [${task.id}_${task.subId}] Fallback: ${model} failed (Status ${res.status})<br>`;
                         }
                     } catch (e) {
-                        permanentPass2Logs += `• Layer [${task.id}] Exception: ${model} encountered tracking error<br>`;
+                        permanentPass2Logs += `• Layer [${task.id}_${task.subId}] Exception: ${model} encountered tracking error<br>`;
                     }
                 }
-                return { id: task.id, model: "failed", shapes: [] };
+                return { id: `${task.id}_${task.subId}`, model: "failed", shapes: [] };
             });
 
             try {
                 const compiledResults = await Promise.all(regionalCompilationPromises);
                 
-                let reportTrackingLog = "<br><br><b>4-Zone Restored Architecture Audit:</b>";
+                let reportTrackingLog = "<br><br><b>8-Layer High-Fidelity Restored Architecture Audit:</b>";
                 compiledResults.forEach((result) => {
                     unifiedShapes.push(...result.shapes);
                     let modelStatusColor = result.model.includes('3.5') || result.model.includes('3.1') ? '#00e676' : '#ffab00';
-                    reportTrackingLog += `<br>• Zone [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes)`;
+                    reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes)`;
                 });
 
                 let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
@@ -897,7 +897,7 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
-        // FIXED: Expanded primitive mesh index engine and physical material matrix mapping to render fine structural details
+        // FIXED: Re-added extensive geometry mapping configurations and high-end physical materials to render complex smooth subjects
         function renderAIBlueprint(shapesArray) {
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
@@ -966,7 +966,7 @@
                 worldGroup.add(mesh);
             });
 
-            // Standardized scene centering logic (Y=0, Centered X/Z)
+            // Center geometry flat onto the world terrain grid center origin (Y=0)
             if (worldGroup.children.length > 0) {
                 const box = new THREE.Box3().setFromObject(worldGroup);
                 const center = new THREE.Vector3(); 
@@ -1111,6 +1111,7 @@
                 return;
             }
 
+            // Decoupled Axis-Sensitivity Locomotion coefficients remain fully intact as configured
             const ACCELERATION_INTEGRATION_GAIN_Z = 0.025;
             const ACCELERATION_INTEGRATION_GAIN_X = 0.006; 
             targetLinearVelocityX -= worldSpaceAcceleration.x * ACCELERATION_INTEGRATION_GAIN_X;
