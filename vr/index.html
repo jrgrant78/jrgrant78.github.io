@@ -450,18 +450,25 @@
             return geo;
         }
 
+        // FIXED: Enhanced structural JSON cleaner to strip markdown code fences and securely locate outer boundaries
         function extractCleanJsonObject(rawText) {
-            const firstOpen = rawText.indexOf('{');
+            let cleaned = rawText.trim();
+            if (cleaned.startsWith("```json")) cleaned = cleaned.substring(7);
+            else if (cleaned.startsWith("```")) cleaned = cleaned.substring(3);
+            if (cleaned.endsWith("```")) cleaned = cleaned.substring(0, cleaned.length - 3);
+            cleaned = cleaned.trim();
+            
+            const firstOpen = cleaned.indexOf('{');
             if (firstOpen === -1) throw new Error("Object boundary missing.");
             let depth = 0;
-            for (let i = firstOpen; i < rawText.length; i++) {
-                if (rawText[i] === '{') depth++;
-                else if (rawText[i] === '}') {
+            for (let i = firstOpen; i < cleaned.length; i++) {
+                if (cleaned[i] === '{') depth++;
+                else if (cleaned[i] === '}') {
                     depth--;
-                    if (depth === 0) return rawText.substring(firstOpen, i + 1);
+                    if (depth === 0) return cleaned.substring(firstOpen, i + 1);
                 }
             }
-            throw new Error("Mismatched block bounds.");
+            return cleaned; 
         }
 
         function init3D() {
@@ -685,8 +692,8 @@
             scanBtn.disabled = true;
             
             statusDiv.style.display = 'block';
-            statusDiv.innerText = "Pass 1: Analyzing spatial layouts...";
-            descDiv.innerHTML = "<span style='color: #00e5ff; font-weight: 500;'>Orchestrator mapping layer bounds...</span>";
+            statusDiv.innerText = "Pass 1: Structuring orchestrator maps...";
+            descDiv.innerHTML = "<span style='color: #00e5ff; font-weight: 500;'>Analyzing composition fields...</span>";
 
             const modelCascadeList = [
                 'gemini-2.5-flash',
@@ -700,22 +707,30 @@
             let successfulPass1Model = "none";
             let debugDiagnosticsHistory = "";
 
-            // FIXED: Shifted Pass 1 to act as a structural text coordinator, eliminating massive coordinate strings to prevent truncation failure caps
+            // FIXED: Reverted to a high-compatibility 2-property transmission schema to completely eradicate Pass 1 validation failures
             const pass1Prompt = `
-                Act as the Master 3D Spatial Orchestrator. Completely analyze this image scene and break down its structures, organic boundaries, subjects, depth distributions, and visual weights into 8 clear geometric layer strategies.
+                Act as the Master 3D Spatial Scaffolder. Analyze this image scene completely and translate its structural contents, silhouettes, clothing folds, anatomical forms, and background elements into a high-density primitive manifest description.
                 
-                Your response must populate exactly 9 fields inside the target JSON object:
-                1. description: A precise overview detailing the subjects observed, coordinates orientation, lighting, and textures.
-                2. foundation_primitives: Comprehensive structural mapping directions for ground layout planes and main flat bases.
-                3. foundation_surface: Detailing variations for minor surface terrain, base stones, and steps.
-                4. core_masses_furniture: Strategy for primary structural blocks or subject body torso volumes.
-                5. core_masses_cushions: Strategy for secondary organic curves, layers, musculature contours, or garments.
-                6. extensions_frames: Layout approach for vertical posts, scaffolding structures, framework outlines, or trunks.
-                7. extensions_limbs: Layout approach for arms, legs, secondary limbs, branches, or outer geometric links.
-                8. accents_items: Details regarding standalone small props, face properties, ornamentation, or shoes.
-                9. accents_trim: Details regarding micro edge updates, fine seams, trim borders, or surface highlights.
+                Your response must populate exactly two properties inside the target JSON object layout:
+                1. description: A clear textual overview detailing the subjects observed, their physical layout, poses, textures, and depth spacing context.
+                2. blueprint: An architectural text blueprint mapping the structural primitives divided into 8 clear semantic layers.
                 
-                For each field from 2 to 9, write a concise, highly specific tactical layout roadmap describing how to assemble that specific layer using dense, overlapping 3D micro-primitives.
+                CRITICAL DENSITY REQUIREMENT: For each of the 8 subheaders below, you MUST outline a detailed layout containing between 25 and 35 distinct primitive items per section (totalling 200–280 elements overall). To capture highly organic shapes, bodies, limbs, or fluid garments, do NOT use large block placeholders. Instead, map out multiple overlapping clusters of micro-primitives (spheres, capsules, cylinders, toruses) to seamlessly sculpt realistic contours.
+                
+                You MUST format the blueprint string property precisely using these 8 exact section tracking tags:
+                [FOUNDATION_PRIMITIVES]
+                [FOUNDATION_SURFACE]
+                [CORE_MASSES_FURNITURE]
+                [CORE_MASSES_CUSHIONS]
+                [EXTENSIONS_FRAMES]
+                [EXTENSIONS_LIMBS]
+                [ACCENTS_ITEMS]
+                [ACCENTS_TRIM]
+                
+                Format each item description line under those tags precisely using this text template:
+                "- type=[box|roundedbox|sphere|cylinder|cone|capsule|torus|plane], material=[metal|matte|glossy|organic], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
+                
+                Do NOT use curly braces {} anywhere inside your textual description or blueprint values to ensure safe JSON parsing bounds.
             `;
 
             const globalSpatialAnchorPrompt = `
@@ -727,7 +742,7 @@
             pass1ModelLoop: for (let model of modelCascadeList) {
                 try {
                     statusDiv.innerText = `Pass 1: Prompting ${model}...`;
-                    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
+                    const res = await fetch('[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/)' + model + ':generateContent?key=' + userEnteredKey, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -737,17 +752,10 @@
                                 responseSchema: {
                                     type: "OBJECT",
                                     properties: { 
-                                        description: { type: "STRING" },
-                                        foundation_primitives: { type: "STRING" },
-                                        foundation_surface: { type: "STRING" },
-                                        core_masses_furniture: { type: "STRING" },
-                                        core_masses_cushions: { type: "STRING" },
-                                        extensions_frames: { type: "STRING" },
-                                        extensions_limbs: { type: "STRING" },
-                                        accents_items: { type: "STRING" },
-                                        accents_trim: { type: "STRING" }
+                                        description: { type: "STRING" }, 
+                                        blueprint: { type: "STRING" } 
                                     },
-                                    required: ["description", "foundation_primitives", "foundation_surface", "core_masses_furniture", "core_masses_cushions", "extensions_frames", "extensions_limbs", "accents_items", "accents_trim"]
+                                    required: ["description", "blueprint"]
                                 }
                             }
                         })
@@ -755,7 +763,7 @@
 
                     if (!res.ok) {
                         const errorDetailsText = await res.text();
-                        debugDiagnosticsHistory += `• Pass 1 [${model}] Error ${res.status}: ${errorDetailsText.substring(0, 100)}...<br>`;
+                        debugDiagnosticsHistory += `• Pass 1 [${model}] Status ${res.status}: ${errorDetailsText.substring(0, 80)}...<br>`;
                         continue;
                     }
 
@@ -766,7 +774,7 @@
                     }
 
                     parsedPayload = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                    if (parsedPayload && parsedPayload.foundation_primitives) {
+                    if (parsedPayload && parsedPayload.blueprint) {
                         successfulPass1Model = model;
                         break pass1ModelLoop; 
                     }
@@ -775,23 +783,24 @@
                 }
             }
 
-            if (!parsedPayload || !parsedPayload.foundation_primitives) {
-                descDiv.innerHTML = `<span style='color:#ff3333; font-weight:bold;'>Pass 1 Fatal Failure</span>`;
-                if (debugDiagnosticsHistory) descDiv.innerHTML += `<br><br><div style='width: 100%; background:#221b11; padding:8px;'><b>Error Log:</b><br>${debugDiagnosticsHistory}</div>`;
+            if (!parsedPayload || !parsedPayload.blueprint) {
+                descDiv.innerHTML = `<span style='color:#ff3333; font-weight:bold;'>Pass 1 Fatal Failure</span><br><br>` + 
+                                    `<div style='background:#221b11; border:1px solid #ff3333; padding:10px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box;'>` +
+                                    `<b>System Diagnostics Log Trail:</b><br>${debugDiagnosticsHistory || "All candidate model connections rejected or timed out. Check network or key authority."}</div>`;
                 scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
                 return;
             }
 
-            // FIXED: Parallel tasks route matching guidelines combined directly with direct scene data context to build high node density arrays
+            // FIXED: Parallel tasks route matching guidelines combined directly with exact text block identifiers to eliminate parsing thread drop down counts
             const structuralTasks = [
-                { id: 'FOUNDATION', subId: 'PRIMITIVES', pass1Key: 'foundation_primitives' },
-                { id: 'FOUNDATION', subId: 'SURFACE', pass1Key: 'foundation_surface' },
-                { id: 'CORE_MASSES', subId: 'FURNITURE', pass1Key: 'core_masses_furniture' },
-                { id: 'CORE_MASSES', subId: 'CUSHIONS', pass1Key: 'core_masses_cushions' },
-                { id: 'EXTENSIONS', subId: 'FRAMES', pass1Key: 'extensions_frames' },
-                { id: 'EXTENSIONS', subId: 'LIMBS', pass1Key: 'extensions_limbs' },
-                { id: 'ACCENTS', subId: 'ITEMS', pass1Key: 'accents_items' },
-                { id: 'ACCENTS', subId: 'TRIM', pass1Key: 'accents_trim' }
+                { id: 'FOUNDATION', subId: 'PRIMITIVES', searchToken: '[FOUNDATION_PRIMITIVES]' },
+                { id: 'FOUNDATION', subId: 'SURFACE', searchToken: '[FOUNDATION_SURFACE]' },
+                { id: 'CORE_MASSES', subId: 'FURNITURE', searchToken: '[CORE_MASSES_FURNITURE]' },
+                { id: 'CORE_MASSES', subId: 'CUSHIONS', searchToken: '[CORE_MASSES_CUSHIONS]' },
+                { id: 'EXTENSIONS', subId: 'FRAMES', searchToken: '[EXTENSIONS_FRAMES]' },
+                { id: 'EXTENSIONS', subId: 'LIMBS', searchToken: '[EXTENSIONS_LIMBS]' },
+                { id: 'ACCENTS', subId: 'ITEMS', searchToken: '[ACCENTS_ITEMS]' },
+                { id: 'ACCENTS', subId: 'TRIM', searchToken: '[ACCENTS_TRIM]' }
             ];
 
             let permanentPass2Logs = "";
@@ -799,42 +808,43 @@
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
                 await delayExecutionTime(idx * 150);
 
-                const layerGuidanceText = parsedPayload[task.pass1Key];
-
-                // FIXED: Direct entry compilation forcing workers to execute 25-35 overlapping nodes per cluster block
+                // FIXED: Direct natural language extraction prompt ensuring sub-workers generate a stable 1:1 match count matching high density rules
                 const pass2Prompt = `
-                    You are an expert high-fidelity 3D Geometry worker specializing strictly in generating node components for the segment layer: [${task.id} -> ${task.subId}].
+                    You are a precision 3D Geometry compiler worker focusing strictly on the layer block: [${task.id} -> ${task.subId}].
+                    Your assigned target area in the manifest text is marked by the tracking tag: "${task.searchToken}".
                     
-                    LAYER FOCUS TASK STRATEGY MAP:
+                    COMPILATION INSTRUCTIONS:
+                    1. Read the MASTER BLUEPRINT MANIFEST text provided below.
+                    2. Locate the specific section block lines listed directly underneath the tracking tag header "${task.searchToken}".
+                    3. Convert EVERY SINGLE descriptive text primitive item entry listed in that section into its own separate object node element inside the required JSON "shapes" array. Do NOT skip items, do NOT compress nodes, and do NOT truncate rows. You are required to output between 25 and 35 complete nodes to create high density organic subjects.
+                    
+                    CRITICAL KEY TRANSLATION DICTIONARY:
+                    You MUST write the output elements using single-character parameter keys mapped from the text attributes exactly as follows:
+                    - 'type' translates directly to JSON key string property "t" (Values: "box", "roundedbox", "sphere", "cylinder", "cone", "capsule", "torus", "plane")
+                    - 'material' translates directly to JSON key string property "m" (Values: "metal", "matte", "glossy", "organic")
+                    - 'color' translates directly to JSON key string property "c" (Hex string color code)
+                    - 'position' translates directly to JSON key float numbers array property "p" ([x, y, z])
+                    - 'scale' translates directly to JSON key float numbers array property "s" ([x, y, z])
+                    - 'rotation' translates directly to JSON key float numbers array property "r" ([x, y, z])
+                    
+                    MAPPING REFERENCE POINT EXAMPLE:
+                    Line entry: "- type=capsule, material=organic, color=#00e5ff, position=[0,1,0], scale=[0.5,1,0.5], rotation=[0,0,0]"
+                    JSON array node: {"t": "capsule", "m": "organic", "c": "#00e5ff", "p": [0,1,0], "s": [0.5,1,0.5], "r": [0,0,0]}
+                    
+                    MASTER BLUEPRINT MANIFEST:
                     """
-                    ${layerGuidanceText}
+                    ${parsedPayload.blueprint}
                     """
-                    
-                    COMPILATION RULES:
-                    1. Analyze both the source image and the STRATEGY MAP.
-                    2. You MUST generate a high-density cluster of between 25 and 35 distinct micro-primitive components for this layer to sculpt highly organic curves, garments, anatomical lines, or complex backgrounds. Avoid single large block shortcuts. Kitbash shapes using overlapping small elements.
-                    
-                    CRITICAL KEY TRANSLATION GLOSSARY:
-                    You MUST map properties using single-character keys exactly as follows:
-                    - 't' : primitive type ("box", "roundedbox", "sphere", "cylinder", "cone", "capsule", "torus", "plane")
-                    - 'm' : physical surface material appearance ("metal", "matte", "glossy", "organic")
-                    - 'c' : color hexadecimal code parameter (e.g., "#aa33ff")
-                    - 'p' : spatial coordinates position array values [x, y, z]
-                    - 's' : absolute dimensions scale factor array values [x, y, z]
-                    - 'r' : orientation rotational alignment angles array values [x, y, z]
-                    
-                    ${globalSpatialAnchorPrompt}
-                    Ensure output is returned strictly formatted within the requested JSON properties schema structure.
                 `;
 
                 for (let model of modelCascadeList) {
                     try {
-                        statusDiv.innerText = `Pass 2: Generating [${task.id}_${task.subId}] via ${model}...`;
-                        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
+                        statusDiv.innerText = `Pass 2: Compiling [${task.id}_${task.subId}] via ${model}...`;
+                        const res = await fetch('[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/)' + model + ':generateContent?key=' + userEnteredKey, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
-                                contents: [{ parts: [{ text: pass2Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }], 
+                                contents: [{ parts: [{ text: pass2Prompt }] }], 
                                 generationConfig: { 
                                     responseMimeType: "application/json",
                                     responseSchema: {
@@ -877,18 +887,18 @@
             try {
                 const compiledResults = await Promise.all(regionalCompilationPromises);
                 
-                let reportTrackingLog = "<br><br><b>8-Layer High-Density Matrix Restored Architecture Audit:</b>";
+                let reportTrackingLog = "<br><br><b>8-Layer High-Fidelity Restored Architecture Audit:</b>";
                 compiledResults.forEach((result) => {
                     unifiedShapes.push(...result.shapes);
-                    let modelStatusColor = result.model.includes('pro') ? '#00e676' : '#ffab00';
+                    let modelStatusColor = result.model.includes('failed') ? '#ff1744' : '#00e676';
                     reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes.length} nodes)`;
                 });
 
                 let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
                 let structuredUiOutput = coreLayoutNarrative + reportTrackingLog;
 
-                if (debugDiagnosticsHistory || permanentPass2Logs) {
-                    structuredUiOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>System Diagnostic Fallback Log Trail:</b><br>${debugDiagnosticsHistory}${permanentPass2Logs}</div>`;
+                if (permanentPass2Logs) {
+                    structuredUiOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>System Diagnostic Fallback Log Trail:</b><br>${permanentPass2Logs}</div>`;
                 }
 
                 descDiv.innerHTML = structuredUiOutput;
