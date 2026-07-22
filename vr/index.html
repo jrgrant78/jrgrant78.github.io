@@ -186,7 +186,6 @@
         <div class="main-interface">
             <div id="leftContainer">
                 <div class="title-row">Spatial Sculptor AR</div>
-                
                 <div class="icon-row">
                     <button id="uiToggleBtn" title="Toggle UI Controls">
                         <svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -276,11 +275,16 @@
         
         let targetLinearVelocityX = 0;
         let targetLinearVelocityZ = 0;
+        const VELOCITY_INTERPOLATION_STEP = 0.22; 
         const VELOCITY_DEADZONE_LIMIT = 0.001;
 
         let motionTracker;
         const LEVEL_PITCH_LIMIT = THREE.MathUtils.degToRad(20);  
         const LEVEL_ROLL_LIMIT = THREE.MathUtils.degToRad(15);   
+        const ROTATIONAL_BLANKING_THRESHOLD = 0.005; 
+        
+        const TRANSLATION_SPEED_SCALAR = 0.65;                   
+        let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
@@ -659,25 +663,25 @@
             }
         }
 
-        // DYNAMIC OCCLUSION ENGINE: Vector projection matrix filtering for view-blocking structures
+        // VIEWPORT CONTEXT OCCLUSION ENGINE
         function updateWallTransparency() {
-            if (worldGroup.children.length === 0) return;
-
-            let wallsList = [];
-            let structureCenter = new THREE.Vector3();
+            let closestWall = null;
+            let minDistance = Infinity;
             let cameraWorldPosition = new THREE.Vector3();
             camera.getWorldPosition(cameraWorldPosition);
 
-            // Calculate current total structural core matrix center
-            let structureBox = new THREE.Box3().setFromObject(worldGroup);
-            structureBox.getCenter(structureCenter);
+            // Compute the holistic geometric center of the structural masses
+            let structureCenter = new THREE.Vector3();
+            if (worldGroup.children.length > 0) {
+                let structureBox = new THREE.Box3().setFromObject(worldGroup);
+                structureBox.getCenter(structureCenter);
+            } else {
+                return;
+            }
 
-            // Compute relative directional look vector from core structural volume to camera lens
-            let cameraViewDirectionVector = new THREE.Vector3().copy(cameraWorldPosition).sub(structureCenter).normalize();
-
-            // Pass 1: Restore properties and isolate valid structural partition panels via geometry bounds
             worldGroup.traverse((child) => {
                 if (child.isMesh && child.material && child.geometry) {
+                    // Revert previously modified meshes back to default rendering parameters
                     if (child.userData.originalOpacity !== undefined) {
                         if (Array.isArray(child.material)) {
                             child.material.forEach((mat, idx) => {
@@ -692,63 +696,54 @@
                         delete child.userData.originalTransparent;
                     }
 
+                    // Bounding Box Scan: Deconstructs micro-dimensions dynamically
                     if (!child.geometry.boundingBox) child.geometry.computeBoundingBox();
                     const bbox = child.geometry.boundingBox;
                     const actualSpanX = (bbox.max.x - bbox.min.x) * child.scale.x;
                     const actualSpanY = (bbox.max.y - bbox.min.y) * child.scale.y;
                     const actualSpanZ = (bbox.max.z - bbox.min.z) * child.scale.z;
 
-                    // Architecture Filter: Identifies vertical dividers while omitting protruding floors/ceilings
                     const isWallLikeElement = (
-                        (actualSpanX < 0.9 && actualSpanY > 1.0 && actualSpanZ > 1.0) || 
-                        (actualSpanZ < 0.9 && actualSpanY > 1.0 && actualSpanX > 1.0)
+                        (actualSpanX < 0.8 && actualSpanY > 1.2 && actualSpanZ > 1.2) || 
+                        (actualSpanZ < 0.8 && actualSpanY > 1.2 && actualSpanX > 1.2)
                     );
 
                     if (isWallLikeElement) {
                         let wallWorldPosition = new THREE.Vector3();
                         child.getWorldPosition(wallWorldPosition);
                         
-                        let centerToWallVector = new THREE.Vector3().copy(wallWorldPosition).sub(structureCenter);
+                        // Vector calculation to see if the wall stands between the camera and the structure center
+                        let vecWallToCam = new THREE.Vector3().subVectors(cameraWorldPosition, wallWorldPosition);
+                        let vecWallToCenter = new THREE.Vector3().subVectors(structureCenter, wallWorldPosition);
                         
-                        // Map the wall offset directly against the active viewing trajectory
-                        let alignmentProjectionValue = centerToWallVector.dot(cameraViewDirectionVector);
-
-                        wallsList.push({
-                            mesh: child,
-                            projection: alignmentProjectionValue
-                        });
+                        // If vectors trace opposite directions along the camera view axis (dot product < 0), the wall occludes the interior
+                        if (vecWallToCam.dot(vecWallToCenter) < 0) {
+                            let distanceToCamera = cameraWorldPosition.distanceTo(wallWorldPosition);
+                            if (distanceToCamera < minDistance) {
+                                minDistance = distanceToCamera;
+                                closestWall = child;
+                            }
+                        }
                     }
                 }
             });
 
-            if (wallsList.length === 0) return;
-
-            // Sort partition meshes descending to isolate the most view-obstructing outermost items
-            wallsList.sort((a, b) => b.projection - a.projection);
-
-            let maxProjectionScore = wallsList[0].projection;
-            
-            // Proximity range threshold (0.45 units) yields smooth, co-dependent corner panel fading
-            const proximityVarianceTolerance = 0.45; 
-            
-            wallsList.forEach(item => {
-                if (item.projection >= (maxProjectionScore - proximityVarianceTolerance) && item.projection > 0) {
-                    let closestWall = item.mesh;
-                    if (Array.isArray(closestWall.material)) {
-                        closestWall.userData.originalOpacity = closestWall.material.map(m => m.opacity);
-                        closestWall.userData.originalTransparent = closestWall.material.map(m => m.transparent);
-                        closestWall.material.forEach(m => {
-                            m.transparent = true;
-                            m.opacity = 0.25;
-                        });
-                    } else {
-                        closestWall.userData.originalOpacity = closestWall.material.opacity;
-                        closestWall.userData.originalTransparent = closestWall.material.transparent;
-                        closestWall.material.transparent = true;
-                        closestWall.material.opacity = 0.25;
-                    }
+            // Commit alpha properties across the targeted blocking element
+            if (closestWall) {
+                if (Array.isArray(closestWall.material)) {
+                    closestWall.userData.originalOpacity = closestWall.material.map(m => m.opacity);
+                    closestWall.userData.originalTransparent = closestWall.material.map(m => m.transparent);
+                    closestWall.material.forEach(m => {
+                        m.transparent = true;
+                        m.opacity = 0.25;
+                    });
+                } else {
+                    closestWall.userData.originalOpacity = closestWall.material.opacity;
+                    closestWall.userData.originalTransparent = closestWall.material.transparent;
+                    closestWall.material.transparent = true;
+                    closestWall.material.opacity = 0.25;
                 }
-            });
+            }
         }
 
         function toggleSpatialBackdropOverlay() {
@@ -1437,6 +1432,7 @@
                 gridHelper.position.z = Math.round(camera.position.z);
             }
             
+            // Evaluate structural reclusion parameters before generating the canvas frame buffer
             updateWallTransparency();
             
             document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
