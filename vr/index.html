@@ -315,9 +315,8 @@
         let interactiveDragOffset = new THREE.Vector3();
         let groundReferencePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
         
-        // Gesture verification metrics
         let startScreenPosition = { x: 0, y: 0 };
-        const DRAG_CANCEL_THRESHOLD = 8; // Max pixel drift allowed during long press validation
+        const DRAG_CANCEL_THRESHOLD = 8; 
 
         const OPEN_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
@@ -588,7 +587,6 @@
             pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
             pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
-            // Cache metrics for drag cancellation evaluation thresholds
             startScreenPosition.x = e.clientX;
             startScreenPosition.y = e.clientY;
 
@@ -605,20 +603,18 @@
                 isStructureReadyToMove = false;
                 isDraggingSceneActive = false;
 
-                // Gated Long-Press Sequence: Verification threshold enforces steady click behaviors
                 sceneDragLongPressTimeout = setTimeout(() => {
                     isStructureReadyToMove = true;
                     isDraggingSceneActive = true;
                     
-                    if (controls) controls.enabled = false; // Decouple camera interactions during sliding sequence
+                    if (controls) controls.enabled = false; 
 
-                    // Apply emissive visual highlight matrix onto PBR material tree components
                     worldGroup.traverse((child) => {
                         if (child.isMesh && child.material) {
                             if (child.userData.originalEmissive === undefined) {
                                 child.userData.originalEmissive = child.material.emissive.getHex();
                             }
-                            child.material.emissive.setHex(0x224466); // Subtle cyan highlights indicate ready-to-move parameters
+                            child.material.emissive.setHex(0x224466); 
                         }
                     });
 
@@ -628,13 +624,11 @@
         }
 
         function handleScenePointerDragSequence(e) {
-            // Early out if no raycast context register is pending validation
             if (!isDraggingSceneActive && !sceneDragLongPressTimeout) return;
 
             const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
             const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
 
-            // Gated Cancellation Logic: Early motion before long press fires reverts seamlessly to normal camera behavior
             if (!isStructureReadyToMove) {
                 if (currentPixelDeltaX > DRAG_CANCEL_THRESHOLD || currentPixelDeltaY > DRAG_CANCEL_THRESHOLD) {
                     if (sceneDragLongPressTimeout) {
@@ -642,10 +636,9 @@
                         sceneDragLongPressTimeout = null;
                     }
                 }
-                return; // Let OrbitControls execute default horizon rotation calculations uninterrupted
+                return; 
             }
 
-            // Execute translation update vectors since long press validation is fully confirmed
             e.preventDefault();
             pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
             pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -656,7 +649,6 @@
 
             let intendedTargetPosition = currentGroundIntersection.sub(interactiveDragOffset);
             
-            // WHOLE INTEGER SHAPE SNAPPING MATRIX PROTOCOL
             worldGroup.position.x = Math.round(intendedTargetPosition.x);
             worldGroup.position.z = Math.round(intendedTargetPosition.z);
         }
@@ -667,7 +659,6 @@
                 sceneDragLongPressTimeout = null;
             }
             
-            // Teardown highlight matrix indicators and restore initial mesh specifications cleanly
             worldGroup.traverse((child) => {
                 if (child.isMesh && child.material && child.userData.originalEmissive !== undefined) {
                     child.material.emissive.setHex(child.userData.originalEmissive);
@@ -677,8 +668,46 @@
             if (isDraggingSceneActive) {
                 isDraggingSceneActive = false;
                 isStructureReadyToMove = false;
-                if (controls) controls.enabled = true; // Restore OrbitControls functionality safely
+                if (controls) controls.enabled = true; 
                 document.getElementById('aiDescription').innerText = "Structure transform committed. Vector targets aligned cleanly on cell bounds.";
+            }
+        }
+
+        // AUTOMATED OUTMOST OCCLUSION PIPELINE: Evaluates camera rays to make front-facing outer surfaces transparent
+        function evaluateOuterWallTransparency() {
+            // Restore material defaults before checking new raycast paths
+            worldGroup.traverse((child) => {
+                if (child.isMesh && child.material && child.userData.originalOpacity !== undefined) {
+                    // Skip reset if the item is actively flashing cyan during structural translation modes
+                    if (!isDraggingSceneActive) {
+                        child.material.transparent = child.userData.originalTransparent;
+                        child.material.opacity = child.userData.originalOpacity;
+                        child.material.transmission = child.userData.originalTransmission;
+                    }
+                }
+            });
+
+            if (worldGroup.children.length === 0 || isDraggingSceneActive) return;
+
+            // Calculate the structure center point vectors
+            let structureBoundingBox = new THREE.Box3().setFromObject(worldGroup);
+            let structureCenterVector = new THREE.Vector3();
+            structureBoundingBox.getCenter(structureCenterVector);
+
+            // Cast an interior ray directly from the camera optics coordinate origin toward the structure's core mass center
+            let wallFinderRaycaster = new THREE.Raycaster();
+            let rawRayDirection = new THREE.Vector3().copy(structureCenterVector).sub(camera.position).normalize();
+            wallFinderRaycaster.set(camera.position, rawRayDirection);
+
+            let perimeterIntersects = wallFinderRaycaster.intersectObjects(worldGroup.children, true);
+            if (perimeterIntersects.length > 0) {
+                // The first intersected surface represents the closest outer boundary plane facing the lens path
+                let closestObstructingWall = perimeterIntersects[0].object;
+                if (closestObstructingWall.material && closestObstructingWall.userData.originalOpacity !== undefined) {
+                    closestObstructingWall.material.transparent = true;
+                    closestObstructingWall.material.opacity = 0.35; 
+                    closestObstructingWall.material.transmission = 0.0; 
+                }
             }
         }
 
@@ -1152,6 +1181,12 @@
                 
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
+
+                // Cache original material transparency vectors so the outpainter engine can restore them cleanly
+                mesh.userData.originalTransparent = mat.transparent;
+                mesh.userData.originalOpacity = mat.opacity;
+                mesh.userData.originalTransmission = mat.transmission;
+
                 worldGroup.add(mesh);
             });
 
@@ -1369,6 +1404,9 @@
                 gridHelper.position.z = Math.round(camera.position.z);
             }
             
+            // Trigger outpainting visual ray calculations right before rendering each step frame
+            evaluateOuterWallTransparency();
+
             document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
