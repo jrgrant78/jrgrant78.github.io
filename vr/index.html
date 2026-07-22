@@ -210,7 +210,7 @@
                     </button>
                 </div>
                 
-                <!-- Toggleable Panel: Row 3 & Row 4 -->
+                <!-- Toggleable Panel: Row 3 & Row 4 Reset and Flipped -->
                 <div id="togglePanel">
                     <!-- Row 3: Sized-Matched Action Buttons -->
                     <div class="btn-toolbar" id="toolbarNode">
@@ -271,7 +271,7 @@
     <canvas id="canvas3d"></canvas>
 
     <script>
-        let scene, camera, renderer, controls, gridHelper, massiveFloorPlane;
+        let scene, camera, renderer, controls, gridHelper, virtualFloorMesh;
         let videoElement, localStream;
         
         let gyroActive = false;
@@ -296,7 +296,6 @@
         let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
         const worldGroup = new THREE.Group();
-        const extensionGroup = new THREE.Group(); 
         let scanInProgress = false;
         
         let dynamicInputSourceMode = 'camera';
@@ -305,12 +304,7 @@
         let floatingBackdropMesh = null; 
         let rawCachedShapesArray = null;  
 
-        let telemetryState = { x: 0, y: 5, z: 15 };
-        
-        let generatedSectorsCache = new Set();
-        let extensionThemeTemplate = null;
-        let detectedBaseFloorColor = "#15151f";
-        let baseStructureHeight = 4.0; // Dynamic height parameter measured at runtime from Pass 2
+        let telemetryState = { x: 0, y: 0, z: 15 };
 
         const OPEN_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
@@ -512,7 +506,7 @@
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x06060a);
 
-            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 15000);
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 5000);
             camera.position.set(telemetryState.x, telemetryState.y, telemetryState.z);
 
             renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
@@ -526,6 +520,7 @@
             
             motionTracker = new MultiPointMotionTracker();
 
+            // FIXED: Resetting layout helper to standard sizing requirements, initializing off
             gridHelper = new THREE.GridHelper(50, 25, 0x1f1f2e, 0x111116);
             gridHelper.position.y = 0.001; 
             gridHelper.visible = false;
@@ -546,7 +541,6 @@
             scene.add(fillLight);
 
             scene.add(worldGroup);
-            scene.add(extensionGroup);
 
             window.addEventListener('resize', onWindowResize);
             document.getElementById('scanBtn').addEventListener('click', captureAndScanFrame);
@@ -844,8 +838,6 @@
                 return;
             }
 
-            descDiv.innerHTML = "Please be patient while AI reconstructs the scene...";
-
             const structuralTasks = [
                 { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile only the large flat floor bases, ground platforms, and main support mats.' },
                 { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile the detailed surface boundaries, secondary rug mats, and floor borders.' },
@@ -942,65 +934,6 @@
                     reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes ? result.shapes.length : 0} nodes successfully parsed)`;
                 });
 
-                if (unifiedShapes.length > 0) {
-                    rawCachedShapesArray = unifiedShapes;
-                    renderAIBlueprint(unifiedShapes);
-                }
-
-                // --- ENHANCED 3D SPATIAL OUTPAINTING PASS 3 ORCHESTRATION ---
-                descDiv.innerHTML = "Please be patient while AI extends the scene...";
-                statusDiv.innerText = "Pass 3: Compiling Outward Environmental Blueprint...";
-
-                const pass3Prompt = `
-                    You are an advanced 3D Spatial Outpainting Architect. Analyze the measured core scene structure metrics:
-                    "${parsedPayload.description}"
-                    
-                    Your sole objective is to provide a programmatic styling palette and color coordination theme mapping out extensions that stretch indefinitely outward along both horizontal axes (X and Z).
-                    
-                    The extensions must look like realistic, complex, continuous outpainted architecture expanding from the original layout (adding distinct matching rooms, wall structures, doors, adjoining hallways, fields, and trees).
-                    
-                    Return a single clean JSON object matching this schema:
-                    {
-                        "theme_style_rules": "Detailed architectural text rule detailing structural additions for outer grid zones",
-                        "derived_floor_hex": "Specify the base hex color code coordinate matching the foundation elements",
-                        "wall_color": "Hex code for outpainted room/hallway partition structures",
-                        "furniture_colors": ["Hex arrays for internal decorations"],
-                        "nature_foliage_colors": ["Hex arrays for trees and organic assets"]
-                    }
-                `;
-
-                for (let model of modelCascadeList) {
-                    try {
-                        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                contents: [{ parts: [{ text: pass3Prompt }] }],
-                                generationConfig: { responseMimeType: "application/json" }
-                            })
-                        });
-
-                        if (res.ok) {
-                            const data = await res.json();
-                            const extensionPayload = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                            
-                            extensionThemeTemplate = extensionPayload;
-                            detectedBaseFloorColor = extensionPayload.derived_floor_hex || detectedBaseFloorColor;
-                            
-                            if (massiveFloorPlane && massiveFloorPlane.material) {
-                                massiveFloorPlane.material.color.set(detectedBaseFloorColor);
-                            }
-                            
-                            permanentPass2Logs += `• Pass 3 3D Spatial Outpainting Engine initialized via <b>${model}</b>.<br>`;
-                            break;
-                        }
-                    } catch (e) { console.warn("Pass 3 cascade engine jump step."); }
-                }
-
-                // Initialize outpainting cells immediately surrounding center coordinates boundaries
-                generatedSectorsCache.clear();
-                triggerProceduralExpansionEvaluation(camera.position.x, camera.position.z);
-
                 let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
                 let structuredUiOutput = coreLayoutNarrative + reportTrackingLog;
 
@@ -1009,7 +942,12 @@
                 }
 
                 descDiv.innerHTML = structuredUiOutput;
-
+                if (unifiedShapes.length > 0) {
+                    rawCachedShapesArray = unifiedShapes;
+                    renderAIBlueprint(unifiedShapes);
+                } else {
+                    descDiv.innerHTML += "<br><span style='color:#ffea00;'>Warning: Pipeline completed, but the total accumulated shape array contains 0 elements.</span>";
+                }
             } catch (err) {
                 console.error(err);
                 descDiv.innerHTML = `<span style='color:#ff3333; font-weight:bold;'>Pipeline processing exception occurred:</span> <code style='background:#221111; color:#ff8888; padding:3px;'>${err.message}</code>`;
@@ -1035,10 +973,16 @@
                 scene.remove(floatingBackdropMesh);
                 floatingBackdropMesh = null;
             }
-            
-            if (massiveFloorPlane) {
-                scene.remove(massiveFloorPlane);
-                massiveFloorPlane = null;
+
+            // FIXED: Standardize floor layer injection to provide visual boundary context right at Y=0
+            if (!virtualFloorMesh) {
+                const floorGeo = new THREE.PlaneGeometry(100, 100);
+                const floorMat = new THREE.MeshStandardMaterial({ color: 0x111115, roughness: 0.8 });
+                virtualFloorMesh = new THREE.Mesh(floorGeo, floorMat);
+                virtualFloorMesh.rotation.x = -Math.PI / 2;
+                virtualFloorMesh.position.y = 0;
+                virtualFloorMesh.receiveShadow = true;
+                scene.add(virtualFloorMesh);
             }
 
             shapesArray.forEach(shape => {
@@ -1105,33 +1049,18 @@
             });
 
             if (worldGroup.children.length > 0) {
+                // FIXED: Shifts the dynamic container up so its lowest bounding point lands just above the floor plane at Y=0
+                worldGroup.position.set(0, 0, 0); 
                 const box = new THREE.Box3().setFromObject(worldGroup);
                 const center = new THREE.Vector3(); 
                 box.getCenter(center);
                 
-                // CRITICAL REQUIREMENT LOGIC: Lock base structure vertical bounding height parameter safely
-                baseStructureHeight = Math.max(box.max.y - box.min.y, 2.0);
-
-                worldGroup.position.x = -center.x;
-                worldGroup.position.z = -center.z;
-                worldGroup.position.y = -box.min.y + 0.005; // Placed exactly flush above the floor boundary level
+                worldGroup.position.y = -box.min.y + 0.01;
 
                 if (controls) {
-                    controls.target.set(0, baseStructureHeight / 2, 0);
+                    controls.target.set(center.x, center.y + worldGroup.position.y, center.z);
                     controls.update();
                 }
-
-                const floorGeo = new THREE.PlaneGeometry(40000, 40000);
-                const floorMat = new THREE.MeshStandardMaterial({
-                    color: new THREE.Color(detectedBaseFloorColor),
-                    roughness: 0.8,
-                    metalness: 0.1
-                });
-                massiveFloorPlane = new THREE.Mesh(floorGeo, floorMat);
-                massiveFloorPlane.rotation.x = -Math.PI / 2;
-                massiveFloorPlane.position.set(0, 0, 0);
-                massiveFloorPlane.receiveShadow = true;
-                scene.add(massiveFloorPlane);
 
                 if (scannedBackdropDataUrl) {
                     const size = new THREE.Vector3(); box.getSize(size);
@@ -1140,154 +1069,10 @@
                         new THREE.PlaneGeometry(1, 1),
                         new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
                     );
-                    floatingBackdropMesh.position.set(0, baseStructureHeight / 2, -size.z - 5);
-                    floatingBackdropMesh.scale.set(Math.max(size.x, 15), Math.max(size.y, 15), 1);
+                    floatingBackdropMesh.position.set(center.x, center.y + worldGroup.position.y, box.min.z - 1.5);
+                    floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
                     floatingBackdropMesh.visible = backdropOverlayActive;
                     scene.add(floatingBackdropMesh);
-                }
-            }
-        }
-
-        // 3D PROCEDURAL OUTPAINTING TILES CONTROLLER: Renders complex outpainted sections infinitely
-        function triggerProceduralExpansionEvaluation(camX, camZ) {
-            if (!extensionThemeTemplate) return;
-
-            const TILE_GRID_SPAN = 24; 
-            const currentSectorCellX = Math.floor((camX + TILE_GRID_SPAN / 2) / TILE_GRID_SPAN);
-            const currentSectorCellZ = Math.floor((camZ + TILE_GRID_SPAN / 2) / TILE_GRID_SPAN);
-
-            // Generates complex extension structures outward across both X and Z axes indefinitely
-            for (let dx = -3; dx <= 3; dx++) {
-                for (let dz = -3; dz <= 3; dz++) {
-                    const targetCellX = currentSectorCellX + dx;
-                    const targetCellZ = currentSectorCellZ + dz;
-                    const cellCoordinateKey = `${targetCellX}_${targetCellZ}`;
-
-                    // Gated Guardrail: Safeguards the center original structural bounding area from geometry overlaps
-                    if (targetCellX === 0 && targetCellZ === 0) continue;
-
-                    if (!generatedSectorsCache.has(cellCoordinateKey)) {
-                        generatedSectorsCache.add(cellCoordinateKey);
-                        buildOutpaintedSectorChunk(targetCellX, targetCellZ, TILE_GRID_SPAN);
-                    }
-                }
-            }
-        }
-
-        function buildOutpaintedSectorChunk(cellX, cellZ, cellSpan) {
-            const worldOriginOffsetX = cellX * cellSpan;
-            const worldOriginOffsetZ = cellZ * cellSpan;
-
-            // Cohesive structural seed generator sequence
-            let seed = Math.abs(Math.sin(cellX * 12.9898 + cellZ * 78.233)) * 43758.5453;
-            
-            // Determine macro outpainted cell zone classification semantically
-            const distance = Math.sqrt(cellX * cellX + cellZ * cellZ);
-            let structuralType = 'room'; 
-            if (distance > 4) {
-                structuralType = 'field'; // Transitions naturally into open fields/gardens far outward
-            } else if (Math.abs(cellX) % 2 === 1 || Math.abs(cellZ) % 2 === 1) {
-                structuralType = 'hallway'; // Generates structural hallways between adjoining rooms
-            }
-
-            const wallColorCode = extensionThemeTemplate.wall_color || "#3a3a45";
-            const decorColorPalette = extensionThemeTemplate.furniture_colors || ["#4a5a6a", "#2a3a4a"];
-            const natureColorPalette = extensionThemeTemplate.nature_foliage_colors || ["#2e5c1e", "#1b4d0e"];
-
-            const matWall = new THREE.MeshStandardMaterial({ color: new THREE.Color(wallColorCode), roughness: 0.6 });
-            
-            if (structuralType === 'room' || structuralType === 'hallway') {
-                // Outpaint structural room partitions matching base height exactly
-                const wallThickness = 0.4;
-                
-                // North Wall Panel
-                const wallGeoN = new THREE.BoxGeometry(cellSpan, baseStructureHeight, wallThickness);
-                const wallMeshN = new THREE.Mesh(wallGeoN, matWall);
-                wallMeshN.position.set(worldOriginOffsetX, baseStructureHeight / 2, worldOriginOffsetZ - cellSpan / 2);
-                extensionGroup.add(wallMeshN);
-
-                // South Wall Panel with explicit doorway architectural cutouts
-                if (structuralType === 'room') {
-                    // Split south wall into left/right panels flanking a central door opening
-                    const segmentWidth = (cellSpan - 4) / 2;
-                    const wallGeoS = new THREE.BoxGeometry(segmentWidth, baseStructureHeight, wallThickness);
-                    
-                    const leftS = new THREE.Mesh(wallGeoS, matWall);
-                    leftS.position.set(worldOriginOffsetX - cellSpan/2 + segmentWidth/2, baseStructureHeight/2, worldOriginOffsetZ + cellSpan/2);
-                    extensionGroup.add(leftS);
-
-                    const rightS = new THREE.Mesh(wallGeoS, matWall);
-                    rightS.position.set(worldOriginOffsetX + cellSpan/2 - segmentWidth/2, baseStructureHeight/2, worldOriginOffsetZ + cellSpan/2);
-                    extensionGroup.add(rightS);
-
-                    // Top lintel structural beam matching ceiling plane elevation profile
-                    const lintelHeight = baseStructureHeight - 3.2;
-                    if (lintelHeight > 0.1) {
-                        const lintelGeo = new THREE.BoxGeometry(4, lintelHeight, wallThickness);
-                        const lintelMesh = new THREE.Mesh(lintelGeo, matWall);
-                        lintelMesh.position.set(worldOriginOffsetX, baseStructureHeight - (lintelHeight / 2), worldOriginOffsetZ + cellSpan / 2);
-                        extensionGroup.add(lintelMesh);
-                    }
-                }
-
-                // Inject localized furniture sets resting squarely on the floor bounds
-                const itemSpawnerCount = 2 + Math.floor((seed * 10) % 3);
-                for (let i = 0; i < itemSpawnerCount; i++) {
-                    seed = Math.abs(Math.sin(seed)) * 1000;
-                    const decorHex = decorColorPalette[Math.floor(seed) % decorColorPalette.length];
-                    
-                    const itemW = 1.2 + ((seed * 2) % 1.5);
-                    const itemH = 0.8 + ((seed * 4) % 1.2);
-                    const itemD = 1.2 + ((seed * 7) % 1.5);
-
-                    const itemGeo = new THREE.BoxGeometry(itemW, itemH, itemD);
-                    const itemMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(decorHex), roughness: 0.4 });
-                    const itemMesh = new THREE.Mesh(itemGeo, itemMat);
-
-                    const lx = ((seed * 3) % (cellSpan - 6)) - (cellSpan / 2 - 3);
-                    const lz = ((seed * 8) % (cellSpan - 6)) - (cellSpan / 2 - 3);
-
-                    itemMesh.position.set(worldOriginOffsetX + lx, itemH / 2, worldOriginOffsetZ + lz);
-                    itemMesh.castShadow = true;
-                    itemMesh.receiveShadow = true;
-                    extensionGroup.add(itemMesh);
-                }
-
-            } else if (structuralType === 'field') {
-                // Outpaint nature parkways and organic tree elements layout blueprints
-                const treeSpawnerCount = 1 + Math.floor((seed * 5) % 3);
-                for (let i = 0; i < treeSpawnerCount; i++) {
-                    seed = Math.abs(Math.sin(seed)) * 1000;
-                    const foliageHex = natureColorPalette[Math.floor(seed) % natureColorPalette.length];
-
-                    const trunkH = baseStructureHeight * 0.45;
-                    const trunkW = 0.4 + ((seed * 0.5) % 0.4);
-                    
-                    // Structural Tree Trunk
-                    const trunkGeo = new THREE.CylinderGeometry(trunkW*0.7, trunkW, trunkH, 8);
-                    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a2e1b, roughness: 0.9 });
-                    const trunkMesh = new THREE.Mesh(trunkGeo, trunkMat);
-
-                    const lx = ((seed * 14) % (cellSpan - 4)) - (cellSpan / 2 - 2);
-                    const lz = ((seed * 22) % (cellSpan - 4)) - (cellSpan / 2 - 2);
-                    
-                    trunkMesh.position.set(worldOriginOffsetX + lx, trunkH / 2, worldOriginOffsetZ + lz);
-                    trunkMesh.castShadow = true;
-                    extensionGroup.add(trunkMesh);
-
-                    // Foliage Canopy: Anchored so canopy crown bounds perfectly match target base height boundaries
-                    const canopyRad = (baseStructureHeight - trunkH) * 1.1;
-                    const canopyGeo = new THREE.SphereGeometry(canopyRad, 12, 12);
-                    const canopyMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(foliageHex), roughness: 0.8 });
-                    const canopyMesh = new THREE.Mesh(canopyGeo, canopyMat);
-                    
-                    canopyMesh.position.set(
-                        worldOriginOffsetX + lx, 
-                        baseStructureHeight - canopyRad, 
-                        worldOriginOffsetZ + lz
-                    );
-                    canopyMesh.castShadow = true;
-                    extensionGroup.add(canopyMesh);
                 }
             }
         }
@@ -1363,15 +1148,10 @@
                 if(c.material) c.material.dispose();
                 worldGroup.remove(c);
             }
-            while(extensionGroup.children.length > 0) {
-                let c = extensionGroup.children[0];
-                if(c.geometry) c.geometry.dispose();
-                if(c.material) c.material.dispose();
-                extensionGroup.remove(c);
-            }
-            if (massiveFloorPlane) {
-                scene.remove(massiveFloorPlane);
-                massiveFloorPlane = null;
+            worldGroup.position.set(0,0,0);
+            if (virtualFloorMesh) {
+                scene.remove(virtualFloorMesh);
+                virtualFloorMesh = null;
             }
             deactivateTrackingSensors();
             lockedGyroRoll = 0; 
@@ -1380,11 +1160,8 @@
             rawCachedShapesArray = null;
             scannedBackdropDataUrl = null;
             gyroYawOffset = 0;
-            extensionThemeTemplate = null;
-            generatedSectorsCache.clear();
-            baseStructureHeight = 4.0;
             
-            camera.position.set(0, 5, 15);
+            camera.position.set(0, 0, 15);
             if (controls) {
                 controls.target.set(0, 0, 0); 
                 controls.update();
@@ -1489,12 +1266,7 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            // Evaluates and renders 3D outpainting updates surrounding camera telemetry coordinates
-            triggerProceduralExpansionEvaluation(camera.position.x, camera.position.z);
-            
-            const totalAccumulatedSceneNodes = worldGroup.children.length + extensionGroup.children.length + (massiveFloorPlane ? 1 : 0);
-            
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Total Nodes: ${totalAccumulatedSceneNodes}`;
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
             
