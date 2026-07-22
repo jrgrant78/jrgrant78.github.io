@@ -210,7 +210,7 @@
                     </button>
                 </div>
                 
-                <!-- Toggleable Panel: Row 3 & Row 4 Reset and Flipped -->
+                <!-- Toggleable Panel: Row 3 & Row 4 Swapped cleanly -->
                 <div id="togglePanel">
                     <!-- Row 3: Sized-Matched Action Buttons -->
                     <div class="btn-toolbar" id="toolbarNode">
@@ -271,7 +271,7 @@
     <canvas id="canvas3d"></canvas>
 
     <script>
-        let scene, camera, renderer, controls, gridHelper, virtualFloorMesh;
+        let scene, camera, renderer, controls, gridHelper;
         let videoElement, localStream;
         
         let gyroActive = false;
@@ -520,9 +520,9 @@
             
             motionTracker = new MultiPointMotionTracker();
 
-            // FIXED: Resetting layout helper to standard sizing requirements, initializing off
+            // UPDATED: Reset to standard dimensions and set default visibility status to hidden (off)
             gridHelper = new THREE.GridHelper(50, 25, 0x1f1f2e, 0x111116);
-            gridHelper.position.y = 0.001; 
+            gridHelper.position.y = -0.005; 
             gridHelper.visible = false;
             scene.add(gridHelper);
 
@@ -974,17 +974,6 @@
                 floatingBackdropMesh = null;
             }
 
-            // FIXED: Standardize floor layer injection to provide visual boundary context right at Y=0
-            if (!virtualFloorMesh) {
-                const floorGeo = new THREE.PlaneGeometry(100, 100);
-                const floorMat = new THREE.MeshStandardMaterial({ color: 0x111115, roughness: 0.8 });
-                virtualFloorMesh = new THREE.Mesh(floorGeo, floorMat);
-                virtualFloorMesh.rotation.x = -Math.PI / 2;
-                virtualFloorMesh.position.y = 0;
-                virtualFloorMesh.receiveShadow = true;
-                scene.add(virtualFloorMesh);
-            }
-
             shapesArray.forEach(shape => {
                 if (!shape || typeof shape !== 'object') return;
                 
@@ -1049,16 +1038,12 @@
             });
 
             if (worldGroup.children.length > 0) {
-                // FIXED: Shifts the dynamic container up so its lowest bounding point lands just above the floor plane at Y=0
-                worldGroup.position.set(0, 0, 0); 
                 const box = new THREE.Box3().setFromObject(worldGroup);
                 const center = new THREE.Vector3(); 
                 box.getCenter(center);
                 
-                worldGroup.position.y = -box.min.y + 0.01;
-
                 if (controls) {
-                    controls.target.set(center.x, center.y + worldGroup.position.y, center.z);
+                    controls.target.copy(center);
                     controls.update();
                 }
 
@@ -1069,7 +1054,7 @@
                         new THREE.PlaneGeometry(1, 1),
                         new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
                     );
-                    floatingBackdropMesh.position.set(center.x, center.y + worldGroup.position.y, box.min.z - 1.5);
+                    floatingBackdropMesh.position.set(center.x, center.y, box.min.z - 1.5);
                     floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
                     floatingBackdropMesh.visible = backdropOverlayActive;
                     scene.add(floatingBackdropMesh);
@@ -1147,11 +1132,6 @@
                 if(c.geometry) c.geometry.dispose();
                 if(c.material) c.material.dispose();
                 worldGroup.remove(c);
-            }
-            worldGroup.position.set(0,0,0);
-            if (virtualFloorMesh) {
-                scene.remove(virtualFloorMesh);
-                virtualFloorMesh = null;
             }
             deactivateTrackingSensors();
             lockedGyroRoll = 0; 
