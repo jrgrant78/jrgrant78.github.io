@@ -157,7 +157,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 12;
+ z-index: 12;
             cursor: pointer;
             padding: 0;
             margin: 0;
@@ -319,9 +319,10 @@
         let startScreenPosition = { x: 0, y: 0 };
         const DRAG_CANCEL_THRESHOLD = 8; // Max pixel drift allowed during long press validation
 
-        // Double tap sequence registers
+        // Double tap sequence registers (Screen-Space Pixel Radius Architecture)
         let lastTapTime = 0;
-        let lastTargetMesh = null;
+        let lastTapScreenX = 0;
+        let lastTapScreenY = 0;
 
         const OPEN_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
@@ -558,8 +559,8 @@
 
             scene.add(worldGroup);
 
-            // POINTER INTERACTION WORKSPACE LISTENERS
-            canvas.addEventListener('pointerdown', handleScenePointerDownActivation, { passive: false });
+            // REGISTER VIA CAPTURE PHASE (true) TO BYPASS ORBITCONTROLS INTERFERENCE ON TOUCH TILES
+            canvas.addEventListener('pointerdown', handleScenePointerDownActivation, true);
             window.addEventListener('pointermove', handleScenePointerDragSequence, { passive: false });
             window.addEventListener('pointerup', handleScenePointerUpRelease);
 
@@ -633,20 +634,22 @@
             pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
             pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
-            // Cache metrics for drag cancellation evaluation thresholds
             startScreenPosition.x = e.clientX;
             startScreenPosition.y = e.clientY;
 
-            raycaster.setFromCamera(pointerCoordinateVector, camera);
-            const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
+            const currentTime = performance.now();
+            const tapDist = Math.hypot(e.clientX - lastTapScreenX, e.clientY - lastTapScreenY);
 
-            if (targetedStructuralIntersects.length > 0) {
-                const hitMesh = targetedStructuralIntersects[0].object;
-                const currentTime = performance.now();
+            // 1. ADVANCED DOUBLE-TAP CAPTURE CYCLE FILTER INTERCEPT
+            if (currentTime - lastTapTime < 300 && tapDist < 45) {
+                raycaster.setFromCamera(pointerCoordinateVector, camera);
+                const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
 
-                // Double-Tap Sequence Evaluation Window (< 300ms)
-                if (currentTime - lastTapTime < 300 && lastTargetMesh === hitMesh) {
-                    // Instantly tear down movement routines to avoid movement overlap conflicts
+                if (targetedStructuralIntersects.length > 0) {
+                    // Suppress OrbitControls from moving the viewport during execution loop
+                    e.stopImmediatePropagation();
+                    e.preventDefault();
+
                     if (sceneDragLongPressTimeout) {
                         clearTimeout(sceneDragLongPressTimeout);
                         sceneDragLongPressTimeout = null;
@@ -654,34 +657,44 @@
                     isStructureReadyToMove = false;
                     isDraggingSceneActive = false;
 
+                    const hitMesh = targetedStructuralIntersects[0].object;
+
                     if (hitMesh.userData.fadeTimer) {
-                        // Manual Reversion Override: Cancel the expiration timer and pop back to standard opacity
+                        // Clear active timer immediately and restore solid profile parameters
                         clearTimeout(hitMesh.userData.fadeTimer);
                         hitMesh.userData.fadeTimer = null;
                         restoreMeshOpacity(hitMesh);
-                        document.getElementById('aiDescription').innerText = "Temporary transparency cleared by user override.";
+                        document.getElementById('aiDescription').innerText = "Mesh transparency cleared manually via double-tap override.";
                     } else {
-                        // Apply temporary transparency profile
+                        // Apply transparency matrices
                         cacheMeshOpacity(hitMesh);
                         applyMeshOpacity(hitMesh, 0.25);
-                        document.getElementById('aiDescription').innerText = "Temporary transparency (0.25) active for 3 seconds.";
+                        document.getElementById('aiDescription').innerText = "Temporary transparency active (0.25) for 3 seconds.";
 
-                        // Bind a self-canceling timeout onto the object parameters context
                         hitMesh.userData.fadeTimer = setTimeout(() => {
                             restoreMeshOpacity(hitMesh);
                             hitMesh.userData.fadeTimer = null;
-                            document.getElementById('aiDescription').innerText = "Mesh structural profile restored automatically.";
+                            document.getElementById('aiDescription').innerText = "Mesh structural profile automatically restored.";
                         }, 3000);
                     }
 
+                    // Flush trackers to close current sequence pattern
                     lastTapTime = 0;
-                    lastTargetMesh = null;
+                    lastTapScreenX = 0;
+                    lastTapScreenY = 0;
                     return;
                 }
+            }
 
-                lastTapTime = currentTime;
-                lastTargetMesh = hitMesh;
+            // 2. NORMAL BASE PATH: Cache current metrics for subsequent evaluations
+            lastTapTime = currentTime;
+            lastTapScreenX = e.clientX;
+            lastTapScreenY = e.clientY;
 
+            raycaster.setFromCamera(pointerCoordinateVector, camera);
+            const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
+
+            if (targetedStructuralIntersects.length > 0) {
                 let groundIntersectionVector = new THREE.Vector3();
                 raycaster.ray.intersectPlane(groundReferencePlane, groundIntersectionVector);
                 interactiveDragOffset.copy(groundIntersectionVector).sub(worldGroup.position);
@@ -691,39 +704,32 @@
                 isStructureReadyToMove = false;
                 isDraggingSceneActive = false;
 
-                // Gated Long-Press Sequence: Verification threshold enforces steady click behaviors
                 sceneDragLongPressTimeout = setTimeout(() => {
                     isStructureReadyToMove = true;
                     isDraggingSceneActive = true;
                     
-                    if (controls) controls.enabled = false; // Decouple camera interactions during sliding sequence
+                    if (controls) controls.enabled = false; 
 
-                    // Apply emissive visual highlight matrix onto PBR material tree components
                     worldGroup.traverse((child) => {
                         if (child.isMesh && child.material) {
                             if (child.userData.originalEmissive === undefined) {
                                 child.userData.originalEmissive = child.material.emissive.getHex();
                             }
-                            child.material.emissive.setHex(0x224466); // Subtle cyan highlights indicate ready-to-move parameters
+                            child.material.emissive.setHex(0x224466); 
                         }
                     });
 
                     document.getElementById('aiDescription').innerText = "[Active Mode: Translating Structure]\nSlide to reposition. Elements will snap to full integer grid cells.";
                 }, 400); 
-            } else {
-                lastTapTime = 0;
-                lastTargetMesh = null;
             }
         }
 
         function handleScenePointerDragSequence(e) {
-            // Early out if no raycast context register is pending validation
             if (!isDraggingSceneActive && !sceneDragLongPressTimeout) return;
 
             const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
             const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
 
-            // Gated Cancellation Logic: Early motion before long press fires reverts seamlessly to normal camera behavior
             if (!isStructureReadyToMove) {
                 if (currentPixelDeltaX > DRAG_CANCEL_THRESHOLD || currentPixelDeltaY > DRAG_CANCEL_THRESHOLD) {
                     if (sceneDragLongPressTimeout) {
@@ -731,10 +737,9 @@
                         sceneDragLongPressTimeout = null;
                     }
                 }
-                return; // Let OrbitControls execute default horizon rotation calculations uninterrupted
+                return; 
             }
 
-            // Execute translation update vectors since long press validation is fully confirmed
             e.preventDefault();
             pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
             pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -745,7 +750,6 @@
 
             let intendedTargetPosition = currentGroundIntersection.sub(interactiveDragOffset);
             
-            // WHOLE INTEGER SHAPE SNAPPING MATRIX PROTOCOL
             worldGroup.position.x = Math.round(intendedTargetPosition.x);
             worldGroup.position.z = Math.round(intendedTargetPosition.z);
         }
@@ -756,7 +760,6 @@
                 sceneDragLongPressTimeout = null;
             }
             
-            // Teardown highlight matrix indicators and restore initial mesh specifications cleanly
             worldGroup.traverse((child) => {
                 if (child.isMesh && child.material && child.userData.originalEmissive !== undefined) {
                     child.material.emissive.setHex(child.userData.originalEmissive);
@@ -766,7 +769,7 @@
             if (isDraggingSceneActive) {
                 isDraggingSceneActive = false;
                 isStructureReadyToMove = false;
-                if (controls) controls.enabled = true; // Restore OrbitControls functionality safely
+                if (controls) controls.enabled = true; 
                 document.getElementById('aiDescription').innerText = "Structure transform committed. Vector targets aligned cleanly on cell bounds.";
             }
         }
@@ -1359,7 +1362,8 @@
             scannedBackdropDataUrl = null;
             gyroYawOffset = 0;
             lastTapTime = 0;
-            lastTargetMesh = null;
+            lastTapScreenX = 0;
+            lastTapScreenY = 0;
             
             camera.position.set(0, 2.0, 25.0);
             if (controls) {
@@ -1410,7 +1414,7 @@
 
             worldSpaceAcceleration.y = 0;
 
-            const hardwareJitterFloor = 0.08; 
+            const hardware JitterFloor = 0.08; 
             if (worldSpaceAcceleration.length() < hardwareJitterFloor) {
                 return;
             }
