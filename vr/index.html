@@ -210,7 +210,7 @@
                     </button>
                 </div>
                 
-                <!-- Toggleable Panel: Row 3 & Row 4 Swapped cleanly -->
+                <!-- Toggleable Panel: Row 3 & Row 4 Swapped -->
                 <div id="togglePanel">
                     <!-- Row 3: Sized-Matched Action Buttons -->
                     <div class="btn-toolbar" id="toolbarNode">
@@ -271,7 +271,7 @@
     <canvas id="canvas3d"></canvas>
 
     <script>
-        let scene, camera, renderer, controls, gridHelper;
+        let scene, camera, renderer, controls, gridHelper, massiveFloorPlane;
         let videoElement, localStream;
         
         let gyroActive = false;
@@ -304,7 +304,8 @@
         let floatingBackdropMesh = null; 
         let rawCachedShapesArray = null;  
 
-        let telemetryState = { x: 0, y: 0, z: 15 };
+        // FIXED: Reconfigured initial telemetry state to match standard view vectors
+        let telemetryState = { x: 0, y: 2, z: 15 };
 
         const OPEN_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
@@ -507,6 +508,8 @@
             scene.background = new THREE.Color(0x06060a);
 
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 5000);
+            
+            // FIXED: Lock initial camera view pulled back horizontally in front of the active workspace area
             camera.position.set(telemetryState.x, telemetryState.y, telemetryState.z);
 
             renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
@@ -520,9 +523,9 @@
             
             motionTracker = new MultiPointMotionTracker();
 
-            // UPDATED: Reset to standard dimensions and set default visibility status to hidden (off)
+            // FIXED: Reset layout tracking grid parameters back to standard sizes, defaulting to hidden state
             gridHelper = new THREE.GridHelper(50, 25, 0x1f1f2e, 0x111116);
-            gridHelper.position.y = -0.005; 
+            gridHelper.position.y = 0.001; 
             gridHelper.visible = false;
             scene.add(gridHelper);
 
@@ -667,7 +670,8 @@
                 controls.enableDamping = true;
                 controls.dampingFactor = 0.05;
             }
-            controls.target.set(0, 0, 0); 
+            // FIXED: Target initially locked straight horizontally down the horizon plane
+            controls.target.set(telemetryState.x, telemetryState.y, 0); 
             controls.enabled = true;
         }
 
@@ -702,6 +706,7 @@
                 return;
             }
 
+            // FIXED: Explicit progress string for Pass 1
             descDiv.innerHTML = "Please be patient while AI analyzes the scene...";
 
             const hiddenCanvas = document.createElement('canvas');
@@ -837,6 +842,9 @@
                 scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
                 return;
             }
+
+            // FIXED: Explicit progress string for Pass 2
+            descDiv.innerHTML = "Please be patient while AI reconstructs the scene...";
 
             const structuralTasks = [
                 { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile only the large flat floor bases, ground platforms, and main support mats.' },
@@ -974,6 +982,15 @@
                 floatingBackdropMesh = null;
             }
 
+            if (massiveFloorPlane) {
+                scene.remove(massiveFloorPlane);
+                massiveFloorPlane = null;
+            }
+
+            // FIXED: Derived foundation color tracking variable initialization
+            let structureFloorColor = "#1a1a24";
+            let minimumObservedY = Infinity;
+
             shapesArray.forEach(shape => {
                 if (!shape || typeof shape !== 'object') return;
                 
@@ -1035,6 +1052,12 @@
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
                 worldGroup.add(mesh);
+
+                // Analyze coordinates data maps to correctly isolate the absolute base tracking color code values
+                if (pos[1] < minimumObservedY) {
+                    minimumObservedY = pos[1];
+                    if (shape.c) structureFloorColor = shape.c;
+                }
             });
 
             if (worldGroup.children.length > 0) {
@@ -1042,10 +1065,29 @@
                 const center = new THREE.Vector3(); 
                 box.getCenter(center);
                 
+                // FIXED: Shift entire original structure along the Y axis until its lowest bounding edge is just flush above Y=0
+                worldGroup.position.x = -center.x;
+                worldGroup.position.z = -center.z;
+                worldGroup.position.y = -box.min.y + 0.005; 
+
+                // FIXED: Adjust controls target destination vector dynamically relative to structural dimensions
                 if (controls) {
-                    controls.target.copy(center);
+                    controls.target.set(0, (box.max.y - box.min.y) / 2, 0);
                     controls.update();
                 }
+
+                // FIXED: Solid matching structural color floor setup added at exactly Y=0 bounds
+                const floorGeo = new THREE.PlaneGeometry(3000, 3000);
+                const floorMat = new THREE.MeshStandardMaterial({
+                    color: new THREE.Color(structureFloorColor),
+                    roughness: 0.85,
+                    metalness: 0.1
+                });
+                massiveFloorPlane = new THREE.Mesh(floorGeo, floorMat);
+                massiveFloorPlane.rotation.x = -Math.PI / 2;
+                massiveFloorPlane.position.set(0, 0, 0);
+                massiveFloorPlane.receiveShadow = true;
+                scene.add(massiveFloorPlane);
 
                 if (scannedBackdropDataUrl) {
                     const size = new THREE.Vector3(); box.getSize(size);
@@ -1054,8 +1096,8 @@
                         new THREE.PlaneGeometry(1, 1),
                         new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
                     );
-                    floatingBackdropMesh.position.set(center.x, center.y, box.min.z - 1.5);
-                    floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
+                    floatingBackdropMesh.position.set(0, (box.max.y - box.min.y) / 2, -size.z - 2.0);
+                    floatingBackdropMesh.scale.set(Math.max(size.x, 8), Math.max(size.y, 8), 1);
                     floatingBackdropMesh.visible = backdropOverlayActive;
                     scene.add(floatingBackdropMesh);
                 }
@@ -1133,6 +1175,10 @@
                 if(c.material) c.material.dispose();
                 worldGroup.remove(c);
             }
+            if (massiveFloorPlane) {
+                scene.remove(massiveFloorPlane);
+                massiveFloorPlane = null;
+            }
             deactivateTrackingSensors();
             lockedGyroRoll = 0; 
             targetLinearVelocityX = 0;
@@ -1141,9 +1187,10 @@
             scannedBackdropDataUrl = null;
             gyroYawOffset = 0;
             
-            camera.position.set(0, 0, 15);
+            // FIXED: Reset positioning configurations back to the pulled back horizon levels cleanly
+            camera.position.set(0, 2, 15);
             if (controls) {
-                controls.target.set(0, 0, 0); 
+                controls.target.set(0, 2, 0); 
                 controls.update();
             }
             document.getElementById('aiDescription').innerText = "Workspace cleared. System active.";
