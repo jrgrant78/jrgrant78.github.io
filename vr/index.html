@@ -310,9 +310,14 @@
         let raycaster = new THREE.Raycaster();
         let pointerCoordinateVector = new THREE.Vector2();
         let isDraggingSceneActive = false;
+        let isStructureReadyToMove = false;
         let sceneDragLongPressTimeout = null;
         let interactiveDragOffset = new THREE.Vector3();
         let groundReferencePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        
+        // Gesture verification metrics
+        let startScreenPosition = { x: 0, y: 0 };
+        const DRAG_CANCEL_THRESHOLD = 8; // Max pixel drift allowed during long press validation
 
         const OPEN_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
@@ -583,49 +588,77 @@
             pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
             pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
+            // Cache metrics for drag cancellation evaluation thresholds
+            startScreenPosition.x = e.clientX;
+            startScreenPosition.y = e.clientY;
+
             raycaster.setFromCamera(pointerCoordinateVector, camera);
             const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
 
             if (targetedStructuralIntersects.length > 0) {
                 let groundIntersectionVector = new THREE.Vector3();
                 raycaster.ray.intersectPlane(groundReferencePlane, groundIntersectionVector);
-                
-                // Track spatial offset relative to worldGroup's horizontal center coordinates
                 interactiveDragOffset.copy(groundIntersectionVector).sub(worldGroup.position);
 
                 if (sceneDragLongPressTimeout) clearTimeout(sceneDragLongPressTimeout);
                 
+                isStructureReadyToMove = false;
+                isDraggingSceneActive = false;
+
+                // Gated Long-Press Sequence: Verification threshold enforces steady click behaviors
                 sceneDragLongPressTimeout = setTimeout(() => {
+                    isStructureReadyToMove = true;
                     isDraggingSceneActive = true;
+                    
                     if (controls) controls.enabled = false; // Decouple camera interactions during sliding sequence
+
+                    // Apply emissive visual highlight matrix onto PBR material tree components
+                    worldGroup.traverse((child) => {
+                        if (child.isMesh && child.material) {
+                            if (child.userData.originalEmissive === undefined) {
+                                child.userData.originalEmissive = child.material.emissive.getHex();
+                            }
+                            child.material.emissive.setHex(0x224466); // Subtle cyan highlights indicate ready-to-move parameters
+                        }
+                    });
+
                     document.getElementById('aiDescription').innerText = "[Active Mode: Translating Structure]\nSlide to reposition. Elements will snap to full integer grid cells.";
                 }, 400); 
             }
         }
 
         function handleScenePointerDragSequence(e) {
+            // Early out if no raycast context register is pending validation
             if (!isDraggingSceneActive && !sceneDragLongPressTimeout) return;
 
+            const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
+            const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
+
+            // Gated Cancellation Logic: Early motion before long press fires reverts seamlessly to normal camera behavior
+            if (!isStructureReadyToMove) {
+                if (currentPixelDeltaX > DRAG_CANCEL_THRESHOLD || currentPixelDeltaY > DRAG_CANCEL_THRESHOLD) {
+                    if (sceneDragLongPressTimeout) {
+                        clearTimeout(sceneDragLongPressTimeout);
+                        sceneDragLongPressTimeout = null;
+                    }
+                }
+                return; // Let OrbitControls execute default horizon rotation calculations uninterrupted
+            }
+
+            // Execute translation update vectors since long press validation is fully confirmed
+            e.preventDefault();
             pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
             pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
-            if (isDraggingSceneActive) {
-                e.preventDefault();
-                raycaster.setFromCamera(pointerCoordinateVector, camera);
-                let currentGroundIntersection = new THREE.Vector3();
-                raycaster.ray.intersectPlane(groundReferencePlane, currentGroundIntersection);
+            raycaster.setFromCamera(pointerCoordinateVector, camera);
+            let currentGroundIntersection = new THREE.Vector3();
+            raycaster.ray.intersectPlane(groundReferencePlane, currentGroundIntersection);
 
-                let intendedTargetPosition = currentGroundIntersection.sub(interactiveDragOffset);
-                
-                // WHOLE INTEGER SHAPE SNAPPING MATRIX PROTOCOL
-                worldGroup.position.x = Math.round(intendedTargetPosition.x);
-                worldGroup.position.z = Math.round(intendedTargetPosition.z);
-            } else {
-                // Cancel select sequence if drag movement parameters deviate substantially before long hold threshold verifies
-                if (Math.abs((e.clientX / window.innerWidth) * 2 - 1 - pointerCoordinateVector.x) > 0.03) {
-                    if (sceneDragLongPressTimeout) { clearTimeout(sceneDragLongPressTimeout); sceneDragLongPressTimeout = null; }
-                }
-            }
+            let intendedTargetPosition = currentGroundIntersection.sub(interactiveDragOffset);
+            
+            // WHOLE INTEGER SHAPE SNAPPING MATRIX PROTOCOL
+            worldGroup.position.x = Math.round(intendedTargetPosition.x);
+            worldGroup.position.z = Math.round(intendedTargetPosition.z);
         }
 
         function handleScenePointerUpRelease() {
@@ -633,8 +666,17 @@
                 clearTimeout(sceneDragLongPressTimeout);
                 sceneDragLongPressTimeout = null;
             }
+            
+            // Teardown highlight matrix indicators and restore initial mesh specifications cleanly
+            worldGroup.traverse((child) => {
+                if (child.isMesh && child.material && child.userData.originalEmissive !== undefined) {
+                    child.material.emissive.setHex(child.userData.originalEmissive);
+                }
+            });
+
             if (isDraggingSceneActive) {
                 isDraggingSceneActive = false;
+                isStructureReadyToMove = false;
                 if (controls) controls.enabled = true; // Restore OrbitControls functionality safely
                 document.getElementById('aiDescription').innerText = "Structure transform committed. Vector targets aligned cleanly on cell bounds.";
             }
@@ -1118,7 +1160,6 @@
                 const center = new THREE.Vector3(); 
                 box.getCenter(center);
                 
-                // Position lowest structural element directly on top of Y=0 ground plane intersect, centered at world origin (0,0)
                 worldGroup.position.x = -center.x;
                 worldGroup.position.z = -center.z;
                 worldGroup.position.y = -box.min.y; 
