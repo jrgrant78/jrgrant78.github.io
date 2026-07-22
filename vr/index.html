@@ -124,7 +124,7 @@
             box-shadow: 0 4px 15px rgba(0,0,0,0.5); 
             box-sizing: border-box;
             position: relative;
-            margin-left: auto; 
+            margin-left: auto;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -275,16 +275,11 @@
         
         let targetLinearVelocityX = 0;
         let targetLinearVelocityZ = 0;
-        const VELOCITY_INTERPOLATION_STEP = 0.22; 
         const VELOCITY_DEADZONE_LIMIT = 0.001;
 
         let motionTracker;
         const LEVEL_PITCH_LIMIT = THREE.MathUtils.degToRad(20);  
         const LEVEL_ROLL_LIMIT = THREE.MathUtils.degToRad(15);   
-        const ROTATIONAL_BLANKING_THRESHOLD = 0.005; 
-        
-        const TRANSLATION_SPEED_SCALAR = 0.65;                   
-        let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
@@ -572,7 +567,6 @@
             animate();
         }
 
-        // DYNAMIC SPATIAL MANIPULATION EVENT HANDLERS
         function handleScenePointerDownActivation(e) {
             pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
             pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -663,25 +657,22 @@
             }
         }
 
-        // VIEWPORT CONTEXT OCCLUSION ENGINE
+        // DYNAMIC OCCLUSION ENGINE: Manages visibility of vertical walls blocking structural sightlines
         function updateWallTransparency() {
-            let closestWall = null;
+            let closestBlockingWall = null;
             let minDistance = Infinity;
             let cameraWorldPosition = new THREE.Vector3();
             camera.getWorldPosition(cameraWorldPosition);
 
-            // Compute the holistic geometric center of the structural masses
+            // Calculate the spatial bounds and center vector of the active structural model
+            let structureBox = new THREE.Box3().setFromObject(worldGroup);
             let structureCenter = new THREE.Vector3();
-            if (worldGroup.children.length > 0) {
-                let structureBox = new THREE.Box3().setFromObject(worldGroup);
-                structureBox.getCenter(structureCenter);
-            } else {
-                return;
-            }
+            structureBox.getCenter(structureCenter);
+            let cameraToCenterDistance = cameraWorldPosition.distanceTo(structureCenter);
 
             worldGroup.traverse((child) => {
                 if (child.isMesh && child.material && child.geometry) {
-                    // Revert previously modified meshes back to default rendering parameters
+                    // Revert processed components to native states before resetting properties
                     if (child.userData.originalOpacity !== undefined) {
                         if (Array.isArray(child.material)) {
                             child.material.forEach((mat, idx) => {
@@ -696,52 +687,43 @@
                         delete child.userData.originalTransparent;
                     }
 
-                    // Bounding Box Scan: Deconstructs micro-dimensions dynamically
                     if (!child.geometry.boundingBox) child.geometry.computeBoundingBox();
                     const bbox = child.geometry.boundingBox;
                     const actualSpanX = (bbox.max.x - bbox.min.x) * child.scale.x;
                     const actualSpanY = (bbox.max.y - bbox.min.y) * child.scale.y;
                     const actualSpanZ = (bbox.max.z - bbox.min.z) * child.scale.z;
 
-                    const isWallLikeElement = (
-                        (actualSpanX < 0.8 && actualSpanY > 1.2 && actualSpanZ > 1.2) || 
-                        (actualSpanZ < 0.8 && actualSpanY > 1.2 && actualSpanX > 1.2)
-                    );
+                    // STRICT VERIFICATION: Target only structural elements extending vertically along the Y-axis
+                    const isVerticalWall = (actualSpanY > 1.0) && (actualSpanX < 0.8 || actualSpanZ < 0.8);
 
-                    if (isWallLikeElement) {
+                    if (isVerticalWall) {
                         let wallWorldPosition = new THREE.Vector3();
                         child.getWorldPosition(wallWorldPosition);
-                        
-                        // Vector calculation to see if the wall stands between the camera and the structure center
-                        let vecWallToCam = new THREE.Vector3().subVectors(cameraWorldPosition, wallWorldPosition);
-                        let vecWallToCenter = new THREE.Vector3().subVectors(structureCenter, wallWorldPosition);
-                        
-                        // If vectors trace opposite directions along the camera view axis (dot product < 0), the wall occludes the interior
-                        if (vecWallToCam.dot(vecWallToCenter) < 0) {
-                            let distanceToCamera = cameraWorldPosition.distanceTo(wallWorldPosition);
-                            if (distanceToCamera < minDistance) {
-                                minDistance = distanceToCamera;
-                                closestWall = child;
-                            }
+                        let distanceToCamera = cameraWorldPosition.distanceTo(wallWorldPosition);
+
+                        // Condition: The wall must be closer to the camera than the rest of the structure's core mass
+                        if (distanceToCamera < cameraToCenterDistance && distanceToCamera < minDistance) {
+                            minDistance = distanceToCamera;
+                            closestBlockingWall = child;
                         }
                     }
                 }
             });
 
-            // Commit alpha properties across the targeted blocking element
-            if (closestWall) {
-                if (Array.isArray(closestWall.material)) {
-                    closestWall.userData.originalOpacity = closestWall.material.map(m => m.opacity);
-                    closestWall.userData.originalTransparent = closestWall.material.map(m => m.transparent);
-                    closestWall.material.forEach(m => {
+            // Map standard transparency constants onto the identified front-facing blocking wall element
+            if (closestBlockingWall) {
+                if (Array.isArray(closestBlockingWall.material)) {
+                    closestBlockingWall.userData.originalOpacity = closestBlockingWall.material.map(m => m.opacity);
+                    closestBlockingWall.userData.originalTransparent = closestBlockingWall.material.map(m => m.transparent);
+                    closestBlockingWall.material.forEach(m => {
                         m.transparent = true;
                         m.opacity = 0.25;
                     });
                 } else {
-                    closestWall.userData.originalOpacity = closestWall.material.opacity;
-                    closestWall.userData.originalTransparent = closestWall.material.transparent;
-                    closestWall.material.transparent = true;
-                    closestWall.material.opacity = 0.25;
+                    closestBlockingWall.userData.originalOpacity = closestBlockingWall.material.opacity;
+                    closestBlockingWall.userData.originalTransparent = closestBlockingWall.material.transparent;
+                    closestBlockingWall.material.transparent = true;
+                    closestBlockingWall.material.opacity = 0.25;
                 }
             }
         }
@@ -1432,7 +1414,6 @@
                 gridHelper.position.z = Math.round(camera.position.z);
             }
             
-            // Evaluate structural reclusion parameters before generating the canvas frame buffer
             updateWallTransparency();
             
             document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
