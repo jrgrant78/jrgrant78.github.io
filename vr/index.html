@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Resilient Mobile AR Spatial Sculptor</title>
+    <title>Spatial Sculptor AR</title>
     <style>
         body { margin: 0; padding: 0; overflow: hidden; font-family: sans-serif; background: #0b0b0f; color: #fff; }
 
@@ -189,7 +189,7 @@
                 <!-- Row 1: Title -->
                 <div class="title-row">Spatial Sculptor AR</div>
                 
-                <!-- Row 2: Always-Visible Utility Icons (Grid defaults to unselected/off state) -->
+                <!-- Row 2: Always-Visible Utility Icons -->
                 <div class="icon-row">
                     <button id="uiToggleBtn" title="Toggle UI Controls">
                         <svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -296,8 +296,16 @@
         let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
         const worldGroup = new THREE.Group();
+        const proceduralGroup = new THREE.Group(); // Infinite Expansion Layer Group
         let scanInProgress = false;
         
+        // Procedural generation tracking matrix parameters
+        let proceduralActive = false;
+        let proceduralPalette = ["#00e5ff", "#1a1a24", "#333333", "#555555"];
+        let protectedBox = new THREE.Box3();
+        const chunkMap = new Set();
+        const CHUNK_SIZE = 30;
+
         let dynamicInputSourceMode = 'camera';
         let scannedBackdropDataUrl = null;
         let backdropOverlayActive = false;
@@ -305,13 +313,6 @@
         let rawCachedShapesArray = null;  
 
         let telemetryState = { x: 0, y: 0, z: 15 };
-
-        // INFINITE PROCEDURAL MATRIX STATE FRAMEWORK
-        const proceduralGroup = new THREE.Group();
-        let generatedChunksMap = new Map();
-        let aiCoreProtectionBounds = new THREE.Box3();
-        let proceduralExpansionActive = false;
-        const CHUNK_SIZE = 20;
 
         const OPEN_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
@@ -527,9 +528,9 @@
             
             motionTracker = new MultiPointMotionTracker();
 
-            // FIXED: Reset navigation grid to standard dimension sizing parameters and set default visibility state to off
+            // FIXED: Resetting layout grid to standard dimension rules and defaulting to hidden state
             gridHelper = new THREE.GridHelper(100, 100, 0x1f1f2e, 0x111116);
-            gridHelper.position.y = -0.001; 
+            gridHelper.position.y = 0; 
             gridHelper.visible = false;
             scene.add(gridHelper);
 
@@ -548,7 +549,7 @@
             scene.add(fillLight);
 
             scene.add(worldGroup);
-            scene.add(proceduralGroup);
+            scene.add(proceduralGroup); // Inject procedural engine container layer group
 
             window.addEventListener('resize', onWindowResize);
             document.getElementById('scanBtn').addEventListener('click', captureAndScanFrame);
@@ -953,18 +954,6 @@
                 if (unifiedShapes.length > 0) {
                     rawCachedShapesArray = unifiedShapes;
                     renderAIBlueprint(unifiedShapes);
-                    
-                    // INITIALIZE POST-AI PROCEDURAL PIPELINE EXTENSION
-                    aiCoreProtectionBounds.setFromObject(worldGroup);
-                    proceduralExpansionActive = true;
-                    generatedChunksMap.clear();
-                    while(proceduralGroup.children.length > 0) {
-                        let child = proceduralGroup.children[0];
-                        if(child.geometry) child.geometry.dispose();
-                        if(child.material) child.material.dispose();
-                        proceduralGroup.remove(child);
-                    }
-                    updateInfiniteProceduralWorld();
                 } else {
                     descDiv.innerHTML += "<br><span style='color:#ffea00;'>Warning: Pipeline completed, but the total accumulated shape array contains 0 elements.</span>";
                 }
@@ -977,6 +966,16 @@
         }
 
         function renderAIBlueprint(shapesArray) {
+            // Reset procedural state machine tracking lists cleanly
+            proceduralActive = false;
+            chunkMap.clear();
+            while(proceduralGroup.children.length > 0) {
+                let pChild = proceduralGroup.children[0];
+                if(pChild.geometry) pChild.geometry.dispose();
+                if(pChild.material) pChild.material.dispose();
+                proceduralGroup.remove(pChild);
+            }
+
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
                 if(child.geometry) child.geometry.dispose();
@@ -994,6 +993,9 @@
                 floatingBackdropMesh = null;
             }
 
+            // Extract distinct hexadecimal tracking palettes from completed AI meshes safely
+            let extractedHexes = [];
+
             shapesArray.forEach(shape => {
                 if (!shape || typeof shape !== 'object') return;
                 
@@ -1002,32 +1004,18 @@
                 const scl = shape.s || [1,1,1];
                 const rot = shape.r || [0,0,0];
                 
+                if (shape.c) extractedHexes.push(shape.c);
                 const primitiveType = shape.t ? String(shape.t).toLowerCase().trim() : 'box';
 
                 switch(primitiveType) {
-                    case 'box': 
-                        geo = new THREE.BoxGeometry(1, 1, 1); 
-                        break;
-                    case 'roundedbox': 
-                        geo = createRoundedBoxGeometry(scl[0]||1, scl[1]||1, scl[2]||1, Math.min(scl[0]||1, scl[1]||1, scl[2]||1) * 0.15, 4); 
-                        break;
-                    case 'sphere': 
-                        geo = new THREE.SphereGeometry(0.5, 32, 32); 
-                        break;
-                    case 'cylinder': 
-                        geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 32); 
-                        break;
-                    case 'cone':
-                        geo = new THREE.ConeGeometry(0.5, 1, 32);
-                        break;
-                    case 'capsule':
-                        geo = new THREE.CylinderGeometry(0.4, 0.4, 1.0, 32);
-                        break;
-                    case 'plane':
-                        geo = new THREE.PlaneGeometry(1, 1);
-                        break;
-                    default: 
-                        geo = new THREE.BoxGeometry(1, 1, 1);
+                    case 'box': geo = new THREE.BoxGeometry(1, 1, 1); break;
+                    case 'roundedbox': geo = createRoundedBoxGeometry(scl[0]||1, scl[1]||1, scl[2]||1, Math.min(scl[0]||1, scl[1]||1, scl[2]||1) * 0.15, 4); break;
+                    case 'sphere': geo = new THREE.SphereGeometry(0.5, 32, 32); break;
+                    case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 32); break;
+                    case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 32); break;
+                    case 'capsule': geo = new THREE.CylinderGeometry(0.4, 0.4, 1.0, 32); break;
+                    case 'plane': geo = new THREE.PlaneGeometry(1, 1); break;
+                    default: geo = new THREE.BoxGeometry(1, 1, 1);
                 }
 
                 const isTranslucent = shape.trans > 0.05;
@@ -1057,109 +1045,143 @@
                 worldGroup.add(mesh);
             });
 
-            // FIXED: Force whole original structure up along Y-axis until bottom edge intersects completely flush with floor at Y=0
             if (worldGroup.children.length > 0) {
+                // FIXED: Calculate real world space coordinates to shift bottom edge exactly to Y=0
                 const box = new THREE.Box3().setFromObject(worldGroup);
                 const center = new THREE.Vector3(); 
                 box.getCenter(center);
                 
                 worldGroup.position.x = -center.x;
                 worldGroup.position.z = -center.z;
-                worldGroup.position.y = -box.min.y; // Translates lowest layout coordinate directly to world ground Y=0
+                worldGroup.position.y = -box.min.y; // Lowest boundary sits completely flush at Y=0
+                
+                worldGroup.updateMatrixWorld(true);
+                protectedBox.setFromObject(worldGroup); // Lock protected structural boundary matrix limits
+
+                if (extractedHexes.length > 0) {
+                    proceduralPalette = Array.from(new Set(extractedHexes));
+                }
+
+                // Activate automated procedural outward background generation routines safely
+                proceduralActive = true;
+                checkProceduralChunks();
+
+                if (controls) {
+                    controls.target.set(0, (box.max.y - box.min.y) / 2, 0);
+                    controls.update();
+                }
+
+                if (scannedBackdropDataUrl) {
+                    const size = new THREE.Vector3(); box.getSize(size);
+                    const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
+                    floatingBackdropMesh = new THREE.Mesh(
+                        new THREE.PlaneGeometry(1, 1),
+                        new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
+                    );
+                    floatingBackdropMesh.position.set(0, (box.max.y - box.min.y) / 2, -size.z - 5);
+                    floatingBackdropMesh.scale.set(Math.max(size.x, 12), Math.max(size.y, 12), 1);
+                    floatingBackdropMesh.visible = backdropOverlayActive;
+                    scene.add(floatingBackdropMesh);
+                }
             }
         }
 
-        // MATHEMATICAL PROCEDURAL CHUNK COMPILER ENGINE (Zero AI Overhead)
-        function pseudoRandomSeed(x, z) {
-            let fractionalMask = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453123;
-            return fractionalMask - Math.floor(fractionalMask);
-        }
+        // PROCEDURAL EXTENSION ENGINE COMPONENT: Outward infinite spatial mesh orchestration loop
+        function checkProceduralChunks() {
+            if (!proceduralActive) return;
+            
+            const curChunkX = Math.floor(camera.position.x / CHUNK_SIZE);
+            const curChunkZ = Math.floor(camera.position.z / CHUNK_SIZE);
+            const renderRadiusRange = 3; 
 
-        function updateInfiniteProceduralWorld() {
-            if (!proceduralExpansionActive) return;
-            
-            const camX = camera.position.x;
-            const camZ = camera.position.z;
-            
-            const activeChunkX = Math.floor(camX / CHUNK_SIZE);
-            const activeChunkZ = Math.floor(camZ / CHUNK_SIZE);
-            
-            const streamingRadius = 3; // Manages processing across a stable 7x7 matrix grid window
-            
-            for (let dx = -streamingRadius; dx <= streamingRadius; dx++) {
-                for (let dz = -streamingRadius; dz <= streamingRadius; dz++) {
-                    const cx = activeChunkX + dx;
-                    const cz = activeChunkZ + dz;
-                    const chunkKey = `${cx},${cz}`;
-                    
-                    if (!generatedChunksMap.has(chunkKey)) {
-                        compileProceduralChunk(cx, cz);
-                        generatedChunksMap.set(chunkKey, true);
+            for (let cx = curChunkX - renderRadiusRange; cx <= curChunkX + renderRadiusRange; cx++) {
+                for (let cz = curChunkZ - renderRadiusRange; cz <= curChunkZ + renderRadiusRange; cz++) {
+                    const chunkKeyStr = `${cx},${cz}`;
+                    if (!chunkMap.has(chunkKeyStr)) {
+                        chunkMap.add(chunkKeyStr);
+                        buildOutwardProceduralChunk(cx, cz);
                     }
                 }
             }
         }
 
-        function compileProceduralChunk(cx, cz) {
-            const startX = cx * CHUNK_SIZE;
-            const startZ = cz * CHUNK_SIZE;
-            
-            // 1. Solid Flooring Layer Module covering entire space
+        function buildOutwardProceduralChunk(chunkX, chunkZ) {
+            const worldBaseX = chunkX * CHUNK_SIZE;
+            const worldBaseZ = chunkZ * CHUNK_SIZE;
+
+            // Generate solid, continuous structural sub-floor plates precisely at Y=0
             const floorGeo = new THREE.BoxGeometry(CHUNK_SIZE, 0.1, CHUNK_SIZE);
-            const floorMat = new THREE.MeshPhysicalMaterial({ color: 0x14141a, roughness: 0.65, metalness: 0.1 });
+            const floorMat = new THREE.MeshPhysicalMaterial({ color: 0x111116, roughness: 0.85, metalness: 0.05 });
             const floorMesh = new THREE.Mesh(floorGeo, floorMat);
-            // Placed at Y=-0.05 so top surface lines align directly at Y=0
-            floorMesh.position.set(startX + CHUNK_SIZE / 2, -0.05, startZ + CHUNK_SIZE / 2);
+            floorMesh.position.set(worldBaseX + CHUNK_SIZE / 2, -0.05, worldBaseZ + CHUNK_SIZE / 2);
             floorMesh.receiveShadow = true;
             proceduralGroup.add(floorMesh);
 
-            // 2. Realistic Architectural Room Walls Module (No Ceilings)
-            const wallH = 3.5;
-            const wallThick = 0.2;
-            const wallMat = new THREE.MeshPhysicalMaterial({ color: 0x22222b, roughness: 0.5, metalness: 0.0 });
-            const localSeed = pseudoRandomSeed(cx, cz);
+            // Seed localized pseudo-random distributions to establish complex un-repeated layouts cleanly
+            let layoutDeterminant = Math.abs(Math.sin(chunkX * 12.9898 + chunkZ * 78.233)) * 43758.5453;
+            let pseudoRandom = () => {
+                layoutDeterminant = (layoutDeterminant * 9301 + 49297) % 233280;
+                return layoutDeterminant / 233280;
+            };
 
-            function createSafeWall(posX, posZ, len, isHorizontal) {
-                let worldW_X = startX + posX + (isHorizontal ? len / 2 : 0);
-                let worldW_Z = startZ + posZ + (isHorizontal ? 0 : len / 2);
-                let worldW_Y = wallH / 2;
-                
-                let checkVector = new THREE.Vector3(worldW_X, worldW_Y, worldW_Z);
-                
-                // CRITICAL SAFETY SHIELD: Do not add any walls occupying space inside the original structure bounds
-                if (aiCoreProtectionBounds.containsPoint(checkVector)) return;
+            const roomInternalGridDivisions = 3; 
+            const partitionCellSize = CHUNK_SIZE / roomInternalGridDivisions;
 
-                const wallGeo = isHorizontal ? 
-                    new THREE.BoxGeometry(len, wallH, wallThick) : 
-                    new THREE.BoxGeometry(wallThick, wallH, len);
+            // Compile realistic architectural extensions grid structures (Walls & structural accents)
+            for (let gx = 0; cx = gx < roomInternalGridDivisions; gx++) {
+                for (let gz = 0; gz < roomInternalGridDivisions; gz++) {
+                    
+                    const cellWorldX = worldBaseX + (gx * partitionCellSize) + partitionCellSize / 2;
+                    const cellWorldZ = worldBaseZ + (gz * partitionCellSize) + partitionCellSize / 2;
 
-                const wallMesh = new THREE.Mesh(wallGeo, wallMat);
-                wallMesh.position.set(worldW_X, worldW_Y, worldW_Z);
-                wallMesh.castShadow = true;
-                wallMesh.receiveShadow = true;
-                proceduralGroup.add(wallMesh);
-            }
+                    // Safety box evaluation to isolate and protect the original AI structure space
+                    const targetLocationVec = new THREE.Vector3(cellWorldX, 2, cellWorldZ);
+                    if (protectedBox.containsPoint(targetLocationVec) || targetLocationVec.distanceTo(new THREE.Vector3(0,2,0)) < 12) {
+                        continue; 
+                    }
 
-            // Internal grid layouts leaving logical door opening pathways unblocked
-            if (localSeed > 0.15) {
-                // Transverse partition wall line at center z=10 split into two segments
-                createSafeWall(0, 10, 7, true);
-                createSafeWall(13, 10, 7, true); // Leaves a navigable 6-unit doorway opening path
-            }
-            if (localSeed < 0.85) {
-                // Longitudinal partition wall line at center x=10 split into two segments
-                createSafeWall(10, 0, 7, false);
-                createSafeWall(10, 13, 7, false); 
-            }
+                    const wallMaterialType = new THREE.MeshPhysicalMaterial({
+                        color: new THREE.Color(proceduralPalette[Math.floor(pseudoRandom() * proceduralPalette.length)]),
+                        roughness: pseudoRandom() > 0.5 ? 0.2 : 0.6,
+                        metalness: pseudoRandom() > 0.7 ? 0.7 : 0.0,
+                        clearcoat: 0.3
+                    });
 
-            // Dynamic interlocking outer boundary partitions to maintain logical across-chunk room sequences
-            if (pseudoRandomSeed(cx + 1, cz) > 0.65) {
-                createSafeWall(CHUNK_SIZE, 0, 7, false);
-                createSafeWall(CHUNK_SIZE, 13, 7, false);
-            }
-            if (pseudoRandomSeed(cx, cz + 1) > 0.65) {
-                createSafeWall(0, CHUNK_SIZE, 7, true);
-                createSafeWall(13, CHUNK_SIZE, 7, true);
+                    // Construct localized room partition bounds (No ceilings added)
+                    if (pseudoRandom() > 0.35) {
+                        const horizontalOrientationFlag = pseudoRandom() > 0.5;
+                        let wallGeo;
+                        if (horizontalOrientationFlag) {
+                            wallGeo = new THREE.BoxGeometry(partitionCellSize, 4.0, 0.3);
+                        } else {
+                            wallGeo = new THREE.BoxGeometry(0.3, 4.0, partitionCellSize);
+                        }
+
+                        const wallMesh = new THREE.Mesh(wallGeo, wallMaterialType);
+                        wallMesh.position.set(cellWorldX, 2.0, cellWorldZ);
+                        wallMesh.castShadow = true;
+                        wallMesh.receiveShadow = true;
+                        proceduralGroup.add(wallMesh);
+
+                        // Inject micro-architectural complex detailing elements (Structural column supports)
+                        if (pseudoRandom() > 0.4) {
+                            const columnGeo = new THREE.CylinderGeometry(0.4, 0.4, 4.0, 16);
+                            const columnMesh = new THREE.Mesh(columnGeo, wallMaterialType);
+                            columnMesh.position.set(cellWorldX + (horizontalOrientationFlag ? partitionCellSize/4 : 0), 2.0, cellWorldZ + (!horizontalOrientationFlag ? partitionCellSize/4 : 0));
+                            columnMesh.castShadow = true;
+                            proceduralGroup.add(columnMesh);
+                        }
+                    }
+
+                    // Populate micro trim highlight panels and loose scattered decoration elements to enhance complexity
+                    if (pseudoRandom() > 0.7) {
+                        const accentGeo = new THREE.BoxGeometry(1.5, 0.8, 1.5);
+                        const accentMesh = new THREE.Mesh(accentGeo, wallMaterialType);
+                        accentMesh.position.set(cellWorldX + (pseudoRandom() * 2 - 1), 0.4, cellWorldZ + (pseudoRandom() * 2 - 1));
+                        accentMesh.castShadow = true;
+                        proceduralGroup.add(accentMesh);
+                    }
+                }
             }
         }
 
@@ -1228,23 +1250,22 @@
 
         function clearSceneAndResetView() {
             console.clear();
+            proceduralActive = false;
+            chunkMap.clear();
+
+            while(proceduralGroup.children.length > 0) {
+                let pChild = proceduralGroup.children[0];
+                if(pChild.geometry) pChild.geometry.dispose();
+                if(pChild.material) pChild.material.dispose();
+                proceduralGroup.remove(pChild);
+            }
+
             while(worldGroup.children.length > 0) {
                 let c = worldGroup.children[0];
                 if(c.geometry) c.geometry.dispose();
                 if(c.material) c.material.dispose();
                 worldGroup.remove(c);
             }
-            
-            // CLEAR COHESIVE PROCEDURAL INFRASTRUCTURE
-            proceduralExpansionActive = false;
-            generatedChunksMap.clear();
-            while(proceduralGroup.children.length > 0) {
-                let child = proceduralGroup.children[0];
-                if(child.geometry) child.geometry.dispose();
-                if(child.material) child.material.dispose();
-                proceduralGroup.remove(child);
-            }
-
             deactivateTrackingSensors();
             lockedGyroRoll = 0; 
             targetLinearVelocityX = 0;
@@ -1253,7 +1274,7 @@
             scannedBackdropDataUrl = null;
             gyroYawOffset = 0;
             
-            camera.position.set(0, 0, 15);
+            camera.position.set(0, 5, 15);
             if (controls) {
                 controls.target.set(0, 0, 0); 
                 controls.update();
@@ -1347,6 +1368,11 @@
                 }
             }
 
+            // Continuously track camera movements to spawn infinite chunk configurations ahead of the viewer
+            if (proceduralActive) {
+                checkProceduralChunks();
+            }
+
             if (controls && controls.enabled) {
                 controls.update();
                 if (!gyroActive && lockedGyroRoll !== 0) {
@@ -1355,11 +1381,6 @@
                 }
             }
             
-            // RUNS THE ACTIVE INFINITE EXPANSION RE-EVALUATION ENVELOPE LOOP
-            if (proceduralExpansionActive) {
-                updateInfiniteProceduralWorld();
-            }
-
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
