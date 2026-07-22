@@ -174,7 +174,7 @@
         
         #debugPanel { position: absolute; bottom: 10px; left: 10px; right: 10px; z-index: 10; background: rgba(0,0,0,0.85); padding: 8px; border-radius: 4px; font-family: monospace; font-size: 0.75em; color: #00ffcc; border: 1px solid #222; pointer-events: none; }
         
-        #canvas3d { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; display: block; z-index: 2; pointer-events: auto; }
+        #canvas3d { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; display: block; z-index: 2; pointer-events: auto; touch-action: none; }
     </style>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -306,16 +306,13 @@
 
         let telemetryState = { x: 0, y: 2.0, z: 25.0 };
 
-        // SPATIAL MANIPULATION WORKSPACE VARIABLES
-        let raycaster, interactionPointer;
-        let selectedObject = null;
-        let originalEmissiveColor = new THREE.Color();
-        let longHoldTimeoutTracker = null;
-        let dragActiveState = false;
-        let pointerDownInitialPos = new THREE.Vector2();
-        let spatialDragPlane = new THREE.Plane();
-        let spatialIntersectionVec = new THREE.Vector3();
-        let structuralDragOffsetVec = new THREE.Vector3();
+        // SPATIAL MANIPULATION WORKSPACE REGISTERS
+        let raycaster = new THREE.Raycaster();
+        let pointerCoordinateVector = new THREE.Vector2();
+        let isDraggingSceneActive = false;
+        let sceneDragLongPressTimeout = null;
+        let interactiveDragOffset = new THREE.Vector3();
+        let groundReferencePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
         const OPEN_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
@@ -531,7 +528,6 @@
             
             motionTracker = new MultiPointMotionTracker();
 
-            // High-Contrast Gray Grid Initialization (Defaulted to True/On)
             gridHelper = new THREE.GridHelper(50, 50, 0xb0b0b0, 0x777777);
             gridHelper.position.y = 0.0; 
             gridHelper.visible = true;
@@ -553,14 +549,10 @@
 
             scene.add(worldGroup);
 
-            // INTERACTION POINTER PIPELINE SETUP
-            raycaster = new THREE.Raycaster();
-            interactionPointer = new THREE.Vector2();
-            
-            // Unified Pointer Events handle desktop and mobile touch screen inputs natively
-            window.addEventListener('pointerdown', executeWorkspacePointerDown);
-            window.addEventListener('pointermove', executeWorkspacePointerMove);
-            window.addEventListener('pointerup', executeWorkspacePointerUp);
+            // POINTER INTERACTION WORKSPACE LISTENERS
+            canvas.addEventListener('pointerdown', handleScenePointerDownActivation, { passive: false });
+            window.addEventListener('pointermove', handleScenePointerDragSequence, { passive: false });
+            window.addEventListener('pointerup', handleScenePointerUpRelease);
 
             window.addEventListener('resize', onWindowResize);
             document.getElementById('scanBtn').addEventListener('click', captureAndScanFrame);
@@ -586,104 +578,66 @@
             animate();
         }
 
-        // SPATIAL TRANSFORMATION AND SELECTION LOGIC CORE
-        function executeWorkspacePointerDown(event) {
-            // Bypass interaction calculations if touching HTML control cards
-            if (event.clientX < 450 && event.clientY < 400 && document.getElementById('controls').style.display !== 'none') {
-                if (event.target.closest('#controls')) return;
-            }
-            
-            interactionPointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-            interactionPointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
-            pointerDownInitialPos.copy(interactionPointer);
+        // DYNAMIC SPATIAL MANIPULATION EVENT HANDLERS
+        function handleScenePointerDownActivation(e) {
+            pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
+            pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
-            raycaster.setFromCamera(interactionPointer, camera);
-            const capturedIntersections = raycaster.intersectObjects(worldGroup.children, true);
+            raycaster.setFromCamera(pointerCoordinateVector, camera);
+            const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
 
-            if (capturedIntersections.length > 0) {
-                const targetPrimitiveNode = capturedIntersections[0].object;
+            if (targetedStructuralIntersects.length > 0) {
+                let groundIntersectionVector = new THREE.Vector3();
+                raycaster.ray.intersectPlane(groundReferencePlane, groundIntersectionVector);
                 
-                // Set up standard 400ms long-hold duration step to trigger translating drag workflow
-                longHoldTimeoutTracker = setTimeout(() => {
-                    dragActiveState = true;
-                    if (controls) controls.enabled = false; // Kill OrbitControls rotation step
-                    selectWorkspacePrimitiveNode(targetPrimitiveNode);
+                // Track spatial offset relative to worldGroup's horizontal center coordinates
+                interactiveDragOffset.copy(groundIntersectionVector).sub(worldGroup.position);
 
-                    // Re-align spatial dragging plane to current entity baseline vertical offset
-                    spatialDragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), targetPrimitiveNode.position);
-                    raycaster.setFromCamera(interactionPointer, camera);
-                    raycaster.ray.intersectPlane(spatialDragPlane, spatialIntersectionVec);
-                    structuralDragOffsetVec.copy(targetPrimitiveNode.position).sub(spatialIntersectionVec);
-                }, 400);
+                if (sceneDragLongPressTimeout) clearTimeout(sceneDragLongPressTimeout);
+                
+                sceneDragLongPressTimeout = setTimeout(() => {
+                    isDraggingSceneActive = true;
+                    if (controls) controls.enabled = false; // Decouple camera interactions during sliding sequence
+                    document.getElementById('aiDescription').innerText = "[Active Mode: Translating Structure]\nSlide to reposition. Elements will snap to full integer grid cells.";
+                }, 400); 
             }
         }
 
-        function executeWorkspacePointerMove(event) {
-            interactionPointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-            interactionPointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+        function handleScenePointerDragSequence(e) {
+            if (!isDraggingSceneActive && !sceneDragLongPressTimeout) return;
 
-            if (dragActiveState && selectedObject) {
-                raycaster.setFromCamera(interactionPointer, camera);
-                if (raycaster.ray.intersectPlane(spatialDragPlane, spatialIntersectionVec)) {
-                    let spatialTargetLocation = spatialIntersectionVec.clone().add(structuralDragOffsetVec);
-                    
-                    // PRECISE SNAPPING MATRIX: Lock geometry translations to 1.0 unit cell increments
-                    spatialTargetLocation.x = Math.round(spatialTargetLocation.x);
-                    spatialTargetLocation.z = Math.round(spatialTargetLocation.z);
-                    
-                    selectedObject.position.x = spatialTargetLocation.x;
-                    selectedObject.position.z = spatialTargetLocation.z;
-                }
+            pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
+            pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+            if (isDraggingSceneActive) {
+                e.preventDefault();
+                raycaster.setFromCamera(pointerCoordinateVector, camera);
+                let currentGroundIntersection = new THREE.Vector3();
+                raycaster.ray.intersectPlane(groundReferencePlane, currentGroundIntersection);
+
+                let intendedTargetPosition = currentGroundIntersection.sub(interactiveDragOffset);
+                
+                // WHOLE INTEGER SHAPE SNAPPING MATRIX PROTOCOL
+                worldGroup.position.x = Math.round(intendedTargetPosition.x);
+                worldGroup.position.z = Math.round(intendedTargetPosition.z);
             } else {
-                // Break selection timeout bounds loop if pointer drifts away while processing down step
-                if (longHoldTimeoutTracker && pointerDownInitialPos.distanceTo(interactionPointer) > 0.04) {
-                    clearTimeout(longHoldTimeoutTracker);
-                    longHoldTimeoutTracker = null;
+                // Cancel select sequence if drag movement parameters deviate substantially before long hold threshold verifies
+                if (Math.abs((e.clientX / window.innerWidth) * 2 - 1 - pointerCoordinateVector.x) > 0.03) {
+                    if (sceneDragLongPressTimeout) { clearTimeout(sceneDragLongPressTimeout); sceneDragLongPressTimeout = null; }
                 }
             }
         }
 
-        function executeWorkspacePointerUp(event) {
-            if (longHoldTimeoutTracker) {
-                clearTimeout(longHoldTimeoutTracker);
-                longHoldTimeoutTracker = null;
-
-                // Process sudden touch click transitions if released before hold threshold triggers
-                interactionPointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-                interactionPointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
-                
-                if (pointerDownInitialPos.distanceTo(interactionPointer) < 0.02) {
-                    raycaster.setFromCamera(interactionPointer, camera);
-                    const completedIntersections = raycaster.intersectObjects(worldGroup.children, true);
-                    if (completedIntersections.length > 0) {
-                        selectWorkspacePrimitiveNode(completedIntersections[0].object);
-                    } else {
-                        deselectWorkspacePrimitiveNode();
-                    }
-                }
+        function handleScenePointerUpRelease() {
+            if (sceneDragLongPressTimeout) {
+                clearTimeout(sceneDragLongPressTimeout);
+                sceneDragLongPressTimeout = null;
             }
-
-            if (dragActiveState) {
-                dragActiveState = false;
-                if (controls) controls.enabled = true; // Restore camera rotation controls mapping cleanly
+            if (isDraggingSceneActive) {
+                isDraggingSceneActive = false;
+                if (controls) controls.enabled = true; // Restore OrbitControls functionality safely
+                document.getElementById('aiDescription').innerText = "Structure transform committed. Vector targets aligned cleanly on cell bounds.";
             }
-        }
-
-        function selectWorkspacePrimitiveNode(meshNode) {
-            if (selectedObject) deselectWorkspacePrimitiveNode();
-            selectedObject = meshNode;
-            if (selectedObject.material && selectedObject.material.emissive) {
-                originalEmissiveColor.copy(selectedObject.material.emissive);
-                // Highlight object with a soft amber hue while active selection is retained
-                selectedObject.material.emissive.setHex(0x3a2a05);
-            }
-        }
-
-        function deselectWorkspacePrimitiveNode() {
-            if (selectedObject && selectedObject.material && selectedObject.material.emissive) {
-                selectedObject.material.emissive.copy(originalEmissiveColor);
-            }
-            selectedObject = null;
         }
 
         function toggleSpatialBackdropOverlay() {
@@ -1164,7 +1118,7 @@
                 const center = new THREE.Vector3(); 
                 box.getCenter(center);
                 
-                // Position architecture elements centered on X/Z origin intersections, flush on top of grid (Y=0)
+                // Position lowest structural element directly on top of Y=0 ground plane intersect, centered at world origin (0,0)
                 worldGroup.position.x = -center.x;
                 worldGroup.position.z = -center.z;
                 worldGroup.position.y = -box.min.y; 
@@ -1176,7 +1130,7 @@
                         new THREE.PlaneGeometry(1, 1),
                         new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
                     );
-                    floatingBackdropMesh.position.set(0, (box.max.y - box.min.y) / 2, -size.z / 2 - 1.5);
+                    floatingBackdropMesh.position.set(0, center.y - box.min.y, -size.z / 2 - 1.5);
                     floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
                     floatingBackdropMesh.visible = backdropOverlayActive;
                     scene.add(floatingBackdropMesh);
@@ -1249,7 +1203,6 @@
 
         function clearSceneAndResetView() {
             console.clear();
-            deselectWorkspacePrimitiveNode();
             while(worldGroup.children.length > 0) {
                 let c = worldGroup.children[0];
                 if(c.geometry) c.geometry.dispose();
@@ -1358,12 +1311,6 @@
                 }
             }
 
-            // DYNAMIC INFINITE GRID ENGINE: Shift layout array to provide endless expansion across X and Z axes
-            if (gridHelper && gridHelper.visible) {
-                gridHelper.position.x = Math.floor(camera.position.x);
-                gridHelper.position.z = Math.floor(camera.position.z);
-            }
-
             if (controls && controls.enabled) {
                 controls.update();
                 if (!gyroActive && lockedGyroRoll !== 0) {
@@ -1374,6 +1321,12 @@
             
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
+            
+            // INFINITE SECURE TRACKING GRID ENGINE: Snaps the horizontal space container along modular cell boundaries
+            if (gridHelper && gridHelper.visible) {
+                gridHelper.position.x = Math.round(camera.position.x);
+                gridHelper.position.z = Math.round(camera.position.z);
+            }
             
             document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
             
