@@ -196,6 +196,7 @@
                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
                         </svg>
                     </button>
+                    <!-- Default state adjusted: Off by default, matching script instantiation -->
                     <button id="gridToggleBtn" title="Toggle Navigation Grid">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
@@ -210,7 +211,7 @@
                     </button>
                 </div>
                 
-                <!-- Toggleable Panel: Row 3 & Row 4 Swapped -->
+                <!-- Toggleable Panel: Row 3 & Row 4 Inverted Positions -->
                 <div id="togglePanel">
                     <!-- Row 3: Sized-Matched Action Buttons -->
                     <div class="btn-toolbar" id="toolbarNode">
@@ -304,8 +305,8 @@
         let floatingBackdropMesh = null; 
         let rawCachedShapesArray = null;  
 
-        // Reset camera configurations: Elevated slightly at Y=2, pulled back to grid border edge at Z=25
-        let telemetryState = { x: 0, y: 2, z: 25 };
+        // Camera positioning coordinates registers: Y slightly raised (2.0), Z pulled to edge of 50-unit grid (25.0)
+        let telemetryState = { x: 0, y: 2.0, z: 25.0 };
 
         const OPEN_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
@@ -508,6 +509,8 @@
             scene.background = new THREE.Color(0x06060a);
 
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 5000);
+            
+            // Camera position configuration: leveled with the horizon, raised slightly (2.0), pulled to edge of grid (25.0)
             camera.position.set(telemetryState.x, telemetryState.y, telemetryState.z);
 
             renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
@@ -521,9 +524,9 @@
             
             motionTracker = new MultiPointMotionTracker();
 
-            // Resetting grid helper setup to standard sizes (50 wide, 25 subdivisions) and defaulting to hidden
-            gridHelper = new THREE.GridHelper(50, 25, 0x1f1f2e, 0x111116);
-            gridHelper.position.y = 0; 
+            // Calibrated Grid Matrix: Reset to standard 50x50 metrics, shaded completely using medium grays, default off
+            gridHelper = new THREE.GridHelper(50, 50, 0x888888, 0x555555);
+            gridHelper.position.y = 0.0; 
             gridHelper.visible = false;
             scene.add(gridHelper);
 
@@ -668,7 +671,8 @@
                 controls.enableDamping = true;
                 controls.dampingFactor = 0.05;
             }
-            controls.target.set(0, 0, 0); // Forces structural lock tracking centered on coordinates origin
+            // Studio Camera Target alignment: Always look cleanly directly at the grid center point origin
+            controls.target.set(0, 0, 0); 
             controls.enabled = true;
         }
 
@@ -703,7 +707,6 @@
                 return;
             }
 
-            // Explicit Pass 1 processing dialogue display injection
             descDiv.innerHTML = "Please be patient while AI analyzes the scene...";
 
             const hiddenCanvas = document.createElement('canvas');
@@ -839,9 +842,6 @@
                 scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
                 return;
             }
-
-            // Explicit Pass 2 reconstruction statement injection
-            descDiv.innerHTML = "Please be patient while AI reconstructs the scene...";
 
             const structuralTasks = [
                 { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile only the large flat floor bases, ground platforms, and main support mats.' },
@@ -1047,13 +1047,14 @@
                 const center = new THREE.Vector3(); 
                 box.getCenter(center);
                 
-                // Shift structure up along the Y-axis so its lowest bounding edge sits cleanly right above X and Z axes (Y=0)
+                // Shift the entire generated structure up along the Y-axis until its bottom edge rests just above the baseline X/Z space plane
                 worldGroup.position.x = -center.x;
                 worldGroup.position.z = -center.z;
-                worldGroup.position.y = -box.min.y + 0.02;
+                worldGroup.position.y = -box.min.y + 0.01; 
 
                 if (controls) {
-                    controls.target.set(0, 0, 0); // Aimed accurately at grid center coordinates
+                    // Controls point to the transformed space bounding calculation center coordinates
+                    controls.target.set(0, center.y - box.min.y, 0);
                     controls.update();
                 }
 
@@ -1064,7 +1065,7 @@
                         new THREE.PlaneGeometry(1, 1),
                         new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
                     );
-                    floatingBackdropMesh.position.set(0, (box.max.y - box.min.y) / 2, -size.z - 1.5);
+                    floatingBackdropMesh.position.set(0, center.y - box.min.y, -1.5);
                     floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
                     floatingBackdropMesh.visible = backdropOverlayActive;
                     scene.add(floatingBackdropMesh);
@@ -1119,12 +1120,17 @@
             camera.updateMatrix();
             camera.updateMatrixWorld(true);
             
+            const currentForwardDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            const explicitTargetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(currentForwardDir, 10);
+            
+            camera.lookAt(explicitTargetPoint);
+            
             if (controls) {
                 controls.dispose();
             }
             
             controls = new THREE.OrbitControls(camera, renderer.domElement);
-            controls.target.set(0, 0, 0); // Lock view targeting onto structural grid center origin
+            controls.target.copy(explicitTargetPoint);
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
             controls.update();
@@ -1146,8 +1152,8 @@
             scannedBackdropDataUrl = null;
             gyroYawOffset = 0;
             
-            // Revert view matrix state cleanly to baseline parameters: (0, 2, 25), pointing level to origin
-            camera.position.set(0, 2, 25);
+            // Revert view metrics precisely back to edge parameters on manual clear
+            camera.position.set(0, 2.0, 25.0);
             if (controls) {
                 controls.target.set(0, 0, 0); 
                 controls.update();
