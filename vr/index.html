@@ -184,7 +184,7 @@
 
     <div id="controls">
         <div class="main-interface">
-            <!-- Unified Left Container -->
+            <!-- Unified Left 4-Row Container -->
             <div id="leftContainer">
                 <!-- Row 1: Title -->
                 <div class="title-row">Spatial Sculptor AR</div>
@@ -210,9 +210,9 @@
                     </button>
                 </div>
                 
-                <!-- Toggleable Panel: Positions Repositioned Matrix Layers -->
+                <!-- Toggleable Panel: Row 3 & Row 4 (Flipped) -->
                 <div id="togglePanel">
-                    <!-- Row 3: Action Buttons (Capture, Gyro, Reset) -->
+                    <!-- Row 3: Sized-Matched Action Buttons -->
                     <div class="btn-toolbar" id="toolbarNode">
                         <button id="scanBtn" class="action-btn btn-scan" title="Scan Environment">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -271,7 +271,7 @@
     <canvas id="canvas3d"></canvas>
 
     <script>
-        let scene, camera, renderer, controls, gridHelper, massiveFloorPlane;
+        let scene, camera, renderer, controls, gridHelper, massiveFloorPlane = null;
         let videoElement, localStream;
         
         let gyroActive = false;
@@ -298,8 +298,6 @@
         const worldGroup = new THREE.Group();
         const extensionGroup = new THREE.Group();
         let scanInProgress = false;
-        let infiniteLoopActive = false;
-        let activeExclusionBounds = new THREE.Box3();
         
         let dynamicInputSourceMode = 'camera';
         let scannedBackdropDataUrl = null;
@@ -523,9 +521,9 @@
             
             motionTracker = new MultiPointMotionTracker();
 
-            // FIXED: Standard sizing constraints, locked flat onto the baseline ground plane, defaulting completely to off
-            gridHelper = new THREE.GridHelper(200, 50, 0x1f1f2e, 0x111116);
-            gridHelper.position.y = 0; 
+            // FIXED: Resetting layout grid matrix parameters to baseline configurations
+            gridHelper = new THREE.GridHelper(100, 100, 0x333344, 0x1c1c24);
+            gridHelper.position.y = 0.001; 
             gridHelper.visible = false; 
             scene.add(gridHelper);
 
@@ -693,7 +691,6 @@
         async function captureAndScanFrame() {
             if (scanInProgress) return;
             console.clear();
-            infiniteLoopActive = false;
             
             const descDiv = document.getElementById('aiDescription');
             const statusDiv = document.getElementById('status');
@@ -705,7 +702,9 @@
                 return;
             }
 
+            // MANDATED: Display clear placeholder statement before initiating context collection passes
             descDiv.innerHTML = "Please be patient while AI analyzes the scene...";
+            statusDiv.style.display = 'block';
 
             const hiddenCanvas = document.createElement('canvas');
             const ctx = hiddenCanvas.getContext('2d');
@@ -734,7 +733,6 @@
 
             scanInProgress = true;
             scanBtn.disabled = true;
-            statusDiv.style.display = 'block';
 
             const modelCascadeList = [
                 'gemini-3.5-flash',
@@ -793,9 +791,10 @@
                 - CAVEAT 2: Eliminate all optional whitespace padding inside the array syntax strings.
             `;
 
+            // --- STAGE 1 EXECUTION ---
             pass1ModelLoop: for (let model of modelCascadeList) {
                 try {
-                    statusDiv.innerText = `Pass 1: Prompting ${model}...`;
+                    statusDiv.innerText = `Pass 1: Processing vision arrays via ${model}...`;
                     const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -819,11 +818,6 @@
                     }
 
                     const data = await res.json();
-                    if (data.error) {
-                        debugDiagnosticsHistory += `• Pass 1 [${model}] API Error: ${data.error.message}<br>`;
-                        continue;
-                    }
-
                     parsedPayload = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
                     if (parsedPayload && parsedPayload.blueprint) {
                         successfulPass1Model = model;
@@ -841,6 +835,9 @@
                 return;
             }
 
+            // MANDATED: Update text elements cleanly before deploying the Pass 2 compilation tasks
+            descDiv.innerHTML = "Please be patient while AI reconstructs the scene...";
+
             const structuralTasks = [
                 { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile only the large flat floor bases, ground platforms, and main support mats.' },
                 { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Look ONLY at the ### REGION: FOUNDATION area text blocks. Compile the detailed surface boundaries, secondary rug mats, and floor borders.' },
@@ -854,6 +851,7 @@
 
             let permanentPass2Logs = "";
 
+            // --- STAGE 2 EXECUTION ---
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
                 await delayExecutionTime(idx * 250);
 
@@ -876,7 +874,7 @@
 
                 for (let model of modelCascadeList) {
                     try {
-                        statusDiv.innerText = `Pass 2: Compiling [${task.id}_${task.subId}] via ${model}...`;
+                        statusDiv.innerText = `Pass 2: Reconstructing [${task.id}_${task.subId}] via ${model}...`;
                         const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -892,14 +890,9 @@
                                                 items: {
                                                     type: "OBJECT",
                                                     properties: {
-                                                        t: { type: "STRING", description: "type: box, roundedbox, sphere, cylinder, cone, capsule, plane" }, 
-                                                        p: { type: "ARRAY", items: { type: "NUMBER" }, description: "position [x, y, z]" },
-                                                        s: { type: "ARRAY", items: { type: "NUMBER" }, description: "scale [x, y, z]" },
-                                                        r: { type: "ARRAY", items: { type: "NUMBER" }, description: "rotation [x, y, z] in radians" },
-                                                        c: { type: "STRING", description: "hex color code" },
-                                                        rough: { type: "NUMBER", description: "roughness float 0.0 to 1.0" },
-                                                        metal: { type: "NUMBER", description: "metalness float 0.0 to 1.0" },
-                                                        trans: { type: "NUMBER", description: "transmission float 0.0 to 1.0" }
+                                                        t: { type: "STRING" }, p: { type: "ARRAY", items: { type: "NUMBER" } },
+                                                        s: { type: "ARRAY", items: { type: "NUMBER" } }, r: { type: "ARRAY", items: { type: "NUMBER" } },
+                                                        c: { type: "STRING" }, rough: { type: "NUMBER" }, metal: { type: "NUMBER" }, trans: { type: "NUMBER" }
                                                     },
                                                     required: ["t", "p", "s", "r", "c", "rough", "metal", "trans"]
                                                 }
@@ -915,12 +908,8 @@
                             const data = await res.json();
                             const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
                             return { id: `${task.id}_${task.subId}`, model: model, shapes: parsed.shapes || [] };
-                        } else {
-                            permanentPass2Logs += `• Layer [${task.id}_${task.subId}] Fallback: ${model} failed (Status ${res.status})<br>`;
                         }
-                    } catch (e) {
-                        permanentPass2Logs += `• Layer [${task.id}_${task.subId}] Exception: ${model} encountered tracking error<br>`;
-                    }
+                    } catch (e) {}
                 }
                 return { id: `${task.id}_${task.subId}`, model: "failed", shapes: [] };
             });
@@ -929,31 +918,34 @@
                 const compiledResults = await Promise.all(regionalCompilationPromises);
                 
                 let reportTrackingLog = "<br><br><b>8-Layer High Density Balanced Core Audit Verification Log:</b>";
+                let baseFloorColor = "#3a3a42"; // Safe foundational fallback color parameter
+
                 compiledResults.forEach((result) => {
                     if (result && Array.isArray(result.shapes)) {
                         unifiedShapes.push(...result.shapes);
+                        // Extract base floor sampling reference color token matches cleanly
+                        if (result.id.includes("FOUNDATION") && result.shapes.length > 0 && result.shapes[0].c) {
+                            baseFloorColor = result.shapes[0].c;
+                        }
                     }
                     let modelStatusColor = result.model.includes('pro') || result.model.includes('3.5') ? '#00e676' : '#ffab00';
-                    reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes ? result.shapes.length : 0} nodes successfully parsed)`;
+                    reportTrackingLog += `<br>• Layer [${result.id}] compiled via <span style='color:${modelStatusColor}; font-weight:bold;'>${result.model}</span> (${result.shapes ? result.shapes.length : 0} nodes parsed)`;
                 });
 
-                let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
-                let structuredUiOutput = coreLayoutNarrative + reportTrackingLog;
-
-                if (debugDiagnosticsHistory || permanentPass2Logs) {
-                    structuredUiOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>System Connection Diagnostics Trail:</b><br>${debugDiagnosticsHistory}${permanentPass2Logs}</div>`;
-                }
-
-                descDiv.innerHTML = structuredUiOutput;
                 if (unifiedShapes.length > 0) {
                     rawCachedShapesArray = unifiedShapes;
-                    renderAIBlueprint(unifiedShapes);
+                    renderAIBlueprint(unifiedShapes, baseFloorColor);
                     
-                    // PASS 3 WORKER ACTIVATION TRIGGER: Spin up the dynamic procedural outward infinite builder
-                    await executePass3OutwardExpansion(userEnteredKey, modelCascadeList, parsedPayload, unifiedShapes);
+                    // --- STAGE 3 EXECUTION: Infinite Environmental Expansion Loop Matrix ---
+                    await executePass3Extension(parsedPayload, baseFloorColor, userEnteredKey, modelCascadeList, globalSpatialAnchorPrompt);
                 } else {
-                    descDiv.innerHTML += "<br><span style='color:#ffea00;'>Warning: Pipeline completed, but the total accumulated shape array contains 0 elements.</span>";
+                    descDiv.innerHTML += "<br><span style='color:#ffea00;'>Warning: Initial structure returned empty node configuration maps.</span>";
                 }
+
+                // Append runtime diagnostic blocks to screen report layout container cleanly
+                let coreLayoutNarrative = `<b>[Orchestrator: ${successfulPass1Model}]</b><br>${parsedPayload.description}`;
+                descDiv.innerHTML = coreLayoutNarrative + reportTrackingLog + (permanentPass2Logs ? `<br>${permanentPass2Logs}` : "");
+
             } catch (err) {
                 console.error(err);
                 descDiv.innerHTML = `<span style='color:#ff3333; font-weight:bold;'>Pipeline processing exception occurred:</span> <code style='background:#221111; color:#ff8888; padding:3px;'>${err.message}</code>`;
@@ -962,7 +954,187 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
-        function renderAIBlueprint(shapesArray) {
+        // --- PIPELINE STAGE 3 ENGINE: Isolated Spatial Context Extension System ---
+        async function executePass3Extension(basePayload, floorColorHex, apiKey, modelCascade, coordinateSystemContext) {
+            const descDiv = document.getElementById('aiDescription');
+            const statusDiv = document.getElementById('status');
+
+            // MANDATED: Flip interface indicator tokens to denote pass 3 initialization sequences
+            descDiv.innerHTML = "Please be patient while AI extends the scene...";
+            statusDiv.innerText = "Pass 3: Scaffolding Infinite Environmental Blueprints...";
+
+            let extensionNarrativeBlueprint = "";
+            
+            const extensionPrompt = `
+                You are an Infinite Architectural Expansion Engine. 
+                The primary baseline building has been compiled with this layout profile: "${basePayload.description}".
+                The master spatial blueprint is anchored by this framework: "${basePayload.blueprint}".
+                
+                Your task is to write a highly complex, text-driven architectural extension plan describing new structural wings, open plazas, supporting pathways, columns, or peripheral landscape objects branching out symmetrically from this core structure along all 4 cardinal directions (+X, -X, +Z, -Z).
+                
+                Format your text manifest output inside this target JSON field:
+                { "extended_blueprint": "Write your detailed multi-cardinal contextual narrative here..." }
+            `;
+
+            for (let model of modelCascade) {
+                try {
+                    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + apiKey, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: extensionPrompt }] }],
+                            generationConfig: { 
+                                responseMimeType: "application/json",
+                                responseSchema: {
+                                    type: "OBJECT",
+                                    properties: { extended_blueprint: { type: "STRING" } },
+                                    required: ["extended_blueprint"]
+                                }
+                            }
+                        })
+                    });
+
+                    if (res.ok) {
+                        const data = await res.json();
+                        const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
+                        extensionNarrativeBlueprint = parsed.extended_blueprint;
+                        break;
+                    }
+                } catch (e) {}
+            }
+
+            if (!extensionNarrativeBlueprint) return;
+
+            // Define discrete multi-directional task sectors targeting explicit coordinate zones
+            const cardinalSectors = [
+                { id: 'EXTENSION_EAST', bounds: 'positive X zone (East Axis, x > 12.0)', directive: 'Compile 20-30 discrete primitives forming corridors, exterior paths, or matching wings extending far East.' },
+                { id: 'EXTENSION_WEST', bounds: 'negative X zone (West Axis, x < -12.0)', directive: 'Compile 20-30 discrete primitives forming connected pathways, walls, or architectural columns expanding West.' },
+                { id: 'EXTENSION_NORTH', bounds: 'positive Z zone (North Axis, z > 12.0)', directive: 'Compile 20-30 discrete primitives structural matching configurations expanding North.' },
+                { id: 'EXTENSION_SOUTH', bounds: 'negative Z zone (South Axis, z < -12.0)', directive: 'Compile 20-30 discrete primitives structural layout objects expanding South.' }
+            ];
+
+            // Clear legacy translation data meshes
+            while(extensionGroup.children.length > 0) {
+                let c = extensionGroup.children[0];
+                if(c.geometry) c.geometry.dispose();
+                if(c.material) c.material.dispose();
+                extensionGroup.remove(c);
+            }
+
+            // Capture structural footprint boundaries of base node array hierarchy to apply collision guardrails
+            const primaryStructuralBounds = new THREE.Box3().setFromObject(worldGroup);
+
+            for (let i = 0; i < cardinalSectors.length; i++) {
+                const sector = cardinalSectors[i];
+                statusDiv.innerText = `Pass 3 [${i+1}/4]: Synthesizing ${sector.id} shapes...`;
+
+                const sectorPrompt = `
+                    You are a precision 3D Geometry compiler worker focusing strictly on building the environmental sector: [${sector.id}].
+                    Convert your targeted boundary rules into a highly minified JSON shapes layout array.
+                    
+                    ${coordinateSystemContext}
+                    
+                    CARDINAL BOUNDARY MANIFEST:
+                    - Place nodes strictly inside the ${sector.bounds}.
+                    - Ensure the elements form a continuous, realistic architectural layout matching the stylistic elements of the core building.
+                    
+                    ENVIRONMENT REFERENCE CONTEXT:
+                    """
+                    ${extensionNarrativeBlueprint}
+                    """
+                `;
+
+                for (let model of modelCascade) {
+                    try {
+                        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + apiKey, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{ parts: [{ text: sectorPrompt }] }], 
+                                generationConfig: { 
+                                    responseMimeType: "application/json",
+                                    responseSchema: {
+                                        type: "OBJECT",
+                                        properties: {
+                                            shapes: {
+                                                type: "ARRAY",
+                                                items: {
+                                                    type: "OBJECT",
+                                                    properties: {
+                                                        t: { type: "STRING" }, p: { type: "ARRAY", items: { type: "NUMBER" } },
+                                                        s: { type: "ARRAY", items: { type: "NUMBER" } }, r: { type: "ARRAY", items: { type: "NUMBER" } },
+                                                        c: { type: "STRING" }, rough: { type: "NUMBER" }, metal: { type: "NUMBER" }, trans: { type: "NUMBER" }
+                                                    },
+                                                    required: ["t", "p", "s", "r", "c", "rough", "metal", "trans"]
+                                                }
+                                            }
+                                        },
+                                        required: ["shapes"]
+                                    }
+                                }
+                            })
+                        });
+
+                        if (res.ok) {
+                            const data = await res.json();
+                            const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
+                            const sectorShapesArray = parsed.shapes || [];
+
+                            sectorShapesArray.forEach(shape => {
+                                if (!shape || typeof shape !== 'object') return;
+                                
+                                const pos = shape.p || [0,0,0];
+                                const scl = shape.s || [1,1,1];
+                                const rot = shape.r || [0,0,0];
+
+                                // CRITICAL GUARDRAIL: Strict geometric collision intersection check against primary structure boundaries
+                                if (pos[0] >= primaryStructuralBounds.min.x && pos[0] <= primaryStructuralBounds.max.x &&
+                                    pos[2] >= primaryStructuralBounds.min.z && pos[2] <= primaryStructuralBounds.max.z) {
+                                    return; // Drop element immediately to satisfy zero-collision spatial overlay laws
+                                }
+
+                                let geo;
+                                const primitiveType = shape.t ? String(shape.t).toLowerCase().trim() : 'box';
+
+                                switch(primitiveType) {
+                                    case 'box': geo = new THREE.BoxGeometry(1, 1, 1); break;
+                                    case 'roundedbox': geo = createRoundedBoxGeometry(scl[0]||1, scl[1]||1, scl[2]||1, Math.min(scl[0]||1, scl[1]||1, scl[2]||1) * 0.15, 4); break;
+                                    case 'sphere': geo = new THREE.SphereGeometry(0.5, 16, 16); break;
+                                    case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 16); break;
+                                    case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 16); break;
+                                    case 'capsule': geo = new THREE.CylinderGeometry(0.4, 0.4, 1.0, 16); break;
+                                    case 'plane': geo = new THREE.PlaneGeometry(1, 1); break;
+                                    default: geo = new THREE.BoxGeometry(1, 1, 1);
+                                }
+
+                                const mat = new THREE.MeshPhysicalMaterial({
+                                    color: new THREE.Color(shape.c || "#808080"),
+                                    roughness: shape.rough !== undefined ? THREE.MathUtils.clamp(shape.rough, 0, 1) : 0.5,
+                                    metalness: shape.metal !== undefined ? THREE.MathUtils.clamp(shape.metal, 0, 1) : 0.0,
+                                    transmission: shape.trans !== undefined ? THREE.MathUtils.clamp(shape.trans, 0, 1) : 0.0,
+                                    transparent: shape.trans > 0.05,
+                                    side: primitiveType === 'plane' ? THREE.DoubleSide : THREE.FrontSide
+                                });
+
+                                const mesh = new THREE.Mesh(geo, mat);
+                                mesh.position.set(pos[0], pos[1], pos[2]);
+                                mesh.rotation.set(rot[0], rot[1], rot[2]);
+                                
+                                if (primitiveType !== 'roundedbox') mesh.scale.set(scl[0], scl[1], scl[2]);
+
+                                mesh.castShadow = true; mesh.receiveShadow = true;
+                                extensionGroup.add(mesh);
+                            });
+                            break; 
+                        }
+                    } catch (e) {}
+                }
+                await delayExecutionTime(150);
+            }
+        }
+
+        // --- SHAPE INTERPOLATION & ALIGNMENT RENDER ENGINE ---
+        function renderAIBlueprint(shapesArray, coreFloorColor) {
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
                 if(child.geometry) child.geometry.dispose();
@@ -980,7 +1152,13 @@
                 floatingBackdropMesh = null;
             }
 
-            let fallbackColor = "#555566";
+            if (massiveFloorPlane) {
+                if (massiveFloorPlane.geometry) massiveFloorPlane.geometry.dispose();
+                if (massiveFloorPlane.material) massiveFloorPlane.material.dispose();
+                scene.remove(massiveFloorPlane);
+                massiveFloorPlane = null;
+            }
+
             shapesArray.forEach(shape => {
                 if (!shape || typeof shape !== 'object') return;
                 
@@ -990,32 +1168,16 @@
                 const rot = shape.r || [0,0,0];
                 
                 const primitiveType = shape.t ? String(shape.t).toLowerCase().trim() : 'box';
-                if (shape.c && !fallbackColor) fallbackColor = shape.c;
 
                 switch(primitiveType) {
-                    case 'box': 
-                        geo = new THREE.BoxGeometry(1, 1, 1); 
-                        break;
-                    case 'roundedbox': 
-                        geo = createRoundedBoxGeometry(scl[0]||1, scl[1]||1, scl[2]||1, Math.min(scl[0]||1, scl[1]||1, scl[2]||1) * 0.15, 4); 
-                        break;
-                    case 'sphere': 
-                        geo = new THREE.SphereGeometry(0.5, 32, 32); 
-                        break;
-                    case 'cylinder': 
-                        geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 32); 
-                        break;
-                    case 'cone':
-                        geo = new THREE.ConeGeometry(0.5, 1, 32);
-                        break;
-                    case 'capsule':
-                        geo = new THREE.CylinderGeometry(0.4, 0.4, 1.0, 32);
-                        break;
-                    case 'plane':
-                        geo = new THREE.PlaneGeometry(1, 1);
-                        break;
-                    default: 
-                        geo = new THREE.BoxGeometry(1, 1, 1);
+                    case 'box': geo = new THREE.BoxGeometry(1, 1, 1); break;
+                    case 'roundedbox': geo = createRoundedBoxGeometry(scl[0]||1, scl[1]||1, scl[2]||1, Math.min(scl[0]||1, scl[1]||1, scl[2]||1) * 0.15, 4); break;
+                    case 'sphere': geo = new THREE.SphereGeometry(0.5, 32, 32); break;
+                    case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 32); break;
+                    case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 32); break;
+                    case 'capsule': geo = new THREE.CylinderGeometry(0.4, 0.4, 1.0, 32); break;
+                    case 'plane': geo = new THREE.PlaneGeometry(1, 1); break;
+                    default: geo = new THREE.BoxGeometry(1, 1, 1);
                 }
 
                 const isTranslucent = shape.trans > 0.05;
@@ -1036,222 +1198,60 @@
                 mesh.position.set(pos[0], pos[1], pos[2]);
                 mesh.rotation.set(rot[0], rot[1], rot[2]);
                 
-                if (primitiveType !== 'roundedbox') {
-                    mesh.scale.set(scl[0], scl[1], scl[2]);
-                }
+                if (primitiveType !== 'roundedbox') mesh.scale.set(scl[0], scl[1], scl[2]);
                 
-                mesh.castShadow = true;
-                mesh.receiveShadow = true;
+                mesh.castShadow = true; mesh.receiveShadow = true;
                 worldGroup.add(mesh);
             });
 
-            // FIXED: Shift the original structure up the Y-axis so its bottom edge is flush with Y=0
+            // FIXED: Enforce deterministic Y-axis scaling offset matrices to slide meshes flush above Y=0
             if (worldGroup.children.length > 0) {
-                const box = new THREE.Box3().setFromObject(worldGroup);
-                worldGroup.position.y = -box.min.y; 
-                
-                // Cache exclusion boundaries
-                activeExclusionBounds.setFromObject(worldGroup);
-                
-                // Establish solid baseline coloring flat floor plane across world space dimensions
-                buildMassiveFloorPlane(fallbackColor);
+                worldGroup.position.set(0, 0, 0); 
+                worldGroup.updateMatrixWorld(true);
 
+                const currentBoundingBox = new THREE.Box3().setFromObject(worldGroup);
+                const shiftYDistanceOffset = -currentBoundingBox.min.y;
+
+                // Elevates structure position until bottom extreme sits perfectly flush just above Y=0
+                worldGroup.position.y = shiftYDistanceOffset + 0.02;
+
+                // FIXED: Create absolute, solid, full-coverage structural flooring base element matching sampled hues
+                const floorGeometry = new THREE.PlaneGeometry(5000, 5000);
+                const floorMaterial = new THREE.MeshStandardMaterial({
+                    color: new THREE.Color(coreFloorColor),
+                    roughness: 0.65,
+                    metalness: 0.1,
+                    side: THREE.DoubleSide
+                });
+                
+                massiveFloorPlane = new THREE.Mesh(floorGeometry, floorMaterial);
+                massiveFloorPlane.rotation.x = -Math.PI / 2;
+                massiveFloorPlane.position.set(0, 0, 0);
+                massiveFloorPlane.receiveShadow = true;
+                scene.add(massiveFloorPlane);
+
+                const combinedCenterBox = new THREE.Box3().setFromObject(worldGroup);
+                const centerPointPositionVector = new THREE.Vector3(); 
+                combinedCenterBox.getCenter(centerPointPositionVector);
+                
                 if (controls) {
-                    const center = new THREE.Vector3();
-                    activeExclusionBounds.getCenter(center);
-                    controls.target.copy(center);
+                    controls.target.set(centerPointPositionVector.x, centerPointPositionVector.y, centerPointPositionVector.z);
                     controls.update();
                 }
 
                 if (scannedBackdropDataUrl) {
-                    const size = new THREE.Vector3(); activeExclusionBounds.getSize(size);
+                    const size = new THREE.Vector3(); combinedCenterBox.getSize(size);
                     const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
                     floatingBackdropMesh = new THREE.Mesh(
                         new THREE.PlaneGeometry(1, 1),
                         new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
                     );
-                    floatingBackdropMesh.position.set(worldGroup.position.x, size.y / 2, activeExclusionBounds.min.z - 1.5);
+                    floatingBackdropMesh.position.set(centerPointPositionVector.x, centerPointPositionVector.y, combinedCenterBox.min.z - 1.5);
                     floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
                     floatingBackdropMesh.visible = backdropOverlayActive;
                     scene.add(floatingBackdropMesh);
                 }
             }
-        }
-
-        function buildMassiveFloorPlane(hexColor) {
-            if (massiveFloorPlane) {
-                scene.remove(massiveFloorPlane);
-                massiveFloorPlane.geometry.dispose();
-                massiveFloorPlane.material.dispose();
-            }
-            const floorGeo = new THREE.PlaneGeometry(8000, 8000);
-            const floorMat = new THREE.MeshStandardMaterial({
-                color: new THREE.Color(hexColor || "#1b1b24"),
-                roughness: 0.7,
-                metalness: 0.1
-            });
-            massiveFloorPlane = new THREE.Mesh(floorGeo, floorMat);
-            massiveFloorPlane.rotation.x = -Math.PI / 2;
-            massiveFloorPlane.position.y = -0.01; // Avoid Z-fighting with elements flush at Y=0
-            massiveFloorPlane.receiveShadow = true;
-            scene.add(massiveFloorPlane);
-        }
-
-        // --- ENHANCED PASS 3: Outward Infinite Structural Environment Expansion Matrix Engine ---
-        async function executePass3OutwardExpansion(apiKey, modelList, basePayload, compiledShapes) {
-            const descDiv = document.getElementById('aiDescription');
-            const statusDiv = document.getElementById('status');
-            
-            infiniteLoopActive = true;
-            statusDiv.style.display = 'block';
-            statusDiv.innerText = "Pass 3: Designing Outward Extensions Prompt...";
-
-            const pass3Prompt = `
-                You are a Master Architectural Expansion Architect. Review this starting layout description:
-                "${basePayload.description}"
-                
-                Write a single master prompt string that details how this environment naturally extends infinitely outward along the X and Z horizons.
-                The expansion must look like a realistic extension of the starting structure (matching aesthetic style, structural motifs, materials, and colors). 
-                Describe complex architectural details like corridors, support arches, flanking wings, panel arrays, and procedural furniture components.
-                
-                Your response must populate exactly one field inside this JSON container:
-                { "extension_prompt": "Your ultra-detailed structural rules extension text prompt here..." }
-            `;
-
-            let expansionMetaPrompt = "Generate realistic matching architectural extensions outward indefinitely.";
-            
-            for (let model of modelList) {
-                try {
-                    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + apiKey, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            contents: [{ parts: [{ text: pass3Prompt }] }],
-                            generationConfig: { responseMimeType: "application/json" }
-                        })
-                    });
-
-                    if (res.ok) {
-                        const data = await res.json();
-                        const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                        if (parsed.extension_prompt) {
-                            expansionMetaPrompt = parsed.extension_prompt;
-                            break;
-                        }
-                    }
-                } catch (e) { console.warn("Pass 3 rule builder fallback cascade step."); }
-            }
-
-            descDiv.innerHTML += `<br><br><b style='color:#00e5ff;'>Pass 3 Active: Outward Infinite Environment Generator Initialized.</b><br>Expansion Protocol Rules Set: <i>"${expansionMetaPrompt.substring(0, 120)}..."</i>`;
-            
-            // Spawn continuous sequential expansion loop tracking variables
-            let chunkStepIndex = 1;
-            const sectorSizeX = Math.max(activeExclusionBounds.max.x - activeExclusionBounds.min.x, 8);
-            const sectorSizeZ = Math.max(activeExclusionBounds.max.z - activeExclusionBounds.min.z, 8);
-
-            // Infinite managed async expansion ticker loop
-            while (infiniteLoopActive) {
-                statusDiv.innerText = `Matrix Growth: Processing Sector Tier ${chunkStepIndex}...`;
-                
-                // Coordinates matrix generation coordinates for cross vector pathing (+X, -X, +Z, -Z)
-                const processingOffsets = [
-                    { x: chunkStepIndex * sectorSizeX, z: 0 },
-                    { x: -chunkStepIndex * sectorSizeX, z: 0 },
-                    { x: 0, z: chunkStepIndex * sectorSizeZ },
-                    { x: 0, z: -chunkStepIndex * sectorSizeZ }
-                ];
-
-                for (let offset of processingOffsets) {
-                    if (!infiniteLoopActive) break;
-
-                    const sectorPrompt = `
-                        You are a precision 3D Spatial Chunk Compiler working under this master architectural mandate:
-                        "${expansionMetaPrompt}"
-                        
-                        Compile an array of 8 to 15 modular geometric primitives localized at center offset coordinate: X=${offset.x.toFixed(2)}, Z=${offset.z.toFixed(2)}.
-                        
-                        Coordinate Parameters:
-                        - Floor plane is fixed at Y=0. All structural walls, pillars, furniture items must sit on or above Y=0.
-                        - Do not place any element that dips below Y=0.
-                        
-                        Output purely inside this JSON structure format:
-                        {
-                            "shapes": [
-                                { "t": "box|roundedbox|sphere|cylinder|cone|plane", "p": [x, y, z], "s": [x, y, z], "r": [x, y, z], "c": "hex color", "rough": 0.4, "metal": 0.1, "trans": 0.0 }
-                            ]
-                        }
-                    `;
-
-                    // Run rapid fallback compilation pipeline across available fast models
-                    for (let model of ['gemini-3.1-flash-lite', 'gemini-3.5-flash']) {
-                        try {
-                            const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + apiKey, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    contents: [{ parts: [{ text: sectorPrompt }] }],
-                                    generationConfig: { responseMimeType: "application/json" }
-                                })
-                            });
-
-                            if (res.ok) {
-                                const data = await res.json();
-                                const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
-                                if (parsed.shapes && Array.isArray(parsed.shapes)) {
-                                    appendExtensionSectorShapes(parsed.shapes);
-                                    break;
-                                }
-                            }
-                        } catch (e) { console.warn("Extension chunk generation fallback event."); }
-                    }
-                    await delayExecutionTime(1200); // Guard rails to isolate network rate boundaries perfectly
-                }
-                chunkStepIndex++;
-            }
-            statusDiv.style.display = 'none';
-        }
-
-        function appendExtensionSectorShapes(shapes) {
-            shapes.forEach(shape => {
-                if (!shape || typeof shape !== 'object') return;
-                
-                const pos = shape.p || [0,0,0];
-                
-                // CRITICAL SAFETY SHIFT GUARDRAIL: Verify elements obey Y bounds and do not clip into the original baseline structure bounds
-                if (pos[1] < 0) pos[1] = 0; 
-                const vertexPoint = new THREE.Vector3(pos[0], pos[1], pos[2]);
-                if (activeExclusionBounds.containsPoint(vertexPoint)) return; // Strictly block duplicate geometry injection inside original space
-
-                let geo;
-                const scl = shape.s || [1,1,1];
-                const rot = shape.r || [0,0,0];
-                const primitiveType = shape.t ? String(shape.t).toLowerCase().trim() : 'box';
-
-                switch(primitiveType) {
-                    case 'box': geo = new THREE.BoxGeometry(1, 1, 1); break;
-                    case 'roundedbox': geo = createRoundedBoxGeometry(scl[0]||1, scl[1]||1, scl[2]||1, Math.min(scl[0]||1, scl[1]||1, scl[2]||1) * 0.12, 3); break;
-                    case 'sphere': geo = new THREE.SphereGeometry(0.5, 16, 16); break;
-                    case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 16); break;
-                    case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 16); break;
-                    case 'plane': geo = new THREE.PlaneGeometry(1, 1); break;
-                    default: geo = new THREE.BoxGeometry(1, 1, 1);
-                }
-
-                const mat = new THREE.MeshStandardMaterial({
-                    color: new THREE.Color(shape.c || "#888899"),
-                    roughbox: shape.rough !== undefined ? shape.rough : 0.5,
-                    metalness: shape.metal !== undefined ? shape.metal : 0.1
-                });
-
-                const mesh = new THREE.Mesh(geo, mat);
-                mesh.position.set(pos[0], pos[1], pos[2]);
-                mesh.rotation.set(rot[0], rot[1], rot[2]);
-                if (primitiveType !== 'roundedbox') mesh.scale.set(scl[0], scl[1], scl[2]);
-                mesh.castShadow = true;
-                mesh.receiveShadow = true;
-                
-                extensionGroup.add(mesh);
-            });
         }
 
         function toggleSensorsFunctionality() {
@@ -1274,9 +1274,7 @@
         }
 
         function activateTrackingSensors(btn) {
-            if (controls) { 
-                controls.enabled = false; 
-            }
+            if (controls) { controls.enabled = false; }
             isFirstGyroFrame = true;
             window.addEventListener('deviceorientation', handleGyroscopeMotionInput, true);
             window.addEventListener('devicemotion', handleInertialStepInput, true);
@@ -1289,76 +1287,56 @@
             window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
             window.removeEventListener('devicemotion', handleInertialStepInput);
             gyroActive = false;
-            targetLinearVelocityX = 0;
-            targetLinearVelocityZ = 0;
+            targetLinearVelocityX = 0; targetLinearVelocityZ = 0;
             document.getElementById('gyroBtn').classList.remove('btn-active');
             
             const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
             lockedGyroRoll = euler.z; 
-            
             euler.z = 0;
             camera.quaternion.setFromEuler(euler);
-            camera.updateMatrix();
-            camera.updateMatrixWorld(true);
+            camera.updateMatrix(); camera.updateMatrixWorld(true);
             
             const currentForwardDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             const explicitTargetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(currentForwardDir, 10);
             
             camera.lookAt(explicitTargetPoint);
             
-            if (controls) {
-                controls.dispose();
-            }
+            if (controls) { controls.dispose(); }
             
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.target.copy(explicitTargetPoint);
-            controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
+            controls.enableDamping = true; controls.dampingFactor = 0.05;
             controls.update();
         }
 
         function clearSceneAndResetView() {
             console.clear();
-            infiniteLoopActive = false;
-            
             while(worldGroup.children.length > 0) {
                 let c = worldGroup.children[0];
-                if(c.geometry) c.geometry.dispose();
-                if(c.material) c.material.dispose();
+                if(c.geometry) c.geometry.dispose(); if(c.material) c.material.dispose();
                 worldGroup.remove(c);
             }
             while(extensionGroup.children.length > 0) {
                 let c = extensionGroup.children[0];
-                if(c.geometry) c.geometry.dispose();
-                if(c.material) c.material.dispose();
+                if(c.geometry) c.geometry.dispose(); if(c.material) c.material.dispose();
                 extensionGroup.remove(c);
             }
             if (massiveFloorPlane) {
-                scene.remove(massiveFloorPlane);
-                massiveFloorPlane.geometry.dispose();
-                massiveFloorPlane.material.dispose();
-                massiveFloorPlane = null;
+                if (massiveFloorPlane.geometry) massiveFloorPlane.geometry.dispose();
+                if (massiveFloorPlane.material) massiveFloorPlane.material.dispose();
+                scene.remove(massiveFloorPlane); massiveFloorPlane = null;
             }
-
             deactivateTrackingSensors();
-            lockedGyroRoll = 0; 
-            targetLinearVelocityX = 0;
-            targetLinearVelocityZ = 0;
-            rawCachedShapesArray = null;
-            scannedBackdropDataUrl = null;
-            gyroYawOffset = 0;
+            lockedGyroRoll = 0; targetLinearVelocityX = 0; targetLinearVelocityZ = 0;
+            rawCachedShapesArray = null; scannedBackdropDataUrl = null; gyroYawOffset = 0;
             
             camera.position.set(0, 0, 15);
-            if (controls) {
-                controls.target.set(0, 0, 0); 
-                controls.update();
-            }
+            if (controls) { controls.target.set(0, 0, 0); controls.update(); }
             document.getElementById('aiDescription').innerText = "Workspace cleared. System active.";
         }
 
         function handleGyroscopeMotionInput(e) {
             if (!gyroActive) return;
-            
             let alpha = e.alpha ? THREE.MathUtils.degToRad(e.alpha) : 0;
             let beta = e.beta ? THREE.MathUtils.degToRad(e.beta) : 0;
             let gamma = e.gamma ? THREE.MathUtils.degToRad(e.gamma) : 0;
@@ -1379,7 +1357,6 @@
 
         function handleInertialStepInput(e) {
             if (!gyroActive) return;
-
             let acc = e.acceleration; 
             if (!acc || acc.x === null) return;
 
@@ -1387,20 +1364,16 @@
             const horizonLevelEngaged = (Math.abs(currentEuler.x) <= LEVEL_PITCH_LIMIT && Math.abs(currentEuler.z) <= LEVEL_ROLL_LIMIT);
             
             if (!horizonLevelEngaged) {
-                targetLinearVelocityX = 0;
-                targetLinearVelocityZ = 0;
+                targetLinearVelocityX = 0; targetLinearVelocityZ = 0;
                 return;
             }
 
             const localAccelerationVector = new THREE.Vector3(acc.x, acc.y, acc.z);
             const worldSpaceAcceleration = localAccelerationVector.clone().applyQuaternion(camera.quaternion);
-
             worldSpaceAcceleration.y = 0;
 
             const hardwareJitterFloor = 0.08; 
-            if (worldSpaceAcceleration.length() < hardwareJitterFloor) {
-                return;
-            }
+            if (worldSpaceAcceleration.length() < hardwareJitterFloor) return;
 
             const ACCELERATION_INTEGRATION_GAIN_Z = 0.025;
             const ACCELERATION_INTEGRATION_GAIN_X = 0.006; 
@@ -1410,18 +1383,15 @@
 
         function animate() {
             requestAnimationFrame(animate);
-            
             let statusHorizonStr = "LOCKED";
             
             if (gyroActive) {
                 const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
-                
                 if (Math.abs(currentEuler.x) <= LEVEL_PITCH_LIMIT && Math.abs(currentEuler.z) <= LEVEL_ROLL_LIMIT) {
                     statusHorizonStr = "LEVEL_WALK";
                 } else {
                     statusHorizonStr = "TILT_GATED";
-                    targetLinearVelocityX = 0;
-                    targetLinearVelocityZ = 0;
+                    targetLinearVelocityX = 0; targetLinearVelocityZ = 0;
                 }
 
                 const INTEGRATION_LEAK_DECAY = 0.78;
@@ -1434,7 +1404,6 @@
                 if (targetLinearVelocityX !== 0 || targetLinearVelocityZ !== 0) {
                     camera.position.x += targetLinearVelocityX;
                     camera.position.z += targetLinearVelocityZ;
-                    
                     if (controls) {
                         controls.target.x += targetLinearVelocityX;
                         controls.target.z += targetLinearVelocityZ;
@@ -1453,9 +1422,8 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            const calculatedTotalNodesCount = worldGroup.children.length + extensionGroup.children.length;
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Mode:${statusHorizonStr} | Matrix Elements: ${calculatedTotalNodesCount}`;
-            
+            const totalSystemNodes = worldGroup.children.length + extensionGroup.children.length;
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Mode:${statusHorizonStr} | Total Spatial Nodes: ${totalSystemNodes}`;
             renderer.render(scene, camera);
             
             if (controls && controls.enabled && !gyroActive && lockedGyroRoll !== 0) {
