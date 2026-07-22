@@ -673,16 +673,13 @@
             }
         }
 
-        // DYNAMIC OCCLUSION ENGINE: Safely maps transparency across the entirety of multi-material wall layers
+        // RESILIENT DYNAMIC OCCLUSION ENGINE: Incorporates a dual-pass viewport raycast + geometric structural analysis
         function updateWallTransparency() {
             let closestWall = null;
-            let minDistance = Infinity;
-            let cameraWorldPosition = new THREE.Vector3();
-            camera.getWorldPosition(cameraWorldPosition);
 
+            // Step 1: Reset workspace visibility metrics cleanly across child objects
             worldGroup.traverse((child) => {
                 if (child.isMesh && child.material && child.geometry) {
-                    // Revert previously processed meshes back to their architectural defaults across all material indices
                     if (child.userData.originalOpacity !== undefined) {
                         if (Array.isArray(child.material)) {
                             child.material.forEach((mat, idx) => {
@@ -696,33 +693,72 @@
                         delete child.userData.originalOpacity;
                         delete child.userData.originalTransparent;
                     }
-
-                    // Bounding Box Scan: Evaluates dimensions dynamically to capture both scaled box meshes and extruded rounded geometries
-                    if (!child.geometry.boundingBox) child.geometry.computeBoundingBox();
-                    const bbox = child.geometry.boundingBox;
-                    const actualSpanX = (bbox.max.x - bbox.min.x) * child.scale.x;
-                    const actualSpanY = (bbox.max.y - bbox.min.y) * child.scale.y;
-                    const actualSpanZ = (bbox.max.z - bbox.min.z) * child.scale.z;
-
-                    const isWallLikeElement = (
-                        (actualSpanX < 0.8 && actualSpanY > 1.2 && actualSpanZ > 1.2) || 
-                        (actualSpanZ < 0.8 && actualSpanY > 1.2 && actualSpanX > 1.2)
-                    );
-
-                    if (isWallLikeElement) {
-                        let wallWorldPosition = new THREE.Vector3();
-                        child.getWorldPosition(wallWorldPosition);
-                        let distanceToCamera = cameraWorldPosition.distanceTo(wallWorldPosition);
-
-                        if (distanceToCamera < minDistance) {
-                            minDistance = distanceToCamera;
-                            closestWall = child;
-                        }
-                    }
                 }
             });
 
-            // Apply semi-transparency cleanly across all faces of the nearest wall mesh group
+            // Pass 1: Line-of-Sight Check. Cast a ray along the camera forward axis to pick the outermost obstructing wall directly.
+            let sightlineRaycaster = new THREE.Raycaster();
+            let lookDirection = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            sightlineRaycaster.set(camera.position, lookDirection);
+
+            const visibilityIntersects = sightlineRaycaster.intersectObjects(worldGroup.children, true);
+
+            for (let i = 0; i < visibilityIntersects.length; i++) {
+                const hitMesh = visibilityIntersects[i].object;
+                if (hitMesh.isMesh && hitMesh.material && hitMesh.geometry) {
+                    if (!hitMesh.geometry.boundingBox) hitMesh.geometry.computeBoundingBox();
+                    const bounds = hitMesh.geometry.boundingBox;
+                    const spanX = (bounds.max.x - bounds.min.x) * hitMesh.scale.x;
+                    const spanY = (bounds.max.y - bounds.min.y) * hitMesh.scale.y;
+                    const spanZ = (bounds.max.z - bounds.min.z) * hitMesh.scale.z;
+
+                    // Architectural verification template matches only tall vertical room wall dividers
+                    const matchesWallArchetype = (
+                        (spanX < 0.8 && spanY > 1.2 && spanZ > 1.2) || 
+                        (spanZ < 0.8 && spanY > 1.2 && spanX > 1.2)
+                    );
+
+                    if (matchesWallArchetype) {
+                        closestWall = hitMesh;
+                        break; 
+                    }
+                }
+            }
+
+            // Pass 2: Bounding Box Proximity Fallback. If the sightline doesn't directly pierce a wall, find the wall with the closest exterior face boundary.
+            if (!closestWall) {
+                let minSurfaceDistance = Infinity;
+                let cameraWorldPosition = new THREE.Vector3();
+                camera.getWorldPosition(cameraWorldPosition);
+
+                worldGroup.traverse((child) => {
+                    if (child.isMesh && child.material && child.geometry) {
+                        if (!child.geometry.boundingBox) child.geometry.computeBoundingBox();
+                        const bounds = child.geometry.boundingBox;
+                        const spanX = (bounds.max.x - bounds.min.x) * child.scale.x;
+                        const spanY = (bounds.max.y - bounds.min.y) * child.scale.y;
+                        const spanZ = (bounds.max.z - bounds.min.z) * child.scale.z;
+
+                        const matchesWallArchetype = (
+                            (spanX < 0.8 && spanY > 1.2 && spanZ > 1.2) || 
+                            (spanZ < 0.8 && spanY > 1.2 && spanX > 1.2)
+                        );
+
+                        if (matchesWallArchetype) {
+                            const worldBoundingBox = new THREE.Box3().setFromObject(child);
+                            // Measures distance from the camera to the nearest outer face perimeter of the wall mesh
+                            let faceDistance = worldBoundingBox.distanceToPoint(cameraWorldPosition);
+
+                            if (faceDistance < minSurfaceDistance) {
+                                minSurfaceDistance = faceDistance;
+                                closestWall = child;
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Commit opacity alpha scaling factors seamlessly across full target wall layer structures
             if (closestWall) {
                 if (Array.isArray(closestWall.material)) {
                     closestWall.userData.originalOpacity = closestWall.material.map(m => m.opacity);
@@ -1421,13 +1457,12 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            // INFINITE SECURE TRACKING GRID ENGINE: Snaps the horizontal space container along modular cell boundaries
             if (gridHelper && gridHelper.visible) {
                 gridHelper.position.x = Math.round(camera.position.x);
                 gridHelper.position.z = Math.round(camera.position.z);
             }
             
-            // Run reclusion wall evaluation prior to render frames execution loop pass
+            // Execute the updated occlusion transparency calculations
             updateWallTransparency();
             
             document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
