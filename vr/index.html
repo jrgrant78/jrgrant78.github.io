@@ -553,7 +553,6 @@
 
             scene.add(worldGroup);
 
-            // POINTER INTERACTION WORKSPACE LISTENERS
             canvas.addEventListener('pointerdown', handleScenePointerDownActivation, { passive: false });
             window.addEventListener('pointermove', handleScenePointerDragSequence, { passive: false });
             window.addEventListener('pointerup', handleScenePointerUpRelease);
@@ -582,7 +581,6 @@
             animate();
         }
 
-        // DYNAMIC SPATIAL MANIPULATION EVENT HANDLERS
         function handleScenePointerDownActivation(e) {
             pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
             pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -673,40 +671,84 @@
             }
         }
 
-        // AUTOMATED OUTMOST OCCLUSION PIPELINE: Evaluates camera rays to make front-facing outer surfaces transparent
-        function evaluateOuterWallTransparency() {
-            // Restore material defaults before checking new raycast paths
+        // SPATIAL EXTREMITY MEASUREMENT COMPONENT: Dynamically computes macro boundaries and fades outermost wall closest to view
+        function updateWallTransparencyOcclusion() {
+            if (worldGroup.children.length === 0) return;
+
+            // 1. Reset scene material trees back to baseline caches to avoid cumulative value drift
             worldGroup.traverse((child) => {
-                if (child.isMesh && child.material && child.userData.originalOpacity !== undefined) {
-                    // Skip reset if the item is actively flashing cyan during structural translation modes
-                    if (!isDraggingSceneActive) {
-                        child.material.transparent = child.userData.originalTransparent;
-                        child.material.opacity = child.userData.originalOpacity;
-                        child.material.transmission = child.userData.originalTransmission;
+                if (child.isMesh && child.material) {
+                    if (child.userData.originalOpacity === undefined) {
+                        child.userData.originalOpacity = child.material.opacity !== undefined ? child.material.opacity : 1.0;
+                        child.userData.originalTransparent = child.material.transparent;
+                    }
+                    child.material.opacity = child.userData.originalOpacity;
+                    child.material.transparent = child.userData.originalTransparent;
+                }
+            });
+
+            // 2. Measure the exact world-space bounding box extents of the generated structure array
+            let masterBoundingBox = new THREE.Box3().setFromObject(worldGroup);
+            
+            let minExtentX = masterBoundingBox.min.x;
+            let maxExtentX = masterBoundingBox.max.x;
+            let minExtentZ = masterBoundingBox.min.z;
+            let maxExtentZ = masterBoundingBox.max.z;
+
+            // 3. Measure line-of-sight delta distances from camera coordinates register to each of the 4 horizontal extremities
+            let deltaMinX = Math.abs(camera.position.x - minExtentX);
+            let deltaMaxX = Math.abs(camera.position.x - maxExtentX);
+            let deltaMinZ = Math.abs(camera.position.z - minExtentZ);
+            let deltaMaxZ = Math.abs(camera.position.z - maxExtentZ);
+
+            let closestPlaneDistance = Math.min(deltaMinX, deltaMaxX, deltaMinZ, deltaMaxZ);
+            let closestExtremityFace = '';
+            
+            if (closestPlaneDistance === deltaMinX) closestExtremityFace = 'minX';
+            else if (closestPlaneDistance === deltaMaxX) closestExtremityFace = 'maxX';
+            else if (closestPlaneDistance === deltaMinZ) closestExtremityFace = 'minZ';
+            else if (closestPlaneDistance === deltaMaxZ) closestExtremityFace = 'maxZ';
+
+            // 4. Collect structural wall candidate elements intersecting that extreme quadrant face boundary
+            let wallCandidates = [];
+            let boundaryTolerancePadding = 1.0; 
+
+            worldGroup.traverse((child) => {
+                if (child.isMesh && child.material) {
+                    let primitiveBox = new THREE.Box3().setFromObject(child);
+                    let isIntersectingFaceEdge = false;
+
+                    if (closestExtremityFace === 'minX' && Math.abs(primitiveBox.min.x - minExtentX) < boundaryTolerancePadding) isIntersectingFaceEdge = true;
+                    if (closestExtremityFace === 'maxX' && Math.abs(primitiveBox.max.x - maxExtentX) < boundaryTolerancePadding) isIntersectingFaceEdge = true;
+                    if (closestExtremityFace === 'minZ' && Math.abs(primitiveBox.min.z - minExtentZ) < boundaryTolerancePadding) isIntersectingFaceEdge = true;
+                    if (closestExtremityFace === 'maxZ' && Math.abs(primitiveBox.max.z - maxExtentZ) < boundaryTolerancePadding) isIntersectingFaceEdge = true;
+
+                    if (isIntersectingFaceEdge) {
+                        wallCandidates.push(child);
                     }
                 }
             });
 
-            if (worldGroup.children.length === 0 || isDraggingSceneActive) return;
+            // 5. Select the absolute closest outermost element to the camera path on that extreme face and apply the alpha override
+            if (wallCandidates.length > 0) {
+                let targetWallMesh = null;
+                let minimumObservedDistance = Infinity;
+                let calculatedWorldVector = new THREE.Vector3();
 
-            // Calculate the structure center point vectors
-            let structureBoundingBox = new THREE.Box3().setFromObject(worldGroup);
-            let structureCenterVector = new THREE.Vector3();
-            structureBoundingBox.getCenter(structureCenterVector);
+                wallCandidates.forEach(meshNode => {
+                    meshMeshNode = meshNode;
+                    meshMeshNode.getWorldPosition(calculatedWorldVector);
+                    let visualDistanceToCamera = camera.position.distanceTo(calculatedWorldVector);
+                    
+                    if (visualDistanceToCamera < minimumObservedDistance) {
+                        minimumObservedDistance = visualDistanceToCamera;
+                        targetWallMesh = meshMeshNode;
+                    }
+                });
 
-            // Cast an interior ray directly from the camera optics coordinate origin toward the structure's core mass center
-            let wallFinderRaycaster = new THREE.Raycaster();
-            let rawRayDirection = new THREE.Vector3().copy(structureCenterVector).sub(camera.position).normalize();
-            wallFinderRaycaster.set(camera.position, rawRayDirection);
-
-            let perimeterIntersects = wallFinderRaycaster.intersectObjects(worldGroup.children, true);
-            if (perimeterIntersects.length > 0) {
-                // The first intersected surface represents the closest outer boundary plane facing the lens path
-                let closestObstructingWall = perimeterIntersects[0].object;
-                if (closestObstructingWall.material && closestObstructingWall.userData.originalOpacity !== undefined) {
-                    closestObstructingWall.material.transparent = true;
-                    closestObstructingWall.material.opacity = 0.35; 
-                    closestObstructingWall.material.transmission = 0.0; 
+                if (targetWallMesh) {
+                    targetWallMesh.material.transparent = true;
+                    targetWallMesh.material.opacity = 0.5; // Locked alpha parameters configuration setting
                 }
             }
         }
@@ -1181,12 +1223,6 @@
                 
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
-
-                // Cache original material transparency vectors so the outpainter engine can restore them cleanly
-                mesh.userData.originalTransparent = mat.transparent;
-                mesh.userData.originalOpacity = mat.opacity;
-                mesh.userData.originalTransmission = mat.transmission;
-
                 worldGroup.add(mesh);
             });
 
@@ -1398,15 +1434,14 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            // INFINITE SECURE TRACKING GRID ENGINE: Snaps the horizontal space container along modular cell boundaries
             if (gridHelper && gridHelper.visible) {
                 gridHelper.position.x = Math.round(camera.position.x);
                 gridHelper.position.z = Math.round(camera.position.z);
             }
             
-            // Trigger outpainting visual ray calculations right before rendering each step frame
-            evaluateOuterWallTransparency();
-
+            // Invoke the boundary fade calculations dynamically before sending to the active render target context
+            updateWallTransparencyOcclusion();
+            
             document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
