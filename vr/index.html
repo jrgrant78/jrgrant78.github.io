@@ -306,15 +306,11 @@
 
         let telemetryState = { x: 0, y: 0, z: 15 };
 
-        // PURE PROCEDURAL ENDLESS MAP CHUNK ENGINE VARIABLES
-        let proceduralInfiniteEngineActive = false;
-        let globalProceduralGroup = new THREE.Group();
-        const activeChunksMap = new Map();
-        
-        let chunkTileSize = 16;
-        let proceduralCeilingHeight = 4.5;
-        let inheritedWallMaterial, inheritedFloorMaterial;
-        let chunkGenerationRadius = 4; // Tracks rendering distance boundaries around player coordinates
+        // EXTENSION CONTAINER COMPONENTS: Tracks modular procedural structural states across infinite bounds
+        const infiniteGroup = new THREE.Group();
+        let infiniteGenActive = false;
+        let proceduralChunkRegistry = new Set();
+        let chunkConfig = { sizeX: 12, chunkSizeZ: 12, heightY: 3.5, color: '#00e5ff', thickness: 0.15 };
 
         const OPEN_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
@@ -549,7 +545,7 @@
             scene.add(fillLight);
 
             scene.add(worldGroup);
-            scene.add(globalProceduralGroup); // Infinite grid cells holder
+            scene.add(infiniteGroup); // Procedural group injection point
 
             window.addEventListener('resize', onWindowResize);
             document.getElementById('scanBtn').addEventListener('click', captureAndScanFrame);
@@ -955,8 +951,8 @@
                     rawCachedShapesArray = unifiedShapes;
                     renderAIBlueprint(unifiedShapes);
                     
-                    // PURE PROCEDURAL TRIGGER: Deploy infinite structural expansion matrix based on core properties
-                    initProceduralInfiniteEngine(unifiedShapes);
+                    // TARGET INTEGRATION ANCHOR: Fires off procedural code only after AI pipeline finishes
+                    startInfiniteExtensionEngine();
                 } else {
                     descDiv.innerHTML += "<br><span style='color:#ffea00;'>Warning: Pipeline completed, but the total accumulated shape array contains 0 elements.</span>";
                 }
@@ -968,141 +964,116 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
-        // PURE PROCEDURAL ENDLESS SCAGFIOLDING LAYER COMPILATION ENGINE
-        function initProceduralInfiniteEngine(shapesArray) {
-            // Clean up previous chunk allocations
-            activeChunksMap.forEach(chunk => globalProceduralGroup.remove(chunk.meshGroup));
-            activeChunksMap.clear();
-
-            // Establish physical measurements using initial AI scene bounding parameters
-            const tempBox = new THREE.Box3().setFromObject(worldGroup);
-            proceduralCeilingHeight = Math.max(tempBox.max.y - tempBox.min.y, 4.0);
+        // PROCEDURAL BLUEPRINT HARVESTER: Dynamically samples the core AI dimensions to feed procedural bounds perfectly
+        function startInfiniteExtensionEngine() {
+            if (worldGroup.children.length === 0) return;
             
-            // Sample materials for look-and-feel alignment
-            let sampleColor = "#222230";
-            let sampleRough = 0.5;
-            let sampleMetal = 0.1;
+            const bounds = new THREE.Box3().setFromObject(worldGroup);
+            const size = new THREE.Vector3();
+            bounds.getSize(size);
             
-            // Look for a dominant material profile in foundation or core primitives
-            if(shapesArray.length > 0) {
-                const primeNode = shapesArray[0];
-                if(primeNode.c) sampleColor = primeNode.c;
-                if(primeNode.rough !== undefined) sampleRough = primeNode.rough;
-                if(primeNode.metal !== undefined) sampleMetal = primeNode.metal;
+            // Normalize sizing parameters to maintain seamless connection scales
+            chunkConfig.sizeX = Math.max(Math.round(size.x), 8);
+            chunkConfig.chunkSizeZ = Math.max(Math.round(size.z), 8);
+            chunkConfig.heightY = Math.max(size.y, 3.0);
+            
+            // Sample accent hue color if matching elements exist
+            if (rawCachedShapesArray && rawCachedShapesArray[0]) {
+                chunkConfig.color = rawCachedShapesArray[0].c || '#00e5ff';
             }
-
-            inheritedWallMaterial = new THREE.MeshPhysicalMaterial({
-                color: new THREE.Color(sampleColor),
-                roughness: THREE.MathUtils.clamp(sampleRough, 0, 1),
-                metalness: THREE.MathUtils.clamp(sampleMetal, 0, 1),
-                clearcoat: sampleMetal > 0.4 ? 0.4 : 0.0,
-                side: THREE.FrontSide
-            });
-
-            inheritedFloorMaterial = new THREE.MeshPhysicalMaterial({
-                color: new THREE.Color(sampleColor).multiplyScalar(0.5), // Darker flooring tone for realism
-                roughness: Math.min(sampleRough * 1.2, 1.0),
-                metalness: sampleMetal * 0.5,
-                side: THREE.FrontSide
-            });
-
-            proceduralInfiniteEngineActive = true;
-            updateProceduralChunks(camera.position.x, camera.position.z);
+            
+            proceduralChunkRegistry.clear();
+            infiniteGenActive = true;
+            
+            // Generate immediate base layout buffer array around core origin (0,0)
+            triggerInfiniteChunkCheck(camera.position.x, camera.position.z);
         }
 
-        // Deterministic Pseudo-Random Vector Coordinator
-        function pseudoRandomGridHash(i, k) {
-            const val = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453123;
-            return val - Math.floor(val);
-        }
-
-        function buildDeterministicGridCell(i, k) {
-            const cellGroup = new THREE.Group();
-            const hs = chunkTileSize;
-            const h = proceduralCeilingHeight;
-
-            // Generate Floor Plane segment
-            const floorGeo = new THREE.BoxGeometry(hs, 0.1, hs);
-            const floorMesh = new THREE.Mesh(floorGeo, inheritedFloorMaterial);
-            floorMesh.position.set(0, -0.05, 0);
-            floorMesh.receiveShadow = true;
-            cellGroup.add(floorMesh);
-
-            // Generate Ceiling Plane segment
-            const ceilingGeo = new THREE.BoxGeometry(hs, 0.1, hs);
-            const ceilingMesh = new THREE.Mesh(ceilingGeo, inheritedFloorMaterial);
-            ceilingMesh.position.set(0, h + 0.05, 0);
-            ceilingMesh.receiveShadow = true;
-            cellGroup.add(ceilingMesh);
-
-            // Compute walls deterministically based on grid coordinate hashes
-            const hashValue = pseudoRandomGridHash(i, k);
-            const wallThickness = 0.25;
-
-            // Strict Room-Off Partitioning Logic
-            // Guardrail Clause: Never build procedural walls on the core center (0,0) index structure slot
-            if (i !== 0 || k !== 0) {
-                // North Edge wall logic
-                if (hashValue < 0.42) {
-                    const northWallGeo = new THREE.BoxGeometry(hs, h, wallThickness);
-                    const northWall = new THREE.Mesh(northWallGeo, inheritedWallMaterial);
-                    northWall.position.set(0, h / 2, -hs / 2);
-                    northWall.castShadow = true;
-                    northWall.receiveShadow = true;
-                    cellGroup.add(northWall);
-                }
-                // East Edge wall logic
-                if (hashValue > 0.58) {
-                    const eastWallGeo = new THREE.BoxGeometry(wallThickness, h, hs);
-                    const eastWall = new THREE.Mesh(eastWallGeo, inheritedWallMaterial);
-                    eastWall.position.set(hs / 2, h / 2, 0);
-                    eastWall.castShadow = true;
-                    eastWall.receiveShadow = true;
-                    cellGroup.add(eastWall);
-                }
-            }
-
-            // Lock world coordinates transformation positions flush into space grid layout maps
-            cellGroup.position.set(i * hs, 0, k * hs);
-            globalProceduralGroup.add(cellGroup);
-
-            return { meshGroup: cellGroup };
-        }
-
-        function updateProceduralChunks(camX, camZ) {
-            if (!proceduralInfiniteEngineActive) return;
-
-            const currentChunkX = Math.round(camX / chunkTileSize);
-            const currentChunkZ = Math.round(camZ / chunkTileSize);
-            const localVisibleKeysList = new Set();
-
-            // Run rendering matrix loops along both dimensions endlessly
-            for (let xOffset = -chunkGenerationRadius; xOffset <= chunkGenerationRadius; xOffset++) {
-                for (let zOffset = -chunkGenerationRadius; zOffset <= chunkGenerationRadius; zOffset++) {
-                    const targetI = currentChunkX + xOffset;
-                    const targetK = currentChunkZ + zOffset;
-                    const mapCoordinateKeyStr = `${targetI},${targetK}`;
+        // REAL-TIME PROCEDURAL GRID MATRIX CHECKER: Monitors camera paths across mathematical infinity
+        function triggerInfiniteChunkCheck(camX, camZ) {
+            const currentIdxX = Math.round(camX / chunkConfig.sizeX);
+            const currentIdxZ = Math.round(camZ / chunkConfig.chunkSizeZ);
+            
+            const loadRadius = 2; // Spawns an endless perimeter grid window
+            for (let dx = -loadRadius; dx <= loadRadius; dx++) {
+                for (let dz = -loadRadius; dz <= loadRadius; dz++) {
+                    const targetIdxX = currentIdxX + dx;
+                    const targetIdxZ = currentIdxZ + dz;
                     
-                    localVisibleKeysList.add(mapCoordinateKeyStr);
-
-                    if (!activeChunksMap.has(mapCoordinateKeyStr)) {
-                        const compiledTileCell = buildDeterministicGridCell(targetI, targetK);
-                        activeChunksMap.set(mapCoordinateKeyStr, compiledTileCell);
+                    // Skip origin (0,0) chunk since it contains your focal AI geometry object
+                    if (targetIdxX === 0 && targetIdxZ === 0) continue;
+                    
+                    const chunkLookupHash = `${targetIdxX}_${targetIdxZ}`;
+                    if (!proceduralChunkRegistry.has(chunkLookupHash)) {
+                        generateProceduralArchitectureChunk(targetIdxX, targetIdxZ);
+                        proceduralChunkRegistry.add(chunkLookupHash);
                     }
                 }
             }
+        }
 
-            // Prune off-screen procedural memory spaces to stabilize mobile device memory allocations
-            activeChunksMap.forEach((chunk, keyStr) => {
-                if (!localVisibleKeysList.has(keyStr)) {
-                    globalProceduralGroup.remove(chunk.meshGroup);
-                    // Dispose geometry/materials to clean up WebGL pipeline footprints safely
-                    chunk.meshGroup.traverse(child => {
-                        if (child.geometry) child.geometry.dispose();
-                    });
-                    activeChunksMap.delete(keyStr);
-                }
+        // NON-RANDOM ARCHITECTURAL SCULPTOR: Spawns connected rooms with matched transparency limits
+        function generateProceduralArchitectureChunk(cx, cz) {
+            const posX = cx * chunkConfig.sizeX;
+            const posZ = cz * chunkConfig.chunkSizeZ;
+            const t = chunkConfig.thickness;
+            const h = chunkConfig.heightY;
+            const w = chunkConfig.sizeX;
+            const d = chunkConfig.chunkSizeZ;
+
+            // Cohesive material parameters: High fidelity holographic semi-transparency mandates
+            const glassMaterial = new THREE.MeshStandardMaterial({
+                color: new THREE.Color(chunkConfig.color),
+                transparent: true,
+                opacity: 0.22,
+                roughness: 0.2,
+                metalness: 0.1,
+                side: THREE.DoubleSide,
+                depthWrite: false
             });
+
+            const chunkWrapper = new THREE.Group();
+            chunkWrapper.position.set(posX, 0, posZ);
+
+            // Endless Floors and Ceilings
+            const floorGeo = new THREE.BoxGeometry(w, t, d);
+            const floorMesh = new THREE.Mesh(floorGeo, glassMaterial);
+            floorMesh.position.y = -t/2;
+            chunkWrapper.add(floorMesh);
+
+            const ceilMesh = floorMesh.clone();
+            ceilMesh.position.y = h + t/2;
+            chunkWrapper.add(ceilMesh);
+
+            // Connected Wall Segments Layer Loop (Leaves clear doorway openings to room partitions perfectly)
+            const wallSegmentHalfWidth = (w - 3) / 4; 
+            const sideSegmentHalfDepth = (d - 3) / 4;
+
+            // Helper macro to generate doorway segments safely
+            function appendDoorwayWallSegment(x, z, sX, sZ) {
+                const wallPartGeo = new THREE.BoxGeometry(sX, h, sZ);
+                const wallPartMesh = new THREE.Mesh(wallPartGeo, glassMaterial);
+                wallPartMesh.position.set(x, h/2, z);
+                chunkWrapper.add(wallPartMesh);
+            }
+
+            // North Grid Perimeter Wall
+            appendDoorwayWallSegment(-w/2 + wallSegmentHalfWidth, -d/2, wallSegmentHalfWidth * 2, t);
+            appendDoorwayWallSegment(w/2 - wallSegmentHalfWidth, -d/2, wallSegmentHalfWidth * 2, t);
+
+            // South Grid Perimeter Wall
+            appendDoorwayWallSegment(-w/2 + wallSegmentHalfWidth, d/2, wallSegmentHalfWidth * 2, t);
+            appendDoorwayWallSegment(w/2 - wallSegmentHalfWidth, d/2, wallSegmentHalfWidth * 2, t);
+
+            // West Grid Perimeter Wall
+            appendDoorwayWallSegment(-w/2, -d/2 + sideSegmentHalfDepth, t, sideSegmentHalfDepth * 2);
+            appendDoorwayWallSegment(-w/2, d/2 - sideSegmentHalfDepth, t, sideSegmentHalfDepth * 2);
+
+            // East Grid Perimeter Wall
+            appendDoorwayWallSegment(w/2, -d/2 + sideSegmentHalfDepth, t, sideSegmentHalfDepth * 2);
+            appendDoorwayWallSegment(w/2, d/2 - sideSegmentHalfDepth, t, sideSegmentHalfDepth * 2);
+
+            infiniteGroup.add(chunkWrapper);
         }
 
         function renderAIBlueprint(shapesArray) {
@@ -1283,10 +1254,17 @@
                 worldGroup.remove(c);
             }
             
-            // Clean up old infinite map instances cleanly
-            proceduralInfiniteEngineActive = false;
-            activeChunksMap.forEach(chunk => globalProceduralGroup.remove(chunk.meshGroup));
-            activeChunksMap.clear();
+            // Extended Clear Loop: Safely flushes the procedural infinity structures down out of memory
+            while(infiniteGroup.children.length > 0) {
+                let c = infiniteGroup.children[0];
+                c.traverse(node => {
+                    if (node.geometry) node.geometry.dispose();
+                    if (node.material) node.material.dispose();
+                });
+                infiniteGroup.remove(c);
+            }
+            proceduralChunkRegistry.clear();
+            infiniteGenActive = false;
 
             deactivateTrackingSensors();
             lockedGyroRoll = 0; 
@@ -1390,9 +1368,9 @@
                 }
             }
 
-            // RUN TIME UPDATE CHUNK MAP ENGINE CALL
-            if (proceduralInfiniteEngineActive) {
-                updateProceduralChunks(camera.position.x, camera.position.z);
+            // Continuous Tracker Hooks: Keeps adding virtual structure maps down the layout line dynamically
+            if (infiniteGenActive) {
+                triggerInfiniteChunkCheck(camera.position.x, camera.position.z);
             }
 
             if (controls && controls.enabled) {
@@ -1406,7 +1384,7 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Total Nodes: ${worldGroup.children.length + globalProceduralGroup.children.length * 3}`;
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length + infiniteGroup.children.length}`;
             
             renderer.render(scene, camera);
             
