@@ -189,7 +189,7 @@
                 <!-- Row 1: Title -->
                 <div class="title-row">Spatial Sculptor AR</div>
                 
-                <!-- Row 2: Always-Visible Utility Icons -->
+                <!-- Row 2: Always-Visible Utility Icons (Active states corrected) -->
                 <div class="icon-row">
                     <button id="uiToggleBtn" title="Toggle UI Controls">
                         <svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -271,7 +271,7 @@
     <canvas id="canvas3d"></canvas>
 
     <script>
-        let scene, camera, renderer, controls, gridHelper;
+        let scene, camera, renderer, controls, gridHelper, proceduralGroup;
         let videoElement, localStream;
         
         let gyroActive = false;
@@ -306,12 +306,13 @@
 
         let telemetryState = { x: 0, y: 0, z: 15 };
 
-        // GLOBAL PROCEDURAL EXPANSION PARAMETERS: Manages the continuous generation lifecycle across tracking bounds
-        let aiBaseShapes = [];
-        let generatedChunksMap = new Set();
-        const expansionGroup = new THREE.Group();
-        let expandedChunkSizeX = 20, expandedChunkSizeZ = 20;
-        let expandedMinY = 0, expandedMaxY = 5;
+        // Infinite Procedural Scaffolder Variables
+        let proceduralGenerationActive = false;
+        const generatedChunks = new Set();
+        let floorYLevels = [];
+        let ceilingYLevels = [];
+        let structuralPalette = [];
+        let baseChunkSize = 30;
 
         const OPEN_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
@@ -490,24 +491,15 @@
             
             const availableWidth = window.innerWidth - 20 - 24 - 108 - 12;
             
-            let targetWidth = 73; 
+            let targetWidth = 73; // 9:16 aspect ratio base (130 * 9 / 16)
             if (availableWidth >= 231) {
-                targetWidth = 231; 
+                targetWidth = 231; // 16:9 widescreen mapping (130 * 16 / 9)
             } else if (availableWidth >= 130) {
-                targetWidth = 130; 
+                targetWidth = 130; // 1:1 perfect square aspect
             }
             
             cameraWin.style.width = targetWidth + 'px';
             cameraWin.style.flexGrow = '0';
-        }
-
-        // STRUCTURAL TRANSLUCENCY CLASSIFIER: Safely determines if a primitive fits architectural boundaries
-        function checkIsStructural(primitiveType, scl, pos) {
-            const type = String(primitiveType).toLowerCase().trim();
-            const isFloor = (pos[1] < 0.8 || type === 'plane');
-            const isCeiling = (pos[1] > 3.0 && scl[1] < 0.3);
-            const isWall = (type === 'plane' || scl[0] < 0.3 || scl[2] < 0.3);
-            return isFloor || isCeiling || isWall;
         }
 
         function init3D() {
@@ -536,10 +528,10 @@
             
             motionTracker = new MultiPointMotionTracker();
 
-            // FIXED: Reset layout to standard grid scale coordinates and default visibility state to off
-            gridHelper = new THREE.GridHelper(100, 100, 0x44445c, 0x222233);
+            // FIXED: Resetting the grid to standard desktop/mobile scale bounds, defaulting to hidden
+            gridHelper = new THREE.GridHelper(100, 100, 0x444455, 0x222233);
             gridHelper.position.y = -0.005; 
-            gridHelper.visible = false; 
+            gridHelper.visible = false;
             scene.add(gridHelper);
 
             scene.add(new THREE.AmbientLight(0xffffff, 0.35));
@@ -557,7 +549,9 @@
             scene.add(fillLight);
 
             scene.add(worldGroup);
-            scene.add(expansionGroup);
+
+            proceduralGroup = new THREE.Group();
+            scene.add(proceduralGroup);
 
             window.addEventListener('resize', onWindowResize);
             document.getElementById('scanBtn').addEventListener('click', captureAndScanFrame);
@@ -962,6 +956,9 @@
                 if (unifiedShapes.length > 0) {
                     rawCachedShapesArray = unifiedShapes;
                     renderAIBlueprint(unifiedShapes);
+                    
+                    // TARGET INTEGRATION: Initiate non-AI mathematical tracking array expansion loops safely
+                    initializeProceduralExpansion(unifiedShapes);
                 } else {
                     descDiv.innerHTML += "<br><span style='color:#ffea00;'>Warning: Pipeline completed, but the total accumulated shape array contains 0 elements.</span>";
                 }
@@ -973,17 +970,134 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
-        function renderAIBlueprint(shapesArray) {
-            // Seed archetypes allocation cache for procedural geometric expansion trackers
-            aiBaseShapes = JSON.parse(JSON.stringify(shapesArray));
-            generatedChunksMap.clear();
-            while(expansionGroup.children.length > 0) {
-                const child = expansionGroup.children[0];
+        // DETERMINISTIC PROCEDURAL MATRICES IMPLEMENTATION: Seeds math constants directly from the baseline AI run
+        function initializeProceduralExpansion(shapesArray) {
+            if (!shapesArray || shapesArray.length === 0) return;
+            
+            while(proceduralGroup.children.length > 0) {
+                let child = proceduralGroup.children[0];
                 if(child.geometry) child.geometry.dispose();
                 if(child.material) child.material.dispose();
-                expansionGroup.remove(child);
+                proceduralGroup.remove(child);
             }
+            
+            generatedChunks.clear();
+            generatedChunks.add("0,0"); // Base target zero chunk maps to the central AI footprint
+            
+            const box = new THREE.Box3().setFromObject(worldGroup);
+            const size = new THREE.Vector3();
+            box.getSize(size);
+            
+            baseChunkSize = Math.max(size.x, size.z, 35);
+            
+            floorYLevels = [box.min.y + worldGroup.position.y]; 
+            ceilingYLevels = [box.max.y + worldGroup.position.y];
+            
+            structuralPalette = shapesArray.filter(s => s && s.c);
+            proceduralGenerationActive = true;
+        }
 
+        function checkAndExpandChunks(camX, camZ) {
+            let currentChunkX = Math.round(camX / baseChunkSize);
+            let currentChunkZ = Math.round(camZ / baseChunkSize);
+            
+            // Build a secure 2-chunk boundary radius dynamically along all dimensions infinitely
+            for (let dx = -2; dx <= 2; dx++) {
+                for (let dz = -2; dz <= 2; dz++) {
+                    let cx = currentChunkX + dx;
+                    let cz = currentChunkZ + dz;
+                    let chunkKey = cx + "," + cz;
+                    if (!generatedChunks.has(chunkKey)) {
+                        generatedChunks.add(chunkKey);
+                        buildProceduralChunk(cx, cz);
+                    }
+                }
+            }
+        }
+
+        function sinSeed(x, z, seed) {
+            return Math.sin(x * 12.9898 + z * 4.1414 + seed * 97.351);
+        }
+
+        function buildProceduralChunk(cx, cz) {
+            let centerX = cx * baseChunkSize;
+            let centerZ = cz * baseChunkSize;
+            
+            // Endless Ground Planar Extensions
+            floorYLevels.forEach(fy => {
+                let floorGeo = new THREE.BoxGeometry(baseChunkSize, 0.05, baseChunkSize);
+                let floorMat = new THREE.MeshPhysicalMaterial({ color: 0x111116, roughness: 0.8, metalness: 0.1 });
+                if (structuralPalette.length > 0) {
+                    let idx = Math.floor(Math.abs(sinSeed(cx, cz, 99)) * structuralPalette.length);
+                    floorMat.color.set(structuralPalette[idx].c || "#111116");
+                }
+                let floorMesh = new THREE.Mesh(floorGeo, floorMat);
+                floorMesh.position.set(centerX, fy, centerZ);
+                floorMesh.receiveShadow = true;
+                proceduralGroup.add(floorMesh);
+            });
+            
+            // Endless Ceiling Planar Extensions
+            ceilingYLevels.forEach(cy => {
+                let ceilGeo = new THREE.BoxGeometry(baseChunkSize, 0.05, baseChunkSize);
+                let ceilMat = new THREE.MeshPhysicalMaterial({ color: 0x16161c, roughness: 0.7, metalness: 0.1 });
+                if (structuralPalette.length > 0) {
+                    let idx = Math.floor(Math.abs(sinSeed(cx, cz, 88)) * structuralPalette.length);
+                    ceilMat.color.set(structuralPalette[idx].c || "#16161c");
+                }
+                let ceilMesh = new THREE.Mesh(ceilGeo, ceilMat);
+                ceilMesh.position.set(centerX, cy, centerZ);
+                ceilMesh.castShadow = true;
+                proceduralGroup.add(ceilMesh);
+            });
+            
+            // Scattering Balanced Geometric Primitives
+            if (structuralPalette.length > 0) {
+                let count = 3 + Math.floor(Math.abs(sinSeed(cx, cz, 77)) * 6);
+                let fY = floorYLevels[0];
+                let cY = ceilingYLevels[0];
+                let hMax = cY - fY;
+                
+                for (let i = 0; i < count; i++) {
+                    let sample = structuralPalette[Math.floor(Math.abs(sinSeed(cx, cz, i * 13)) * structuralPalette.length)];
+                    let s = sample.s || [1, 1, 1];
+                    let primitiveType = sample.t ? String(sample.t).toLowerCase().trim() : 'box';
+                    
+                    let geo;
+                    switch(primitiveType) {
+                        case 'box': geo = new THREE.BoxGeometry(1, 1, 1); break;
+                        case 'sphere': geo = new THREE.SphereGeometry(0.5, 16, 16); break;
+                        case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 16); break;
+                        case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 16); break;
+                        default: geo = new THREE.BoxGeometry(1, 1, 1);
+                    }
+                    
+                    let mat = new THREE.MeshPhysicalMaterial({
+                        color: new THREE.Color(sample.c || "#ffffff"),
+                        roughness: sample.rough !== undefined ? sample.rough : 0.4,
+                        metalness: sample.metal !== undefined ? sample.metal : 0.0,
+                        transmission: sample.trans !== undefined ? sample.trans : 0.0,
+                        transparent: sample.trans > 0.05
+                    });
+                    
+                    let mesh = new THREE.Mesh(geo, mat);
+                    
+                    let offX = sinSeed(cx, cz, i * 3 + 1) * 0.4 * baseChunkSize;
+                    let offZ = sinSeed(cx, cz, i * 3 + 2) * 0.4 * baseChunkSize;
+                    let posY = fY + (Math.abs(sinSeed(cx, cz, i * 3 + 3)) * hMax);
+                    
+                    mesh.position.set(centerX + offX, posY, centerZ + offZ);
+                    mesh.scale.set(s[0], s[1], s[2]);
+                    mesh.rotation.set(sinSeed(cx, cz, i * 2) * Math.PI, sinSeed(cx, cz, i * 2 + 1) * Math.PI, 0);
+                    
+                    mesh.castShadow = true;
+                    mesh.receiveShadow = true;
+                    proceduralGroup.add(mesh);
+                }
+            }
+        }
+
+        function renderAIBlueprint(shapesArray) {
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
                 if(child.geometry) child.geometry.dispose();
@@ -1037,11 +1151,7 @@
                         geo = new THREE.BoxGeometry(1, 1, 1);
                 }
 
-                // FIXED: Automatically forces any wall, ceiling or floor element to render semi-translucent
-                const isStructuralElement = checkIsStructural(primitiveType, scl, pos);
-                const isTranslucent = shape.trans > 0.05 || isStructuralElement;
-                const evaluatedOpacity = isStructuralElement ? 0.5 : (shape.trans !== undefined ? 1.0 - shape.trans : 1.0);
-
+                const isTranslucent = shape.trans > 0.05;
                 const mat = new THREE.MeshPhysicalMaterial({
                     color: new THREE.Color(shape.c || "#ffffff"),
                     roughness: shape.rough !== undefined ? THREE.MathUtils.clamp(shape.rough, 0, 1) : 0.4,
@@ -1050,7 +1160,6 @@
                     ior: isTranslucent ? 1.52 : 1.0, 
                     thickness: isTranslucent ? 1.0 : 0.0, 
                     transparent: isTranslucent,
-                    opacity: evaluatedOpacity,
                     side: primitiveType === 'plane' ? THREE.DoubleSide : THREE.FrontSide,
                     clearcoat: shape.metal > 0.5 ? 0.3 : 0.0, 
                     clearcoatRoughness: 0.1
@@ -1074,15 +1183,6 @@
                 const center = new THREE.Vector3(); 
                 box.getCenter(center);
                 
-                const size = new THREE.Vector3();
-                box.getSize(size);
-
-                // Set local scale boundary intervals for procedural replication steps
-                expandedChunkSizeX = Math.max(size.x, 16);
-                expandedChunkSizeZ = Math.max(size.z, 16);
-                expandedMinY = box.min.y;
-                expandedMaxY = box.max.y;
-
                 if (controls) {
                     controls.target.copy(center);
                     controls.update();
@@ -1100,96 +1200,7 @@
                     floatingBackdropMesh.visible = backdropOverlayActive;
                     scene.add(floatingBackdropMesh);
                 }
-
-                // Fire initial local infinite expansion routine around current viewport cluster boundary positions
-                checkProceduralExpansion();
             }
-        }
-
-        // INFINITE EXPANSION PROCHEDURAL CONTEXT COMPILER: Extrapolates floors/ceilings endlessly along all directions without AI
-        function checkProceduralExpansion() {
-            if (aiBaseShapes.length === 0) return;
-
-            // Calculate active coordinates mapped inside the spatial boundary chunk dimensions
-            const activeChunkX = Math.floor(camera.position.x / expandedChunkSizeX);
-            const activeChunkZ = Math.floor(camera.position.z / expandedChunkSizeZ);
-            
-            const chunkStreamingRadius = 3; 
-
-            for (let dx = -chunkStreamingRadius; dx <= chunkStreamingRadius; dx++) {
-                for (let dz = -chunkStreamingRadius; dz <= chunkStreamingRadius; dz++) {
-                    const cx = activeChunkX + dx;
-                    const cz = activeChunkZ + dz;
-                    const chunkKey = `${cx}_${cz}`;
-
-                    if (!generatedChunksMap.has(chunkKey)) {
-                        generatedChunksMap.add(chunkKey);
-                        
-                        // Avoid spawning over original world coordinates group block shell
-                        if (cx === 0 && cz === 0) continue;
-
-                        generateProceduralTileChunk(cx, cz);
-                    }
-                }
-            }
-        }
-
-        function generateProceduralTileChunk(cx, cz) {
-            const shiftWorldX = cx * expandedChunkSizeX;
-            const shiftWorldZ = cz * expandedChunkSizeZ;
-
-            aiBaseShapes.forEach((shape, idx) => {
-                if (!shape) return;
-
-                const pos = shape.p || [0,0,0];
-                const scl = shape.s || [1,1,1];
-                const rot = shape.r || [0,0,0];
-                const primitiveType = shape.t ? String(shape.t).toLowerCase().trim() : 'box';
-
-                const isStructuralElement = checkIsStructural(primitiveType, scl, pos);
-
-                // Deterministic math coordinate filtering logic to scatter non-flooring entities naturally
-                if (!isStructuralElement) {
-                    const scalarHash = Math.sin(cx * 12.9898 + cz * 78.233 + idx * 37.719) * 43758.5453;
-                    const evaluationFraction = scalarHash - Math.floor(scalarHash);
-                    if (evaluationFraction > 0.45) return; // Discard percentage allocations to create unique scatter groupings
-                }
-
-                let geo;
-                switch(primitiveType) {
-                    case 'box': geo = new THREE.BoxGeometry(1, 1, 1); break;
-                    case 'roundedbox': geo = createRoundedBoxGeometry(scl[0]||1, scl[1]||1, scl[2]||1, Math.min(scl[0]||1, scl[1]||1, scl[2]||1) * 0.15, 4); break;
-                    case 'sphere': geo = new THREE.SphereGeometry(0.5, 16, 16); break;
-                    case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 16); break;
-                    case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 16); break;
-                    case 'plane': geo = new THREE.PlaneGeometry(1, 1); break;
-                    default: geo = new THREE.BoxGeometry(1, 1, 1);
-                }
-
-                const evaluatedOpacity = isStructuralElement ? 0.5 : (shape.trans !== undefined ? 1.0 - shape.trans : 1.0);
-
-                const mat = new THREE.MeshPhysicalMaterial({
-                    color: new THREE.Color(shape.c || "#ffffff"),
-                    roughness: shape.rough !== undefined ? THREE.MathUtils.clamp(shape.rough, 0, 1) : 0.5,
-                    metalness: shape.metal !== undefined ? THREE.MathUtils.clamp(shape.metal, 0, 1) : 0.0,
-                    transmission: shape.trans !== undefined ? THREE.MathUtils.clamp(shape.trans, 0, 1) : 0.0,
-                    transparent: isStructuralElement || shape.trans > 0.05,
-                    opacity: evaluatedOpacity,
-                    side: primitiveType === 'plane' ? THREE.DoubleSide : THREE.FrontSide
-                });
-
-                const mesh = new THREE.Mesh(geo, mat);
-                mesh.position.set(pos[0] + shiftWorldX, pos[1], pos[2] + shiftWorldZ);
-                mesh.rotation.set(rot[0], rot[1], rot[2]);
-
-                if (primitiveType !== 'roundedbox') {
-                    mesh.scale.set(scl[0], scl[1], scl[2]);
-                }
-
-                mesh.castShadow = true;
-                mesh.receiveShadow = true;
-                expansionGroup.add(mesh);
-            });
         }
 
         function toggleSensorsFunctionality() {
@@ -1257,22 +1268,22 @@
 
         function clearSceneAndResetView() {
             console.clear();
-            aiBaseShapes = [];
-            generatedChunksMap.clear();
-
-            while(expansionGroup.children.length > 0) {
-                let c = expansionGroup.children[0];
-                if(c.geometry) c.geometry.dispose();
-                if(c.material) c.material.dispose();
-                expansionGroup.remove(c);
-            }
-
             while(worldGroup.children.length > 0) {
                 let c = worldGroup.children[0];
                 if(c.geometry) c.geometry.dispose();
                 if(c.material) c.material.dispose();
                 worldGroup.remove(c);
             }
+            // Clear down active infinite procedural geometry fields cleanly
+            proceduralGenerationActive = false;
+            generatedChunks.clear();
+            while(proceduralGroup.children.length > 0) {
+                let c = proceduralGroup.children[0];
+                if(c.geometry) c.geometry.dispose();
+                if(c.material) c.material.dispose();
+                proceduralGroup.remove(c);
+            }
+            
             deactivateTrackingSensors();
             lockedGyroRoll = 0; 
             targetLinearVelocityX = 0;
@@ -1375,11 +1386,6 @@
                 }
             }
 
-            // Continuous background evaluation routine streaming chunks as camera vectors shift along coordinates space
-            if (aiBaseShapes.length > 0) {
-                checkProceduralExpansion();
-            }
-
             if (controls && controls.enabled) {
                 controls.update();
                 if (!gyroActive && lockedGyroRoll !== 0) {
@@ -1391,8 +1397,12 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            const combinedTrackingNodeCount = worldGroup.children.length + expansionGroup.children.length;
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Total Nodes: ${combinedTrackingNodeCount}`;
+            // Endless continuous chunk generation checks triggered smoothly upon movement frames
+            if (proceduralGenerationActive) {
+                checkAndExpandChunks(camera.position.x, camera.position.z);
+            }
+            
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length + proceduralGroup.children.length}`;
             
             renderer.render(scene, camera);
             
