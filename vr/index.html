@@ -170,7 +170,7 @@
             width: 100%;
         }
         #status { color: #ffab00; font-weight: bold; margin-top: 4px; font-size: 0.8em; display: none; }
-        #aiDescription { margin-top: 4px; font-size: 0.75em; color: #aaa; max-height: 150px; overflow-y: auto; background: #15151f; padding: 6px; border-radius: 4px; border: 1px solid #222; white-wrap: pre-wrap; line-height: 1.4; width: 100%; box-sizing: border-box; }
+        #aiDescription { margin-top: 4px; font-size: 0.75em; color: #aaa; max-height: 150px; overflow-y: auto; background: #15151f; padding: 6px; border-radius: 4px; border: 1px solid #222; white-space: pre-wrap; line-height: 1.4; width: 100%; box-sizing: border-box; }
         
         #debugPanel { position: absolute; bottom: 10px; left: 10px; right: 10px; z-index: 10; background: rgba(0,0,0,0.85); padding: 8px; border-radius: 4px; font-family: monospace; font-size: 0.75em; color: #00ffcc; border: 1px solid #222; pointer-events: none; }
         
@@ -673,7 +673,7 @@
             }
         }
 
-        // DYNAMIC OCCLUSION ENGINE: Evaluates structural geometries and minimizes the nearest blocking divider
+        // DYNAMIC OCCLUSION ENGINE: Safely maps transparency across the entirety of multi-material wall layers
         function updateWallTransparency() {
             let closestWall = null;
             let minDistance = Infinity;
@@ -681,18 +681,32 @@
             camera.getWorldPosition(cameraWorldPosition);
 
             worldGroup.traverse((child) => {
-                if (child.isMesh && child.material) {
-                    // Revert previously processed meshes back to their architectural defaults
+                if (child.isMesh && child.material && child.geometry) {
+                    // Revert previously processed meshes back to their architectural defaults across all material indices
                     if (child.userData.originalOpacity !== undefined) {
-                        child.material.opacity = child.userData.originalOpacity;
-                        child.material.transparent = child.userData.originalTransparent;
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach((mat, idx) => {
+                                mat.opacity = child.userData.originalOpacity[idx];
+                                mat.transparent = child.userData.originalTransparent[idx];
+                            });
+                        } else {
+                            child.material.opacity = child.userData.originalOpacity;
+                            child.material.transparent = child.userData.originalTransparent;
+                        }
+                        delete child.userData.originalOpacity;
+                        delete child.userData.originalTransparent;
                     }
 
-                    // Heuristic analyzer: Identifies structural room boundaries/dividers based on scale properties
-                    const s = child.scale;
+                    // Bounding Box Scan: Evaluates dimensions dynamically to capture both scaled box meshes and extruded rounded geometries
+                    if (!child.geometry.boundingBox) child.geometry.computeBoundingBox();
+                    const bbox = child.geometry.boundingBox;
+                    const actualSpanX = (bbox.max.x - bbox.min.x) * child.scale.x;
+                    const actualSpanY = (bbox.max.y - bbox.min.y) * child.scale.y;
+                    const actualSpanZ = (bbox.max.z - bbox.min.z) * child.scale.z;
+
                     const isWallLikeElement = (
-                        (s.x < 0.8 && s.y > 1.2 && s.z > 1.2) || 
-                        (s.z < 0.8 && s.y > 1.2 && s.x > 1.2)
+                        (actualSpanX < 0.8 && actualSpanY > 1.2 && actualSpanZ > 1.2) || 
+                        (actualSpanZ < 0.8 && actualSpanY > 1.2 && actualSpanX > 1.2)
                     );
 
                     if (isWallLikeElement) {
@@ -708,14 +722,21 @@
                 }
             });
 
-            // Lock transmission parameters on the closest partitioning element to make it see-through
+            // Apply semi-transparency cleanly across all faces of the nearest wall mesh group
             if (closestWall) {
-                if (closestWall.userData.originalOpacity === undefined) {
+                if (Array.isArray(closestWall.material)) {
+                    closestWall.userData.originalOpacity = closestWall.material.map(m => m.opacity);
+                    closestWall.userData.originalTransparent = closestWall.material.map(m => m.transparent);
+                    closestWall.material.forEach(m => {
+                        m.transparent = true;
+                        m.opacity = 0.25;
+                    });
+                } else {
                     closestWall.userData.originalOpacity = closestWall.material.opacity;
                     closestWall.userData.originalTransparent = closestWall.material.transparent;
+                    closestWall.material.transparent = true;
+                    closestWall.material.opacity = 0.25;
                 }
-                closestWall.material.transparent = true;
-                closestWall.material.opacity = 0.25;
             }
         }
 
@@ -1197,7 +1218,6 @@
                 const center = new THREE.Vector3(); 
                 box.getCenter(center);
                 
-                // Position lowest structural element directly on top of Y=0 ground plane intersect, centered at world origin (0,0)
                 worldGroup.position.x = -center.x;
                 worldGroup.position.z = -center.z;
                 worldGroup.position.y = -box.min.y; 
@@ -1407,7 +1427,7 @@
                 gridHelper.position.z = Math.round(camera.position.z);
             }
             
-            // RUN DYNAMIC AR RECLUSION MAPPING EVALUATION PRIOR TO RENDER DRAW CALCULATION
+            // Run reclusion wall evaluation prior to render frames execution loop pass
             updateWallTransparency();
             
             document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
