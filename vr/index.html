@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Spatial Sculptor AR</title>
+    <title>Resilient Mobile AR Spatial Sculptor</title>
     <style>
         body { margin: 0; padding: 0; overflow: hidden; font-family: sans-serif; background: #0b0b0f; color: #fff; }
 
@@ -184,7 +184,7 @@
 
     <div id="controls">
         <div class="main-interface">
-            <!-- Unified Left 4-Row Container -->
+            <!-- Unified Left Container -->
             <div id="leftContainer">
                 <!-- Row 1: Title -->
                 <div class="title-row">Spatial Sculptor AR</div>
@@ -210,9 +210,9 @@
                     </button>
                 </div>
                 
-                <!-- Toggleable Panel: Row 3 & Row 4 Fllipped -->
+                <!-- Toggleable Panel: Positions Repositioned Matrix Layers -->
                 <div id="togglePanel">
-                    <!-- Row 3: Sized-Matched Action Buttons -->
+                    <!-- Row 3: Action Buttons (Capture, Gyro, Reset) -->
                     <div class="btn-toolbar" id="toolbarNode">
                         <button id="scanBtn" class="action-btn btn-scan" title="Scan Environment">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -271,7 +271,7 @@
     <canvas id="canvas3d"></canvas>
 
     <script>
-        let scene, camera, renderer, controls, gridHelper;
+        let scene, camera, renderer, controls, gridHelper, massiveFloorPlane;
         let videoElement, localStream;
         
         let gyroActive = false;
@@ -296,22 +296,16 @@
         let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
         const worldGroup = new THREE.Group();
+        const extensionGroup = new THREE.Group();
         let scanInProgress = false;
+        let infiniteLoopActive = false;
+        let activeExclusionBounds = new THREE.Box3();
         
         let dynamicInputSourceMode = 'camera';
         let scannedBackdropDataUrl = null;
         let backdropOverlayActive = false;
         let floatingBackdropMesh = null; 
         let rawCachedShapesArray = null;  
-
-        // Endless Expansion State Parameters
-        let proceduralEngineActive = false;
-        const activeChunksMap = new Map();
-        let foundationColorHex = '#22222a';
-        let proceduralMaterials = [];
-        const exclusionZoneBoundingBox = new THREE.Box3();
-        const CHUNK_CELL_SIZE = 40;
-        const RENDER_RADIUS_CELLS = 3;
 
         let telemetryState = { x: 0, y: 0, z: 15 };
 
@@ -492,11 +486,11 @@
             
             const availableWidth = window.innerWidth - 20 - 24 - 108 - 12;
             
-            let targetWidth = 73; // 9:16 aspect ratio mapping standard base
+            let targetWidth = 73; 
             if (availableWidth >= 231) {
-                targetWidth = 231; // 16:9 widescreen mapping configuration allocation
+                targetWidth = 231; 
             } else if (availableWidth >= 130) {
-                targetWidth = 130; // 1:1 square standard ratio aspect
+                targetWidth = 130; 
             }
             
             cameraWin.style.width = targetWidth + 'px';
@@ -529,10 +523,10 @@
             
             motionTracker = new MultiPointMotionTracker();
 
-            // Resetting grid helper architecture bounds back to normal dimensions, sitting flat on ground plane
+            // FIXED: Standard sizing constraints, locked flat onto the baseline ground plane, defaulting completely to off
             gridHelper = new THREE.GridHelper(200, 50, 0x1f1f2e, 0x111116);
             gridHelper.position.y = 0; 
-            gridHelper.visible = false;
+            gridHelper.visible = false; 
             scene.add(gridHelper);
 
             scene.add(new THREE.AmbientLight(0xffffff, 0.35));
@@ -550,6 +544,7 @@
             scene.add(fillLight);
 
             scene.add(worldGroup);
+            scene.add(extensionGroup);
 
             window.addEventListener('resize', onWindowResize);
             document.getElementById('scanBtn').addEventListener('click', captureAndScanFrame);
@@ -695,11 +690,10 @@
             }
         }
 
-        const delayExecutionTime = ms => new Promise(res => setTimeout(res, ms));
-
         async function captureAndScanFrame() {
             if (scanInProgress) return;
             console.clear();
+            infiniteLoopActive = false;
             
             const descDiv = document.getElementById('aiDescription');
             const statusDiv = document.getElementById('status');
@@ -955,8 +949,8 @@
                     rawCachedShapesArray = unifiedShapes;
                     renderAIBlueprint(unifiedShapes);
                     
-                    // Trigger the infinite procedural content engine based on generated scene bounds
-                    initializeExpansionSystem(unifiedShapes);
+                    // PASS 3 WORKER ACTIVATION TRIGGER: Spin up the dynamic procedural outward infinite builder
+                    await executePass3OutwardExpansion(userEnteredKey, modelCascadeList, parsedPayload, unifiedShapes);
                 } else {
                     descDiv.innerHTML += "<br><span style='color:#ffea00;'>Warning: Pipeline completed, but the total accumulated shape array contains 0 elements.</span>";
                 }
@@ -986,6 +980,7 @@
                 floatingBackdropMesh = null;
             }
 
+            let fallbackColor = "#555566";
             shapesArray.forEach(shape => {
                 if (!shape || typeof shape !== 'object') return;
                 
@@ -995,6 +990,7 @@
                 const rot = shape.r || [0,0,0];
                 
                 const primitiveType = shape.t ? String(shape.t).toLowerCase().trim() : 'box';
+                if (shape.c && !fallbackColor) fallbackColor = shape.c;
 
                 switch(primitiveType) {
                     case 'box': 
@@ -1049,29 +1045,32 @@
                 worldGroup.add(mesh);
             });
 
+            // FIXED: Shift the original structure up the Y-axis so its bottom edge is flush with Y=0
             if (worldGroup.children.length > 0) {
                 const box = new THREE.Box3().setFromObject(worldGroup);
-                const center = new THREE.Vector3(); 
-                box.getCenter(center);
+                worldGroup.position.y = -box.min.y; 
                 
-                // SHIFT ALIGNMENT UPGRADE: Shifts original layout vectors cleanly up until its base is flush directly above floor plane Y=0
-                worldGroup.position.x = -center.x;
-                worldGroup.position.z = -center.z;
-                worldGroup.position.y = -box.min.y + 0.01; 
+                // Cache exclusion boundaries
+                activeExclusionBounds.setFromObject(worldGroup);
+                
+                // Establish solid baseline coloring flat floor plane across world space dimensions
+                buildMassiveFloorPlane(fallbackColor);
 
                 if (controls) {
-                    controls.target.set(0, (box.max.y - box.min.y) / 2, 0); 
+                    const center = new THREE.Vector3();
+                    activeExclusionBounds.getCenter(center);
+                    controls.target.copy(center);
                     controls.update();
                 }
 
                 if (scannedBackdropDataUrl) {
-                    const size = new THREE.Vector3(); box.getSize(size);
+                    const size = new THREE.Vector3(); activeExclusionBounds.getSize(size);
                     const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
                     floatingBackdropMesh = new THREE.Mesh(
                         new THREE.PlaneGeometry(1, 1),
                         new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
                     );
-                    floatingBackdropMesh.position.set(center.x, center.y, box.min.z - 1.5);
+                    floatingBackdropMesh.position.set(worldGroup.position.x, size.y / 2, activeExclusionBounds.min.z - 1.5);
                     floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
                     floatingBackdropMesh.visible = backdropOverlayActive;
                     scene.add(floatingBackdropMesh);
@@ -1079,147 +1078,180 @@
             }
         }
 
-        // ENDLESS SPATIAL SCAFFOLDING ENGINE: Mathematical chunk compiler functions
-        function initializeExpansionSystem(shapesArray) {
-            clearProceduralChunks();
-            
-            let sampledColors = [];
-            let floorColorCandidate = null;
-
-            shapesArray.forEach(s => {
-                if (s.c) sampledColors.push(s.c);
-                if (s.t && s.c && (s.t.includes('floor') || s.t.includes('plane') || s.t.includes('foundation'))) {
-                    floorColorCandidate = s.c;
-                }
+        function buildMassiveFloorPlane(hexColor) {
+            if (massiveFloorPlane) {
+                scene.remove(massiveFloorPlane);
+                massiveFloorPlane.geometry.dispose();
+                massiveFloorPlane.material.dispose();
+            }
+            const floorGeo = new THREE.PlaneGeometry(8000, 8000);
+            const floorMat = new THREE.MeshStandardMaterial({
+                color: new THREE.Color(hexColor || "#1b1b24"),
+                roughness: 0.7,
+                metalness: 0.1
             });
-
-            if (sampledColors.length === 0) sampledColors.push('#ffffff', '#00e5ff', '#333344');
-            foundationColorHex = floorColorCandidate || sampledColors[0];
-
-            proceduralMaterials = sampledColors.map(c => new THREE.MeshPhysicalMaterial({
-                color: new THREE.Color(c),
-                roughness: 0.5,
-                metalness: 0.1,
-                clearcoat: 0.2
-            }));
-
-            exclusionZoneBoundingBox.setFromObject(worldGroup);
-            proceduralEngineActive = true;
-            
-            executeChunkEvaluation(camera.position.x, camera.position.z);
+            massiveFloorPlane = new THREE.Mesh(floorGeo, floorMat);
+            massiveFloorPlane.rotation.x = -Math.PI / 2;
+            massiveFloorPlane.position.y = -0.01; // Avoid Z-fighting with elements flush at Y=0
+            massiveFloorPlane.receiveShadow = true;
+            scene.add(massiveFloorPlane);
         }
 
-        function executeChunkEvaluation(camX, camZ) {
-            if (!proceduralEngineActive) return;
+        // --- ENHANCED PASS 3: Outward Infinite Structural Environment Expansion Matrix Engine ---
+        async function executePass3OutwardExpansion(apiKey, modelList, basePayload, compiledShapes) {
+            const descDiv = document.getElementById('aiDescription');
+            const statusDiv = document.getElementById('status');
+            
+            infiniteLoopActive = true;
+            statusDiv.style.display = 'block';
+            statusDiv.innerText = "Pass 3: Designing Outward Extensions Prompt...";
 
-            const centerCellX = Math.floor(camX / CHUNK_CELL_SIZE);
-            const centerCellZ = Math.floor(camZ / CHUNK_CELL_SIZE);
+            const pass3Prompt = `
+                You are a Master Architectural Expansion Architect. Review this starting layout description:
+                "${basePayload.description}"
+                
+                Write a single master prompt string that details how this environment naturally extends infinitely outward along the X and Z horizons.
+                The expansion must look like a realistic extension of the starting structure (matching aesthetic style, structural motifs, materials, and colors). 
+                Describe complex architectural details like corridors, support arches, flanking wings, panel arrays, and procedural furniture components.
+                
+                Your response must populate exactly one field inside this JSON container:
+                { "extension_prompt": "Your ultra-detailed structural rules extension text prompt here..." }
+            `;
 
-            for (let xOffset = -RENDER_RADIUS_CELLS; xOffset <= RENDER_RADIUS_CELLS; xOffset++) {
-                for (let zOffset = -RENDER_RADIUS_CELLS; zOffset <= RENDER_RADIUS_CELLS; zOffset++) {
-                    const cellGridX = centerCellX + xOffset;
-                    const cellGridZ = centerCellZ + zOffset;
-                    const keyId = `${cellGridX}_${cellGridZ}`;
+            let expansionMetaPrompt = "Generate realistic matching architectural extensions outward indefinitely.";
+            
+            for (let model of modelList) {
+                try {
+                    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + apiKey, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: pass3Prompt }] }],
+                            generationConfig: { responseMimeType: "application/json" }
+                        })
+                    });
 
-                    if (!activeChunksMap.has(keyId)) {
-                        const compiledGroup = compileCellStructures(cellGridX, cellGridZ);
-                        if (compiledGroup) {
-                            scene.add(compiledGroup);
-                            activeChunksMap.set(keyId, compiledGroup);
+                    if (res.ok) {
+                        const data = await res.json();
+                        const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
+                        if (parsed.extension_prompt) {
+                            expansionMetaPrompt = parsed.extension_prompt;
+                            break;
                         }
                     }
-                }
+                } catch (e) { console.warn("Pass 3 rule builder fallback cascade step."); }
             }
-        }
 
-        function compileCellStructures(cx, cz) {
-            const cellGroup = new THREE.Group();
+            descDiv.innerHTML += `<br><br><b style='color:#00e5ff;'>Pass 3 Active: Outward Infinite Environment Generator Initialized.</b><br>Expansion Protocol Rules Set: <i>"${expansionMetaPrompt.substring(0, 120)}..."</i>`;
             
-            const minX = cx * CHUNK_CELL_SIZE;
-            const minZ = cz * CHUNK_CELL_SIZE;
+            // Spawn continuous sequential expansion loop tracking variables
+            let chunkStepIndex = 1;
+            const sectorSizeX = Math.max(activeExclusionBounds.max.x - activeExclusionBounds.min.x, 8);
+            const sectorSizeZ = Math.max(activeExclusionBounds.max.z - activeExclusionBounds.min.z, 8);
 
-            // Endless Floor Plane generation covering entire world bounds at Y=0
-            const floorGeo = new THREE.PlaneGeometry(CHUNK_CELL_SIZE, CHUNK_CELL_SIZE);
-            const floorMat = new THREE.MeshPhysicalMaterial({
-                color: new THREE.Color(foundationColorHex),
-                roughness: 0.75,
-                metalness: 0.05
-            });
-            const floorMesh = new THREE.Mesh(floorGeo, floorMat);
-            floorMesh.rotation.x = -Math.PI / 2;
-            floorMesh.position.set(minX + CHUNK_CELL_SIZE / 2, 0, minZ + CHUNK_CELL_SIZE / 2);
-            floorMesh.receiveShadow = true;
-            cellGroup.add(floorMesh);
+            // Infinite managed async expansion ticker loop
+            while (infiniteLoopActive) {
+                statusDiv.innerText = `Matrix Growth: Processing Sector Tier ${chunkStepIndex}...`;
+                
+                // Coordinates matrix generation coordinates for cross vector pathing (+X, -X, +Z, -Z)
+                const processingOffsets = [
+                    { x: chunkStepIndex * sectorSizeX, z: 0 },
+                    { x: -chunkStepIndex * sectorSizeX, z: 0 },
+                    { x: 0, z: chunkStepIndex * sectorSizeZ },
+                    { x: 0, z: -chunkStepIndex * sectorSizeZ }
+                ];
 
-            // Spatial Footprint Exclusion Mandate: Skip structural element injection if cell coordinates match origin area
-            if (cx === 0 && cz === 0) {
-                return cellGroup; 
-            }
+                for (let offset of processingOffsets) {
+                    if (!infiniteLoopActive) break;
 
-            // Seed deterministic randomness loops based on grid coordinates
-            let cellSeed = Math.sin(cx * 12.9898 + cz * 78.233) * 43758.5453;
-            function getDeterministicRandom() {
-                const val = Math.sin(cellSeed++) * 10000;
-                return val - Math.floor(val);
-            }
+                    const sectorPrompt = `
+                        You are a precision 3D Spatial Chunk Compiler working under this master architectural mandate:
+                        "${expansionMetaPrompt}"
+                        
+                        Compile an array of 8 to 15 modular geometric primitives localized at center offset coordinate: X=${offset.x.toFixed(2)}, Z=${offset.z.toFixed(2)}.
+                        
+                        Coordinate Parameters:
+                        - Floor plane is fixed at Y=0. All structural walls, pillars, furniture items must sit on or above Y=0.
+                        - Do not place any element that dips below Y=0.
+                        
+                        Output purely inside this JSON structure format:
+                        {
+                            "shapes": [
+                                { "t": "box|roundedbox|sphere|cylinder|cone|plane", "p": [x, y, z], "s": [x, y, z], "r": [x, y, z], "c": "hex color", "rough": 0.4, "metal": 0.1, "trans": 0.0 }
+                            ]
+                        }
+                    `;
 
-            const elementClusterDensity = 5 + Math.floor(getDeterministicRandom() * 8);
-            for (let i = 0; i < elementClusterDensity; i++) {
-                const posX = minX + getDeterministicRandom() * CHUNK_CELL_SIZE;
-                const posZ = minZ + getDeterministicRandom() * CHUNK_CELL_SIZE;
+                    // Run rapid fallback compilation pipeline across available fast models
+                    for (let model of ['gemini-3.1-flash-lite', 'gemini-3.5-flash']) {
+                        try {
+                            const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + apiKey, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    contents: [{ parts: [{ text: sectorPrompt }] }],
+                                    generationConfig: { responseMimeType: "application/json" }
+                                })
+                            });
 
-                const materialSelection = proceduralMaterials[Math.floor(getDeterministicRandom() * proceduralMaterials.length)];
-                const structuralWeightIndex = getDeterministicRandom();
-
-                if (structuralWeightIndex < 0.35) {
-                    // Realistic Architectural Columns / Pillars
-                    const pillarH = 3 + getDeterministicRandom() * 9;
-                    const pillarRadius = 0.2 + getDeterministicRandom() * 0.5;
-                    const geo = new THREE.CylinderGeometry(pillarRadius, pillarRadius, pillarH, 16);
-                    const mesh = new THREE.Mesh(geo, materialSelection);
-                    mesh.position.set(posX, pillarH / 2, posZ);
-                    mesh.castShadow = true;
-                    mesh.receiveShadow = true;
-                    cellGroup.add(mesh);
-                } else if (structuralWeightIndex < 0.75) {
-                    // Structured Axis-Aligned Connecting Panels & Walls
-                    const blockW = 1.5 + getDeterministicRandom() * 6;
-                    const blockH = 2.5 + getDeterministicRandom() * 5;
-                    const blockD = 0.2 + getDeterministicRandom() * 0.4;
-                    const geo = new THREE.BoxGeometry(blockW, blockH, blockD);
-                    const mesh = new THREE.Mesh(geo, materialSelection);
-                    mesh.position.set(posX, blockH / 2, posZ);
-                    mesh.rotation.y = Math.floor(getDeterministicRandom() * 4) * (Math.PI / 2);
-                    mesh.castShadow = true;
-                    mesh.receiveShadow = true;
-                    cellGroup.add(mesh);
-                } else {
-                    // Horizontal Spanning Beams & Cross-Armatures
-                    const beamLength = 4 + getDeterministicRandom() * 8;
-                    const geo = new THREE.BoxGeometry(beamLength, 0.3, 0.3);
-                    const mesh = new THREE.Mesh(geo, materialSelection);
-                    const elevatedY = 2 + getDeterministicRandom() * 6;
-                    mesh.position.set(posX, elevatedY, posZ);
-                    mesh.rotation.y = Math.floor(getDeterministicRandom() * 4) * (Math.PI / 2);
-                    mesh.castShadow = true;
-                    mesh.receiveShadow = true;
-                    cellGroup.add(mesh);
+                            if (res.ok) {
+                                const data = await res.json();
+                                const parsed = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
+                                if (parsed.shapes && Array.isArray(parsed.shapes)) {
+                                    appendExtensionSectorShapes(parsed.shapes);
+                                    break;
+                                }
+                            }
+                        } catch (e) { console.warn("Extension chunk generation fallback event."); }
+                    }
+                    await delayExecutionTime(1200); // Guard rails to isolate network rate boundaries perfectly
                 }
+                chunkStepIndex++;
             }
-
-            return cellGroup;
+            statusDiv.style.display = 'none';
         }
 
-        function clearProceduralChunks() {
-            proceduralEngineActive = false;
-            activeChunksMap.forEach((group) => {
-                group.traverse((child) => {
-                    if (child.geometry) child.geometry.dispose();
-                    if (child.material) child.material.dispose();
+        function appendExtensionSectorShapes(shapes) {
+            shapes.forEach(shape => {
+                if (!shape || typeof shape !== 'object') return;
+                
+                const pos = shape.p || [0,0,0];
+                
+                // CRITICAL SAFETY SHIFT GUARDRAIL: Verify elements obey Y bounds and do not clip into the original baseline structure bounds
+                if (pos[1] < 0) pos[1] = 0; 
+                const vertexPoint = new THREE.Vector3(pos[0], pos[1], pos[2]);
+                if (activeExclusionBounds.containsPoint(vertexPoint)) return; // Strictly block duplicate geometry injection inside original space
+
+                let geo;
+                const scl = shape.s || [1,1,1];
+                const rot = shape.r || [0,0,0];
+                const primitiveType = shape.t ? String(shape.t).toLowerCase().trim() : 'box';
+
+                switch(primitiveType) {
+                    case 'box': geo = new THREE.BoxGeometry(1, 1, 1); break;
+                    case 'roundedbox': geo = createRoundedBoxGeometry(scl[0]||1, scl[1]||1, scl[2]||1, Math.min(scl[0]||1, scl[1]||1, scl[2]||1) * 0.12, 3); break;
+                    case 'sphere': geo = new THREE.SphereGeometry(0.5, 16, 16); break;
+                    case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 16); break;
+                    case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 16); break;
+                    case 'plane': geo = new THREE.PlaneGeometry(1, 1); break;
+                    default: geo = new THREE.BoxGeometry(1, 1, 1);
+                }
+
+                const mat = new THREE.MeshStandardMaterial({
+                    color: new THREE.Color(shape.c || "#888899"),
+                    roughbox: shape.rough !== undefined ? shape.rough : 0.5,
+                    metalness: shape.metal !== undefined ? shape.metal : 0.1
                 });
-                scene.remove(group);
+
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(pos[0], pos[1], pos[2]);
+                mesh.rotation.set(rot[0], rot[1], rot[2]);
+                if (primitiveType !== 'roundedbox') mesh.scale.set(scl[0], scl[1], scl[2]);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                
+                extensionGroup.add(mesh);
             });
-            activeChunksMap.clear();
         }
 
         function toggleSensorsFunctionality() {
@@ -1287,15 +1319,28 @@
 
         function clearSceneAndResetView() {
             console.clear();
+            infiniteLoopActive = false;
+            
             while(worldGroup.children.length > 0) {
                 let c = worldGroup.children[0];
                 if(c.geometry) c.geometry.dispose();
                 if(c.material) c.material.dispose();
                 worldGroup.remove(c);
             }
+            while(extensionGroup.children.length > 0) {
+                let c = extensionGroup.children[0];
+                if(c.geometry) c.geometry.dispose();
+                if(c.material) c.material.dispose();
+                extensionGroup.remove(c);
+            }
+            if (massiveFloorPlane) {
+                scene.remove(massiveFloorPlane);
+                massiveFloorPlane.geometry.dispose();
+                massiveFloorPlane.material.dispose();
+                massiveFloorPlane = null;
+            }
+
             deactivateTrackingSensors();
-            clearProceduralChunks();
-            
             lockedGyroRoll = 0; 
             targetLinearVelocityX = 0;
             targetLinearVelocityZ = 0;
@@ -1397,11 +1442,6 @@
                 }
             }
 
-            // Frame execution update loop for endless chunk computations
-            if (proceduralEngineActive) {
-                executeChunkEvaluation(camera.position.x, camera.position.z);
-            }
-
             if (controls && controls.enabled) {
                 controls.update();
                 if (!gyroActive && lockedGyroRoll !== 0) {
@@ -1413,7 +1453,8 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Total Objects: ${worldGroup.children.length + activeChunksMap.size * 10}`;
+            const calculatedTotalNodesCount = worldGroup.children.length + extensionGroup.children.length;
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Mode:${statusHorizonStr} | Matrix Elements: ${calculatedTotalNodesCount}`;
             
             renderer.render(scene, camera);
             
