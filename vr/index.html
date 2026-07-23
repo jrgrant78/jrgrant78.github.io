@@ -317,12 +317,12 @@
         
         // Gesture verification metrics
         let startScreenPosition = { x: 0, y: 0 };
-        const DRAG_CANCEL_THRESHOLD = 8;
+        const DRAG_CANCEL_THRESHOLD = 8; // Steady deadzone limit for long-press trigger
+        const TAP_JITTER_THRESHOLD = 18;  // Expanded spatial tolerance for mobile double taps
 
-        // Double tap screen-space proximity registers
+        // Double tap sequence registers
         let lastTapTime = 0;
-        let lastTapScreenX = 0;
-        let lastTapScreenY = 0;
+        let lastTargetMesh = null;
 
         const OPEN_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg width="18" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
@@ -588,7 +588,7 @@
             animate();
         }
 
-        // UNIVERSAL MATERIAL MODIFIER ENGINE (Handles reflective, opaque, and refractive shapes)
+        // UNIVERSAL MATERIAL MODIFIER ENGINE (Handles opaque, reflective, and glass materials)
         function cacheMeshOpacity(mesh) {
             if (mesh.userData.savedOpacity === undefined) {
                 if (Array.isArray(mesh.material)) {
@@ -608,7 +608,7 @@
                 mesh.material.forEach(m => {
                     m.transparent = true;
                     m.opacity = targetOpacity;
-                    if (m.transmission !== undefined) m.transmission = 0.0; // Bypass glass map limitations
+                    if (m.transmission !== undefined) m.transmission = 0.0; // Temporarily bypass refraction to allow alpha fade
                     m.needsUpdate = true;
                 });
             } else {
@@ -645,57 +645,13 @@
             pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
             pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
-            // Strict raycast target bounding isolates hits to structure tree children, protecting the infinite grid display lines
+            startScreenPosition.x = e.clientX;
+            startScreenPosition.y = e.clientY;
+
             raycaster.setFromCamera(pointerCoordinateVector, camera);
             const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
 
             if (targetedStructuralIntersects.length > 0) {
-                const hitMesh = targetedStructuralIntersects[0].object;
-                const currentTime = performance.now();
-                const pixelDistance = Math.hypot(e.clientX - lastTapScreenX, e.clientY - lastTapScreenY);
-
-                // RELIABLE SCREEN-SPACE DOUBLE-TAP ENGINE (Fires across any composite structural configuration seamlessly)
-                if (currentTime - lastTapTime < 350 && pixelDistance < 40) {
-                    if (sceneDragLongPressTimeout) {
-                        clearTimeout(sceneDragLongPressTimeout);
-                        sceneDragLongPressTimeout = null;
-                    }
-                    isStructureReadyToMove = false;
-                    isDraggingSceneActive = false;
-
-                    if (hitMesh.userData.fadeTimer) {
-                        clearTimeout(hitMesh.userData.fadeTimer);
-                        hitMesh.userData.fadeTimer = null;
-                        restoreMeshOpacity(hitMesh);
-                        document.getElementById('aiDescription').innerText = "Transparency cleared via manual override.";
-                    } else {
-                        cacheMeshOpacity(hitMesh);
-                        applyMeshOpacity(hitMesh, 0.25);
-                        document.getElementById('aiDescription').innerText = "Mesh transparency dropped to 0.25 (3s limit).";
-
-                        hitMesh.userData.fadeTimer = setTimeout(() => {
-                            restoreMeshOpacity(hitMesh);
-                            hitMesh.userData.fadeTimer = null;
-                            document.getElementById('aiDescription').innerText = "Structural matrix profile restored.";
-                        }, 3000);
-                    }
-
-                    // Flush interaction matrix logs cleanly
-                    lastTapTime = 0;
-                    lastTapScreenX = 0;
-                    lastTapScreenY = 0;
-                    e.stopPropagation();
-                    return;
-                }
-
-                // Invalidate tracking histories and record current spatial coordinates
-                lastTapTime = currentTime;
-                lastTapScreenX = e.clientX;
-                lastTapScreenY = e.clientY;
-
-                startScreenPosition.x = e.clientX;
-                startScreenPosition.y = e.clientY;
-
                 let groundIntersectionVector = new THREE.Vector3();
                 raycaster.ray.intersectPlane(groundReferencePlane, groundIntersectionVector);
                 interactiveDragOffset.copy(groundIntersectionVector).sub(worldGroup.position);
@@ -705,19 +661,20 @@
                 isStructureReadyToMove = false;
                 isDraggingSceneActive = false;
 
-                // Locked Architectural Translation Sequence
+                // Gated Long-Press Sequence: Verification threshold enforces steady click behaviors
                 sceneDragLongPressTimeout = setTimeout(() => {
                     isStructureReadyToMove = true;
                     isDraggingSceneActive = true;
                     
-                    if (controls) controls.enabled = false; 
+                    if (controls) controls.enabled = false; // Decouple camera interactions during sliding sequence
 
+                    // Apply emissive visual highlight matrix onto PBR material tree components
                     worldGroup.traverse((child) => {
                         if (child.isMesh && child.material) {
                             if (child.userData.originalEmissive === undefined) {
                                 child.userData.originalEmissive = child.material.emissive.getHex();
                             }
-                            child.material.emissive.setHex(0x224466); 
+                            child.material.emissive.setHex(0x224466); // Subtle cyan highlights indicate ready-to-move parameters
                         }
                     });
 
@@ -725,8 +682,7 @@
                 }, 400); 
             } else {
                 lastTapTime = 0;
-                lastTapScreenX = 0;
-                lastTapScreenY = 0;
+                lastTargetMesh = null;
             }
         }
 
@@ -736,16 +692,13 @@
             const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
             const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
 
+            // Gated Movement Cancellation Logic
             if (!isStructureReadyToMove) {
                 if (currentPixelDeltaX > DRAG_CANCEL_THRESHOLD || currentPixelDeltaY > DRAG_CANCEL_THRESHOLD) {
                     if (sceneDragLongPressTimeout) {
                         clearTimeout(sceneDragLongPressTimeout);
                         sceneDragLongPressTimeout = null;
                     }
-                    // Flush double-tap queue upon intentional screen rotation passes
-                    lastTapTime = 0;
-                    lastTapScreenX = 0;
-                    lastTapScreenY = 0;
                 }
                 return; 
             }
@@ -764,10 +717,57 @@
             worldGroup.position.z = Math.round(intendedTargetPosition.z);
         }
 
-        function handleScenePointerUpRelease() {
+        function handleScenePointerUpRelease(e) {
             if (sceneDragLongPressTimeout) {
                 clearTimeout(sceneDragLongPressTimeout);
                 sceneDragLongPressTimeout = null;
+
+                const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
+                const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
+
+                // Calibrate against mobile drag thresholds specifically for tap event routing
+                if (currentPixelDeltaX < TAP_JITTER_THRESHOLD && currentPixelDeltaY < TAP_JITTER_THRESHOLD) {
+                    pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
+                    pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+                    raycaster.setFromCamera(pointerCoordinateVector, camera);
+                    const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
+
+                    if (targetedStructuralIntersects.length > 0) {
+                        const hitMesh = targetedStructuralIntersects[0].object;
+                        const currentTime = performance.now();
+
+                        // Double-Tap Logic Window (< 350ms)
+                        if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh) {
+                            if (hitMesh.userData.fadeTimer) {
+                                // Clear active transparency rules on user override
+                                clearTimeout(hitMesh.userData.fadeTimer);
+                                hitMesh.userData.fadeTimer = null;
+                                restoreMeshOpacity(hitMesh);
+                                document.getElementById('aiDescription').innerText = "Transparency cleared by user override.";
+                            } else {
+                                // Fire temporary transparency fade matrix
+                                cacheMeshOpacity(hitMesh);
+                                applyMeshOpacity(hitMesh, 0.25);
+                                document.getElementById('aiDescription').innerText = "Temporary transparency (0.25) activated.";
+
+                                hitMesh.userData.fadeTimer = setTimeout(() => {
+                                    restoreMeshOpacity(hitMesh);
+                                    hitMesh.userData.fadeTimer = null;
+                                    document.getElementById('aiDescription').innerText = "Mesh material profile restored automatically.";
+                                }, 3000);
+                            }
+                            lastTapTime = 0;
+                            lastTargetMesh = null;
+                        } else {
+                            lastTapTime = currentTime;
+                            lastTargetMesh = hitMesh;
+                        }
+                    } else {
+                        lastTapTime = 0;
+                        lastTargetMesh = null;
+                    }
+                }
             }
             
             worldGroup.traverse((child) => {
@@ -1236,6 +1236,10 @@
                         geo = new THREE.BoxGeometry(1, 1, 1);
                 }
 
+                // CRITICAL FIX: Explicitly recalculate geometry volume boundaries to ensure the Raycaster recognizes hits reliably
+                geo.computeBoundingBox();
+                geo.computeBoundingSphere();
+
                 const isTranslucent = shape.trans > 0.05;
                 const mat = new THREE.MeshPhysicalMaterial({
                     color: new THREE.Color(shape.c || "#ffffff"),
@@ -1245,7 +1249,7 @@
                     ior: isTranslucent ? 1.52 : 1.0, 
                     thickness: isTranslucent ? 1.0 : 0.0, 
                     transparent: isTranslucent,
-                    side: primitiveType === 'plane' ? THREE.DoubleSide : THREE.FrontSide,
+                    side: THREE.DoubleSide, // Force double-sided renders to capture pointer arrays at any viewing tilt angle
                     clearcoat: shape.metal > 0.5 ? 0.3 : 0.0, 
                     clearcoatRoughness: 0.1
                 });
@@ -1372,8 +1376,7 @@
             scannedBackdropDataUrl = null;
             gyroYawOffset = 0;
             lastTapTime = 0;
-            lastTapScreenX = 0;
-            lastTapScreenY = 0;
+            lastTargetMesh = null;
             
             camera.position.set(0, 2.0, 25.0);
             if (controls) {
@@ -1424,7 +1427,7 @@
 
             worldSpaceAcceleration.y = 0;
 
-            const hardware JitterFloor = 0.08; 
+            const hardwareJitterFloor = 0.08; 
             if (worldSpaceAcceleration.length() < hardwareJitterFloor) {
                 return;
             }
