@@ -697,9 +697,13 @@
                         faces.sort((a, b) => a.dist - b.dist);
                         const bestFace = faces[0];
 
-                        // Construct a local GPU clipping plane directly on the target's outer face
+                        // CRITICAL PRECISION FIX: Recess the clipping plane slightly into the target mesh by an analytical epsilon (-0.005).
+                        // This moves the mathematical boundary line past the co-planar region, completely eliminating shader static.
+                        const spatialEpsilon = -0.005;
+                        const adjustedPoint = bestFace.point.clone().addScaledVector(bestFace.normal, spatialEpsilon);
+
                         const clipPlane = new THREE.Plane();
-                        clipPlane.setFromNormalAndCoplanarPoint(bestFace.normal.clone(), bestFace.point);
+                        clipPlane.setFromNormalAndCoplanarPoint(bestFace.normal.clone(), adjustedPoint);
 
                         // Bind the plane array parameters smoothly into the culprit's rendering layer
                         const mats = Array.isArray(culprit.material) ? culprit.material : [culprit.material];
