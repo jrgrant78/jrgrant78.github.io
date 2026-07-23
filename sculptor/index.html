@@ -65,7 +65,7 @@
             border: 1px solid #444; 
             border-radius: 6px; 
             display: flex; 
-            flex-direction: column; /* Stack components vertically while keeping contents centered */
+            flex-direction: column; 
             align-items: center; 
             justify-content: center; 
             cursor: pointer; 
@@ -84,10 +84,9 @@
             flex-shrink: 0;
         }
 
-        /* Micro Text Labels Sub-Engine */
         .btn-label {
             font-size: 9px;
-            color: #aaa; /* Matches the color profile of #aiDescription console output */
+            color: #aaa; 
             margin-top: 2px;
             line-height: 1;
             text-align: center;
@@ -117,7 +116,7 @@
             box-shadow: 0 4px 15px rgba(0,0,0,0.5); 
             box-sizing: border-box;
             position: relative;
-            margin-left: auto; /* Guarantees camera framing always tightly hugs the right edge */
+            margin-left: auto; 
             display: flex;
             justify-content: center;
             align-items: center;
@@ -507,7 +506,6 @@
                 }
             }
 
-            // Calibrated against the structural layout constraints profile
             const availableWidth = window.innerWidth - 20 - 24 - 198 - 12;
             let calculatedWidthTarget = 130 * cameraStreamAspectRatio;
             
@@ -607,7 +605,6 @@
             animate();
         }
 
-        // UNIVERSAL MATERIAL MODIFIER ENGINE
         function cacheMeshOpacity(mesh) {
             if (mesh.userData.savedOpacity === undefined) {
                 if (Array.isArray(mesh.material)) {
@@ -659,41 +656,57 @@
             }
         }
 
-        // CO-LOCATED GEOMETRY REDUCTION ENGINE (Eradicates identical space fighting layout nodes)
+        // NON-DESTRUCTIVE GEOMETRY INTERSECTION RESOLUTION SYSTEM
         function resolveGeometryClipping() {
             const meshes = [];
             worldGroup.traverse(child => {
+                // Safeguard backdrop canvas plane from displacement modifications
                 if (child.isMesh && child !== floatingBackdropMesh) {
                     meshes.push(child);
                 }
             });
 
-            const toRemove = new Set();
-            
+            // Minimum Translation Vector (MTV) resolution iteration pass
             for (let i = 0; i < meshes.length; i++) {
-                if (toRemove.has(meshes[i])) continue;
-                const boxA = new THREE.Box3().setFromObject(meshes[i]);
-                
                 for (let j = i + 1; j < meshes.length; j++) {
-                    if (toRemove.has(meshes[j])) continue;
-                    const boxB = new THREE.Box3().setFromObject(meshes[j]);
-                    
-                    // Identify if geometries are fighting or occupying the exact same space
+                    const meshA = meshes[i];
+                    const meshB = meshes[j];
+
+                    const boxA = new THREE.Box3().setFromObject(meshA);
+                    const boxB = new THREE.Box3().setFromObject(meshB);
+
                     if (boxA.intersectsBox(boxB)) {
-                        // Deconstruct and eliminate excess overlapping components to leave exactly 1 node remaining
-                        toRemove.add(meshes[j]);
+                        const volA = (boxA.max.x - boxA.min.x) * (boxA.max.y - boxA.min.y) * (boxA.max.z - boxA.min.z);
+                        const volB = (boxB.max.x - boxB.min.x) * (boxB.max.y - boxB.min.y) * (boxB.max.z - boxB.min.z);
+
+                        // Always offset the smaller volume block to leave primary architecture intact
+                        const culprit = volA < volB ? meshA : meshB;
+                        const target = volA < volB ? meshB : meshA;
+
+                        const boxCulprit = new THREE.Box3().setFromObject(culprit);
+                        const boxTarget = new THREE.Box3().setFromObject(target);
+
+                        // Intersecting distance deconstruction matrix
+                        const overlapX = Math.min(boxCulprit.max.x, boxTarget.max.x) - Math.max(boxCulprit.min.x, boxTarget.min.x);
+                        const overlapY = Math.min(boxCulprit.max.y, boxTarget.max.y) - Math.max(boxCulprit.min.y, boxTarget.min.y);
+                        const overlapZ = Math.min(boxCulprit.max.z, boxTarget.max.z) - Math.max(boxCulprit.min.z, boxTarget.min.z);
+
+                        const antiFlickerEpsilon = 0.02; 
+
+                        // Offset culprit slightly along shallowest intersection vector to clear the clashing boundary
+                        if (overlapX < overlapY && overlapX < overlapZ) {
+                            const shiftDirX = culprit.position.x < target.position.x ? -1 : 1;
+                            culprit.position.x += shiftDirX * (overlapX + antiFlickerEpsilon);
+                        } else if (overlapY < overlapX && overlapY < overlapZ) {
+                            const shiftDirY = culprit.position.y < target.position.y ? -1 : 1;
+                            culprit.position.y += shiftDirY * (overlapY + antiFlickerEpsilon);
+                        } else {
+                            const shiftDirZ = culprit.position.z < target.position.z ? -1 : 1;
+                            culprit.position.z += shiftDirZ * (overlapZ + antiFlickerEpsilon);
+                        }
                     }
                 }
             }
-
-            toRemove.forEach(mesh => {
-                if (mesh.parent) mesh.parent.remove(mesh);
-                if (mesh.geometry) mesh.geometry.dispose();
-                if (mesh.material) {
-                    if (Array.isArray(mesh.material)) mesh.material.forEach(m => m.dispose());
-                    else mesh.material.dispose();
-                }
-            });
         }
 
         // DYNAMIC SPATIAL MANIPULATION EVENT HANDLERS
@@ -707,10 +720,7 @@
             raycaster.setFromCamera(pointerCoordinateVector, camera);
             const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
 
-            // Ignore backdrop hits during intersection parsing to allow translation anchors to hold cleanly
-            const verifiedIntersects = targetedStructuralIntersects.filter(hit => hit.object !== floatingBackdropMesh);
-
-            if (verifiedIntersects.length > 0) {
+            if (targetedStructuralIntersects.length > 0) {
                 let groundIntersectionVector = new THREE.Vector3();
                 raycaster.ray.intersectPlane(groundReferencePlane, groundIntersectionVector);
                 interactiveDragOffset.copy(groundIntersectionVector).sub(worldGroup.position);
@@ -735,7 +745,7 @@
                         }
                     });
 
-                    document.getElementById('aiDescription').innerText = "[Active Mode: Translating Structure]\nSlide to reposition. Elements and reference planes will snap to full integer grid cells.";
+                    document.getElementById('aiDescription').innerText = "[Active Mode: Translating Structure]\nSlide to reposition. Elements will snap to full integer grid cells.";
                 }, 400); 
             } else {
                 lastTapTime = 0;
@@ -787,34 +797,35 @@
 
                     raycaster.setFromCamera(pointerCoordinateVector, camera);
                     const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
-                    const verifiedIntersects = targetedStructuralIntersects.filter(hit => hit.object !== floatingBackdropMesh);
 
-                    if (verifiedIntersects.length > 0) {
-                        const hitMesh = verifiedIntersects[0].object;
-                        const currentTime = performance.now();
+                    if (targetedStructuralIntersects.length > 0) {
+                        const hitMesh = targetedStructuralIntersects[0].object;
+                        if (hitMesh !== floatingBackdropMesh) {
+                            const currentTime = performance.now();
 
-                        if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh) {
-                            if (hitMesh.userData.fadeTimer) {
-                                clearTimeout(hitMesh.userData.fadeTimer);
-                                hitMesh.userData.fadeTimer = null;
-                                restoreMeshOpacity(hitMesh);
-                                document.getElementById('aiDescription').innerText = "Transparency cleared by user override.";
-                            } else {
-                                cacheMeshOpacity(hitMesh);
-                                applyMeshOpacity(hitMesh, 0.25);
-                                document.getElementById('aiDescription').innerText = "Temporary transparency (0.25) activated.";
-
-                                hitMesh.userData.fadeTimer = setTimeout(() => {
-                                    restoreMeshOpacity(hitMesh);
+                            if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh) {
+                                if (hitMesh.userData.fadeTimer) {
+                                    clearTimeout(hitMesh.userData.fadeTimer);
                                     hitMesh.userData.fadeTimer = null;
-                                    document.getElementById('aiDescription').innerText = "Mesh material profile restored automatically.";
-                                }, 3000);
+                                    restoreMeshOpacity(hitMesh);
+                                    document.getElementById('aiDescription').innerText = "Transparency cleared by user override.";
+                                } else {
+                                    cacheMeshOpacity(hitMesh);
+                                    applyMeshOpacity(hitMesh, 0.25);
+                                    document.getElementById('aiDescription').innerText = "Temporary transparency (0.25) activated.";
+
+                                    hitMesh.userData.fadeTimer = setTimeout(() => {
+                                        restoreMeshOpacity(hitMesh);
+                                        hitMesh.userData.fadeTimer = null;
+                                        document.getElementById('aiDescription').innerText = "Mesh material profile restored automatically.";
+                                    }, 3000);
+                                }
+                                lastTapTime = 0;
+                                lastTargetMesh = null;
+                            } else {
+                                lastTapTime = currentTime;
+                                lastTargetMesh = hitMesh;
                             }
-                            lastTapTime = 0;
-                            lastTargetMesh = null;
-                        } else {
-                            lastTapTime = currentTime;
-                            lastTargetMesh = hitMesh;
                         }
                     } else {
                         lastTapTime = 0;
@@ -836,7 +847,7 @@
                 
                 resolveGeometryClipping();
                 
-                document.getElementById('aiDescription').innerText = "Structure transform committed. Spatial tracking space resolved cleanly.";
+                document.getElementById('aiDescription').innerText = "Structure transform committed. Intersecting parameters cleaned and snapped.";
             }
         }
 
@@ -1258,7 +1269,7 @@
                     if (floatingBackdropMesh.material.map) floatingBackdropMesh.material.map.dispose();
                     floatingBackdropMesh.material.dispose();
                 }
-                if (floatingBackdropMesh.parent) floatingBackdropMesh.parent.remove(floatingBackdropMesh);
+                worldGroup.remove(floatingBackdropMesh);
                 floatingBackdropMesh = null;
             }
 
@@ -1332,32 +1343,30 @@
                 const box = new THREE.Box3().setFromObject(worldGroup);
                 const center = new THREE.Vector3(); 
                 box.getCenter(center);
-
-                // Reduce identical space content allocations immediately before computing structural offsets
-                resolveGeometryClipping();
                 
-                // Recalculate dimensions cleanly post-reduction
-                const cleanBox = new THREE.Box3().setFromObject(worldGroup);
-                const cleanCenter = new THREE.Vector3(); cleanBox.getCenter(cleanCenter);
-                const size = new THREE.Vector3(); cleanBox.getSize(size);
+                worldGroup.position.x = -center.x;
+                worldGroup.position.z = -center.z;
+                worldGroup.position.y = -box.min.y; 
+
+                // Run MTV displacement engine to resolve overlapping geometries non-destructively
+                resolveGeometryClipping();
 
                 if (scannedBackdropDataUrl) {
+                    const size = new THREE.Vector3(); box.getSize(size);
                     const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
                     floatingBackdropMesh = new THREE.Mesh(
                         new THREE.PlaneGeometry(1, 1),
                         new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
                     );
-                    // Anchor directly into internal spatial group space relative to raw geometry blocks
-                    floatingBackdropMesh.position.set(cleanCenter.x, cleanCenter.y, cleanBox.min.z - 1.5);
+                    
+                    // Pinned securely into local group coordinates behind elements
+                    floatingBackdropMesh.position.set(center.x, center.y, box.min.z - 1.5);
                     floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
                     floatingBackdropMesh.visible = backdropOverlayActive;
+                    
+                    // Appended directly to worldGroup to ensure transform synchronicity when dragged
                     worldGroup.add(floatingBackdropMesh);
                 }
-
-                // Snap full structural space assets cleanly down onto zero origin platform
-                worldGroup.position.x = -cleanCenter.x;
-                worldGroup.position.z = -cleanCenter.z;
-                worldGroup.position.y = -cleanBox.min.y; 
             }
         }
 
@@ -1438,15 +1447,6 @@
                 }
                 worldGroup.remove(c);
             }
-            if (floatingBackdropMesh) {
-                if (floatingBackdropMesh.geometry) floatingBackdropMesh.geometry.dispose();
-                if (floatingBackdropMesh.material) {
-                    if (floatingBackdropMesh.material.map) floatingBackdropMesh.material.map.dispose();
-                    floatingBackdropMesh.material.dispose();
-                }
-                if (floatingBackdropMesh.parent) floatingBackdropMesh.parent.remove(floatingBackdropMesh);
-                floatingBackdropMesh = null;
-            }
             deactivateTrackingSensors();
             lockedGyroRoll = 0; 
             targetLinearVelocityX = 0;
@@ -1457,6 +1457,16 @@
             lastTapTime = 0;
             lastTargetMesh = null;
             
+            if (floatingBackdropMesh) {
+                if (floatingBackdropMesh.geometry) floatingBackdropMesh.geometry.dispose();
+                if (floatingBackdropMesh.material) {
+                    if (floatingBackdropMesh.material.map) floatingBackdropMesh.material.map.dispose();
+                    floatingBackdropMesh.material.dispose();
+                }
+                worldGroup.remove(floatingBackdropMesh);
+                floatingBackdropMesh = null;
+            }
+
             camera.position.set(0, 2.0, 25.0);
             if (controls) {
                 controls.target.set(0, 0, 0); 
@@ -1562,7 +1572,7 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            // Grid helper locked configuration updates relative to tracking transforms
+            // Keep navigational floor grid cleanly locked to camera anchor projections
             if (gridHelper && gridHelper.visible) {
                 gridHelper.position.x = Math.round(camera.position.x);
                 gridHelper.position.z = Math.round(camera.position.z);
