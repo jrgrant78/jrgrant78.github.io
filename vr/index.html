@@ -500,11 +500,24 @@
             throw new Error("Mismatched block bounds.");
         }
 
-        // OPTION B ENGINE: Programmatically scales width based on streaming layout data geometry
+        // OPTION B ENGINE: Programmatically scales width based on live landscape/portrait streaming layout data geometry
         function resizeCameraViewport() {
             const cameraWin = document.getElementById('cameraWindow');
             if (!cameraWin) return;
             
+            // DYNAMIC FIX: Actively check and pull live dimensions directly from the operational hardware canvas feed on orientation changes
+            if (dynamicInputSourceMode === 'camera') {
+                const camFeed = document.getElementById('cameraFeed');
+                if (camFeed && camFeed.videoWidth && camFeed.videoHeight) {
+                    cameraStreamAspectRatio = camFeed.videoWidth / camFeed.videoHeight;
+                }
+            } else if (dynamicInputSourceMode === 'library') {
+                const libPreview = document.getElementById('libraryPreview');
+                if (libPreview && libPreview.naturalWidth && libPreview.naturalHeight) {
+                    cameraStreamAspectRatio = libPreview.naturalWidth / libPreview.naturalHeight;
+                }
+            }
+
             // Safety margins ensure wide camera layouts don't override left panel keys
             const availableWidth = window.innerWidth - 20 - 24 - 108 - 12;
             
@@ -573,6 +586,8 @@
             window.addEventListener('pointerup', handleScenePointerUpRelease);
 
             window.addEventListener('resize', onWindowResize);
+            window.addEventListener('orientationchange', onWindowResize); // Force strict viewport evaluation on mobile flip actions
+            
             document.getElementById('scanBtn').addEventListener('click', captureAndScanFrame);
             document.getElementById('gyroBtn').addEventListener('click', toggleSensorsFunctionality);
             document.getElementById('clearBtn').addEventListener('click', clearSceneAndResetView);
@@ -591,7 +606,6 @@
             document.getElementById('libraryPreview').addEventListener('click', triggerDeviceFileBrowser);
             document.getElementById('fileInput').addEventListener('change', handleDeviceFileSelection);
 
-            // Capture resolution geometry changes when local asset components process completely
             document.getElementById('libraryPreview').addEventListener('load', function() {
                 if (dynamicInputSourceMode === 'library' && this.naturalWidth) {
                     cameraStreamAspectRatio = this.naturalWidth / this.naturalHeight;
@@ -894,13 +908,9 @@
                 if (libPreview.src && libPreview.src !== window.location.href && libPreview.src !== '') {
                     libPreview.style.display = 'block';
                     placeholder.style.display = 'none';
-                    if(libPreview.naturalWidth) {
-                        cameraStreamAspectRatio = libPreview.naturalWidth / libPreview.naturalHeight;
-                    }
                 } else {
                     libPreview.style.display = 'none';
                     placeholder.style.display = 'flex';
-                    cameraStreamAspectRatio = 4 / 3; // Reset to base baseline placeholder aspect
                 }
                 desc.innerHTML = "Library Mode Active.<br>Tap target frame viewport area to select local data asset.";
             } else {
@@ -909,10 +919,6 @@
                 libPreview.style.display = 'none';
                 placeholder.style.display = 'none';
                 camFeed.style.display = 'block';
-                
-                if (videoElement && videoElement.videoWidth) {
-                    cameraStreamAspectRatio = videoElement.videoWidth / videoElement.videoHeight;
-                }
                 desc.innerHTML = "Live Feed Active.<br>Aim camera lens array and tap capture button.";
             }
             resizeCameraViewport();
@@ -982,10 +988,7 @@
             
             // Listen directly to raw input streams to lock UI aspect geometries to operational values
             videoElement.addEventListener('loadedmetadata', () => {
-                if (dynamicInputSourceMode === 'camera' && videoElement.videoWidth) {
-                    cameraStreamAspectRatio = videoElement.videoWidth / videoElement.videoHeight;
-                    resizeCameraViewport();
-                }
+                resizeCameraViewport();
             });
 
             try {
@@ -1189,7 +1192,7 @@
                 for (let model of modelCascadeList) {
                     try {
                         statusDiv.innerText = `Pass 2: Compiling [${task.id}_${task.subId}] via ${model}...`;
-                        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
+                        const res = await fetch('https://genergenerativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + userEnteredKey, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
