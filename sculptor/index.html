@@ -65,7 +65,7 @@
             border: 1px solid #444; 
             border-radius: 6px; 
             display: flex; 
-            flex-direction: column; /* Stack components vertically while keeping contents centered */
+            flex-direction: column; 
             align-items: center; 
             justify-content: center; 
             cursor: pointer; 
@@ -84,10 +84,9 @@
             flex-shrink: 0;
         }
 
-        /* Micro Text Labels Sub-Engine */
         .btn-label {
             font-size: 9px;
-            color: #aaa; /* Matches the color profile of #aiDescription console output */
+            color: #aaa; 
             margin-top: 2px;
             line-height: 1;
             text-align: center;
@@ -117,7 +116,7 @@
             box-shadow: 0 4px 15px rgba(0,0,0,0.5); 
             box-sizing: border-box;
             position: relative;
-            margin-left: auto; /* Guarantees camera framing always tightly hugs the right edge */
+            margin-left: auto; 
             display: flex;
             justify-content: center;
             align-items: center;
@@ -507,7 +506,6 @@
                 }
             }
 
-            // Calibrated against the structural layout constraints profile
             const availableWidth = window.innerWidth - 20 - 24 - 198 - 12;
             let calculatedWidthTarget = 130 * cameraStreamAspectRatio;
             
@@ -569,7 +567,6 @@
 
             scene.add(worldGroup);
 
-            // POINTER INTERACTION WORKSPACE LISTENERS
             canvas.addEventListener('pointerdown', handleScenePointerDownActivation, { passive: false });
             window.addEventListener('pointermove', handleScenePointerDragSequence, { passive: false });
             window.addEventListener('pointerup', handleScenePointerUpRelease);
@@ -607,7 +604,6 @@
             animate();
         }
 
-        // UNIVERSAL MATERIAL MODIFIER ENGINE
         function cacheMeshOpacity(mesh) {
             if (mesh.userData.savedOpacity === undefined) {
                 if (Array.isArray(mesh.material)) {
@@ -659,24 +655,22 @@
             }
         }
 
-        // VOLUMETRIC GEOMETRY DECONFLICTION FILTER
+        // DE-DUPLICATION LOGIC FOR OVERLAPPING GEOMETRIES IN THE SAME SPACE
         function resolveGeometryClipping() {
             const meshes = [];
             worldGroup.traverse(child => {
-                // Background target canvas reference plane must be excluded from volumetric deletion loops
                 if (child.isMesh && child !== floatingBackdropMesh) {
                     meshes.push(child);
                 }
             });
 
-            const scheduledForElimination = new Set();
+            const toRemove = new Set();
 
-            // Evaluate intersection boundaries to keep exactly 1 primary mesh variant out of conflicting duplicates
             for (let i = 0; i < meshes.length; i++) {
-                if (scheduledForElimination.has(meshes[i])) continue;
-
+                if (toRemove.has(meshes[i])) continue;
+                
                 for (let j = i + 1; j < meshes.length; j++) {
-                    if (scheduledForElimination.has(meshes[j])) continue;
+                    if (toRemove.has(meshes[j])) continue;
 
                     const meshA = meshes[i];
                     const meshB = meshes[j];
@@ -685,22 +679,26 @@
                     const boxB = new THREE.Box3().setFromObject(meshB);
 
                     if (boxA.intersectsBox(boxB)) {
-                        const volA = (boxA.max.x - boxA.min.x) * (boxA.max.y - boxA.min.y) * (boxA.max.z - boxA.min.z);
-                        const volB = (boxB.max.x - boxB.min.x) * (boxB.max.y - boxB.min.y) * (boxB.max.z - boxB.min.z);
+                        const sizeA = new THREE.Vector3();
+                        const sizeB = new THREE.Vector3();
+                        boxA.getSize(sizeA);
+                        boxB.getSize(sizeB);
+                        
+                        const volA = sizeA.x * sizeA.y * sizeA.z;
+                        const volB = sizeB.x * sizeB.y * sizeB.z;
 
-                        // Keep the single largest bounding mesh mass volume, discard conflicting redundant meshes
+                        // Keep the larger geometry option to preserve the primary architectural anchor
                         if (volA >= volB) {
-                            scheduledForElimination.add(meshB);
+                            toRemove.add(meshB);
                         } else {
-                            scheduledForElimination.add(meshA);
+                            toRemove.add(meshA);
                             break; 
                         }
                     }
                 }
             }
 
-            // Flush deleted configurations out of core memory
-            scheduledForElimination.forEach(mesh => {
+            toRemove.forEach(mesh => {
                 if (mesh.userData && mesh.userData.fadeTimer) {
                     clearTimeout(mesh.userData.fadeTimer);
                 }
@@ -713,7 +711,6 @@
             });
         }
 
-        // DYNAMIC SPATIAL MANIPULATION EVENT HANDLERS
         function handleScenePointerDownActivation(e) {
             pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
             pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -722,9 +719,7 @@
             startScreenPosition.y = e.clientY;
 
             raycaster.setFromCamera(pointerCoordinateVector, camera);
-            // Ignore floating overlay reference canvas elements during target scene selection queries
-            const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true)
-                                                          .filter(hit => hit.object !== floatingBackdropMesh);
+            const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
 
             if (targetedStructuralIntersects.length > 0) {
                 let groundIntersectionVector = new THREE.Vector3();
@@ -751,7 +746,7 @@
                         }
                     });
 
-                    document.getElementById('aiDescription').innerText = "[Active Mode: Translating Structure]\nSlide to reposition. Elements will snap to full integer grid cells.";
+                    document.getElementById('aiDescription').innerText = "[Active Mode: Translating Structure]\nSlide to reposition. Pinned backdrop image handles transform operations simultaneously.";
                 }, 400); 
             } else {
                 lastTapTime = 0;
@@ -802,14 +797,13 @@
                     pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
                     raycaster.setFromCamera(pointerCoordinateVector, camera);
-                    const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true)
-                                                                  .filter(hit => hit.object !== floatingBackdropMesh);
+                    const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
 
                     if (targetedStructuralIntersects.length > 0) {
                         const hitMesh = targetedStructuralIntersects[0].object;
                         const currentTime = performance.now();
 
-                        if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh) {
+                        if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh && hitMesh !== floatingBackdropMesh) {
                             if (hitMesh.userData.fadeTimer) {
                                 clearTimeout(hitMesh.userData.fadeTimer);
                                 hitMesh.userData.fadeTimer = null;
@@ -852,7 +846,7 @@
                 
                 resolveGeometryClipping();
                 
-                document.getElementById('aiDescription').innerText = "Structure transform committed. Intersecting parameters cleaned and snapped.";
+                document.getElementById('aiDescription').innerText = "Structure transform committed. Conflict checking complete.";
             }
         }
 
@@ -1252,6 +1246,7 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
+        // SCENE GENERATION RUNTIME PLATFORM WITH BACKDROP SCENE OVERLAY MECHANICS
         function renderAIBlueprint(shapesArray) {
             worldGroup.position.set(0, 0, 0);
 
@@ -1268,14 +1263,7 @@
                 worldGroup.remove(child);
             }
 
-            if (floatingBackdropMesh) {
-                if (floatingBackdropMesh.geometry) floatingBackdropMesh.geometry.dispose();
-                if (floatingBackdropMesh.material) {
-                    if (floatingBackdropMesh.material.map) floatingBackdropMesh.material.map.dispose();
-                    floatingBackdropMesh.material.dispose();
-                }
-                floatingBackdropMesh = null;
-            }
+            floatingBackdropMesh = null; 
 
             shapesArray.forEach(shape => {
                 if (!shape || typeof shape !== 'object') return;
@@ -1344,11 +1332,14 @@
             });
 
             if (worldGroup.children.length > 0) {
+                // Eliminate double geometric items competing for spatial parity
+                resolveGeometryClipping();
+
                 const box = new THREE.Box3().setFromObject(worldGroup);
                 const center = new THREE.Vector3(); 
                 box.getCenter(center);
                 
-                // Append backdrop mesh configuration directly into worldGroup parameters to lock scene tracking coordinates
+                // Construct the backdrop tracking surface and pin it inside worldGroup directly
                 if (scannedBackdropDataUrl) {
                     const size = new THREE.Vector3(); box.getSize(size);
                     const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
@@ -1357,20 +1348,17 @@
                         new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
                     );
                     
-                    // Pin position matrix parameters locally inside worldGroup space before the transformation translations
+                    // Positions the element relative to local bounds configurations inside worldGroup framework
                     floatingBackdropMesh.position.set(center.x, center.y, box.min.z - 1.5);
                     floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
                     floatingBackdropMesh.visible = backdropOverlayActive;
                     worldGroup.add(floatingBackdropMesh);
                 }
 
-                // Global Centering structural offsets allocation loop
+                // Recenter coordinate tracking groups natively
                 worldGroup.position.x = -center.x;
                 worldGroup.position.z = -center.z;
                 worldGroup.position.y = -box.min.y; 
-
-                // Execute the new single variant conflict resolution loop
-                resolveGeometryClipping();
             }
         }
 
@@ -1457,7 +1445,7 @@
             targetLinearVelocityZ = 0;
             rawCachedShapesArray = null;
             scannedBackdropDataUrl = null;
-            floatingBackdropMesh = null; 
+            floatingBackdropMesh = null;
             gyroYawOffset = 0;
             lastTapTime = 0;
             lastTargetMesh = null;
