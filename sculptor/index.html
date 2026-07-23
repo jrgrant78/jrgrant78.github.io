@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Spatial Sculptor AR</title>
+    <title>Resilient Mobile AR Spatial Sculptor</title>
     <style>
         body { margin: 0; padding: 0; overflow: hidden; font-family: sans-serif; background: #0b0b0f; color: #fff; }
 
@@ -659,27 +659,25 @@
             }
         }
 
-        // AUTOMATED SHAPE CLIPPING TRIMMING ENGINE
+        // VOLUMETRIC GEOMETRY DECONFLICTION FILTER
         function resolveGeometryClipping() {
             const meshes = [];
             worldGroup.traverse(child => {
+                // Background target canvas reference plane must be excluded from volumetric deletion loops
                 if (child.isMesh && child !== floatingBackdropMesh) {
                     meshes.push(child);
                 }
             });
 
-            meshes.forEach(m => {
-                if (m.material) {
-                    if (Array.isArray(m.material)) {
-                        m.material.forEach(mat => mat.clippingPlanes = null);
-                    } else {
-                        m.material.clippingPlanes = null;
-                    }
-                }
-            });
+            const scheduledForElimination = new Set();
 
+            // Evaluate intersection boundaries to keep exactly 1 primary mesh variant out of conflicting duplicates
             for (let i = 0; i < meshes.length; i++) {
+                if (scheduledForElimination.has(meshes[i])) continue;
+
                 for (let j = i + 1; j < meshes.length; j++) {
+                    if (scheduledForElimination.has(meshes[j])) continue;
+
                     const meshA = meshes[i];
                     const meshB = meshes[j];
 
@@ -690,39 +688,29 @@
                         const volA = (boxA.max.x - boxA.min.x) * (boxA.max.y - boxA.min.y) * (boxA.max.z - boxA.min.z);
                         const volB = (boxB.max.x - boxB.min.x) * (boxB.max.y - boxB.min.y) * (boxB.max.z - boxB.min.z);
 
-                        const culprit = volA < volB ? meshA : meshB;
-                        const targetBox = volA < volB ? boxB : boxA;
-                        const culpritBox = volA < volB ? boxA : boxB;
-
-                        const centerCulprit = new THREE.Vector3();
-                        culpritBox.getCenter(centerCulprit);
-
-                        const faces = [
-                            { dist: Math.abs(centerCulprit.x - targetBox.min.x), normal: new THREE.Vector3(-1, 0, 0), point: new THREE.Vector3(targetBox.min.x, 0, 0) },
-                            { dist: Math.abs(centerCulprit.x - targetBox.max.x), normal: new THREE.Vector3(1, 0, 0), point: new THREE.Vector3(targetBox.max.x, 0, 0) },
-                            { dist: Math.abs(centerCulprit.y - targetBox.min.y), normal: new THREE.Vector3(0, -1, 0), point: new THREE.Vector3(0, targetBox.min.y, 0) },
-                            { dist: Math.abs(centerCulprit.y - targetBox.max.y), normal: new THREE.Vector3(0, 1, 0), point: new THREE.Vector3(0, targetBox.max.y, 0) },
-                            { dist: Math.abs(centerCulprit.z - targetBox.min.z), normal: new THREE.Vector3(0, 0, -1), point: new THREE.Vector3(0, 0, targetBox.min.z) },
-                            { dist: Math.abs(centerCulprit.z - targetBox.max.z), normal: new THREE.Vector3(0, 0, 1), point: new THREE.Vector3(0, 0, targetBox.max.z) }
-                        ];
-
-                        faces.sort((a, b) => a.dist - b.dist);
-                        const bestFace = faces[0];
-
-                        const spatialEpsilon = -0.005;
-                        const adjustedPoint = bestFace.point.clone().addScaledVector(bestFace.normal, spatialEpsilon);
-
-                        const clipPlane = new THREE.Plane();
-                        clipPlane.setFromNormalAndCoplanarPoint(bestFace.normal.clone(), adjustedPoint);
-
-                        const mats = Array.isArray(culprit.material) ? culprit.material : [culprit.material];
-                        mats.forEach(m => {
-                            if (!m.clippingPlanes) m.clippingPlanes = [];
-                            m.clippingPlanes.push(clipPlane);
-                        });
+                        // Keep the single largest bounding mesh mass volume, discard conflicting redundant meshes
+                        if (volA >= volB) {
+                            scheduledForElimination.add(meshB);
+                        } else {
+                            scheduledForElimination.add(meshA);
+                            break; 
+                        }
                     }
                 }
             }
+
+            // Flush deleted configurations out of core memory
+            scheduledForElimination.forEach(mesh => {
+                if (mesh.userData && mesh.userData.fadeTimer) {
+                    clearTimeout(mesh.userData.fadeTimer);
+                }
+                if (mesh.geometry) mesh.geometry.dispose();
+                if (mesh.material) {
+                    if (Array.isArray(mesh.material)) mesh.material.forEach(m => m.dispose());
+                    else mesh.material.dispose();
+                }
+                worldGroup.remove(mesh);
+            });
         }
 
         // DYNAMIC SPATIAL MANIPULATION EVENT HANDLERS
@@ -734,7 +722,9 @@
             startScreenPosition.y = e.clientY;
 
             raycaster.setFromCamera(pointerCoordinateVector, camera);
-            const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
+            // Ignore floating overlay reference canvas elements during target scene selection queries
+            const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true)
+                                                          .filter(hit => hit.object !== floatingBackdropMesh);
 
             if (targetedStructuralIntersects.length > 0) {
                 let groundIntersectionVector = new THREE.Vector3();
@@ -753,7 +743,7 @@
                     if (controls) controls.enabled = false; 
 
                     worldGroup.traverse((child) => {
-                        if (child.isMesh && child.material) {
+                        if (child.isMesh && child.material && child !== floatingBackdropMesh) {
                             if (child.userData.originalEmissive === undefined) {
                                 child.userData.originalEmissive = child.material.emissive.getHex();
                             }
@@ -812,7 +802,8 @@
                     pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
                     raycaster.setFromCamera(pointerCoordinateVector, camera);
-                    const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
+                    const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true)
+                                                                  .filter(hit => hit.object !== floatingBackdropMesh);
 
                     if (targetedStructuralIntersects.length > 0) {
                         const hitMesh = targetedStructuralIntersects[0].object;
@@ -1007,7 +998,6 @@
                 return;
             }
 
-            // Updated localized workflow status logging string query text target parameters
             descDiv.innerHTML = "Please be patient while AI analyzes and reconstructs the scene...";
 
             const hiddenCanvas = document.createElement('canvas');
@@ -1284,7 +1274,6 @@
                     if (floatingBackdropMesh.material.map) floatingBackdropMesh.material.map.dispose();
                     floatingBackdropMesh.material.dispose();
                 }
-                scene.remove(floatingBackdropMesh);
                 floatingBackdropMesh = null;
             }
 
@@ -1359,12 +1348,7 @@
                 const center = new THREE.Vector3(); 
                 box.getCenter(center);
                 
-                worldGroup.position.x = -center.x;
-                worldGroup.position.z = -center.z;
-                worldGroup.position.y = -box.min.y; 
-
-                resolveGeometryClipping();
-
+                // Append backdrop mesh configuration directly into worldGroup parameters to lock scene tracking coordinates
                 if (scannedBackdropDataUrl) {
                     const size = new THREE.Vector3(); box.getSize(size);
                     const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
@@ -1372,11 +1356,21 @@
                         new THREE.PlaneGeometry(1, 1),
                         new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
                     );
-                    floatingBackdropMesh.position.set(0, center.y - box.min.y, -size.z / 2 - 1.5);
+                    
+                    // Pin position matrix parameters locally inside worldGroup space before the transformation translations
+                    floatingBackdropMesh.position.set(center.x, center.y, box.min.z - 1.5);
                     floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
                     floatingBackdropMesh.visible = backdropOverlayActive;
-                    scene.add(floatingBackdropMesh);
+                    worldGroup.add(floatingBackdropMesh);
                 }
+
+                // Global Centering structural offsets allocation loop
+                worldGroup.position.x = -center.x;
+                worldGroup.position.z = -center.z;
+                worldGroup.position.y = -box.min.y; 
+
+                // Execute the new single variant conflict resolution loop
+                resolveGeometryClipping();
             }
         }
 
@@ -1463,6 +1457,7 @@
             targetLinearVelocityZ = 0;
             rawCachedShapesArray = null;
             scannedBackdropDataUrl = null;
+            floatingBackdropMesh = null; 
             gyroYawOffset = 0;
             lastTapTime = 0;
             lastTargetMesh = null;
