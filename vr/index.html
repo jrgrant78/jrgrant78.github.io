@@ -533,6 +533,9 @@
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            
+            // Activate core hardware pipeline configuration to support visual edge trimming modifications
+            renderer.localClippingEnabled = true;
 
             initOrbitControls();
             
@@ -640,11 +643,81 @@
             }
         }
 
+        // AUTOMATED SHAPE CLIPPING TRIMMING ENGINE
+        function resolveGeometryClipping() {
+            const meshes = [];
+            worldGroup.traverse(child => {
+                if (child.isMesh && child !== floatingBackdropMesh) {
+                    meshes.push(child);
+                }
+            });
+
+            // Reinitialize and clear previous processing planes to avoid trace conflicts
+            meshes.forEach(m => {
+                if (m.material) {
+                    if (Array.isArray(m.material)) {
+                        m.material.forEach(mat => mat.clippingPlanes = null);
+                    } else {
+                        m.material.clippingPlanes = null;
+                    }
+                }
+            });
+
+            // Double loop to scan interlocking geometric spatial boundaries
+            for (let i = 0; i < meshes.length; i++) {
+                for (let j = i + 1; j < meshes.length; j++) {
+                    const meshA = meshes[i];
+                    const meshB = meshes[j];
+
+                    const boxA = new THREE.Box3().setFromObject(meshA);
+                    const boxB = new THREE.Box3().setFromObject(meshB);
+
+                    if (boxA.intersectsBox(boxB)) {
+                        // Collision confirmed. Trim the smaller mesh to preserve major structures.
+                        const volA = (boxA.max.x - boxA.min.x) * (boxA.max.y - boxA.min.y) * (boxA.max.z - boxA.min.z);
+                        const volB = (boxB.max.x - boxB.min.x) * (boxB.max.y - boxB.min.y) * (boxB.max.z - boxB.min.z);
+
+                        const culprit = volA < volB ? meshA : meshB;
+                        const targetBox = volA < volB ? boxB : boxA;
+                        const culpritBox = volA < volB ? boxA : boxB;
+
+                        const centerCulprit = new THREE.Vector3();
+                        culpritBox.getCenter(centerCulprit);
+
+                        // Find which architectural bounding face of the target mesh is closest to the culprit center mass
+                        const faces = [
+                            { dist: Math.abs(centerCulprit.x - targetBox.min.x), normal: new THREE.Vector3(-1, 0, 0), point: new THREE.Vector3(targetBox.min.x, 0, 0) },
+                            { dist: Math.abs(centerCulprit.x - targetBox.max.x), normal: new THREE.Vector3(1, 0, 0), point: new THREE.Vector3(targetBox.max.x, 0, 0) },
+                            { dist: Math.abs(centerCulprit.y - targetBox.min.y), normal: new THREE.Vector3(0, -1, 0), point: new THREE.Vector3(0, targetBox.min.y, 0) },
+                            { dist: Math.abs(centerCulprit.y - targetBox.max.y), normal: new THREE.Vector3(0, 1, 0), point: new THREE.Vector3(0, targetBox.max.y, 0) },
+                            { dist: Math.abs(centerCulprit.z - targetBox.min.z), normal: new THREE.Vector3(0, 0, -1), point: new THREE.Vector3(0, 0, targetBox.min.z) },
+                            { dist: Math.abs(centerCulprit.z - targetBox.max.z), normal: new THREE.Vector3(0, 0, 1), point: new THREE.Vector3(0, 0, targetBox.max.z) }
+                        ];
+
+                        faces.sort((a, b) => a.dist - b.dist);
+                        const bestFace = faces[0];
+
+                        // Construct a local GPU clipping plane directly on the target's outer face
+                        const clipPlane = new THREE.Plane();
+                        clipPlane.setFromNormalAndCoplanarPoint(bestFace.normal.clone(), bestFace.point);
+
+                        // Bind the plane array parameters smoothly into the culprit's rendering layer
+                        const mats = Array.isArray(culprit.material) ? culprit.material : [culprit.material];
+                        mats.forEach(m => {
+                            if (!m.clippingPlanes) m.clippingPlanes = [];
+                            m.clippingPlanes.push(clipPlane);
+                        });
+                    }
+                }
+            }
+        }
+
         // DYNAMIC SPATIAL MANIPULATION EVENT HANDLERS
         function handleScenePointerDownActivation(e) {
             pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
             pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
+            // Cache metrics for drag cancellation evaluation thresholds
             startScreenPosition.x = e.clientX;
             startScreenPosition.y = e.clientY;
 
@@ -713,6 +786,7 @@
 
             let intendedTargetPosition = currentGroundIntersection.sub(interactiveDragOffset);
             
+            // WHOLE INTEGER SHAPE SNAPPING MATRIX PROTOCOL
             worldGroup.position.x = Math.round(intendedTargetPosition.x);
             worldGroup.position.z = Math.round(intendedTargetPosition.z);
         }
@@ -780,7 +854,11 @@
                 isDraggingSceneActive = false;
                 isStructureReadyToMove = false;
                 if (controls) controls.enabled = true; 
-                document.getElementById('aiDescription').innerText = "Structure transform committed. Vector targets aligned cleanly on cell bounds.";
+                
+                // Scan and slice overlaps right as the drag interaction finishes moving
+                resolveGeometryClipping();
+                
+                document.getElementById('aiDescription').innerText = "Structure transform committed. Intersecting parameters cleaned and snapped.";
             }
         }
 
@@ -1236,7 +1314,7 @@
                         geo = new THREE.BoxGeometry(1, 1, 1);
                 }
 
-                // CRITICAL FIX: Explicitly recalculate geometry volume boundaries to ensure the Raycaster recognizes hits reliably
+                // Explicitly recalculate geometry volume boundaries to ensure the Raycaster recognizes hits reliably
                 geo.computeBoundingBox();
                 geo.computeBoundingSphere();
 
@@ -1275,6 +1353,9 @@
                 worldGroup.position.x = -center.x;
                 worldGroup.position.z = -center.z;
                 worldGroup.position.y = -box.min.y; 
+
+                // Run intersection optimizer to resolve any interlocking primitive blocks immediately on layout instantiation
+                resolveGeometryClipping();
 
                 if (scannedBackdropDataUrl) {
                     const size = new THREE.Vector3(); box.getSize(size);
