@@ -117,6 +117,7 @@
 
         #cameraWindow { 
             height: 130px; 
+            width: 173px; /* Sane initial default fallback until metadata updates */
             border: 2px solid #00e5ff; 
             border-radius: 6px; 
             overflow: hidden; 
@@ -128,11 +129,12 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            transition: width 0.2s ease;
+            transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            flex-shrink: 0;
         }
-        #cameraFeed { width: 100%; height: 100%; object-fit: cover; display: block; }
+        #cameraFeed { width: 100%; height: 100%; object-fit: fill; display: block; }
         
-        #libraryPreview { width: 100%; height: 100%; object-fit: cover; display: none; cursor: pointer; }
+        #libraryPreview { width: 100%; height: 100%; object-fit: fill; display: none; cursor: pointer; }
         #folderPlaceholder { 
             width: 100%; 
             height: 100%; 
@@ -241,7 +243,7 @@
                 </div>
             </div>
             
-            <!-- Right Pinned Discrete Aspect Camera Viewport -->
+            <!-- Right Pinned Dynamic Aspect Camera Viewport -->
             <div id="cameraWindow">
                 <video id="cameraFeed" autoplay playsinline muted></video>
                 <img id="libraryPreview" alt="Device selection display element">
@@ -305,6 +307,9 @@
         let rawCachedShapesArray = null;  
 
         let telemetryState = { x: 0, y: 2.0, z: 25.0 };
+
+        // SPATIAL WORKSPACE DYNAMIC ASPECT CONFIGURATORS
+        let cameraStreamAspectRatio = 4 / 3; // Default architectural aspect fallback ratio
 
         // SPATIAL MANIPULATION WORKSPACE REGISTERS
         let raycaster = new THREE.Raycaster();
@@ -495,21 +500,22 @@
             throw new Error("Mismatched block bounds.");
         }
 
+        // OPTION B ENGINE: Programmatically scales width based on streaming layout data geometry
         function resizeCameraViewport() {
             const cameraWin = document.getElementById('cameraWindow');
             if (!cameraWin) return;
             
+            // Safety margins ensure wide camera layouts don't override left panel keys
             const availableWidth = window.innerWidth - 20 - 24 - 108 - 12;
             
-            let targetWidth = 73; 
-            if (availableWidth >= 231) {
-                targetWidth = 231; 
-            } else if (availableWidth >= 130) {
-                targetWidth = 130; 
+            // Scaled directly against the locked 130px height constraint matrix
+            let calculatedWidthTarget = 130 * cameraStreamAspectRatio;
+            
+            if (calculatedWidthTarget > availableWidth) {
+                calculatedWidthTarget = availableWidth;
             }
             
-            cameraWin.style.width = targetWidth + 'px';
-            cameraWin.style.flexGrow = '0';
+            cameraWin.style.width = calculatedWidthTarget + 'px';
         }
 
         function init3D() {
@@ -534,7 +540,6 @@
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             
-            // Activate core hardware pipeline configuration to support visual edge trimming modifications
             renderer.localClippingEnabled = true;
 
             initOrbitControls();
@@ -585,6 +590,14 @@
             document.getElementById('folderPlaceholder').addEventListener('click', triggerDeviceFileBrowser);
             document.getElementById('libraryPreview').addEventListener('click', triggerDeviceFileBrowser);
             document.getElementById('fileInput').addEventListener('change', handleDeviceFileSelection);
+
+            // Capture resolution geometry changes when local asset components process completely
+            document.getElementById('libraryPreview').addEventListener('load', function() {
+                if (dynamicInputSourceMode === 'library' && this.naturalWidth) {
+                    cameraStreamAspectRatio = this.naturalWidth / this.naturalHeight;
+                    resizeCameraViewport();
+                }
+            });
 
             initRearCameraStreamGracefully();
             resizeCameraViewport();
@@ -652,7 +665,6 @@
                 }
             });
 
-            // Reinitialize and clear previous processing planes to avoid trace conflicts
             meshes.forEach(m => {
                 if (m.material) {
                     if (Array.isArray(m.material)) {
@@ -663,7 +675,6 @@
                 }
             });
 
-            // Double loop to scan interlocking geometric spatial boundaries
             for (let i = 0; i < meshes.length; i++) {
                 for (let j = i + 1; j < meshes.length; j++) {
                     const meshA = meshes[i];
@@ -673,7 +684,6 @@
                     const boxB = new THREE.Box3().setFromObject(meshB);
 
                     if (boxA.intersectsBox(boxB)) {
-                        // Collision confirmed. Trim the smaller mesh to preserve major structures.
                         const volA = (boxA.max.x - boxA.min.x) * (boxA.max.y - boxA.min.y) * (boxA.max.z - boxA.min.z);
                         const volB = (boxB.max.x - boxB.min.x) * (boxB.max.y - boxB.min.y) * (boxB.max.z - boxB.min.z);
 
@@ -684,7 +694,6 @@
                         const centerCulprit = new THREE.Vector3();
                         culpritBox.getCenter(centerCulprit);
 
-                        // Find which architectural bounding face of the target mesh is closest to the culprit center mass
                         const faces = [
                             { dist: Math.abs(centerCulprit.x - targetBox.min.x), normal: new THREE.Vector3(-1, 0, 0), point: new THREE.Vector3(targetBox.min.x, 0, 0) },
                             { dist: Math.abs(centerCulprit.x - targetBox.max.x), normal: new THREE.Vector3(1, 0, 0), point: new THREE.Vector3(targetBox.max.x, 0, 0) },
@@ -697,15 +706,13 @@
                         faces.sort((a, b) => a.dist - b.dist);
                         const bestFace = faces[0];
 
-                        // CRITICAL PRECISION FIX: Recess the clipping plane slightly into the target mesh by an analytical epsilon (-0.005).
-                        // This moves the mathematical boundary line past the co-planar region, completely eliminating shader static.
+                        // Recess the clipping plane slightly into the target mesh by an analytical epsilon (-0.005) to eliminate shader static noise
                         const spatialEpsilon = -0.005;
                         const adjustedPoint = bestFace.point.clone().addScaledVector(bestFace.normal, spatialEpsilon);
 
                         const clipPlane = new THREE.Plane();
                         clipPlane.setFromNormalAndCoplanarPoint(bestFace.normal.clone(), adjustedPoint);
 
-                        // Bind the plane array parameters smoothly into the culprit's rendering layer
                         const mats = Array.isArray(culprit.material) ? culprit.material : [culprit.material];
                         mats.forEach(m => {
                             if (!m.clippingPlanes) m.clippingPlanes = [];
@@ -721,7 +728,6 @@
             pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
             pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
-            // Cache metrics for drag cancellation evaluation thresholds
             startScreenPosition.x = e.clientX;
             startScreenPosition.y = e.clientY;
 
@@ -738,20 +744,18 @@
                 isStructureReadyToMove = false;
                 isDraggingSceneActive = false;
 
-                // Gated Long-Press Sequence: Verification threshold enforces steady click behaviors
                 sceneDragLongPressTimeout = setTimeout(() => {
                     isStructureReadyToMove = true;
                     isDraggingSceneActive = true;
                     
-                    if (controls) controls.enabled = false; // Decouple camera interactions during sliding sequence
+                    if (controls) controls.enabled = false; 
 
-                    // Apply emissive visual highlight matrix onto PBR material tree components
                     worldGroup.traverse((child) => {
                         if (child.isMesh && child.material) {
                             if (child.userData.originalEmissive === undefined) {
                                 child.userData.originalEmissive = child.material.emissive.getHex();
                             }
-                            child.material.emissive.setHex(0x224466); // Subtle cyan highlights indicate ready-to-move parameters
+                            child.material.emissive.setHex(0x224466); 
                         }
                     });
 
@@ -769,7 +773,6 @@
             const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
             const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
 
-            // Gated Movement Cancellation Logic
             if (!isStructureReadyToMove) {
                 if (currentPixelDeltaX > DRAG_CANCEL_THRESHOLD || currentPixelDeltaY > DRAG_CANCEL_THRESHOLD) {
                     if (sceneDragLongPressTimeout) {
@@ -790,7 +793,6 @@
 
             let intendedTargetPosition = currentGroundIntersection.sub(interactiveDragOffset);
             
-            // WHOLE INTEGER SHAPE SNAPPING MATRIX PROTOCOL
             worldGroup.position.x = Math.round(intendedTargetPosition.x);
             worldGroup.position.z = Math.round(intendedTargetPosition.z);
         }
@@ -803,7 +805,6 @@
                 const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
                 const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
 
-                // Calibrate against mobile drag thresholds specifically for tap event routing
                 if (currentPixelDeltaX < TAP_JITTER_THRESHOLD && currentPixelDeltaY < TAP_JITTER_THRESHOLD) {
                     pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
                     pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -815,16 +816,13 @@
                         const hitMesh = targetedStructuralIntersects[0].object;
                         const currentTime = performance.now();
 
-                        // Double-Tap Logic Window (< 350ms)
                         if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh) {
                             if (hitMesh.userData.fadeTimer) {
-                                // Clear active transparency rules on user override
                                 clearTimeout(hitMesh.userData.fadeTimer);
                                 hitMesh.userData.fadeTimer = null;
                                 restoreMeshOpacity(hitMesh);
                                 document.getElementById('aiDescription').innerText = "Transparency cleared by user override.";
                             } else {
-                                // Fire temporary transparency fade matrix
                                 cacheMeshOpacity(hitMesh);
                                 applyMeshOpacity(hitMesh, 0.25);
                                 document.getElementById('aiDescription').innerText = "Temporary transparency (0.25) activated.";
@@ -859,7 +857,6 @@
                 isStructureReadyToMove = false;
                 if (controls) controls.enabled = true; 
                 
-                // Scan and slice overlaps right as the drag interaction finishes moving
                 resolveGeometryClipping();
                 
                 document.getElementById('aiDescription').innerText = "Structure transform committed. Intersecting parameters cleaned and snapped.";
@@ -897,9 +894,13 @@
                 if (libPreview.src && libPreview.src !== window.location.href && libPreview.src !== '') {
                     libPreview.style.display = 'block';
                     placeholder.style.display = 'none';
+                    if(libPreview.naturalWidth) {
+                        cameraStreamAspectRatio = libPreview.naturalWidth / libPreview.naturalHeight;
+                    }
                 } else {
                     libPreview.style.display = 'none';
                     placeholder.style.display = 'flex';
+                    cameraStreamAspectRatio = 4 / 3; // Reset to base baseline placeholder aspect
                 }
                 desc.innerHTML = "Library Mode Active.<br>Tap target frame viewport area to select local data asset.";
             } else {
@@ -908,8 +909,13 @@
                 libPreview.style.display = 'none';
                 placeholder.style.display = 'none';
                 camFeed.style.display = 'block';
+                
+                if (videoElement && videoElement.videoWidth) {
+                    cameraStreamAspectRatio = videoElement.videoWidth / videoElement.videoHeight;
+                }
                 desc.innerHTML = "Live Feed Active.<br>Aim camera lens array and tap capture button.";
             }
+            resizeCameraViewport();
         }
 
         function triggerDeviceFileBrowser() {
@@ -973,6 +979,15 @@
 
         async function initRearCameraStreamGracefully() {
             videoElement = document.getElementById('cameraFeed');
+            
+            // Listen directly to raw input streams to lock UI aspect geometries to operational values
+            videoElement.addEventListener('loadedmetadata', () => {
+                if (dynamicInputSourceMode === 'camera' && videoElement.videoWidth) {
+                    cameraStreamAspectRatio = videoElement.videoWidth / videoElement.videoHeight;
+                    resizeCameraViewport();
+                }
+            });
+
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
                 videoElement.srcObject = localStream;
@@ -1318,7 +1333,6 @@
                         geo = new THREE.BoxGeometry(1, 1, 1);
                 }
 
-                // Explicitly recalculate geometry volume boundaries to ensure the Raycaster recognizes hits reliably
                 geo.computeBoundingBox();
                 geo.computeBoundingSphere();
 
@@ -1331,7 +1345,7 @@
                     ior: isTranslucent ? 1.52 : 1.0, 
                     thickness: isTranslucent ? 1.0 : 0.0, 
                     transparent: isTranslucent,
-                    side: THREE.DoubleSide, // Force double-sided renders to capture pointer arrays at any viewing tilt angle
+                    side: THREE.DoubleSide, 
                     clearcoat: shape.metal > 0.5 ? 0.3 : 0.0, 
                     clearcoatRoughness: 0.1
                 });
@@ -1358,7 +1372,6 @@
                 worldGroup.position.z = -center.z;
                 worldGroup.position.y = -box.min.y; 
 
-                // Run intersection optimizer to resolve any interlocking primitive blocks immediately on layout instantiation
                 resolveGeometryClipping();
 
                 if (scannedBackdropDataUrl) {
@@ -1568,7 +1581,6 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            // INFINITE SECURE TRACKING GRID ENGINE: Snaps the horizontal space container along modular cell boundaries
             if (gridHelper && gridHelper.visible) {
                 gridHelper.position.x = Math.round(camera.position.x);
                 gridHelper.position.z = Math.round(camera.position.z);
