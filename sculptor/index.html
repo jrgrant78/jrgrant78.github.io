@@ -703,40 +703,6 @@
             }
         }
 
-        // GEOMETRIC CLUSTER PROXIMITY SCANNER (Finds z-fighting or nearly identical overlay meshes)
-        function findClashingCompanions(targetMesh) {
-            let list = [targetMesh];
-            let boxTarget = new THREE.Box3().setFromObject(targetMesh);
-            let sizeTarget = new THREE.Vector3();
-            boxTarget.getSize(sizeTarget);
-            
-            worldGroup.traverse(child => {
-                if (child.isMesh && child !== targetMesh && child !== floatingBackdropMesh) {
-                    // Check if positions are extremely close (roughly space-coincident)
-                    let dist = child.position.distanceTo(targetMesh.position);
-                    if (dist < 0.25) { 
-                        // Verify orientation is roughly aimed in the same direction
-                        let angle = child.quaternion.angleTo(targetMesh.quaternion);
-                        if (angle < 0.25) { 
-                            // Compare dimensions profile to ensure matching spatial footprints
-                            let boxChild = new THREE.Box3().setFromObject(child);
-                            let sizeChild = new THREE.Vector3();
-                            boxChild.getSize(sizeChild);
-                            
-                            let dX = Math.abs(sizeTarget.x - sizeChild.x);
-                            let dY = Math.abs(sizeTarget.y - sizeChild.y);
-                            let dZ = Math.abs(sizeTarget.z - sizeChild.z);
-                            
-                            if (dX < 0.3 && dY < 0.3 && dZ < 0.3) { 
-                                list.push(child);
-                            }
-                        }
-                    }
-                }
-            });
-            return list;
-        }
-
         // DYNAMIC SPATIAL MANIPULATION EVENT HANDLERS
         function handleScenePointerDownActivation(e) {
             pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
@@ -832,28 +798,52 @@
                             const currentTime = performance.now();
 
                             if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh) {
-                                // Dynamic execution targeting clashing clustered elements concurrently
-                                let clusterCompanions = findClashingCompanions(hitMesh);
-                                
-                                if (hitMesh.userData.fadeTimer) {
-                                    clusterCompanions.forEach(m => {
+                                // Cohort Analysis Scanning Loop: Target spatial clashing/Z-fighting meshes matching proximity criteria
+                                const geometryCohort = [hitMesh];
+                                worldGroup.traverse((child) => {
+                                    if (child.isMesh && child !== hitMesh && child !== floatingBackdropMesh) {
+                                        const dist = child.position.distanceTo(hitMesh.position);
+                                        const deltaScaleX = Math.abs(child.scale.x - hitMesh.scale.x);
+                                        const deltaScaleY = Math.abs(child.scale.y - hitMesh.scale.y);
+                                        const deltaScaleZ = Math.abs(child.scale.z - hitMesh.scale.z);
+                                        const deltaAngle = child.quaternion.angleTo(hitMesh.quaternion);
+                                        
+                                        // Filter for extreme proximity (<0.3 units), scale compatibility (<0.20 deviation), and shared angular workspace tracking alignment (<0.20 radians)
+                                        if (dist < 0.3 && deltaScaleX < 0.2 && deltaScaleY < 0.2 && deltaScaleZ < 0.2 && deltaAngle < 0.2) {
+                                            geometryCohort.push(child);
+                                        }
+                                    }
+                                });
+
+                                const cohortCurrentlyFaded = hitMesh.userData.fadeTimer !== null && hitMesh.userData.fadeTimer !== undefined;
+
+                                if (cohortCurrentlyFaded) {
+                                    geometryCohort.forEach(m => {
                                         if (m.userData.fadeTimer) {
                                             clearTimeout(m.userData.fadeTimer);
                                             m.userData.fadeTimer = null;
                                         }
                                         restoreMeshOpacity(m);
                                     });
-                                    document.getElementById('aiDescription').innerText = "Transparency cleared for clashing structural cluster.";
+                                    document.getElementById('aiDescription').innerText = "Transparency cohort cleared by user override.";
                                 } else {
-                                    document.getElementById('aiDescription').innerText = `Cluster transparency activated (${clusterCompanions.length} matching elements).`;
-                                    clusterCompanions.forEach(m => {
+                                    geometryCohort.forEach(m => {
                                         cacheMeshOpacity(m);
                                         applyMeshOpacity(m, 0.25);
-                                        m.userData.fadeTimer = setTimeout(() => {
+                                    });
+                                    document.getElementById('aiDescription').innerText = `Temporary transparency cohort active (${geometryCohort.length} meshes localized).`;
+
+                                    // Unified restitution execution timer context bounds tracking profile
+                                    const unifiedTimer = setTimeout(() => {
+                                        geometryCohort.forEach(m => {
                                             restoreMeshOpacity(m);
                                             m.userData.fadeTimer = null;
-                                            document.getElementById('aiDescription').innerText = "Mesh material profiles restored automatically.";
-                                        }, 3000);
+                                        });
+                                        document.getElementById('aiDescription').innerText = "Mesh material cohort profile restored automatically.";
+                                    }, 3000);
+
+                                    geometryCohort.forEach(m => {
+                                        m.userData.fadeTimer = unifiedTimer;
                                     });
                                 }
                                 lastTapTime = 0;
@@ -1391,7 +1381,7 @@
                     const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
                     floatingBackdropMesh = new THREE.Mesh(
                         new THREE.PlaneGeometry(1, 1),
-                        // Reference image context backdrop opacity updated cleanly to a solid 75% density profile
+                        // Reference image context backdrop opacity configured to a solid 75% density profile
                         new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false })
                     );
                     
@@ -1606,6 +1596,7 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
+            // Keep floor grid pinned implicitly under camera calculations without resetting baseline position loops
             if (gridHelper && gridHelper.visible) {
                 gridHelper.position.x = Math.round(camera.position.x);
                 gridHelper.position.z = Math.round(camera.position.z);
