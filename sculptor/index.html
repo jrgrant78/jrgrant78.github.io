@@ -180,7 +180,6 @@
         <div class="main-interface">
             <!-- Unified Left Container -->
             <div id="leftContainer">
-                <!-- Row 1: Primary Utility Configurations -->
                 <div class="icon-row">
                     <button id="uiToggleBtn" title="Toggle UI Controls">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -204,7 +203,6 @@
                     </button>
                 </div>
                 
-                <!-- Toggleable Panel: Row 2 Operations Matrix -->
                 <div id="togglePanel">
                     <div class="btn-toolbar" id="toolbarNode">
                         <button id="scanBtn" class="action-btn btn-scan" title="Scan Environment">
@@ -232,7 +230,6 @@
                 </div>
             </div>
             
-            <!-- Right Pinned Dynamic Aspect Camera Viewport -->
             <div id="cameraWindow">
                 <video id="cameraFeed" autoplay playsinline muted></video>
                 <img id="libraryPreview" alt="Device selection display element">
@@ -250,7 +247,6 @@
             </div>
         </div>
         
-        <!-- Screen-Width Bottom Logging Terminal Panel -->
         <div id="lowerContent">
             <input type="file" id="fileInput" accept="image/*" style="display: none;">
             <div id="status">Deconstructing spatial geometry orientation...</div>
@@ -297,11 +293,9 @@
 
         let telemetryState = { x: 0, y: 2.0, z: 25.0 };
 
-        // SPATIAL WORKSPACE CONTEXT PARAMETERS
         let cameraStreamAspectRatio = 4 / 3; 
         let systemApiSecretKey = null; 
 
-        // SPATIAL MANIPULATION WORKSPACE REGISTERS
         let raycaster = new THREE.Raycaster();
         let pointerCoordinateVector = new THREE.Vector2();
         let isDraggingSceneActive = false;
@@ -310,12 +304,10 @@
         let interactiveDragOffset = new THREE.Vector3();
         let groundReferencePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
         
-        // Gesture verification metrics
         let startScreenPosition = { x: 0, y: 0 };
         const DRAG_CANCEL_THRESHOLD = 8; 
         const TAP_JITTER_THRESHOLD = 18;  
 
-        // Double tap sequence registers
         let lastTapTime = 0;
         let lastTargetMesh = null;
 
@@ -604,6 +596,7 @@
             animate();
         }
 
+        // UNIVERSAL MATERIAL MODIFIER ENGINE
         function cacheMeshOpacity(mesh) {
             if (mesh.userData.savedOpacity === undefined) {
                 if (Array.isArray(mesh.material)) {
@@ -655,22 +648,22 @@
             }
         }
 
-        // DE-DUPLICATION LOGIC FOR OVERLAPPING GEOMETRIES IN THE SAME SPACE
-        function resolveGeometryClipping() {
+        // VOLUMETRIC SPACE OCCUPANCY DEDUPLICATION PASS
+        function resolveGeometryOverlaps() {
             const meshes = [];
             worldGroup.traverse(child => {
+                // Ignore the backdrop mesh so it doesn't try to clear out the models
                 if (child.isMesh && child !== floatingBackdropMesh) {
                     meshes.push(child);
                 }
             });
 
-            const toRemove = new Set();
+            const meshesToRemove = new Set();
 
             for (let i = 0; i < meshes.length; i++) {
-                if (toRemove.has(meshes[i])) continue;
-                
+                if (meshesToRemove.has(meshes[i])) continue;
                 for (let j = i + 1; j < meshes.length; j++) {
-                    if (toRemove.has(meshes[j])) continue;
+                    if (meshesToRemove.has(meshes[j])) continue;
 
                     const meshA = meshes[i];
                     const meshB = meshes[j];
@@ -679,29 +672,34 @@
                     const boxB = new THREE.Box3().setFromObject(meshB);
 
                     if (boxA.intersectsBox(boxB)) {
-                        const sizeA = new THREE.Vector3();
-                        const sizeB = new THREE.Vector3();
-                        boxA.getSize(sizeA);
-                        boxB.getSize(sizeB);
-                        
-                        const volA = sizeA.x * sizeA.y * sizeA.z;
-                        const volB = sizeB.x * sizeB.y * sizeB.z;
+                        // Compute bounding constraints of the shared space
+                        const minX = Math.max(boxA.min.x, boxB.min.x);
+                        const maxX = Math.min(boxA.max.x, boxB.max.x);
+                        const minY = Math.max(boxA.min.y, boxB.min.y);
+                        const maxY = Math.min(boxA.max.y, boxB.max.y);
+                        const minZ = Math.max(boxA.min.z, boxB.min.z);
+                        const maxZ = Math.min(boxA.max.z, boxB.max.z);
 
-                        // Keep the larger geometry option to preserve the primary architectural anchor
-                        if (volA >= volB) {
-                            toRemove.add(meshB);
-                        } else {
-                            toRemove.add(meshA);
-                            break; 
+                        if (maxX > minX && maxY > minY && maxZ > minZ) {
+                            const overlapVol = (maxX - minX) * (maxY - minY) * (maxZ - minZ);
+                            const volA = (boxA.max.x - boxA.min.x) * (boxA.max.y - boxA.min.y) * (boxA.max.z - boxA.min.z);
+                            const volB = (boxB.max.x - boxB.min.x) * (boxB.max.y - boxB.min.y) * (boxB.max.z - boxB.min.z);
+                            
+                            // Prune duplicates if overlap signature consumes > 30% of either block volume
+                            if (overlapVol / Math.min(volA, volB) > 0.30) {
+                                if (volA < volB) {
+                                    meshesToRemove.add(meshA);
+                                    break; 
+                                } else {
+                                    meshesToRemove.add(meshB);
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            toRemove.forEach(mesh => {
-                if (mesh.userData && mesh.userData.fadeTimer) {
-                    clearTimeout(mesh.userData.fadeTimer);
-                }
+            meshesToRemove.forEach(mesh => {
                 if (mesh.geometry) mesh.geometry.dispose();
                 if (mesh.material) {
                     if (Array.isArray(mesh.material)) mesh.material.forEach(m => m.dispose());
@@ -711,6 +709,7 @@
             });
         }
 
+        // DYNAMIC SPATIAL MANIPULATION EVENT HANDLERS
         function handleScenePointerDownActivation(e) {
             pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
             pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -721,7 +720,10 @@
             raycaster.setFromCamera(pointerCoordinateVector, camera);
             const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
 
-            if (targetedStructuralIntersects.length > 0) {
+            // Ensure the reference asset plane layout can't trigger long press drags itself
+            const modelIntersects = targetedStructuralIntersects.filter(hit => hit.object !== floatingBackdropMesh);
+
+            if (modelIntersects.length > 0) {
                 let groundIntersectionVector = new THREE.Vector3();
                 raycaster.ray.intersectPlane(groundReferencePlane, groundIntersectionVector);
                 interactiveDragOffset.copy(groundIntersectionVector).sub(worldGroup.position);
@@ -746,7 +748,7 @@
                         }
                     });
 
-                    document.getElementById('aiDescription').innerText = "[Active Mode: Translating Structure]\nSlide to reposition. Pinned backdrop image handles transform operations simultaneously.";
+                    document.getElementById('aiDescription').innerText = "[Active Mode: Translating Structure]\nSlide to reposition. Elements will snap to full integer grid cells.";
                 }, 400); 
             } else {
                 lastTapTime = 0;
@@ -798,12 +800,13 @@
 
                     raycaster.setFromCamera(pointerCoordinateVector, camera);
                     const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
+                    const modelIntersects = targetedStructuralIntersects.filter(hit => hit.object !== floatingBackdropMesh);
 
-                    if (targetedStructuralIntersects.length > 0) {
-                        const hitMesh = targetedStructuralIntersects[0].object;
+                    if (modelIntersects.length > 0) {
+                        const hitMesh = modelIntersects[0].object;
                         const currentTime = performance.now();
 
-                        if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh && hitMesh !== floatingBackdropMesh) {
+                        if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh) {
                             if (hitMesh.userData.fadeTimer) {
                                 clearTimeout(hitMesh.userData.fadeTimer);
                                 hitMesh.userData.fadeTimer = null;
@@ -844,9 +847,9 @@
                 isStructureReadyToMove = false;
                 if (controls) controls.enabled = true; 
                 
-                resolveGeometryClipping();
+                resolveGeometryOverlaps();
                 
-                document.getElementById('aiDescription').innerText = "Structure transform committed. Conflict checking complete.";
+                document.getElementById('aiDescription').innerText = "Structure transform committed. Intersecting parameters cleaned and snapped.";
             }
         }
 
@@ -988,7 +991,7 @@
             const scanBtn = document.getElementById('scanBtn');
 
             if (!systemApiSecretKey) {
-                descDiv.innerHTML = "<span style='color:#ff3333; font-weight:bold;'>Authentication Error:</span> Dynamic scanning is disabled. You must supply a valid API key via the browser URL address parameter sequence string (e.g., <code>?key=YOUR_KEY_HERE</code>) and refresh the interface workspace.";
+                descDiv.innerHTML = "<span style='color:#ff3333; font-weight:bold;'>Authentication Error:</span> Dynamic scanning is disabled. You must supply a valid API key via the browser URL address parameter sequence string matching <code>?key=YOUR_KEY_HERE</code>.";
                 return;
             }
 
@@ -1008,7 +1011,7 @@
             } else {
                 const libraryImg = document.getElementById('libraryPreview');
                 if (!libraryImg.src || libraryImg.style.display === 'none') {
-                    alert("Pipeline Error: Please upload an image target inside the source terminal view first.");
+                    alert("Pipeline Error: Please upload an image target first.");
                     return;
                 }
                 hiddenCanvas.width = libraryImg.naturalWidth || 800;
@@ -1246,7 +1249,6 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
-        // SCENE GENERATION RUNTIME PLATFORM WITH BACKDROP SCENE OVERLAY MECHANICS
         function renderAIBlueprint(shapesArray) {
             worldGroup.position.set(0, 0, 0);
 
@@ -1263,7 +1265,7 @@
                 worldGroup.remove(child);
             }
 
-            floatingBackdropMesh = null; 
+            floatingBackdropMesh = null;
 
             shapesArray.forEach(shape => {
                 if (!shape || typeof shape !== 'object') return;
@@ -1332,33 +1334,42 @@
             });
 
             if (worldGroup.children.length > 0) {
-                // Eliminate double geometric items competing for spatial parity
-                resolveGeometryClipping();
-
+                // Determine layout bounds prior to normalization
                 const box = new THREE.Box3().setFromObject(worldGroup);
                 const center = new THREE.Vector3(); 
                 box.getCenter(center);
                 
-                // Construct the backdrop tracking surface and pin it inside worldGroup directly
+                // Align individual children geometries locally around parent origin
+                worldGroup.children.forEach(child => {
+                    child.position.x -= center.x;
+                    child.position.z -= center.z;
+                    child.position.y -= box.min.y;
+                });
+
+                // Clear out conflicting objects fighting for identical physical spaces
+                resolveGeometryOverlaps();
+
+                // Recalculate dimensions of pruned geometry to size the backdrop plane perfectly
+                const updatedBox = new THREE.Box3().setFromObject(worldGroup);
+                const updatedSize = new THREE.Vector3(); 
+                updatedBox.getSize(updatedSize);
+                const updatedCenter = new THREE.Vector3(); 
+                updatedBox.getCenter(updatedCenter);
+
                 if (scannedBackdropDataUrl) {
-                    const size = new THREE.Vector3(); box.getSize(size);
                     const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
                     floatingBackdropMesh = new THREE.Mesh(
                         new THREE.PlaneGeometry(1, 1),
                         new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
                     );
                     
-                    // Positions the element relative to local bounds configurations inside worldGroup framework
-                    floatingBackdropMesh.position.set(center.x, center.y, box.min.z - 1.5);
-                    floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
+                    // Pinned directly inside worldGroup locally so translations preserve structural layout bindings
+                    floatingBackdropMesh.position.set(0, updatedCenter.y, -updatedSize.z / 2 - 1.5);
+                    floatingBackdropMesh.scale.set(Math.max(updatedSize.x, 6), Math.max(updatedSize.y, 6), 1);
                     floatingBackdropMesh.visible = backdropOverlayActive;
+                    
                     worldGroup.add(floatingBackdropMesh);
                 }
-
-                // Recenter coordinate tracking groups natively
-                worldGroup.position.x = -center.x;
-                worldGroup.position.z = -center.z;
-                worldGroup.position.y = -box.min.y; 
             }
         }
 
