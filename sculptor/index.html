@@ -39,7 +39,7 @@
             flex-direction: column;
             gap: 6px;
             flex-shrink: 0;
-            width: 198px;
+            width: 198px; /* Explicitly targets 3 buttons of 62px + 2 gaps of 6px */
         }
 
         .icon-row, .btn-toolbar {
@@ -164,11 +164,11 @@
             width: 100%;
         }
         
-        /* Retained unified stable orange theme profile for processing pipeline logs */
+        /* Retains unified stable orange tone signature for standard messages and logs */
         #status { color: #ffab00; font-weight: bold; margin-top: 4px; font-size: 0.8em; display: none; }
         #aiDescription { margin-top: 4px; font-size: 0.75em; color: #aaa; max-height: 150px; overflow-y: auto; background: #15151f; padding: 6px; border-radius: 4px; border: 1px solid #222; white-space: pre-wrap; line-height: 1.4; width: 100%; box-sizing: border-box; }
         
-        /* Yellow Pulsating Warning Frame Selector for Status Alert Engine */
+        /* Yellow Pulsating Warning Frame Engine Wrapper */
         .pulsate-warning {
             animation: textPulse 1.4s infinite ease-in-out;
             color: #ffea00;
@@ -302,6 +302,7 @@
         const TRANSLATION_SPEED_SCALAR = 0.65;                   
         let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
+        // Persistent master node collection
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
         
@@ -334,8 +335,9 @@
         let lastTapTime = 0;
         let lastTargetMesh = null;
         
-        // Persistent Structure Selection Register
-        let currentlySelectedStructureGroup = null;
+        // Structure isolation tracking registers
+        let selectedStructureGroup = null;
+        let activeDraggingGroup = null;
 
         const OPEN_EYE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
@@ -548,7 +550,8 @@
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x06060a);
 
-            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 15000);
+            // Extended far clipping plane threshold bounds matrix payload
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100000);
             camera.position.set(telemetryState.x, telemetryState.y, telemetryState.z);
 
             renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
@@ -564,9 +567,9 @@
             
             motionTracker = new MultiPointMotionTracker();
 
-            // Configured an extremely large grid array size extending indefinitely outward from starting coordinates origin
-            gridHelper = new THREE.GridHelper(8000, 8000, 0xb0b0b0, 0x444455);
-            gridHelper.position.set(0, 0, 0); 
+            // Permanent locked grid plane ecosystem
+            gridHelper = new THREE.GridHelper(10000, 10000, 0xb0b0b0, 0x777777);
+            gridHelper.position.y = 0.0; 
             gridHelper.visible = true;
             scene.add(gridHelper);
 
@@ -675,27 +678,49 @@
             }
         }
 
-        // DUAL-PASS GEOMETRY PURGE AND RELAXATION ENGINE
+        function highlightStructure(group) {
+            group.traverse(child => {
+                if (child.isMesh && child.material && child.material.emissive) {
+                    if (child.userData.selectionEmissiveSaved === undefined) {
+                        child.userData.selectionEmissiveSaved = child.material.emissive.getHex();
+                    }
+                    child.material.emissive.setHex(0x333300); 
+                }
+            });
+        }
+
+        function deselectStructure(group) {
+            if (!group) return;
+            group.traverse(child => {
+                if (child.isMesh && child.material && child.userData.selectionEmissiveSaved !== undefined) {
+                    child.material.emissive.setHex(child.userData.selectionEmissiveSaved);
+                    delete child.userData.selectionEmissiveSaved;
+                }
+            });
+        }
+
+        // DUAL-PASS GEOMETRY PURGE AND RELAXATION ENGINE (Z-FIGHTING MITIGATION)
         function resolveGeometryClipping() {
             let meshes = [];
             worldGroup.traverse(child => {
-                if (child.isMesh && child.name !== 'backdropOverlayElement') {
+                // Collect meshes tracking valid geometrical data trees across all isolation containers
+                if (child.isMesh && !child.userData.isBackdropOverlayPlane) {
                     meshes.push(child);
                 }
             });
 
-            // PASS 1: DUPLICATE PURGE PIPELINE
+            // PASS 1: EXPLICIT DUPLICATE PURGE PIPELINE
             for (let i = meshes.length - 1; i >= 0; i--) {
                 for (let j = i - 1; j >= 0; j--) {
                     const meshA = meshes[i];
                     const meshB = meshes[j];
                     if (!meshA || !meshB) continue;
 
-                    const positionalDelta = meshA.position.distanceTo(meshB.position);
+                    const positionalDelta = meshA.getWorldPosition(new THREE.Vector3()).distanceTo(meshB.getWorldPosition(new THREE.Vector3()));
                     const dimensionalDelta = Math.abs(meshA.scale.x - meshB.scale.x) + 
                                              Math.abs(meshA.scale.y - meshB.scale.y) + 
                                              Math.abs(meshA.scale.z - meshB.scale.z);
-                    const angularDelta = meshA.quaternion.angleTo(meshB.quaternion);
+                    const angularDelta = meshA.getWorldQuaternion(new THREE.Quaternion()).angleTo(meshB.getWorldQuaternion(new THREE.Quaternion()));
 
                     if (positionalDelta < 0.015 && dimensionalDelta < 0.02 && angularDelta < 0.05) {
                         if (meshA.geometry) meshA.geometry.dispose();
@@ -703,14 +728,14 @@
                             if (Array.isArray(meshA.material)) meshA.material.forEach(m => m.dispose());
                             else meshA.material.dispose();
                         }
-                        if(meshA.parent) meshA.parent.remove(meshA);
+                        if (meshA.parent) meshA.parent.remove(meshA);
                         meshes.splice(i, 1);
                         break; 
                     }
                 }
             }
 
-            // PASS 2: MTV PHYSICS PASSES
+            // PASS 2: MULTI-PASS MINIMUM TRANSLATION VECTOR RELAXATION
             const relaxationPasses = 4;
             const antiFlickerEpsilon = 0.025; 
 
@@ -762,41 +787,6 @@
             }
         }
 
-        // PURE DE-SELECTION LOGIC PROTOCOL
-        function deselectCurrentStructure() {
-            if (currentlySelectedStructureGroup) {
-                currentlySelectedStructureGroup.traverse(child => {
-                    if (child.isMesh && child.material && child.userData.originalEmissive !== undefined) {
-                        if (child.material.emissive) {
-                            child.material.emissive.setHex(child.userData.originalEmissive);
-                        }
-                    }
-                });
-                currentlySelectedStructureGroup = null;
-            }
-        }
-
-        // PERSISTENT SELECTION SCHEME HANDLER
-        function selectStructureGroup(groupNode) {
-            deselectCurrentStructure();
-            currentlySelectedStructureGroup = groupNode;
-            
-            currentlySelectedStructureGroup.traverse(child => {
-                if (child.isMesh && child.material && child.name !== 'backdropOverlayElement') {
-                    if (child.userData.originalEmissive === undefined) {
-                        child.userData.originalEmissive = child.material.emissive ? child.material.emissive.getHex() : 0x000000;
-                    }
-                    if (child.material.emissive) {
-                        child.material.emissive.setHex(0x35350b); // Subtle yellow selection outline glow tint
-                    }
-                }
-            });
-
-            if (currentlySelectedStructureGroup.userData.descriptionText) {
-                document.getElementById('aiDescription').innerHTML = currentlySelectedStructureGroup.userData.descriptionText;
-            }
-        }
-
         // DYNAMIC SPATIAL MANIPULATION EVENT HANDLERS
         function handleScenePointerDownActivation(e) {
             pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
@@ -809,9 +799,19 @@
             const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
 
             if (targetedStructuralIntersects.length > 0) {
+                let hitObj = targetedStructuralIntersects[0].object;
+                if (hitObj.userData.isBackdropOverlayPlane) return;
+
+                // Track immediate child node of the master container root
+                let structRoot = hitObj;
+                while (structRoot.parent && structRoot.parent !== worldGroup) {
+                    structRoot = structRoot.parent;
+                }
+                activeDraggingGroup = structRoot;
+
                 let groundIntersectionVector = new THREE.Vector3();
                 raycaster.ray.intersectPlane(groundReferencePlane, groundIntersectionVector);
-                interactiveDragOffset.copy(groundIntersectionVector).sub(worldGroup.position);
+                interactiveDragOffset.copy(groundIntersectionVector).sub(activeDraggingGroup.position);
 
                 if (sceneDragLongPressTimeout) clearTimeout(sceneDragLongPressTimeout);
                 
@@ -824,8 +824,8 @@
                     
                     if (controls) controls.enabled = false; 
 
-                    worldGroup.traverse((child) => {
-                        if (child.isMesh && child.material && child.name !== 'backdropOverlayElement') {
+                    activeDraggingGroup.traverse((child) => {
+                        if (child.isMesh && child.material && !child.userData.isBackdropOverlayPlane) {
                             if (child.userData.originalEmissive === undefined) {
                                 child.userData.originalEmissive = child.material.emissive.getHex();
                             }
@@ -833,16 +833,18 @@
                         }
                     });
 
-                    document.getElementById('aiDescription').innerText = "[Active Mode: Translating Structure]\nSlide to reposition. Elements will snap to full integer grid cells.";
+                    document.getElementById('aiDescription').innerText = "[Active Mode: Translating Structure]\nSlide to reposition individual structural workspace nodes.";
                 }, 400); 
             } else {
                 lastTapTime = 0;
                 lastTargetMesh = null;
+                activeDraggingGroup = null;
             }
         }
 
         function handleScenePointerDragSequence(e) {
             if (!isDraggingSceneActive && !sceneDragLongPressTimeout) return;
+            if (!activeDraggingGroup) return;
 
             const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
             const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
@@ -867,8 +869,8 @@
 
             let intendedTargetPosition = currentGroundIntersection.sub(interactiveDragOffset);
             
-            worldGroup.position.x = Math.round(intendedTargetPosition.x);
-            worldGroup.position.z = Math.round(intendedTargetPosition.z);
+            activeDraggingGroup.position.x = Math.round(intendedTargetPosition.x);
+            activeDraggingGroup.position.z = Math.round(intendedTargetPosition.z);
         }
 
         function handleScenePointerUpRelease(e) {
@@ -888,19 +890,19 @@
 
                     if (targetedStructuralIntersects.length > 0) {
                         const hitMesh = targetedStructuralIntersects[0].object;
-                        if (hitMesh.name !== 'backdropOverlayElement') {
+                        if (!hitMesh.userData.isBackdropOverlayPlane) {
+                            let parentStructure = hitMesh;
+                            while (parentStructure.parent && parentStructure.parent !== worldGroup) {
+                                parentStructure = parentStructure.parent;
+                            }
+
                             const currentTime = performance.now();
 
+                            // Verify and execute double tap transparency cohort fade pipeline
                             if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh) {
-                                // Clear pending single tap tracking context loops to cleanly process double-taps
-                                if (hitMesh.userData.singleTapTimeout) {
-                                    clearTimeout(hitMesh.userData.singleTapTimeout);
-                                    hitMesh.userData.singleTapTimeout = null;
-                                }
-
                                 const geometryCohort = [hitMesh];
                                 worldGroup.traverse((child) => {
-                                    if (child.isMesh && child !== hitMesh && child.name !== 'backdropOverlayElement') {
+                                    if (child.isMesh && child !== hitMesh && !child.userData.isBackdropOverlayPlane) {
                                         const dist = child.position.distanceTo(hitMesh.position);
                                         const deltaScaleX = Math.abs(child.scale.x - hitMesh.scale.x);
                                         const deltaScaleY = Math.abs(child.scale.y - hitMesh.scale.y);
@@ -923,20 +925,17 @@
                                         }
                                         restoreMeshOpacity(m);
                                     });
-                                    document.getElementById('aiDescription').innerText = "Transparency cohort cleared by user override.";
                                 } else {
                                     geometryCohort.forEach(m => {
                                         cacheMeshOpacity(m);
                                         applyMeshOpacity(m, 0.25);
                                     });
-                                    document.getElementById('aiDescription').innerText = `Temporary transparency cohort active (${geometryCohort.length} meshes localized).`;
 
                                     const unifiedTimer = setTimeout(() => {
                                         geometryCohort.forEach(m => {
                                             restoreMeshOpacity(m);
                                             m.userData.fadeTimer = null;
                                         });
-                                        document.getElementById('aiDescription').innerText = "Mesh material cohort profile restored automatically.";
                                     }, 3000);
 
                                     geometryCohort.forEach(m => {
@@ -946,45 +945,39 @@
                                 lastTapTime = 0;
                                 lastTargetMesh = null;
                             } else {
-                                // Queue single-tap configuration sequence execution frame
-                                if (hitMesh.userData.singleTapTimeout) clearTimeout(hitMesh.userData.singleTapTimeout);
-                                
-                                hitMesh.userData.singleTapTimeout = setTimeout(() => {
-                                    let structuralParentGroupNode = hitMesh.parent;
-                                    while (structuralParentGroupNode && structuralParentGroupNode.parent !== worldGroup) {
-                                        structuralParentGroupNode = structuralParentGroupNode.parent;
-                                    }
-                                    if (structuralParentGroupNode) {
-                                        selectStructureGroup(structuralParentGroupNode);
-                                    }
-                                    hitMesh.userData.singleTapTimeout = null;
-                                }, 360);
-
+                                // Single Tap Selection Context Pipeline Routing
                                 lastTapTime = currentTime;
                                 lastTargetMesh = hitMesh;
+
+                                if (selectedStructureGroup && selectedStructureGroup !== parentStructure) {
+                                    deselectStructure(selectedStructureGroup);
+                                }
+
+                                selectedStructureGroup = parentStructure;
+                                highlightStructure(selectedStructureGroup);
+                                document.getElementById('aiDescription').innerHTML = selectedStructureGroup.userData.description || "No layout description bounded.";
                             }
                         }
                     } else {
-                        // Off-mesh release triggers deselection parameter states
-                        deselectCurrentStructure();
+                        // Deselect workflow executed on empty canvas background tap patterns
+                        if (selectedStructureGroup) {
+                            deselectStructure(selectedStructureGroup);
+                            selectedStructureGroup = null;
+                        }
+                        document.getElementById('aiDescription').innerHTML = "Awaiting snapshot capture execution sequence...";
                         lastTapTime = 0;
                         lastTargetMesh = null;
                     }
                 }
             }
             
-            worldGroup.traverse((child) => {
-                if (child.isMesh && child.material && child.userData.originalEmissive !== undefined && child !== currentlySelectedStructureGroup) {
-                    // Retain selection highlights cleanly if matched
-                    let isPartofSelected = false;
-                    if (currentlySelectedStructureGroup) {
-                        currentlySelectedStructureGroup.traverse(node => { if(node === child) isPartofSelected = true; });
-                    }
-                    if (!isPartofSelected && child.material.emissive) {
+            if (activeDraggingGroup) {
+                activeDraggingGroup.traverse((child) => {
+                    if (child.isMesh && child.material && child.userData.originalEmissive !== undefined) {
                         child.material.emissive.setHex(child.userData.originalEmissive);
                     }
-                }
-            });
+                });
+            }
 
             if (isDraggingSceneActive) {
                 isDraggingSceneActive = false;
@@ -992,26 +985,20 @@
                 if (controls) controls.enabled = true; 
                 
                 resolveGeometryClipping();
-                
-                document.getElementById('aiDescription').innerText = "Structure transform committed. Intersecting parameters cleaned and snapped.";
+                activeDraggingGroup = null;
             }
         }
 
         function toggleSpatialBackdropOverlay() {
             const btn = document.getElementById('overlayToggleBtn');
-            if (backdropOverlayActive) {
-                backdropOverlayActive = false;
-                btn.classList.remove('overlay-engaged');
-                worldGroup.traverse(child => {
-                    if (child.name === 'backdropOverlayElement') child.visible = false;
-                });
-            } else {
-                backdropOverlayActive = true;
-                btn.classList.add('overlay-engaged');
-                worldGroup.traverse(child => {
-                    if (child.name === 'backdropOverlayElement') child.visible = true;
-                });
-            }
+            backdropOverlayActive = !backdropOverlayActive;
+            btn.classList.toggle('overlay-engaged', backdropOverlayActive);
+            
+            worldGroup.traverse(child => {
+                if (child.userData && child.userData.isBackdropOverlayPlane) {
+                    child.visible = backdropOverlayActive;
+                }
+            });
         }
 
         function toggleInputSourceMode(e) {
@@ -1102,8 +1089,6 @@
                 controls = new THREE.OrbitControls(camera, renderer.domElement);
                 controls.enableDamping = true;
                 controls.dampingFactor = 0.05;
-                // Configured screen-space tracking to allow fluid infinite traversal bounds
-                controls.screenSpacePanning = true; 
             }
             controls.target.set(0, 0, 0); 
             controls.enabled = true;
@@ -1144,7 +1129,7 @@
                 return;
             }
 
-            // Yellow warning message display text pulsating correctly during system analysis
+            // High priority yellow warning status alerts are handled explicitly with pulsating CSS engine elements
             descDiv.innerHTML = '<span class="pulsate-warning">WARNING: scene reconstruction in progress.<br>Please wait for analysis to complete...</span>';
 
             const hiddenCanvas = document.createElement('canvas');
@@ -1235,7 +1220,7 @@
 
             pass1ModelLoop: for (let model of modelCascadeList) {
                 try {
-                    // Retained standard orange tracking layout definitions cleanly
+                    // Processing logs retain standard text color profile configs safely
                     statusDiv.innerText = `Pass 1: Prompting ${model}...`;
                     const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + systemApiSecretKey, {
                         method: 'POST',
@@ -1385,12 +1370,12 @@
                     structuredUiOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>System Connection Diagnostics Trail:</b><br>${debugDiagnosticsHistory}${permanentPass2Logs}</div>`;
                 }
 
-                descDiv.innerHTML = structuredUiOutput;
                 if (unifiedShapes.length > 0) {
                     rawCachedShapesArray = unifiedShapes;
+                    // Inject isolated persistent nodes mapping descriptions
                     renderAIBlueprint(unifiedShapes, structuredUiOutput);
                 } else {
-                    descDiv.innerHTML += "<br><span style='color:#ffea00;'>Warning: Pipeline completed, but the total accumulated shape array contains 0 elements.</span>";
+                    descDiv.innerHTML = structuredUiOutput + "<br><span style='color:#ffea00;'>Warning: Pipeline completed, but the total accumulated shape array contains 0 elements.</span>";
                 }
             } catch (err) {
                 console.error(err);
@@ -1400,10 +1385,15 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
-        function renderAIBlueprint(shapesArray, descriptionText) {
-            // Deduping step logic functions perfectly without clearing older generated matrix trees
-            const structureSubGroup = new THREE.Group();
-            structureSubGroup.userData.descriptionText = descriptionText;
+        function renderAIBlueprint(shapesArray, fullDescriptionHtml) {
+            if (selectedStructureGroup) {
+                deselectStructure(selectedStructureGroup);
+                selectedStructureGroup = null;
+            }
+
+            // Create isolated, self-contained structure node container to preserve persistent objects
+            const structureGroup = new THREE.Group();
+            structureGroup.userData.description = fullDescriptionHtml;
 
             shapesArray.forEach(shape => {
                 if (!shape || typeof shape !== 'object') return;
@@ -1468,59 +1458,45 @@
                 
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
-                structureSubGroup.add(mesh);
+                structureGroup.add(mesh);
             });
 
-            if (structureSubGroup.children.length > 0) {
-                // Determine layout bounds of the raw structures array group context
-                const initialBox = new THREE.Box3().setFromObject(structureSubGroup);
-                const sizeVector = new THREE.Vector3(); 
-                initialBox.getSize(sizeVector);
+            if (structureGroup.children.length > 0) {
+                worldGroup.add(structureGroup);
 
-                // Proportional uniform scale calculation to enforce exact solid 128 height unit constraints
-                const currentHeight = sizeVector.y || 1;
-                const targetHeight = 128.0;
-                const uniformScaleFactor = targetHeight / currentHeight;
+                // Compute bounding configurations across isolated group
+                const box = new THREE.Box3().setFromObject(structureGroup);
+                const center = new THREE.Vector3(); 
+                box.getCenter(center);
                 
-                structureSubGroup.scale.set(uniformScaleFactor, uniformScaleFactor, uniformScaleFactor);
+                // Reposition newly generated structures firmly flush against grid top (y=0) and centered horizontally at (x=0, z=0)
+                structureGroup.position.x = -center.x;
+                structureGroup.position.z = -center.z;
+                structureGroup.position.y = -box.min.y; 
 
-                // Calculate updated positioning metrics to pin the bottom perfectly to Y=0 and center at X/Z intersections
-                const postScaleBox = new THREE.Box3().setFromObject(structureSubGroup);
-                const postScaleCenter = new THREE.Vector3();
-                postScaleBox.getCenter(postScaleCenter);
-                
-                structureSubGroup.position.x = -postScaleCenter.x;
-                structureSubGroup.position.z = -postScaleCenter.z;
-                structureSubGroup.position.y = -postScaleBox.min.y; 
+                // Execute dual-pass physics relaxation sweeps globally across remaining items
+                resolveGeometryClipping();
 
-                // Generate and wrap alignment planes cleanly inside the localized sub-group coordinate workspaces
                 if (scannedBackdropDataUrl) {
-                    const finalBox = new THREE.Box3().setFromObject(structureSubGroup);
-                    const finalSize = new THREE.Vector3(); 
-                    finalBox.getSize(finalSize);
-                    
+                    const size = new THREE.Vector3(); box.getSize(size);
                     const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
-                    const floatingBackdropMeshElement = new THREE.Mesh(
+                    const floatingBackdropMesh = new THREE.Mesh(
                         new THREE.PlaneGeometry(1, 1),
                         new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false })
                     );
                     
-                    floatingBackdropMeshElement.name = 'backdropOverlayElement';
-                    // Offset behind structure limits non-destructively
-                    floatingBackdropMeshElement.position.set(0, finalSize.y / (2 * uniformScaleFactor), -(finalSize.z / (2 * uniformScaleFactor)) - 1.5);
-                    floatingBackdropMeshElement.scale.set(Math.max(finalSize.x, 6) / uniformScaleFactor, Math.max(finalSize.y, 6) / uniformScaleFactor, 1);
-                    floatingBackdropMeshElement.visible = backdropOverlayActive;
+                    floatingBackdropMesh.position.set(center.x + structureGroup.position.x, center.y + structureGroup.position.y, box.min.z - 1.5);
+                    floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
+                    floatingBackdropMesh.visible = backdropOverlayActive;
+                    floatingBackdropMesh.userData.isBackdropOverlayPlane = true;
                     
-                    structureSubGroup.add(floatingBackdropMeshElement);
+                    structureGroup.add(floatingBackdropMesh);
                 }
 
-                worldGroup.add(structureSubGroup);
-                
-                // Invoke multi-pass geometry resolution logic to clear spatial clashing artifacts
-                resolveGeometryClipping();
-                
-                // Auto-engage active selection profile focus state onto the newly constructed structural matrix block
-                selectStructureGroup(structureSubGroup);
+                // Auto-select structure node explicitly post compiling pass sequence
+                selectedStructureGroup = structureGroup;
+                highlightStructure(selectedStructureGroup);
+                document.getElementById('aiDescription').innerHTML = selectedStructureGroup.userData.description;
             }
         }
 
@@ -1584,28 +1560,25 @@
             controls.target.copy(explicitTargetPoint);
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
-            controls.screenSpacePanning = true;
             controls.update();
         }
 
         function clearSceneAndResetView() {
             console.clear();
-            deselectCurrentStructure();
-            
             while(worldGroup.children.length > 0) {
-                let subGroup = worldGroup.children[0];
-                subGroup.traverse(c => {
-                    if (c.userData && c.userData.fadeTimer) clearTimeout(c.userData.fadeTimer);
-                    if (c.userData && c.userData.singleTapTimeout) clearTimeout(c.userData.singleTapTimeout);
+                let struct = worldGroup.children[0];
+                struct.traverse(c => {
+                    if (c.userData && c.userData.fadeTimer) {
+                        clearTimeout(c.userData.fadeTimer);
+                    }
                     if(c.geometry) c.geometry.dispose();
                     if(c.material) {
                         if (Array.isArray(c.material)) c.material.forEach(m => m.dispose());
                         else c.material.dispose();
                     }
                 });
-                worldGroup.remove(subGroup);
+                worldGroup.remove(struct);
             }
-            
             deactivateTrackingSensors();
             lockedGyroRoll = 0; 
             targetLinearVelocityX = 0;
@@ -1615,6 +1588,8 @@
             gyroYawOffset = 0;
             lastTapTime = 0;
             lastTargetMesh = null;
+            selectedStructureGroup = null;
+            activeDraggingGroup = null;
 
             camera.position.set(0, 2.0, 25.0);
             if (controls) {
@@ -1721,8 +1696,7 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            // Grid shifting logic deleted completely: grid helper locks in place at standard zero vector coordinates origin
-            
+            // Grid helper tracking parameters are disabled to preserve an absolutely fixed and locked spatial coordinates base layout matrix
             document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Structures: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
