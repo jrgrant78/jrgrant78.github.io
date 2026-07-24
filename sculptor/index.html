@@ -167,7 +167,6 @@
         #status { color: #ffab00; font-weight: bold; margin-top: 4px; font-size: 0.8em; display: none; }
         #aiDescription { margin-top: 4px; font-size: 0.75em; color: #aaa; max-height: 150px; overflow-y: auto; background: #15151f; padding: 6px; border-radius: 4px; border: 1px solid #222; white-space: pre-wrap; line-height: 1.4; width: 100%; box-sizing: border-box; }
         
-        /* Yellow Pulsating Warning Alert Style Profile */
         .pulsate-warning {
             animation: textPulse 1.4s infinite ease-in-out;
             color: #ffea00;
@@ -320,8 +319,9 @@
         let activeDraggedGroup = null; 
         let currentlySelectedMesh = null; 
         
-        // Gesture verification metrics
+        // Gesture priority metrics
         let startScreenPosition = { x: 0, y: 0 };
+        let pointerMovedSignificantly = false; // Interlocking flag to ensure dragging cancels tap features
         const DRAG_CANCEL_THRESHOLD = 8; 
         const TAP_JITTER_THRESHOLD = 18;  
 
@@ -550,7 +550,8 @@
             
             motionTracker = new MultiPointMotionTracker();
 
-            gridHelper = new THREE.GridHelper(20000, 20000, 0xb0b0b0, 0x3c3c46);
+            // Pinned indefinitely at starting origin coordinates without translation offsets
+            gridHelper = new THREE.GridHelper(40000, 40000, 0xb0b0b0, 0x3c3c46);
             gridHelper.position.set(0, 0, 0); 
             gridHelper.visible = true;
             scene.add(gridHelper);
@@ -659,7 +660,7 @@
             }
         }
 
-        // RECONCILIATION PIPELINE: PURGE DUPLICATES -> GRAVITY SETTLEMENT -> INTERSECTION MTV RELAXATION
+        // TRIPLE-PASS GEOMETRY PURGE, RELAXATION, AND ANTI-FLOAT ANCHORING ENGINE
         function resolveGeometryClipping() {
             let meshes = [];
             worldGroup.traverse(child => {
@@ -668,7 +669,7 @@
                 }
             });
 
-            // PASS 1: EXPLICIT DUPLICATE PURGE PIPELINE (Cleans identical co-located assets)
+            // PASS 1: EXPLICIT DUPLICATE PURGE PIPELINE (Cleans perfectly co-located structural twins)
             for (let i = meshes.length - 1; i >= 0; i--) {
                 for (let j = i - 1; j >= 0; j--) {
                     const meshA = meshes[i];
@@ -694,43 +695,7 @@
                 }
             }
 
-            // PASS 2: AUTOMATED GRAVITY GROUNDING & SURFACE MERGING
-            // Iterates up to 3 passes to handle secondary stacked structures cascading downward cleanly
-            for (let pass = 0; pass < 3; pass++) {
-                for (let i = 0; i < meshes.length; i++) {
-                    const meshA = meshes[i];
-                    const boxA = new THREE.Box3().setFromObject(meshA);
-                    
-                    let highestSupportingY = 0; // Baseline global floor grid parameter matrix location
-
-                    for (let j = 0; j < meshes.length; j++) {
-                        if (i === j) continue;
-                        const meshB = meshes[j];
-                        const boxB = new THREE.Box3().setFromObject(meshB);
-
-                        // Track XZ dimensional alignment overlap profile boundary constraints
-                        const overlapsX = boxA.min.x <= boxB.max.x && boxA.max.x >= boxB.min.x;
-                        const overlapsZ = boxA.min.z <= boxB.max.z && boxA.max.z >= boxB.min.z;
-
-                        if (overlapsX && overlapsZ) {
-                            // Verify if structural plane B exists strictly below object boundary target A
-                            if (boxB.max.y <= boxA.min.y + 0.01) {
-                                if (boxB.max.y > highestSupportingY) {
-                                    highestSupportingY = boxB.max.y;
-                                }
-                            }
-                        }
-                    }
-
-                    // If the mesh is floating separately without supporting foundations, drop it down to snap/merge
-                    if (boxA.min.y > highestSupportingY + 0.05) {
-                        const dropDeltaDistance = boxA.min.y - highestSupportingY;
-                        meshA.position.y -= dropDeltaDistance;
-                    }
-                }
-            }
-
-            // PASS 3: MULTI-PASS TRANSLATION MTV INTERSECTION RELAXATION (Resolves Z-Fighting)
+            // PASS 2: MULTI-PASS MINIMUM TRANSLATION VECTOR OVERLAP RELAXATION (Pushes colliding profiles)
             const relaxationPasses = 5;
             const antiFlickerEpsilon = 0.03; 
 
@@ -780,6 +745,89 @@
                 }
                 if (currentPassCollisionsResolved === 0) break;
             }
+
+            // PASS 3: ANTI-FLOAT ISOLATION RECONCILIATION PIPELINE (Drops or bridges floating components)
+            meshes.forEach(mesh => {
+                let box = new THREE.Box3().setFromObject(mesh);
+                let isMechanicallyConnected = false;
+
+                // Ground structural context check
+                if (box.min.y <= 0.05) {
+                    isMechanicallyConnected = true;
+                }
+
+                // Neighborhood contact verification pass
+                if (!isMechanicallyConnected) {
+                    for (let other of meshes) {
+                        if (mesh === other) continue;
+                        let otherBox = new THREE.Box3().setFromObject(other);
+                        if (box.intersectsBox(otherBox)) {
+                            isMechanicallyConnected = true;
+                            break;
+                        }
+                    }
+                }
+
+                // Stabilize isolated meshes to eliminate floating drift artifacts
+                if (!isMechanicallyConnected) {
+                    let baselineTargetFloorY = 0;
+                    let peakUnderneathSurfaceY = -1;
+                    let meshWorldCenter = new THREE.Vector3();
+                    box.getCenter(meshWorldCenter);
+
+                    // Scan for geometry elements sitting directly below the footprint
+                    for (let other of meshes) {
+                        if (mesh === other) continue;
+                        let otherBox = new THREE.Box3().setFromObject(other);
+                        
+                        if (box.min.x <= otherBox.max.x && box.max.x >= otherBox.min.x &&
+                            box.min.z <= otherBox.max.z && box.max.z >= otherBox.min.z) {
+                            if (otherBox.max.y <= box.min.y && otherBox.max.y > peakUnderneathSurfaceY) {
+                                peakUnderneathSurfaceY = otherBox.max.y;
+                            }
+                        }
+                    }
+
+                    if (peakUnderneathSurfaceY !== -1) {
+                        baselineTargetFloorY = peakUnderneathSurfaceY;
+                    }
+
+                    let verticalOffsetDist = box.min.y - mesh.position.y;
+                    let originalPositionalY = mesh.position.y;
+                    
+                    // Apply programmatic gravity drop onto structural surface floor matrix
+                    mesh.position.y = baselineTargetFloorY - verticalOffsetDist;
+                    box.setFromObject(mesh);
+
+                    // If a noticeable spatial displacement occurs, generate a bridging anchoring mesh
+                    if (Math.abs(originalPositionalY - mesh.position.y) > 0.05) {
+                        let dynamicSupportGapHeight = Math.max(0.05, baselineTargetFloorY - box.min.y);
+                        if (baselineTargetFloorY === 0) dynamicSupportGapHeight = Math.max(0.05, box.min.y);
+
+                        let radiusScaleFactor = Math.min(box.max.x - box.min.x, box.max.z - box.min.z) * 0.35;
+                        let supportGeo = new THREE.CylinderGeometry(radiusScaleFactor, radiusScaleFactor, dynamicSupportGapHeight, 16);
+                        
+                        let supportMat = mesh.material.clone();
+                        if (Array.isArray(supportMat)) supportMat = supportMat[0].clone();
+                        supportMat.transparent = false;
+                        supportMat.opacity = 1.0;
+
+                        let anchoringBridgeMesh = new THREE.Mesh(supportGeo, supportMat);
+                        
+                        // Center bridge cleanly using relative coordinates mapping bounds
+                        anchoringBridgeMesh.position.set(
+                            meshWorldCenter.x - mesh.parent.position.x, 
+                            baselineTargetFloorY + dynamicSupportGapHeight / 2, 
+                            meshWorldCenter.z - mesh.parent.position.z
+                        );
+                        anchoringBridgeMesh.castShadow = true;
+                        anchoringBridgeMesh.receiveShadow = true;
+                        anchoringBridgeMesh.userData.description = "Procedural structural anchoring support interface node.";
+                        
+                        mesh.parent.add(anchoringBridgeMesh);
+                    }
+                }
+            });
         }
 
         function handleScenePointerDownActivation(e) {
@@ -788,6 +836,7 @@
 
             startScreenPosition.x = e.clientX;
             startScreenPosition.y = e.clientY;
+            pointerMovedSignificantly = false; // Reset gesture interlocking tracking flag
 
             raycaster.setFromCamera(pointerCoordinateVector, camera);
             const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
@@ -835,6 +884,21 @@
         }
 
         function handleScenePointerDragSequence(e) {
+            let currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
+            let currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
+
+            // GESTURE INTERLOCK PROTOCOL: If pointer moves past the threshold boundary, completely cancel tap/double-tap routines
+            if (currentPixelDeltaX > DRAG_CANCEL_THRESHOLD || currentPixelDeltaY > DRAG_CANCEL_THRESHOLD) {
+                pointerMovedSignificantly = true;
+                lastTapTime = 0;
+                lastTargetMesh = null;
+                
+                if (!isStructureReadyToMove && sceneDragLongPressTimeout) {
+                    clearTimeout(sceneDragLongPressTimeout);
+                    sceneDragLongPressTimeout = null;
+                }
+            }
+
             if (!isDraggingSceneActive || !activeDraggedGroup) return;
 
             e.preventDefault();
@@ -852,122 +916,123 @@
         }
 
         function handleScenePointerUpRelease(e) {
-            const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
-            const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
+            // Early out to prevent selection highlights or transparency flashes if a dragging interaction occurred
+            if (pointerMovedSignificantly || isDraggingSceneActive) {
+                if (sceneDragLongPressTimeout) clearTimeout(sceneDragLongPressTimeout);
+                sceneDragLongPressTimeout = null;
+                
+                if (activeDraggedGroup) {
+                    activeDraggedGroup.traverse((child) => {
+                        if (child.isMesh && child.material && child.userData.originalEmissive !== undefined) {
+                            child.material.emissive.setHex(child.userData.originalEmissive);
+                        }
+                    });
+                }
+                
+                isDraggingSceneActive = false;
+                isStructureReadyToMove = false;
+                if (controls) controls.enabled = true; 
+                resolveGeometryClipping();
+                activeDraggedGroup = null;
+                return;
+            }
 
             if (sceneDragLongPressTimeout) {
                 clearTimeout(sceneDragLongPressTimeout);
                 sceneDragLongPressTimeout = null;
 
-                if (currentPixelDeltaX < TAP_JITTER_THRESHOLD && currentPixelDeltaY < TAP_JITTER_THRESHOLD) {
-                    pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
-                    pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
+                pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
-                    raycaster.setFromCamera(pointerCoordinateVector, camera);
-                    const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
+                raycaster.setFromCamera(pointerCoordinateVector, camera);
+                const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
 
-                    if (targetedStructuralIntersects.length > 0) {
-                        const hitMesh = targetedStructuralIntersects[0].object;
-                        if (hitMesh.userData.isBackdrop !== true) {
-                            const currentTime = performance.now();
+                if (targetedStructuralIntersects.length > 0) {
+                    const hitMesh = targetedStructuralIntersects[0].object;
+                    if (hitMesh.userData.isBackdrop !== true) {
+                        const currentTime = performance.now();
 
-                            if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh) {
-                                // Double Tap transparency logic execution
-                                const geometryCohort = [hitMesh];
-                                worldGroup.traverse((child) => {
-                                    if (child.isMesh && child !== hitMesh && child.userData.isBackdrop !== true) {
-                                        const dist = child.position.distanceTo(hitMesh.position);
-                                        const deltaScaleX = Math.abs(child.scale.x - hitMesh.scale.x);
-                                        const deltaScaleY = Math.abs(child.scale.y - hitMesh.scale.y);
-                                        const deltaScaleZ = Math.abs(child.scale.z - hitMesh.scale.z);
-                                        const deltaAngle = child.quaternion.angleTo(hitMesh.quaternion);
-                                        
-                                        if (dist < 0.3 && deltaScaleX < 0.2 && deltaScaleY < 0.2 && deltaScaleZ < 0.2 && deltaAngle < 0.2) {
-                                            geometryCohort.push(child);
-                                        }
+                        if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh) {
+                            // Double Tap transparency engine execution
+                            const geometryCohort = [hitMesh];
+                            worldGroup.traverse((child) => {
+                                if (child.isMesh && child !== hitMesh && child.userData.isBackdrop !== true) {
+                                    const dist = child.position.distanceTo(hitMesh.position);
+                                    const deltaScaleX = Math.abs(child.scale.x - hitMesh.scale.x);
+                                    const deltaScaleY = Math.abs(child.scale.y - hitMesh.scale.y);
+                                    const deltaScaleZ = Math.abs(child.scale.z - hitMesh.scale.z);
+                                    const deltaAngle = child.quaternion.angleTo(hitMesh.quaternion);
+                                    
+                                    if (dist < 0.3 && deltaScaleX < 0.2 && deltaScaleY < 0.2 && deltaScaleZ < 0.2 && deltaAngle < 0.2) {
+                                        geometryCohort.push(child);
                                     }
+                                }
+                            });
+
+                            const cohortCurrentlyFaded = hitMesh.userData.fadeTimer !== null && hitMesh.userData.fadeTimer !== undefined;
+
+                            if (cohortCurrentlyFaded) {
+                                geometryCohort.forEach(m => {
+                                    if (m.userData.fadeTimer) {
+                                        clearTimeout(m.userData.fadeTimer);
+                                        m.userData.fadeTimer = null;
+                                    }
+                                    restoreMeshOpacity(m);
                                 });
-
-                                const cohortCurrentlyFaded = hitMesh.userData.fadeTimer !== null && hitMesh.userData.fadeTimer !== undefined;
-
-                                if (cohortCurrentlyFaded) {
-                                    geometryCohort.forEach(m => {
-                                        if (m.userData.fadeTimer) {
-                                            clearTimeout(m.userData.fadeTimer);
-                                            m.userData.fadeTimer = null;
-                                        }
-                                        restoreMeshOpacity(m);
-                                    });
-                                    document.getElementById('aiDescription').innerText = "Transparency cohort cleared by user override.";
-                                } else {
-                                    geometryCohort.forEach(m => {
-                                        cacheMeshOpacity(m);
-                                        applyMeshOpacity(m, 0.25);
-                                    });
-                                    document.getElementById('aiDescription').innerText = `Temporary transparency cohort active (${geometryCohort.length} meshes localized).`;
-
-                                    const unifiedTimer = setTimeout(() => {
-                                        geometryCohort.forEach(m => {
-                                            restoreMeshOpacity(m);
-                                            m.userData.fadeTimer = null;
-                                        });
-                                        document.getElementById('aiDescription').innerText = "Mesh material cohort profile restored automatically.";
-                                    }, 3000);
-
-                                    geometryCohort.forEach(m => {
-                                        m.userData.fadeTimer = unifiedTimer;
-                                    });
-                                }
-                                lastTapTime = 0;
-                                lastTargetMesh = null;
+                                document.getElementById('aiDescription').innerText = "Transparency cohort cleared by user override.";
                             } else {
-                                // Single Tap Query Selector
-                                lastTapTime = currentTime;
-                                lastTargetMesh = hitMesh;
+                                geometryCohort.forEach(m => {
+                                    cacheMeshOpacity(m);
+                                    applyMeshOpacity(m, 0.25);
+                                });
+                                document.getElementById('aiDescription').innerText = `Temporary transparency cohort active (${geometryCohort.length} meshes localized).`;
 
-                                if (currentlySelectedMesh && currentlySelectedMesh !== hitMesh) {
-                                    if (currentlySelectedMesh.userData.originalEmissive !== undefined) {
-                                        currentlySelectedMesh.material.emissive.setHex(currentlySelectedMesh.userData.originalEmissive);
-                                    }
-                                }
+                                const unifiedTimer = setTimeout(() => {
+                                    geometryCohort.forEach(m => {
+                                        restoreMeshOpacity(m);
+                                        m.userData.fadeTimer = null;
+                                    });
+                                    document.getElementById('aiDescription').innerText = "Mesh material cohort profile restored automatically.";
+                                }, 3000);
 
-                                currentlySelectedMesh = hitMesh;
-                                if (currentlySelectedMesh.userData.originalEmissive === undefined) {
-                                    currentlySelectedMesh.userData.originalEmissive = currentlySelectedMesh.material.emissive.getHex();
-                                }
-                                currentlySelectedMesh.material.emissive.setHex(0x38380b);
-
-                                document.getElementById('aiDescription').innerHTML = `<div style="color: #ffea00; font-weight: bold; margin-bottom: 4px;">[STRUCTURE ENTITY SELECTED]</div>${hitMesh.userData.description || "Isolated geometric system element."}`;
+                                geometryCohort.forEach(m => {
+                                    m.userData.fadeTimer = unifiedTimer;
+                                });
                             }
-                        }
-                    } else {
-                        if (currentlySelectedMesh) {
-                            if (currentlySelectedMesh.userData.originalEmissive !== undefined) {
-                                currentlySelectedMesh.material.emissive.setHex(currentlySelectedMesh.userData.originalEmissive);
+                            lastTapTime = 0;
+                            lastTargetMesh = null;
+                        } else {
+                            // Single Tap selection protocol
+                            lastTapTime = currentTime;
+                            lastTargetMesh = hitMesh;
+
+                            if (currentlySelectedMesh && currentlySelectedMesh !== hitMesh) {
+                                if (currentlySelectedMesh.userData.originalEmissive !== undefined) {
+                                    currentlySelectedMesh.material.emissive.setHex(currentlySelectedMesh.userData.originalEmissive);
+                                }
                             }
-                            currentlySelectedMesh = null;
-                            document.getElementById('aiDescription').innerText = "Deselected entity workspace context baseline.";
+
+                            currentlySelectedMesh = hitMesh;
+                            if (currentlySelectedMesh.userData.originalEmissive === undefined) {
+                                currentlySelectedMesh.userData.originalEmissive = currentlySelectedMesh.material.emissive.getHex();
+                            }
+                            currentlySelectedMesh.material.emissive.setHex(0x38380b);
+
+                            document.getElementById('aiDescription').innerHTML = `<div style="color: #ffea00; font-weight: bold; margin-bottom: 4px;">[STRUCTURE ENTITY SELECTED]</div>${hitMesh.userData.description || "Isolated geometric system element."}`;
                         }
-                        lastTapTime = 0;
-                        lastTargetMesh = null;
                     }
+                } else {
+                    // Clicked open space: complete contextual deselection
+                    if (currentlySelectedMesh) {
+                        if (currentlySelectedMesh.userData.originalEmissive !== undefined) {
+                            currentlySelectedMesh.material.emissive.setHex(currentlySelectedMesh.userData.originalEmissive);
+                        }
+                        currentlySelectedMesh = null;
+                        document.getElementById('aiDescription').innerText = "Deselected entity workspace context baseline.";
+                    }
+                    lastTapTime = 0;
+                    lastTargetMesh = null;
                 }
-            }
-            
-            if (activeDraggedGroup) {
-                activeDraggedGroup.traverse((child) => {
-                    if (child.isMesh && child.material && child.userData.originalEmissive !== undefined) {
-                        child.material.emissive.setHex(child.userData.originalEmissive);
-                    }
-                });
-            }
-
-            if (isDraggingSceneActive) {
-                isDraggingSceneActive = false;
-                isStructureReadyToMove = false;
-                if (controls) controls.enabled = true; 
-                resolveGeometryClipping();
-                document.getElementById('aiDescription').innerText = "Isolated entity transform committed safely.";
             }
             activeDraggedGroup = null;
         }
@@ -1074,7 +1139,7 @@
                 controls.dampingFactor = 0.05;
             }
             controls.minDistance = 0.001;
-            controls.maxDistance = Infinity;
+            controls.maxDistance = Infinity; // Infinite travel bounds mapping profile
             controls.zoomSpeed = 1.2;
             controls.panSpeed = 1.0;
             controls.target.set(0, 0, 0); 
@@ -1113,7 +1178,7 @@
                 return;
             }
 
-            // Yellow pulsating warning message alert context string
+            // High priority reconstruction alert wrapped in a dynamic yellow pulsating selector element
             descDiv.innerHTML = '<span class="pulsate-warning">WARNING: scene reconstruction in progress.<br>Please wait for analysis to complete...</span>';
 
             const hiddenCanvas = document.createElement('canvas');
@@ -1199,11 +1264,7 @@
                         })
                     });
 
-                    if (!res.ok) {
-                        const errorDetailsText = await res.text();
-                        debugDiagnosticsHistory += `• Pass 1 [${model}] Error ${res.status}: ${errorDetailsText.substring(0, 100)}...<br>`;
-                        continue;
-                    }
+                    if (!res.ok) continue;
 
                     const data = await res.json();
                     parsedPayload = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
@@ -1211,9 +1272,7 @@
                         successfulPass1Model = model;
                         break pass1ModelLoop; 
                     }
-                } catch (e) { 
-                    debugDiagnosticsHistory += `• Pass 1 [${model}] Exception: ${e.message}<br>`;
-                }
+                } catch (e) {}
             }
 
             if (!parsedPayload || !parsedPayload.blueprint) {
@@ -1223,14 +1282,14 @@
             }
 
             const structuralTasks = [
-                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Compile only the large flat floor bases, ground platforms, and main support mats from FOUNDATION.' },
-                { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Compile the detailed surface boundaries, secondary rug mats, and floor borders from FOUNDATION.' },
-                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: 'Compile the massive primary backing blocks of couches, structural seating from CORE_MASSES.' },
-                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: 'Compile the softer geometric overlays, layered cushions from CORE_MASSES.' },
-                { id: 'EXTENSIONS', subId: 'FRAMES', rules: 'Compile vertical boundaries, TV panels, display stands from EXTENSIONS.' },
+                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Compile only the large flat floor bases, ground platforms from FOUNDATION.' },
+                { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Compile the detailed surface boundaries, secondary rug mats from FOUNDATION.' },
+                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: 'Compile the massive primary backing blocks of couches from CORE_MASSES.' },
+                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: 'Compile the softer geometric overlays, cushions from CORE_MASSES.' },
+                { id: 'EXTENSIONS', subId: 'FRAMES', rules: 'Compile vertical boundaries,stands from EXTENSIONS.' },
                 { id: 'EXTENSIONS', subId: 'LIMBS', rules: 'Compile connecting arms, legs, or hardware rods from EXTENSIONS.' },
                 { id: 'ACCENTS', subId: 'ITEMS', rules: 'Compile standalone accent blocks, secondary decorative nodes from ACCENTS.' },
-                { id: 'ACCENTS', subId: 'TRIM', rules: 'Compile micro-geometric additions, small texturing adjustments from ACCENTS.' }
+                { id: 'ACCENTS', subId: 'TRIM', rules: 'Compile micro-geometric additions, small texturing highlights from ACCENTS.' }
             ];
 
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
@@ -1306,7 +1365,7 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
-        // GENERATES AND APPENDS AN ISOLATED ENTITY PRESERVING PREVIOUSLY CONSTRUCTED SCENES
+        // GENERATES SCANNED BLUEPRINTS AS ENTIRELY ISOLATED, PERMANENT AND INDEPENDENT ENTITIES
         function appendAIBlueprint(shapesArray, coreDescription) {
             const structureInstanceGroup = new THREE.Group();
 
@@ -1354,8 +1413,8 @@
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
 
-                // Bind spatial telemetry queries directly to the asset instance profile
-                mesh.userData.description = `<b>Type:</b> ${primitiveType.toUpperCase()}<br><b>Scale:</b> [${scl.join(', ')}]<br><b>Base Hex Color:</b> ${shape.c}<br><br><b>Context Blueprint Summary:</b><br>${coreDescription}`;
+                // Bind instance details onto individual mesh configurations for single-tap query selector lookups
+                mesh.userData.description = `<b>Primitive Type:</b> ${primitiveType.toUpperCase()}<br><b>Scale Vector:</b> [${scl.join(', ')}]<br><b>Color Matrix:</b> ${shape.c}<br><br><b>Context Blueprint Narrative:</b><br>${coreDescription}`;
 
                 structureInstanceGroup.add(mesh);
             });
@@ -1379,6 +1438,7 @@
                     const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
                     const floatingBackdropMesh = new THREE.Mesh(
                         new THREE.PlaneGeometry(1, 1),
+                        // Retains reference alignment alpha profile strictly locked at a solid 75%
                         new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false })
                     );
                     floatingBackdropMesh.position.set(0, (box.max.y - box.min.y)/2, -1.5);
@@ -1388,6 +1448,7 @@
                     structureInstanceGroup.add(floatingBackdropMesh);
                 }
 
+                // Resolves intersections, eliminates duplicates, and automatically welds/drops floating nodes
                 resolveGeometryClipping();
             }
         }
@@ -1443,6 +1504,7 @@
             camera.lookAt(explicitTargetPoint);
             
             if (controls) controls.dispose();
+            
             initOrbitControls();
             controls.target.copy(explicitTargetPoint);
             controls.update();
