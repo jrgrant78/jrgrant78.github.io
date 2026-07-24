@@ -167,7 +167,6 @@
         #status { color: #ffab00; font-weight: bold; margin-top: 4px; font-size: 0.8em; display: none; }
         #aiDescription { margin-top: 4px; font-size: 0.75em; color: #aaa; max-height: 150px; overflow-y: auto; background: #15151f; padding: 6px; border-radius: 4px; border: 1px solid #222; white-space: pre-wrap; line-height: 1.4; width: 100%; box-sizing: border-box; }
         
-        /* Yellow Pulsating Alert Layout */
         .pulsate-warning {
             animation: textPulse 1.4s infinite ease-in-out;
             color: #ffea00;
@@ -285,11 +284,16 @@
         
         let targetLinearVelocityX = 0;
         let targetLinearVelocityZ = 0;
+        const VELOCITY_INTERPOLATION_STEP = 0.22; 
         const VELOCITY_DEADZONE_LIMIT = 0.001;
 
         let motionTracker;
         const LEVEL_PITCH_LIMIT = THREE.MathUtils.degToRad(20);  
         const LEVEL_ROLL_LIMIT = THREE.MathUtils.degToRad(15);   
+        const ROTATIONAL_BLANKING_THRESHOLD = 0.005; 
+        
+        const TRANSLATION_SPEED_SCALAR = 0.65;                   
+        let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
@@ -297,6 +301,7 @@
         let dynamicInputSourceMode = 'camera';
         let scannedBackdropDataUrl = null;
         let backdropOverlayActive = false;
+        let floatingBackdropMesh = null; 
         let rawCachedShapesArray = null;  
 
         let telemetryState = { x: 0, y: 2.0, z: 25.0 };
@@ -304,6 +309,7 @@
         let cameraStreamAspectRatio = 4 / 3; 
         let systemApiSecretKey = null; 
 
+        // SPATIAL MANIPULATION WORKSPACE REGISTERS
         let raycaster = new THREE.Raycaster();
         let pointerCoordinateVector = new THREE.Vector2();
         let isDraggingSceneActive = false;
@@ -316,12 +322,12 @@
         const DRAG_CANCEL_THRESHOLD = 8; 
         const TAP_JITTER_THRESHOLD = 18;  
 
+        // Selection workspace parameters
+        let selectedStructure = null;
+
+        // Double tap sequence registers
         let lastTapTime = 0;
         let lastTargetMesh = null;
-        
-        // Active Selection Architecture State
-        let selectedStructureGroup = null;
-        let activeDraggedGroup = null;
 
         const OPEN_EYE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
@@ -550,9 +556,9 @@
             
             motionTracker = new MultiPointMotionTracker();
 
-            // Permanent lock constraint profile: Grid is fixed at its origin, extending outward indefinitely
-            gridHelper = new THREE.GridHelper(8000, 8000, 0xb0b0b0, 0x444444);
-            gridHelper.position.set(0, 0, 0);
+            // Configured a large fixed spatial grid boundary layer extending outward infinitely
+            gridHelper = new THREE.GridHelper(8000, 400, 0xb0b0b0, 0x777777);
+            gridHelper.position.set(0, 0, 0); 
             gridHelper.visible = true;
             scene.add(gridHelper);
 
@@ -660,89 +666,64 @@
             }
         }
 
-        // SELECTION HIGHLIGHT INTERACTION MANAGEMENT
         function selectStructureGroup(group) {
-            if (selectedStructureGroup === group) return;
-            deselectCurrentStructure();
-
-            selectedStructureGroup = group;
+            if (selectedStructure) deselectStructureGroup(selectedStructure);
+            selectedStructure = group;
+            
             group.traverse(child => {
-                if (child.isMesh && child.material && child.userData.isBackdrop !== true) {
+                if (child.isMesh && !child.userData.isBackdrop) {
                     if (child.userData.originalEmissive === undefined) {
                         child.userData.originalEmissive = child.material.emissive.getHex();
                     }
-                    // Apply golden yellow emissive selection workspace highlights
-                    child.material.emissive.setHex(0x554400); 
+                    child.material.emissive.setHex(0x333300); 
                 }
             });
-
-            if (group.userData.description) {
-                document.getElementById('aiDescription').innerHTML = `<b>[Selected Asset Data Frame]</b><br>${group.userData.description}`;
-            }
+            document.getElementById('aiDescription').innerHTML = `<b>[Selected Asset Data Map]</b><br>${group.userData.description}`;
         }
 
-        function deselectCurrentStructure() {
-            if (!selectedStructureGroup) return;
-            selectedStructureGroup.traverse(child => {
-                if (child.isMesh && child.material && child.userData.originalEmissive !== undefined) {
+        function deselectStructureGroup(group) {
+            group.traverse(child => {
+                if (child.isMesh && !child.userData.isBackdrop && child.userData.originalEmissive !== undefined) {
                     child.material.emissive.setHex(child.userData.originalEmissive);
                 }
             });
-            selectedStructureGroup = null;
-            document.getElementById('aiDescription').innerText = "Awaiting snapshot capture execution sequence...";
         }
 
-        // CROSS-STRUCTURE DUAL-PASS CLEANING MATRIX (DEDUPLICATION & RELAXATION)
         function resolveGeometryClipping() {
             let meshes = [];
             worldGroup.traverse(child => {
-                if (child.isMesh && child.userData.isBackdrop !== true) {
+                if (child.isMesh && !child.userData.isBackdrop) {
                     meshes.push(child);
                 }
             });
 
-            // PASS 1: EXPLICIT DUPLICATE PURGE PIPELINE (Checks for remaining conflicts and purges duplicates)
-            const globalVecA = new THREE.Vector3();
-            const globalVecB = new THREE.Vector3();
-
+            // PASS 1: DUPLICATE PURGE ENGINE (Purges redundant stacked co-located nodes)
             for (let i = meshes.length - 1; i >= 0; i--) {
                 for (let j = i - 1; j >= 0; j--) {
                     const meshA = meshes[i];
                     const meshB = meshes[j];
                     if (!meshA || !meshB) continue;
 
-                    meshA.getWorldPosition(globalVecA);
-                    meshB.getWorldPosition(globalVecB);
+                    const positionalDelta = meshA.getWorldPosition(new THREE.Vector3()).distanceTo(meshB.getWorldPosition(new THREE.Vector3()));
+                    const dimensionalDelta = Math.abs(meshA.scale.x - meshB.scale.x) + 
+                                             Math.abs(meshA.scale.y - meshB.scale.y) + 
+                                             Math.abs(meshA.scale.z - meshB.scale.z);
+                    const angularDelta = meshA.getWorldQuaternion(new THREE.Quaternion()).angleTo(meshB.getWorldQuaternion(new THREE.Quaternion()));
 
-                    const positionalDelta = globalVecA.distanceTo(globalVecB);
-                    
-                    // Re-calculate raw dimensions relative to parent scales
-                    const scaleAX = meshA.scale.x * meshA.parent.scale.x;
-                    const scaleAY = meshA.scale.y * meshA.parent.scale.y;
-                    const scaleAZ = meshA.scale.z * meshA.parent.scale.z;
-                    
-                    const scaleBX = meshB.scale.x * meshB.parent.scale.x;
-                    const scaleBY = meshB.scale.y * meshB.parent.scale.y;
-                    const scaleBZ = meshB.scale.z * meshB.parent.scale.z;
-
-                    const dimensionalDelta = Math.abs(scaleAX - scaleBX) + 
-                                             Math.abs(scaleAY - scaleBY) + 
-                                             Math.abs(scaleAZ - scaleBZ);
-
-                    if (positionalDelta < 0.05 && dimensionalDelta < 0.06) {
+                    if (positionalDelta < 0.015 && dimensionalDelta < 0.02 && angularDelta < 0.05) {
                         if (meshA.geometry) meshA.geometry.dispose();
                         if (meshA.material) {
                             if (Array.isArray(meshA.material)) meshA.material.forEach(m => m.dispose());
                             else meshA.material.dispose();
                         }
-                        meshA.parent.remove(meshA);
+                        if (meshA.parent) meshA.parent.remove(meshA);
                         meshes.splice(i, 1);
                         break; 
                     }
                 }
             }
 
-            // PASS 2: MULTI-PASS TRANSLATION MTV INTERSECTION RELAXATION
+            // PASS 2: MULTI-PASS TRANSLATION MTV ENGINE
             const relaxationPasses = 4;
             const antiFlickerEpsilon = 0.025; 
 
@@ -753,7 +734,6 @@
                     for (let j = i + 1; j < meshes.length; j++) {
                         const meshA = meshes[i];
                         const meshB = meshes[j];
-                        if (!meshA.parent || !meshB.parent) continue;
 
                         const boxA = new THREE.Box3().setFromObject(meshA);
                         const boxB = new THREE.Box3().setFromObject(meshB);
@@ -763,7 +743,6 @@
                             const volA = (boxA.max.x - boxA.min.x) * (boxA.max.y - boxA.min.y) * (boxA.max.z - boxA.min.z);
                             const volB = (boxB.max.x - boxB.min.x) * (boxB.max.y - boxB.min.y) * (boxB.max.z - boxB.min.z);
 
-                            // Select smaller object to shift
                             const culprit = volA <= volB ? meshA : meshB;
                             const target = volA <= volB ? meshB : meshA;
 
@@ -774,34 +753,29 @@
                             const overlapY = Math.min(boxCulprit.max.y, boxTarget.max.y) - Math.max(boxCulprit.min.y, boxTarget.min.y);
                             const overlapZ = Math.min(boxCulprit.max.z, boxTarget.max.z) - Math.max(boxCulprit.min.z, boxTarget.min.z);
 
-                            // Apply correction factors back down into local group workspace spaces
-                            const factorX = 1 / culprit.parent.scale.x;
-                            const factorY = 1 / culprit.parent.scale.y;
-                            const factorZ = 1 / culprit.parent.scale.z;
+                            if (Math.abs(overlapX - overlapY) < 0.001 && Math.abs(overlapY - overlapZ) < 0.001) {
+                                culprit.position.y += (boxTarget.max.y - boxTarget.min.y) * 0.1 + antiFlickerEpsilon;
+                                continue;
+                            }
 
                             if (overlapX < overlapY && overlapX < overlapZ) {
-                                const shiftDirX = boxCulprit.getCenter(new THREE.Vector3()).x <= boxTarget.getCenter(new THREE.Vector3()).x ? -1 : 1;
-                                culprit.position.x += shiftDirX * (overlapX + antiFlickerEpsilon) * factorX;
+                                const shiftDirX = culprit.position.x <= target.position.x ? -1 : 1;
+                                culprit.position.x += shiftDirX * (overlapX + antiFlickerEpsilon);
                             } else if (overlapY < overlapX && overlapY < overlapZ) {
-                                const shiftDirY = boxCulprit.getCenter(new THREE.Vector3()).y <= boxTarget.getCenter(new THREE.Vector3()).y ? -1 : 1;
-                                culprit.position.y += shiftDirY * (overlapY + antiFlickerEpsilon) * factorY;
+                                const shiftDirY = culprit.position.y <= target.position.y ? -1 : 1;
+                                culprit.position.y += shiftDirY * (overlapY + antiFlickerEpsilon);
                             } else {
-                                const shiftDirZ = boxCulprit.getCenter(new THREE.Vector3()).z <= boxTarget.getCenter(new THREE.Vector3()).z ? -1 : 1;
-                                culprit.position.z += shiftDirZ * (overlapZ + antiFlickerEpsilon) * factorZ;
+                                const shiftDirZ = culprit.position.z <= target.position.z ? -1 : 1;
+                                culprit.position.z += shiftDirZ * (overlapZ + antiFlickerEpsilon);
                             }
                         }
                     }
                 }
                 if (currentPassCollisionsResolved === 0) break;
             }
-            
-            // Re-enforce absolute vertical grounding coordinates for all parent assemblies
-            worldGroup.children.forEach(group => {
-                group.position.y = 0;
-            });
         }
 
-        // DYNAMIC SPATIAL TRANSLATION TARGET EVENT HANDLERS
+        // DYNAMIC SPATIAL MANIPULATION EVENT HANDLERS
         function handleScenePointerDownActivation(e) {
             pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
             pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -813,47 +787,32 @@
             const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
 
             if (targetedStructuralIntersects.length > 0) {
-                let hitMesh = targetedStructuralIntersects[0].object;
-                if (hitMesh.userData.isBackdrop !== true) {
-                    let parentStructure = hitMesh.parent;
-                    while (parentStructure && parentStructure.parent !== worldGroup) {
-                        parentStructure = parentStructure.parent;
-                    }
+                let groundIntersectionVector = new THREE.Vector3();
+                raycaster.ray.intersectPlane(groundReferencePlane, groundIntersectionVector);
+                interactiveDragOffset.copy(groundIntersectionVector).sub(worldGroup.position);
 
-                    if (parentStructure) {
-                        activeDraggedGroup = parentStructure;
-                        let groundIntersectionVector = new THREE.Vector3();
-                        raycaster.ray.intersectPlane(groundReferencePlane, groundIntersectionVector);
-                        interactiveDragOffset.copy(groundIntersectionVector).sub(activeDraggedGroup.position);
+                if (sceneDragLongPressTimeout) clearTimeout(sceneDragLongPressTimeout);
+                
+                isStructureReadyToMove = false;
+                isDraggingSceneActive = false;
 
-                        if (sceneDragLongPressTimeout) clearTimeout(sceneDragLongPressTimeout);
-                        
-                        isStructureReadyToMove = false;
-                        isDraggingSceneActive = false;
+                sceneDragLongPressTimeout = setTimeout(() => {
+                    isStructureReadyToMove = true;
+                    isDraggingSceneActive = true;
+                    
+                    if (controls) controls.enabled = false; 
 
-                        sceneDragLongPressTimeout = setTimeout(() => {
-                            isStructureReadyToMove = true;
-                            isDraggingSceneActive = true;
-                            
-                            if (controls) controls.enabled = false; 
+                    worldGroup.traverse((child) => {
+                        if (child.isMesh && child.material && !child.userData.isBackdrop) {
+                            if (child.userData.originalEmissive === undefined) {
+                                child.userData.originalEmissive = child.material.emissive.getHex();
+                            }
+                            child.material.emissive.setHex(0x224466); 
+                        }
+                    });
 
-                            activeDraggedGroup.traverse((child) => {
-                                if (child.isMesh && child.material && child.userData.isBackdrop !== true) {
-                                    if (child.userData.originalEmissive === undefined) {
-                                        child.userData.originalEmissive = child.material.emissive.getHex();
-                                    }
-                                    child.material.emissive.setHex(0x224466); 
-                                }
-                            });
-
-                            document.getElementById('aiDescription').innerText = "[Active Mode: Translating Structure]\nSlide along the grid plane. Structure remains anchored firmly to grid top.";
-                        }, 400); 
-                    }
-                }
-            } else {
-                lastTapTime = 0;
-                lastTargetMesh = null;
-                activeDraggedGroup = null;
+                    document.getElementById('aiDescription').innerText = "[Active Mode: Translating Structure Map]\nSlide to reposition all matrices.";
+                }, 400); 
             }
         }
 
@@ -881,147 +840,133 @@
             let currentGroundIntersection = new THREE.Vector3();
             raycaster.ray.intersectPlane(groundReferencePlane, currentGroundIntersection);
 
-            if (activeDraggedGroup) {
-                let intendedTargetPosition = currentGroundIntersection.sub(interactiveDragOffset);
-                activeDraggedGroup.position.x = Math.round(intendedTargetPosition.x);
-                activeDraggedGroup.position.z = Math.round(intendedTargetPosition.z);
-                activeDraggedGroup.position.y = 0; // Absolute locked baseline Y-axis anchor
-            }
+            let intendedTargetPosition = currentGroundIntersection.sub(interactiveDragOffset);
+            
+            worldGroup.position.x = Math.round(intendedTargetPosition.x);
+            worldGroup.position.z = Math.round(intendedTargetPosition.z);
         }
 
         function handleScenePointerUpRelease(e) {
+            const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
+            const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
+            const isClickGesture = currentPixelDeltaX < TAP_JITTER_THRESHOLD && currentPixelDeltaY < TAP_JITTER_THRESHOLD;
+
             if (sceneDragLongPressTimeout) {
                 clearTimeout(sceneDragLongPressTimeout);
                 sceneDragLongPressTimeout = null;
+            }
 
-                const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
-                const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
+            if (isClickGesture && !isDraggingSceneActive) {
+                pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
+                pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
-                if (currentPixelDeltaX < TAP_JITTER_THRESHOLD && currentPixelDeltaY < TAP_JITTER_THRESHOLD) {
-                    pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
-                    pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                raycaster.setFromCamera(pointerCoordinateVector, camera);
+                const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
 
-                    raycaster.setFromCamera(pointerCoordinateVector, camera);
-                    const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
-
-                    if (targetedStructuralIntersects.length > 0) {
-                        const hitMesh = targetedStructuralIntersects[0].object;
-                        if (hitMesh.userData.isBackdrop !== true) {
-                            const currentTime = performance.now();
-
-                            if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh) {
-                                // Double tap interaction triggers transparency cohort
-                                const geometryCohort = [hitMesh];
-                                let parentStructure = hitMesh.parent;
-                                while (parentStructure && parentStructure.parent !== worldGroup) {
-                                    parentStructure = parentStructure.parent;
-                                }
-                                
-                                if (parentStructure) {
-                                    parentStructure.traverse((child) => {
-                                        if (child.isMesh && child !== hitMesh && child.userData.isBackdrop !== true) {
-                                            const dist = child.position.distanceTo(hitMesh.position);
-                                            const deltaScaleX = Math.abs(child.scale.x - hitMesh.scale.x);
-                                            const deltaScaleY = Math.abs(child.scale.y - hitMesh.scale.y);
-                                            const deltaScaleZ = Math.abs(child.scale.z - hitMesh.scale.z);
-                                            const deltaAngle = child.quaternion.angleTo(hitMesh.quaternion);
-                                            
-                                            if (dist < 0.3 && deltaScaleX < 0.2 && deltaScaleY < 0.2 && deltaScaleZ < 0.2 && deltaAngle < 0.2) {
-                                                geometryCohort.push(child);
-                                            }
-                                        }
-                                    });
-                                }
-
-                                const cohortCurrentlyFaded = hitMesh.userData.fadeTimer !== null && hitMesh.userData.fadeTimer !== undefined;
-
-                                if (cohortCurrentlyFaded) {
-                                    geometryCohort.forEach(m => {
-                                        if (m.userData.fadeTimer) {
-                                            clearTimeout(m.userData.fadeTimer);
-                                            m.userData.fadeTimer = null;
-                                        }
-                                        restoreMeshOpacity(m);
-                                    });
-                                    document.getElementById('aiDescription').innerText = "Transparency cohort cleared by user override.";
-                                } else {
-                                    geometryCohort.forEach(m => {
-                                        cacheMeshOpacity(m);
-                                        applyMeshOpacity(m, 0.25);
-                                    });
-                                    document.getElementById('aiDescription').innerText = `Temporary transparency cohort active (${geometryCohort.length} meshes localized).`;
-
-                                    const unifiedTimer = setTimeout(() => {
-                                        geometryCohort.forEach(m => {
-                                            restoreMeshOpacity(m);
-                                            m.userData.fadeTimer = null;
-                                        });
-                                        document.getElementById('aiDescription').innerText = "Mesh material cohort profile restored automatically.";
-                                    }, 3000);
-
-                                    geometryCohort.forEach(m => {
-                                        m.userData.fadeTimer = unifiedTimer;
-                                    });
-                                }
-                                lastTapTime = 0;
-                                lastTargetMesh = null;
-                            } else {
-                                // Single Tap: Trigger target structure asset selection highlight
-                                lastTapTime = currentTime;
-                                lastTargetMesh = hitMesh;
-
-                                let parentStructure = hitMesh.parent;
-                                while (parentStructure && parentStructure.parent !== worldGroup) {
-                                    parentStructure = parentStructure.parent;
-                                }
-                                if (parentStructure) {
-                                    selectStructureGroup(parentStructure);
-                                }
-                            }
-                        }
-                    } else {
-                        // Tapped space off structure -> Execute clean deselection context release
-                        deselectCurrentStructure();
-                        lastTapTime = 0;
-                        lastTargetMesh = null;
+                if (targetedStructuralIntersects.length > 0) {
+                    const hitMesh = targetedStructuralIntersects[0].object;
+                    
+                    // Trace up lineage stack to locate structural parent group wrapper node
+                    let targetStructureGroup = hitMesh;
+                    while (targetStructureGroup.parent && targetStructureGroup.parent !== worldGroup) {
+                        targetStructureGroup = targetStructureGroup.parent;
                     }
+
+                    if (!hitMesh.userData.isBackdrop && targetStructureGroup.userData.isStructureRoot) {
+                        const currentTime = performance.now();
+
+                        if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh) {
+                            // Cohort Analysis: Select proximate matching overlapping blocks
+                            const geometryCohort = [hitMesh];
+                            targetStructureGroup.traverse((child) => {
+                                if (child.isMesh && child !== hitMesh && !child.userData.isBackdrop) {
+                                    const dist = child.position.distanceTo(hitMesh.position);
+                                    const deltaScaleX = Math.abs(child.scale.x - hitMesh.scale.x);
+                                    const deltaScaleY = Math.abs(child.scale.y - hitMesh.scale.y);
+                                    const deltaScaleZ = Math.abs(child.scale.z - hitMesh.scale.z);
+                                    const deltaAngle = child.quaternion.angleTo(hitMesh.quaternion);
+                                    
+                                    if (dist < 0.3 && deltaScaleX < 0.2 && deltaScaleY < 0.2 && deltaScaleZ < 0.2 && deltaAngle < 0.2) {
+                                        geometryCohort.push(child);
+                                    }
+                                }
+                            });
+
+                            const cohortCurrentlyFaded = hitMesh.userData.fadeTimer !== null && hitMesh.userData.fadeTimer !== undefined;
+
+                            if (cohortCurrentlyFaded) {
+                                geometryCohort.forEach(m => {
+                                    if (m.userData.fadeTimer) {
+                                        clearTimeout(m.userData.fadeTimer);
+                                        m.userData.fadeTimer = null;
+                                    }
+                                    restoreMeshOpacity(m);
+                                });
+                            } else {
+                                geometryCohort.forEach(m => {
+                                    cacheMeshOpacity(m);
+                                    applyMeshOpacity(m, 0.25);
+                                });
+
+                                const unifiedTimer = setTimeout(() => {
+                                    geometryCohort.forEach(m => {
+                                        restoreMeshOpacity(m);
+                                        m.userData.fadeTimer = null;
+                                    });
+                                }, 3000);
+
+                                geometryCohort.forEach(m => {
+                                    m.userData.fadeTimer = unifiedTimer;
+                                });
+                            }
+                            lastTapTime = 0;
+                            lastTargetMesh = null;
+                        } else {
+                            // Non-blocking Single-Tap Selection Processor Engine
+                            selectStructureGroup(targetStructureGroup);
+                            lastTapTime = currentTime;
+                            lastTargetMesh = hitMesh;
+                        }
+                    }
+                } else {
+                    // Tap-off workspace boundaries execution branch -> Release selections cleanly
+                    if (selectedStructure) {
+                        deselectStructureGroup(selectedStructure);
+                        selectedStructure = null;
+                        document.getElementById('aiDescription').innerText = "Awaiting snapshot capture execution sequence...";
+                    }
+                    lastTapTime = 0;
+                    lastTargetMesh = null;
                 }
             }
             
-            if (activeDraggedGroup) {
-                activeDraggedGroup.traverse((child) => {
-                    if (child.isMesh && child.material && child.userData.originalEmissive !== undefined) {
-                        if (activeDraggedGroup === selectedStructureGroup) {
-                            child.material.emissive.setHex(0x554400);
-                        } else {
-                            child.material.emissive.setHex(child.userData.originalEmissive);
-                        }
-                    }
-                });
-            }
+            worldGroup.traverse((child) => {
+                if (child.isMesh && child.material && child.userData.originalEmissive !== undefined && child.parent !== selectedStructure) {
+                    child.material.emissive.setHex(child.userData.originalEmissive);
+                }
+            });
 
             if (isDraggingSceneActive) {
                 isDraggingSceneActive = false;
                 isStructureReadyToMove = false;
                 if (controls) controls.enabled = true; 
-                
                 resolveGeometryClipping();
             }
-            activeDraggedGroup = null;
         }
 
         function toggleSpatialBackdropOverlay() {
             const btn = document.getElementById('overlayToggleBtn');
             backdropOverlayActive = !backdropOverlayActive;
+            
             if (backdropOverlayActive) {
                 btn.classList.add('overlay-engaged');
             } else {
                 btn.classList.remove('overlay-engaged');
             }
-            
-            worldGroup.children.forEach(group => {
-                if (group.userData && group.userData.backdropMesh) {
-                    group.userData.backdropMesh.visible = backdropOverlayActive;
+
+            worldGroup.traverse(child => {
+                if (child.userData && child.userData.isBackdrop) {
+                    child.visible = backdropOverlayActive;
                 }
             });
         }
@@ -1114,11 +1059,12 @@
                 controls = new THREE.OrbitControls(camera, renderer.domElement);
                 controls.enableDamping = true;
                 controls.dampingFactor = 0.05;
-                // Infinite camera layout configuration tracking parameters
-                controls.minDistance = 0.1;
-                controls.maxDistance = Infinity;
             }
             controls.target.set(0, 0, 0); 
+            controls.minDistance = 0.1;
+            controls.maxDistance = Infinity; 
+            controls.enablePan = true;
+            controls.keyPanSpeed = 7.0;
             controls.enabled = true;
         }
 
@@ -1153,11 +1099,11 @@
             const scanBtn = document.getElementById('scanBtn');
 
             if (!systemApiSecretKey) {
-                descDiv.innerHTML = "<span style='color:#ff3333; font-weight:bold;'>Authentication Error:</span> Dynamic scanning is disabled. You must supply a valid API key via the browser URL address parameter sequence string (e.g., <code>?key=YOUR_KEY_HERE</code>) and refresh the interface workspace.";
+                descDiv.innerHTML = "<span style='color:#ff3333; font-weight:bold;'>Authentication Error:</span> Dynamic scanning is disabled. You must supply a valid API key via the browser URL parameter string.";
                 return;
             }
 
-            // Pulsating yellow warning display string modification
+            // Status warning text content is yellow and pulsating
             descDiv.innerHTML = '<span class="pulsate-warning">WARNING: scene reconstruction in progress.<br>Please wait for analysis to complete...</span>';
 
             const hiddenCanvas = document.createElement('canvas');
@@ -1174,7 +1120,7 @@
             } else {
                 const libraryImg = document.getElementById('libraryPreview');
                 if (!libraryImg.src || libraryImg.style.display === 'none') {
-                    alert("Pipeline Error: Please upload an image target inside the source terminal view first.");
+                    alert("Pipeline Error: Please upload an image target first.");
                     return;
                 }
                 hiddenCanvas.width = libraryImg.naturalWidth || 800;
@@ -1248,6 +1194,7 @@
 
             pass1ModelLoop: for (let model of modelCascadeList) {
                 try {
+                    // Internal compiler status lines render in baseline stable orange color profile
                     statusDiv.innerText = `Pass 1: Prompting ${model}...`;
                     const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + systemApiSecretKey, {
                         method: 'POST',
@@ -1397,14 +1344,12 @@
                     structuredUiOutput += `<br><br><div style='background:#221b11; border:1px solid #ffab00; padding:8px; border-radius:4px; font-family:monospace; font-size:0.9em; box-sizing:border-box; width:100%;'><b>System Connection Diagnostics Trail:</b><br>${debugDiagnosticsHistory}${permanentPass2Logs}</div>`;
                 }
 
-                // Temporary cache string used to attach structural narrative directly to unique sub-groups
-                const targetSavedDescription = structuredUiOutput;
-
+                descDiv.innerHTML = structuredUiOutput;
                 if (unifiedShapes.length > 0) {
                     rawCachedShapesArray = unifiedShapes;
-                    renderAIBlueprint(unifiedShapes, targetSavedDescription);
+                    renderAIBlueprint(unifiedShapes, parsedPayload.description);
                 } else {
-                    descDiv.innerHTML = structuredUiOutput + "<br><span style='color:#ffea00;'>Warning: Pipeline completed, but the total accumulated shape array contains 0 elements.</span>";
+                    descDiv.innerHTML += "<br><span style='color:#ffea00;'>Warning: Pipeline completed, but the total accumulated shape array contains 0 elements.</span>";
                 }
             } catch (err) {
                 console.error(err);
@@ -1414,10 +1359,13 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
-        // UNIFORM 8-FOOT HEIGHT COMPILER AND PERSISTENCE MATRIX
-        function renderAIBlueprint(shapesArray, finalDescriptionText) {
-            // Persistent architecture: Create a new isolated unique structure container instead of clearing previous objects
-            const structureGroup = new THREE.Group();
+        function renderAIBlueprint(shapesArray, descriptionText) {
+            // Created an isolated sub-group instance wrapper to accumulate multiple generation nodes concurrently
+            const structGroup = new THREE.Group();
+            structGroup.userData = {
+                description: descriptionText || "Scanned structure matrix asset blueprint mapping.",
+                isStructureRoot: true
+            };
 
             shapesArray.forEach(shape => {
                 if (!shape || typeof shape !== 'object') return;
@@ -1482,63 +1430,58 @@
                 
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
-                structureGroup.add(mesh);
+                structGroup.add(mesh);
             });
 
-            if (structureGroup.children.length > 0) {
-                // Pass 1: Measure standard bounding volume height
-                let boundingBox = new THREE.Box3().setFromObject(structureGroup);
-                let boundsSize = new THREE.Vector3();
-                boundingBox.getSize(boundsSize);
-
-                // Precise proportional uniform sizing mapping scale factor targets exactly 8 feet high (2.4384 metric workspace units)
-                const targetEightFeetHeight = 2.4384; 
-                const uniformScaleFactor = targetEightFeetHeight / (boundsSize.y || 1);
-                structureGroup.scale.setScalar(uniformScaleFactor);
-
-                // Pass 2: Offset inner component coordinates relative to group center so local origin matches the absolute bottom surface
-                boundingBox.setFromObject(structureGroup);
-                let structuralCenter = new THREE.Vector3();
-                boundingBox.getCenter(structuralCenter);
-
-                const baseLevelY = boundingBox.min.y;
-                structureGroup.children.forEach(child => {
-                    child.position.x -= structuralCenter.x;
-                    child.position.z -= structuralCenter.z;
-                    child.position.y -= baseLevelY;
+            if (structGroup.children.length > 0) {
+                // Compute pre-scaled bounds to execute strict proportional spatial norm targets
+                const rawBox = new THREE.Box3().setFromObject(structGroup);
+                const rawSize = new THREE.Vector3(); 
+                rawBox.getSize(rawSize);
+                const rawCenter = new THREE.Vector3(); 
+                rawBox.getCenter(rawCenter);
+                
+                // Shift child layout nodes so that the horizontal center and vertical base rest cleanly at local origin
+                structGroup.children.forEach(child => {
+                    child.position.x -= rawCenter.x;
+                    child.position.z -= rawCenter.z;
+                    child.position.y -= rawBox.min.y; 
                 });
 
-                // Lock structure placement flat atop the permanent grid plane (y = 0)
-                structureGroup.position.set(0, 0, 0);
-                structureGroup.userData.description = finalDescriptionText;
+                // Proportional Scaling Matrix Core: Scale uniformly so that height matches exactly 128 units
+                const structuralHeightTarget = 128.0;
+                const baseGeometricHeight = rawSize.y > 0 ? rawSize.y : 1.0;
+                const dynamicProportionalScaleFactor = structuralHeightTarget / baseGeometricHeight;
+                
+                structGroup.scale.set(dynamicProportionalScaleFactor, dynamicProportionalScaleFactor, dynamicProportionalScaleFactor);
 
-                // Process custom spatial alignment plane generation constraints
+                // Relocate structure across the landscape coordinates so its baseline sits at y = 0
+                structGroup.position.set(0, 0, 0);
+
                 if (scannedBackdropDataUrl) {
-                    boundingBox.setFromObject(structureGroup);
-                    boundingBox.getSize(boundsSize);
                     const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
-                    const floatingBackdropMesh = new THREE.Mesh(
+                    const localBackdrop = new THREE.Mesh(
                         new THREE.PlaneGeometry(1, 1),
                         new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false })
                     );
                     
-                    floatingBackdropMesh.position.set(0, boundsSize.y / 2, -1.5);
-                    floatingBackdropMesh.scale.set(Math.max(boundsSize.x, 6), Math.max(boundsSize.y, 6), 1);
-                    floatingBackdropMesh.visible = backdropOverlayActive;
-                    floatingBackdropMesh.userData.isBackdrop = true;
+                    localBackdrop.userData.isBackdrop = true;
+                    // Position alignment background relative to scaled depth parameters safely
+                    localBackdrop.position.set(0, 64.0, - (rawSize.z * dynamicProportionalScaleFactor * 0.5) - 1.5);
+                    localBackdrop.scale.set(Math.max(rawSize.x * dynamicProportionalScaleFactor, 6), 128.0, 1);
+                    localBackdrop.visible = backdropOverlayActive;
                     
-                    structureGroup.add(floatingBackdropMesh);
-                    structureGroup.userData.backdropMesh = floatingBackdropMesh;
+                    structGroup.add(localBackdrop);
                 }
 
-                worldGroup.add(structureGroup);
-                
-                // Execute collision resolution pass arrays
-                resolveGeometryClipping();
+                // Append the constructed asset group into the persistent master layout node hierarchy
+                worldGroup.add(structGroup);
 
-                // Focus terminal output tracking log profiles
-                document.getElementById('aiDescription').innerHTML = finalDescriptionText;
-                selectStructureGroup(structureGroup);
+                // Run structural optimization checks across all combined objects safely
+                resolveGeometryClipping();
+                
+                // Set the newly compiled persistent structure group as active choice asset automatically
+                selectStructureGroup(structGroup);
             }
         }
 
@@ -1600,26 +1543,28 @@
             
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.target.copy(explicitTargetPoint);
-            controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
             controls.minDistance = 0.1;
             controls.maxDistance = Infinity;
+            controls.enablePan = true;
+            controls.keyPanSpeed = 7.0;
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
             controls.update();
         }
 
         function clearSceneAndResetView() {
             console.clear();
             while(worldGroup.children.length > 0) {
-                let group = worldGroup.children[0];
-                group.traverse(c => {
-                    if (c.userData && c.userData.fadeTimer) clearTimeout(c.userData.fadeTimer);
-                    if(c.geometry) c.geometry.dispose();
-                    if(c.material) {
-                        if (Array.isArray(c.material)) c.material.forEach(m => m.dispose());
-                        else c.material.dispose();
+                let c = worldGroup.children[0];
+                c.traverse(node => {
+                    if (node.userData && node.userData.fadeTimer) clearTimeout(node.userData.fadeTimer);
+                    if (node.geometry) node.geometry.dispose();
+                    if (node.material) {
+                        if (Array.isArray(node.material)) node.material.forEach(m => m.dispose());
+                        else node.material.dispose();
                     }
                 });
-                worldGroup.remove(group);
+                worldGroup.remove(c);
             }
             deactivateTrackingSensors();
             lockedGyroRoll = 0; 
@@ -1630,8 +1575,7 @@
             gyroYawOffset = 0;
             lastTapTime = 0;
             lastTargetMesh = null;
-            selectedStructureGroup = null;
-            activeDraggedGroup = null;
+            selectedStructure = null;
 
             camera.position.set(0, 2.0, 25.0);
             if (controls) {
@@ -1682,14 +1626,13 @@
 
             worldSpaceAcceleration.y = 0;
 
-            // Infinite movement processing array thresholds: remove artificial gait boundaries to let vector translation loop freely
-            const hardwareJitterFloor = 0.04; 
+            const hardwareJitterFloor = 0.08; 
             if (worldSpaceAcceleration.length() < hardwareJitterFloor) {
                 return;
             }
 
-            const ACCELERATION_INTEGRATION_GAIN_Z = 0.035;
-            const ACCELERATION_INTEGRATION_GAIN_X = 0.012; 
+            const ACCELERATION_INTEGRATION_GAIN_Z = 0.025;
+            const ACCELERATION_INTEGRATION_GAIN_X = 0.006; 
             targetLinearVelocityX -= worldSpaceAcceleration.x * ACCELERATION_INTEGRATION_GAIN_X;
             targetLinearVelocityZ -= worldSpaceAcceleration.z * ACCELERATION_INTEGRATION_GAIN_Z;
         }
@@ -1710,8 +1653,7 @@
                     targetLinearVelocityZ = 0;
                 }
 
-                // Smooth linear velocity update profiling loop for infinite tracking acceleration bounds
-                const INTEGRATION_LEAK_DECAY = 0.94;
+                const INTEGRATION_LEAK_DECAY = 0.78;
                 targetLinearVelocityX *= INTEGRATION_LEAK_DECAY;
                 targetLinearVelocityZ *= INTEGRATION_LEAK_DECAY;
 
@@ -1739,8 +1681,6 @@
             
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
-            
-            // Grid-shifting recalculations are completely purged. GridHelper base lines stay permanently static at (0,0,0).
             
             document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Structures: ${worldGroup.children.length}`;
             
