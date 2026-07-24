@@ -163,13 +163,13 @@
         #lowerContent {
             width: 100%;
         }
-        #status { color: #ffab00; font-weight: bold; margin-top: 4px; font-size: 0.8em; display: none; }
+        #status { color: #ffea00; font-weight: bold; margin-top: 4px; font-size: 0.8em; display: none; }
         #aiDescription { margin-top: 4px; font-size: 0.75em; color: #aaa; max-height: 150px; overflow-y: auto; background: #15151f; padding: 6px; border-radius: 4px; border: 1px solid #222; white-space: pre-wrap; line-height: 1.4; width: 100%; box-sizing: border-box; }
         
-        /* Pulsating Display Message Engine */
+        /* Yellow Pulsating Display Message Engine */
         .pulsate-warning {
             animation: textPulse 1.4s infinite ease-in-out;
-            color: #ffab00;
+            color: #ffea00;
             font-weight: 600;
             display: inline-block;
         }
@@ -670,6 +670,7 @@
             }
         }
 
+        // ENHANCED NON-DESTRUCTIVE MULTI-PASS PHYSICS RELAXATION ENGINE
         function resolveGeometryClipping() {
             const meshes = [];
             worldGroup.traverse(child => {
@@ -678,42 +679,57 @@
                 }
             });
 
-            for (let i = 0; i < meshes.length; i++) {
-                for (let j = i + 1; j < meshes.length; j++) {
-                    const meshA = meshes[i];
-                    const meshB = meshes[j];
+            // Execute multiple relaxation loops to push cascading intersections clear of Z-fighting
+            const relaxationPasses = 4;
+            const antiFlickerEpsilon = 0.025; 
 
-                    const boxA = new THREE.Box3().setFromObject(meshA);
-                    const boxB = new THREE.Box3().setFromObject(meshB);
+            for (let pass = 0; pass < relaxationPasses; pass++) {
+                let currentPassCollisionsResolved = 0;
 
-                    if (boxA.intersectsBox(boxB)) {
-                        const volA = (boxA.max.x - boxA.min.x) * (boxA.max.y - boxA.min.y) * (boxA.max.z - boxA.min.z);
-                        const volB = (boxB.max.x - boxB.min.x) * (boxB.max.y - boxB.min.y) * (boxB.max.z - boxB.min.z);
+                for (let i = 0; i < meshes.length; i++) {
+                    for (let j = i + 1; j < meshes.length; j++) {
+                        const meshA = meshes[i];
+                        const meshB = meshes[j];
 
-                        const culprit = volA < volB ? meshA : meshB;
-                        const target = volA < volB ? meshB : meshA;
+                        const boxA = new THREE.Box3().setFromObject(meshA);
+                        const boxB = new THREE.Box3().setFromObject(meshB);
 
-                        const boxCulprit = new THREE.Box3().setFromObject(culprit);
-                        const boxTarget = new THREE.Box3().setFromObject(target);
+                        if (boxA.intersectsBox(boxB)) {
+                            currentPassCollisionsResolved++;
+                            const volA = (boxA.max.x - boxA.min.x) * (boxA.max.y - boxA.min.y) * (boxA.max.z - boxA.min.z);
+                            const volB = (boxB.max.x - boxB.min.x) * (boxB.max.y - boxB.min.y) * (boxB.max.z - boxB.min.z);
 
-                        const overlapX = Math.min(boxCulprit.max.x, boxTarget.max.x) - Math.max(boxCulprit.min.x, boxTarget.min.x);
-                        const overlapY = Math.min(boxCulprit.max.y, boxTarget.max.y) - Math.max(boxCulprit.min.y, boxTarget.min.y);
-                        const overlapZ = Math.min(boxCulprit.max.z, boxTarget.max.z) - Math.max(boxCulprit.min.z, boxTarget.min.z);
+                            const culprit = volA <= volB ? meshA : meshB;
+                            const target = volA <= volB ? meshB : meshA;
 
-                        const antiFlickerEpsilon = 0.02; 
+                            const boxCulprit = new THREE.Box3().setFromObject(culprit);
+                            const boxTarget = new THREE.Box3().setFromObject(target);
 
-                        if (overlapX < overlapY && overlapX < overlapZ) {
-                            const shiftDirX = culprit.position.x < target.position.x ? -1 : 1;
-                            culprit.position.x += shiftDirX * (overlapX + antiFlickerEpsilon);
-                        } else if (overlapY < overlapX && overlapY < overlapZ) {
-                            const shiftDirY = culprit.position.y < target.position.y ? -1 : 1;
-                            culprit.position.y += shiftDirY * (overlapY + antiFlickerEpsilon);
-                        } else {
-                            const shiftDirZ = culprit.position.z < target.position.z ? -1 : 1;
-                            culprit.position.z += shiftDirZ * (overlapZ + antiFlickerEpsilon);
+                            const overlapX = Math.min(boxCulprit.max.x, boxTarget.max.x) - Math.max(boxCulprit.min.x, boxTarget.min.x);
+                            const overlapY = Math.min(boxCulprit.max.y, boxTarget.max.y) - Math.max(boxCulprit.min.y, boxTarget.min.y);
+                            const overlapZ = Math.min(boxCulprit.max.z, boxTarget.max.z) - Math.max(boxCulprit.min.z, boxTarget.min.z);
+
+                            // Tie-breaker for perfect dimensional co-location overlap profiles
+                            if (Math.abs(overlapX - overlapY) < 0.001 && Math.abs(overlapY - overlapZ) < 0.001) {
+                                culprit.position.y += (boxTarget.max.y - boxTarget.min.y) * 0.1 + antiFlickerEpsilon;
+                                continue;
+                            }
+
+                            if (overlapX < overlapY && overlapX < overlapZ) {
+                                const shiftDirX = culprit.position.x <= target.position.x ? -1 : 1;
+                                culprit.position.x += shiftDirX * (overlapX + antiFlickerEpsilon);
+                            } else if (overlapY < overlapX && overlapY < overlapZ) {
+                                const shiftDirY = culprit.position.y <= target.position.y ? -1 : 1;
+                                culprit.position.y += shiftDirY * (overlapY + antiFlickerEpsilon);
+                            } else {
+                                const shiftDirZ = culprit.position.z <= target.position.z ? -1 : 1;
+                                culprit.position.z += shiftDirZ * (overlapZ + antiFlickerEpsilon);
+                            }
                         }
                     }
                 }
+                // Break structural optimization passes early if spatial blocks settle cleanly
+                if (currentPassCollisionsResolved === 0) break;
             }
         }
 
@@ -902,7 +918,6 @@
             }
         }
 
-        // INPUT CONTEXT CONTROL SELECTION SWAP
         function toggleInputSourceMode(e) {
             if(e) e.stopPropagation();
             
@@ -1031,7 +1046,7 @@
                 return;
             }
 
-            // Updated status text message configuration incorporating the active pulsating display engine class wrapper
+            // Updated status alert formatting payload wrapping elements inside the newly assigned yellow pulsate tracker engine
             descDiv.innerHTML = '<span class="pulsate-warning">WARNING: scene reconstruction in progress.<br>Please wait for analysis to complete...</span>';
 
             const hiddenCanvas = document.createElement('canvas');
