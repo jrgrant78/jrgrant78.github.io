@@ -163,7 +163,8 @@
         #lowerContent {
             width: 100%;
         }
-        #status { color: #ffea00; font-weight: bold; margin-top: 4px; font-size: 0.8em; display: none; }
+        /* Preserved baseline orange color scheme for compiler updates */
+        #status { color: #ffab00; font-weight: bold; margin-top: 4px; font-size: 0.8em; display: none; }
         #aiDescription { margin-top: 4px; font-size: 0.75em; color: #aaa; max-height: 150px; overflow-y: auto; background: #15151f; padding: 6px; border-radius: 4px; border: 1px solid #222; white-space: pre-wrap; line-height: 1.4; width: 100%; box-sizing: border-box; }
         
         /* Yellow Pulsating Display Message Engine */
@@ -670,7 +671,7 @@
             }
         }
 
-        // ENHANCED TWO-PASS GEOMETRY RECONSTRUCTION RELAXATION SYSTEM
+        // ENHANCED TWO-PASS PHYSICS RELAXATION ENGINE TO PREVENT LINGERING RECONSTRUCTION CONFLICTS
         function resolveGeometryClipping() {
             const meshes = [];
             worldGroup.traverse(child => {
@@ -679,9 +680,9 @@
                 }
             });
 
-            // --- PASS 1: Macro Interpenetration Volume Relaxation (MTV) ---
+            // Pass 1: Multi-Iteration Relaxation Sweep
             const relaxationPasses = 6;
-            const antiFlickerEpsilon = 0.03; 
+            const antiFlickerEpsilon = 0.025; 
 
             for (let pass = 0; pass < relaxationPasses; pass++) {
                 let currentPassCollisionsResolved = 0;
@@ -730,23 +731,23 @@
                 if (currentPassCollisionsResolved === 0) break;
             }
 
-            // --- PASS 2: Targeted Coplanar Surface Precision Alignment ---
-            // Distinct secondary check pass targeting fine-grained residual plane-sharing conflicts causing Z-fighting
-            const microStaggerEpsilon = 0.008;
+            // Pass 2: Explicit Coplanar Micro-Verification Scan for Residual Z-Fighting Artifacts
             for (let i = 0; i < meshes.length; i++) {
                 for (let j = i + 1; j < meshes.length; j++) {
                     const meshA = meshes[i];
                     const meshB = meshes[j];
-                    
-                    const distX = Math.abs(meshA.position.x - meshB.position.x);
-                    const distY = Math.abs(meshA.position.y - meshB.position.y);
-                    const distZ = Math.abs(meshA.position.z - meshB.position.z);
-                    
-                    if (distX < 0.05 && distY < 0.05 && distZ < 0.05) {
-                        // Apply micro-offsets to cleanly separate shared faces in the depth buffer without distorting layout proportions
-                        meshA.position.y += microStaggerEpsilon;
-                        meshA.position.x += microStaggerEpsilon * 0.5;
-                        meshA.position.z += microStaggerEpsilon * 0.5;
+                    const boxA = new THREE.Box3().setFromObject(meshA);
+                    const boxB = new THREE.Box3().setFromObject(meshB);
+
+                    // Sweep for fractional remaining contacts or coplanar shared faces
+                    if (boxA.intersectsBox(boxB) || boxA.distanceToBox(boxB) < 0.01) {
+                        const volA = (boxA.max.x - boxA.min.x) * (boxA.max.y - boxA.min.y) * (boxA.max.z - boxA.min.z);
+                        const volB = (boxB.max.x - boxB.min.x) * (boxB.max.y - boxB.min.y) * (boxB.max.z - boxB.min.z);
+                        const culprit = volA <= volB ? meshA : meshB;
+
+                        // Apply an explicit directional micro-separation shift to completely dissolve plane flickering
+                        culprit.position.y += 0.015;
+                        culprit.position.z += 0.015;
                     }
                 }
             }
@@ -1065,6 +1066,7 @@
                 return;
             }
 
+            // Updated status alert formatting payload containing the custom yellow text pulse engine class wrapper
             descDiv.innerHTML = '<span class="pulsate-warning">WARNING: scene reconstruction in progress.<br>Please wait for analysis to complete...</span>';
 
             const hiddenCanvas = document.createElement('canvas');
@@ -1155,6 +1157,7 @@
 
             pass1ModelLoop: for (let model of modelCascadeList) {
                 try {
+                    // Preserved orange status layout registers
                     statusDiv.innerText = `Pass 1: Prompting ${model}...`;
                     const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + systemApiSecretKey, {
                         method: 'POST',
@@ -1236,6 +1239,7 @@
 
                 for (let model of modelCascadeList) {
                     try {
+                        // Preserved orange status layout registers
                         statusDiv.innerText = `Pass 2: Compiling [${task.id}_${task.subId}] via ${model}...`;
                         const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + systemApiSecretKey, {
                             method: 'POST',
@@ -1427,6 +1431,7 @@
                     const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
                     floatingBackdropMesh = new THREE.Mesh(
                         new THREE.PlaneGeometry(1, 1),
+                        // Reference backdrop alpha configured to 75% visual profile
                         new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false })
                     );
                     
@@ -1565,7 +1570,6 @@
             camera.quaternion.setFromEuler(sensorEuler);
         }
 
-        // PHYSICAL ACCELERATION INTEGRATION ENGINE
         function handleInertialStepInput(e) {
             if (!gyroActive) return;
 
