@@ -192,7 +192,9 @@
 
     <div id="controls">
         <div class="main-interface">
+            <!-- Unified Left Container -->
             <div id="leftContainer">
+                <!-- Row 1: Primary Utility Configurations -->
                 <div class="icon-row">
                     <button id="uiToggleBtn" title="Toggle UI Controls">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -216,6 +218,7 @@
                     </button>
                 </div>
                 
+                <!-- Toggleable Panel: Row 2 Operations Matrix -->
                 <div id="togglePanel">
                     <div class="btn-toolbar" id="toolbarNode">
                         <button id="scanBtn" class="action-btn btn-scan" title="Scan Environment">
@@ -243,6 +246,7 @@
                 </div>
             </div>
             
+            <!-- Right Pinned Dynamic Aspect Camera Viewport -->
             <div id="cameraWindow">
                 <video id="cameraFeed" autoplay playsinline muted></video>
                 <img id="libraryPreview" alt="Device selection display element">
@@ -260,6 +264,7 @@
             </div>
         </div>
         
+        <!-- Screen-Width Bottom Logging Terminal Panel -->
         <div id="lowerContent">
             <input type="file" id="fileInput" accept="image/*" style="display: none;">
             <div id="status">Deconstructing spatial geometry orientation...</div>
@@ -284,16 +289,11 @@
         
         let targetLinearVelocityX = 0;
         let targetLinearVelocityZ = 0;
-        const VELOCITY_INTERPOLATION_STEP = 0.22; 
         const VELOCITY_DEADZONE_LIMIT = 0.001;
 
         let motionTracker;
         const LEVEL_PITCH_LIMIT = THREE.MathUtils.degToRad(20);  
         const LEVEL_ROLL_LIMIT = THREE.MathUtils.degToRad(15);   
-        const ROTATIONAL_BLANKING_THRESHOLD = 0.005; 
-        
-        const TRANSLATION_SPEED_SCALAR = 0.65;                   
-        let visualTelemetry = { scaleFlow: 0, panFlow: 0, gated: true };
         
         const worldGroup = new THREE.Group();
         let scanInProgress = false;
@@ -301,14 +301,15 @@
         let dynamicInputSourceMode = 'camera';
         let scannedBackdropDataUrl = null;
         let backdropOverlayActive = false;
-        let floatingBackdropMesh = null; 
         let rawCachedShapesArray = null;  
 
         let telemetryState = { x: 0, y: 2.0, z: 25.0 };
 
+        // SPATIAL WORKSPACE CONTEXT PARAMETERS
         let cameraStreamAspectRatio = 4 / 3; 
         let systemApiSecretKey = null; 
 
+        // SPATIAL MANIPULATION WORKSPACE REGISTERS
         let raycaster = new THREE.Raycaster();
         let pointerCoordinateVector = new THREE.Vector2();
         let isDraggingSceneActive = false;
@@ -317,12 +318,17 @@
         let interactiveDragOffset = new THREE.Vector3();
         let groundReferencePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
         
+        // Gesture verification metrics
         let startScreenPosition = { x: 0, y: 0 };
         const DRAG_CANCEL_THRESHOLD = 8; 
         const TAP_JITTER_THRESHOLD = 18;  
 
+        // Double tap sequence registers
         let lastTapTime = 0;
         let lastTargetMesh = null;
+        
+        // Dynamic structural isolation mapping registers
+        let currentlySelectedStructureGroup = null;
 
         const OPEN_EYE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
         const CLOSED_EYE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
@@ -535,7 +541,7 @@
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x06060a);
 
-            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 20000);
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 50000);
             camera.position.set(telemetryState.x, telemetryState.y, telemetryState.z);
 
             renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
@@ -551,8 +557,8 @@
             
             motionTracker = new MultiPointMotionTracker();
 
-            // Setup high-density infinite-style static workspace grid array
-            gridHelper = new THREE.GridHelper(20000, 4000, 0xb0b0b0, 0x333344);
+            // Setup a massive static infinite-style grid helper that remains completely locked at its starting position
+            gridHelper = new THREE.GridHelper(8000, 4000, 0xb0b0b0, 0x33333d);
             gridHelper.position.set(0, 0, 0); 
             gridHelper.visible = true;
             scene.add(gridHelper);
@@ -573,6 +579,7 @@
 
             scene.add(worldGroup);
 
+            // POINTER INTERACTION WORKSPACE LISTENERS
             canvas.addEventListener('pointerdown', handleScenePointerDownActivation, { passive: false });
             window.addEventListener('pointermove', handleScenePointerDragSequence, { passive: false });
             window.addEventListener('pointerup', handleScenePointerUpRelease);
@@ -661,51 +668,40 @@
             }
         }
 
-        // RIGIDLY SECURE BASELINE GROUND PLANE LEVEL ANCHORING
-        function anchorStructureToGrid() {
-            if (worldGroup.children.length === 0) return;
-            const absoluteWorldBoundBox = new THREE.Box3().setFromObject(worldGroup);
-            const currentMinimumWorldY = absoluteWorldBoundBox.min.y;
-            // Shift group to translate base flush onto the static floor layout
-            worldGroup.position.y -= currentMinimumWorldY;
-        }
-
-        // DUAL-PASS GEOMETRY PURGE AND RELAXATION ENGINE
+        // TWO-PASS GEOMETRY DE-DUPLICATION AND RELAXATION CONFLICT RESOLUTION
         function resolveGeometryClipping() {
             let meshes = [];
             worldGroup.traverse(child => {
-                if (child.isMesh && child !== floatingBackdropMesh) {
+                if (child.isMesh && !child.userData.isBackdrop) {
                     meshes.push(child);
                 }
             });
 
-            // PASS 1: EXPLICIT DUPLICATE PURGE PIPELINE
+            // PASS 1: PURGE EXACT GEOMETRIC TWINS (DUPLICATES)
             for (let i = meshes.length - 1; i >= 0; i--) {
                 for (let j = i - 1; j >= 0; j--) {
                     const meshA = meshes[i];
                     const meshB = meshes[j];
                     if (!meshA || !meshB) continue;
 
-                    const positionalDelta = meshA.position.distanceTo(meshB.position);
-                    const dimensionalDelta = Math.abs(meshA.scale.x - meshB.scale.x) + 
-                                             Math.abs(meshA.scale.y - meshB.scale.y) + 
-                                             Math.abs(meshA.scale.z - meshB.scale.z);
-                    const angularDelta = meshA.quaternion.angleTo(meshB.quaternion);
+                    const posDist = meshA.getWorldPosition(new THREE.Vector3()).distanceTo(meshB.getWorldPosition(new THREE.Vector3()));
+                    const scaleDiff = Math.abs(meshA.scale.x - meshB.scale.x) + Math.abs(meshA.scale.y - meshB.scale.y) + Math.abs(meshA.scale.z - meshB.scale.z);
+                    const angleDiff = meshA.quaternion.angleTo(meshB.quaternion);
 
-                    if (positionalDelta < 0.015 && dimensionalDelta < 0.02 && angularDelta < 0.05) {
+                    if (posDist < 0.015 && scaleDiff < 0.02 && angleDiff < 0.05) {
                         if (meshA.geometry) meshA.geometry.dispose();
                         if (meshA.material) {
                             if (Array.isArray(meshA.material)) meshA.material.forEach(m => m.dispose());
                             else meshA.material.dispose();
                         }
-                        worldGroup.remove(meshA);
+                        if (meshA.parent) meshA.parent.remove(meshA);
                         meshes.splice(i, 1);
                         break; 
                     }
                 }
             }
 
-            // PASS 2: MULTI-PASS MINIMUM TRANSLATION VECTOR RELAXATION
+            // PASS 2: CASCADE MULTI-PASS SHIFTING ENGINE FOR SEPARATE CLOSE ITEMS
             const relaxationPasses = 4;
             const antiFlickerEpsilon = 0.025; 
 
@@ -757,6 +753,44 @@
             }
         }
 
+        // SELECTION & HIGHLIGHT PROFILER MANAGEMENT
+        function selectStructureInstance(structureGroup) {
+            deselectAllStructures();
+            currentlySelectedStructureGroup = structureGroup;
+            
+            structureGroup.traverse(child => {
+                if (child.isMesh && !child.userData.isBackdrop) {
+                    if (child.userData.originalEmissive === undefined) {
+                        child.userData.originalEmissive = child.material.emissive.getHex();
+                    }
+                    // Highlight the meshes with an advanced high-visibility selection glow
+                    child.material.emissive.setHex(0x113366); 
+                    if (child.material.emissiveIntensity !== undefined) {
+                        child.material.emissiveIntensity = 2.0;
+                    }
+                }
+            });
+
+            if (structureGroup.userData && structureGroup.userData.description) {
+                document.getElementById('aiDescription').innerHTML = `<b>[Selected Structure Config]</b><br>${structureGroup.userData.description}`;
+            }
+        }
+
+        function deselectAllStructures() {
+            worldGroup.children.forEach(group => {
+                group.traverse(child => {
+                    if (child.isMesh && child.userData.originalEmissive !== undefined) {
+                        child.material.emissive.setHex(child.userData.originalEmissive);
+                        if (child.material.emissiveIntensity !== undefined) {
+                            child.material.emissiveIntensity = 1.0;
+                        }
+                    }
+                });
+            });
+            currentlySelectedStructureGroup = null;
+        }
+
+        // DYNAMIC SPATIAL MANIPULATION EVENT HANDLERS
         function handleScenePointerDownActivation(e) {
             pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
             pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -768,32 +802,39 @@
             const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
 
             if (targetedStructuralIntersects.length > 0) {
-                let groundIntersectionVector = new THREE.Vector3();
-                raycaster.ray.intersectPlane(groundReferencePlane, groundIntersectionVector);
-                interactiveDragOffset.copy(groundIntersectionVector).sub(worldGroup.position);
+                // Find containing structure group hierarchy tree block element loop
+                let rootGroup = targetedStructuralIntersects[0].object.parent;
+                while (rootGroup && rootGroup.parent !== worldGroup) {
+                    rootGroup = rootGroup.parent;
+                }
 
-                if (sceneDragLongPressTimeout) clearTimeout(sceneDragLongPressTimeout);
-                
-                isStructureReadyToMove = false;
-                isDraggingSceneActive = false;
+                if (rootGroup) {
+                    let groundIntersectionVector = new THREE.Vector3();
+                    raycaster.ray.intersectPlane(groundReferencePlane, groundIntersectionVector);
+                    interactiveDragOffset.copy(groundIntersectionVector).sub(rootGroup.position);
 
-                sceneDragLongPressTimeout = setTimeout(() => {
-                    isStructureReadyToMove = true;
-                    isDraggingSceneActive = true;
+                    if (sceneDragLongPressTimeout) clearTimeout(sceneDragLongPressTimeout);
                     
-                    if (controls) controls.enabled = false; 
+                    isStructureReadyToMove = false;
+                    isDraggingSceneActive = false;
 
-                    worldGroup.traverse((child) => {
-                        if (child.isMesh && child.material && child !== floatingBackdropMesh) {
-                            if (child.userData.originalEmissive === undefined) {
-                                child.userData.originalEmissive = child.material.emissive.getHex();
+                    sceneDragLongPressTimeout = setTimeout(() => {
+                        isStructureReadyToMove = true;
+                        isDraggingSceneActive = true;
+                        if (controls) controls.enabled = false; 
+
+                        rootGroup.traverse((child) => {
+                            if (child.isMesh && child.material && !child.userData.isBackdrop) {
+                                if (child.userData.originalEmissive === undefined) {
+                                    child.userData.originalEmissive = child.material.emissive.getHex();
+                                }
+                                child.material.emissive.setHex(0x332211); 
                             }
-                            child.material.emissive.setHex(0x224466); 
-                        }
-                    });
+                        });
 
-                    document.getElementById('aiDescription').innerText = "[Active Mode: Translating Structure]\nSlide to reposition. Elements snap horizontally and lock firmly to the floor plane.";
-                }, 400); 
+                        document.getElementById('aiDescription').innerText = "[Active Mode: Translating Structure]\nMoving targeted item along the horizontal environment surface matrix alignment loop.";
+                    }, 400);
+                }
             } else {
                 lastTapTime = 0;
                 lastTargetMesh = null;
@@ -824,124 +865,142 @@
             let currentGroundIntersection = new THREE.Vector3();
             raycaster.ray.intersectPlane(groundReferencePlane, currentGroundIntersection);
 
-            let intendedTargetPosition = currentGroundIntersection.sub(interactiveDragOffset);
-            
-            worldGroup.position.x = Math.round(intendedTargetPosition.x);
-            worldGroup.position.z = Math.round(intendedTargetPosition.z);
-            // Lock Y trajectory adjustments explicitly to maintain floor alignment rules
-            anchorStructureToGrid();
+            // Find structure instance that is moving
+            raycaster.setFromCamera(new THREE.Vector2((startScreenPosition.x / window.innerWidth) * 2 - 1, -(startScreenPosition.y / window.innerHeight) * 2 + 1), camera);
+            const initialIntersects = raycaster.intersectObjects(worldGroup.children, true);
+            if (initialIntersects.length > 0) {
+                let rootGroup = initialIntersects[0].object.parent;
+                while (rootGroup && rootGroup.parent !== worldGroup) {
+                    rootGroup = rootGroup.parent;
+                }
+                if (rootGroup) {
+                    let intendedTargetPosition = currentGroundIntersection.sub(interactiveDragOffset);
+                    rootGroup.position.x = Math.round(intendedTargetPosition.x);
+                    rootGroup.position.z = Math.round(intendedTargetPosition.z);
+                }
+            }
         }
 
         function handleScenePointerUpRelease(e) {
+            const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
+            const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
+            const isCleanTapRelease = currentPixelDeltaX < TAP_JITTER_THRESHOLD && currentPixelDeltaY < TAP_JITTER_THRESHOLD;
+
             if (sceneDragLongPressTimeout) {
                 clearTimeout(sceneDragLongPressTimeout);
                 sceneDragLongPressTimeout = null;
+            }
 
-                const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
-                const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
+            if (isCleanTapRelease && !isDraggingSceneActive) {
+                pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
+                pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
-                if (currentPixelDeltaX < TAP_JITTER_THRESHOLD && currentPixelDeltaY < TAP_JITTER_THRESHOLD) {
-                    pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
-                    pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                raycaster.setFromCamera(pointerCoordinateVector, camera);
+                const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
 
-                    raycaster.setFromCamera(pointerCoordinateVector, camera);
-                    const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
+                if (targetedStructuralIntersects.length > 0) {
+                    const clickedMesh = targetedStructuralIntersects[0].object;
+                    
+                    // Track containing main structure instance root group layout tree
+                    let rootGroup = clickedMesh.parent;
+                    while (rootGroup && rootGroup.parent !== worldGroup) {
+                        rootGroup = rootGroup.parent;
+                    }
 
-                    if (targetedStructuralIntersects.length > 0) {
-                        const hitMesh = targetedStructuralIntersects[0].object;
-                        if (hitMesh !== floatingBackdropMesh) {
-                            const currentTime = performance.now();
+                    if (rootGroup && !clickedMesh.userData.isBackdrop) {
+                        const currentTime = performance.now();
 
-                            if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh) {
-                                const geometryCohort = [hitMesh];
-                                worldGroup.traverse((child) => {
-                                    if (child.isMesh && child !== hitMesh && child !== floatingBackdropMesh) {
-                                        const dist = child.position.distanceTo(hitMesh.position);
-                                        const deltaScaleX = Math.abs(child.scale.x - hitMesh.scale.x);
-                                        const deltaScaleY = Math.abs(child.scale.y - hitMesh.scale.y);
-                                        const deltaScaleZ = Math.abs(child.scale.z - hitMesh.scale.z);
-                                        const deltaAngle = child.quaternion.angleTo(hitMesh.quaternion);
-                                        
-                                        if (dist < 0.3 && deltaScaleX < 0.2 && deltaScaleY < 0.2 && deltaScaleZ < 0.2 && deltaAngle < 0.2) {
-                                            geometryCohort.push(child);
-                                        }
+                        // Cohort double-tap processing check logic profiles
+                        if (currentTime - lastTapTime < 350 && lastTargetMesh === clickedMesh) {
+                            const geometryCohort = [clickedMesh];
+                            rootGroup.traverse((child) => {
+                                if (child.isMesh && child !== clickedMesh && !child.userData.isBackdrop) {
+                                    const dist = child.position.distanceTo(clickedMesh.position);
+                                    const deltaScaleX = Math.abs(child.scale.x - clickedMesh.scale.x);
+                                    const deltaScaleY = Math.abs(child.scale.y - clickedMesh.scale.y);
+                                    const deltaScaleZ = Math.abs(child.scale.z - clickedMesh.scale.z);
+                                    const deltaAngle = child.quaternion.angleTo(clickedMesh.quaternion);
+                                    
+                                    if (dist < 0.3 && deltaScaleX < 0.2 && deltaScaleY < 0.2 && deltaScaleZ < 0.2 && deltaAngle < 0.2) {
+                                        geometryCohort.push(child);
                                     }
+                                }
+                            });
+
+                            const cohortCurrentlyFaded = clickedMesh.userData.fadeTimer !== null && clickedMesh.userData.fadeTimer !== undefined;
+
+                            if (cohortCurrentlyFaded) {
+                                geometryCohort.forEach(m => {
+                                    if (m.userData.fadeTimer) {
+                                        clearTimeout(m.userData.fadeTimer);
+                                        m.userData.fadeTimer = null;
+                                    }
+                                    restoreMeshOpacity(m);
+                                });
+                            } else {
+                                geometryCohort.forEach(m => {
+                                    cacheMeshOpacity(m);
+                                    applyMeshOpacity(m, 0.25);
                                 });
 
-                                const cohortCurrentlyFaded = hitMesh.userData.fadeTimer !== null && hitMesh.userData.fadeTimer !== undefined;
-
-                                if (cohortCurrentlyFaded) {
+                                const unifiedTimer = setTimeout(() => {
                                     geometryCohort.forEach(m => {
-                                        if (m.userData.fadeTimer) {
-                                            clearTimeout(m.userData.fadeTimer);
-                                            m.userData.fadeTimer = null;
-                                        }
                                         restoreMeshOpacity(m);
+                                        m.userData.fadeTimer = null;
                                     });
-                                    document.getElementById('aiDescription').innerText = "Transparency cohort cleared by user override.";
-                                } else {
-                                    geometryCohort.forEach(m => {
-                                        cacheMeshOpacity(m);
-                                        applyMeshOpacity(m, 0.25);
-                                    });
-                                    document.getElementById('aiDescription').innerText = `Temporary transparency cohort active (${geometryCohort.length} meshes localized).`;
+                                }, 3000);
 
-                                    const unifiedTimer = setTimeout(() => {
-                                        geometryCohort.forEach(m => {
-                                            restoreMeshOpacity(m);
-                                            m.userData.fadeTimer = null;
-                                        });
-                                        document.getElementById('aiDescription').innerText = "Mesh material cohort profile restored automatically.";
-                                    }, 3000);
-
-                                    geometryCohort.forEach(m => {
-                                        m.userData.fadeTimer = unifiedTimer;
-                                    });
-                                }
-                                lastTapTime = 0;
-                                lastTargetMesh = null;
-                            } else {
-                                lastTapTime = currentTime;
-                                lastTargetMesh = hitMesh;
+                                geometryCohort.forEach(m => {
+                                    m.userData.fadeTimer = unifiedTimer;
+                                });
                             }
+                            lastTapTime = 0;
+                            lastTargetMesh = null;
+                        } else {
+                            // Primary single-tap capture selection routine response activation mapping profile
+                            lastTapTime = currentTime;
+                            lastTargetMesh = clickedMesh;
+                            selectStructureInstance(rootGroup);
                         }
-                    } else {
-                        lastTapTime = 0;
-                        lastTargetMesh = null;
                     }
+                } else {
+                    // Tap off any active geometry structure elements resets operational focus matrix views
+                    deselectAllStructures();
+                    document.getElementById('aiDescription').innerText = "Awaiting snapshot capture execution sequence...";
+                    lastTapTime = 0;
+                    lastTargetMesh = null;
                 }
             }
             
-            worldGroup.traverse((child) => {
-                if (child.isMesh && child.material && child.userData.originalEmissive !== undefined) {
-                    child.material.emissive.setHex(child.userData.originalEmissive);
-                }
+            worldGroup.children.forEach(group => {
+                group.traverse((child) => {
+                    if (child.isMesh && child.material && child.userData.originalEmissive !== undefined && group !== currentlySelectedStructureGroup) {
+                        child.material.emissive.setHex(child.userData.originalEmissive);
+                    }
+                });
             });
 
             if (isDraggingSceneActive) {
                 isDraggingSceneActive = false;
                 isStructureReadyToMove = false;
                 if (controls) controls.enabled = true; 
-                
                 resolveGeometryClipping();
-                anchorStructureToGrid(); 
-                
-                document.getElementById('aiDescription').innerText = "Structure transform committed. Intersecting parameters cleaned and snapped.";
             }
         }
 
         function toggleSpatialBackdropOverlay() {
             const btn = document.getElementById('overlayToggleBtn');
-            if (backdropOverlayActive) {
-                backdropOverlayActive = false;
-                btn.classList.remove('overlay-engaged');
-                if (floatingBackdropMesh) floatingBackdropMesh.visible = false;
-            } else {
-                if (!scannedBackdropDataUrl) return;
-                backdropOverlayActive = true;
-                btn.classList.add('overlay-engaged');
-                if (floatingBackdropMesh) floatingBackdropMesh.visible = true;
-            }
+            backdropOverlayActive = !backdropOverlayActive;
+            
+            btn.classList.toggle('overlay-engaged', backdropOverlayActive);
+            
+            worldGroup.children.forEach(group => {
+                group.traverse(child => {
+                    if (child.userData && child.userData.isBackdrop) {
+                        child.visible = backdropOverlayActive;
+                    }
+                });
+            });
         }
 
         function toggleInputSourceMode(e) {
@@ -1031,18 +1090,21 @@
             if (!controls) {
                 controls = new THREE.OrbitControls(camera, renderer.domElement);
                 controls.enableDamping = true;
-                controls.dampingFactor = 0.05;
+                controls.dampingFactor = 0.08;
             }
-            // Clear default distance clamping boundaries to allow endless exploration trajectories
-            controls.minDistance = 0.01;
-            controls.maxDistance = Infinity;
+            // Configure controls parameter curves to enable indefinite pan space traversal without artificial braking drag
+            controls.minDistance = 0.1;
+            controls.maxDistance = 50000;
             controls.target.set(0, 0, 0); 
             controls.enabled = true;
         }
 
         async function initRearCameraStreamGracefully() {
             videoElement = document.getElementById('cameraFeed');
-            videoElement.addEventListener('loadedmetadata', () => resizeCameraViewport());
+            
+            videoElement.addEventListener('loadedmetadata', () => {
+                resizeCameraViewport();
+            });
 
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
@@ -1072,6 +1134,7 @@
                 return;
             }
 
+            // Displays a yellow, pulsating message strictly confined inside its layout design tracking wrapper
             descDiv.innerHTML = '<span class="pulsate-warning">WARNING: scene reconstruction in progress.<br>Please wait for analysis to complete...</span>';
 
             const hiddenCanvas = document.createElement('canvas');
@@ -1162,6 +1225,7 @@
 
             pass1ModelLoop: for (let model of modelCascadeList) {
                 try {
+                    // Operational pass loop tracking runs safely in the standard orange color theme mapping profile
                     statusDiv.innerText = `Pass 1: Prompting ${model}...`;
                     const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + systemApiSecretKey, {
                         method: 'POST',
@@ -1314,7 +1378,8 @@
                 descDiv.innerHTML = structuredUiOutput;
                 if (unifiedShapes.length > 0) {
                     rawCachedShapesArray = unifiedShapes;
-                    renderAIBlueprint(unifiedShapes);
+                    // Pass description payload text data forward into blueprint parser builder logic loops
+                    renderAIBlueprint(unifiedShapes, parsedPayload.description);
                 } else {
                     descDiv.innerHTML += "<br><span style='color:#ffea00;'>Warning: Pipeline completed, but the total accumulated shape array contains 0 elements.</span>";
                 }
@@ -1326,33 +1391,12 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
-        function renderAIBlueprint(shapesArray) {
-            // Reset existing structural parent transforms entirely
-            worldGroup.scale.set(1, 1, 1);
-            worldGroup.position.set(0, 0, 0);
-
-            while(worldGroup.children.length > 0) {
-                const child = worldGroup.children[0];
-                if (child.userData && child.userData.fadeTimer) {
-                    clearTimeout(child.userData.fadeTimer);
-                }
-                if(child.geometry) child.geometry.dispose();
-                if(child.material) {
-                    if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
-                    else child.material.dispose();
-                }
-                worldGroup.remove(child);
-            }
-
-            if (floatingBackdropMesh) {
-                if (floatingBackdropMesh.geometry) floatingBackdropMesh.geometry.dispose();
-                if (floatingBackdropMesh.material) {
-                    if (floatingBackdropMesh.material.map) floatingBackdropMesh.material.map.dispose();
-                    floatingBackdropMesh.material.dispose();
-                }
-                worldGroup.remove(floatingBackdropMesh);
-                floatingBackdropMesh = null;
-            }
+        function renderAIBlueprint(shapesArray, descriptionText) {
+            // Persistent Scanning: Old generated structure assets inside worldGroup are left intact.
+            const structureContainerGroup = new THREE.Group();
+            structureContainerGroup.userData = {
+                description: descriptionText || "Scanned AI 3D Sculpted Spatial Node Stack Block Segment Target Asset."
+            };
 
             shapesArray.forEach(shape => {
                 if (!shape || typeof shape !== 'object') return;
@@ -1417,50 +1461,62 @@
                 
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
-                worldGroup.add(mesh);
+                structureContainerGroup.add(mesh);
             });
 
-            if (worldGroup.children.length > 0) {
-                // PRECISION 8-FOOT TALL TARGET SCALING CALCULATOR MATRIX
-                let initialRawBounds = new THREE.Box3().setFromObject(worldGroup);
-                let originalStructuralSize = new THREE.Vector3();
-                initialRawBounds.getSize(originalStructuralSize);
+            if (structureContainerGroup.children.length > 0) {
+                // STEP 1: CALCULATE INITIAL HEIGHT SCALE MATRIX RATIO FOR DYNAMIC DIMENSIONAL REDUCTION
+                let initialBoundsBox = new THREE.Box3().setFromObject(structureContainerGroup);
+                let initialDimensions = new THREE.Vector3();
+                initialBoundsBox.getSize(initialDimensions);
                 
-                let originalHeightValue = originalStructuralSize.y;
-                if (originalHeightValue > 0) {
-                    // Normalize and enforce rigid 8-foot uniform bounding box metrics
-                    let targetedEightFootScaleFactor = 8.0 / originalHeightValue;
-                    worldGroup.scale.set(targetedEightFootScaleFactor, targetedEightFootScaleFactor, targetedEightFootScaleFactor);
-                }
+                // Absolute scaling benchmark configuration metrics: 8 feet = 2.4384 meters
+                const TARGET_HEIGHT_METERS = 2.4384; 
+                let sourceHeightVal = initialDimensions.y || 1.0;
+                let proportionalScaleScalar = TARGET_HEIGHT_METERS / sourceHeightVal;
+                
+                // Apply absolute scalar uniformly across width, depth, and height boundaries
+                structureContainerGroup.scale.set(proportionalScaleScalar, proportionalScaleScalar, proportionalScaleScalar);
 
-                // Center structure around world coordinates space context vectors
-                const box = new THREE.Box3().setFromObject(worldGroup);
-                const center = new THREE.Vector3(); 
-                box.getCenter(center);
+                // STEP 2: RECALCULATE STRUCTURAL BOUNDS TO EXECUTE CO-LATERAL Y-AXIS GROUND ALIGNMENT 
+                let scaledBoundsBox = new THREE.Box3().setFromObject(structureContainerGroup);
+                let scaledCenterVector = new THREE.Vector3();
+                scaledBoundsBox.getCenter(scaledCenterVector);
                 
-                worldGroup.position.x = -center.x;
-                worldGroup.position.z = -center.z;
-                
-                // Clear out overlap clipping traces
-                resolveGeometryClipping();
-                // Ground baseline boundaries firmly atop the immutable floor array grid lines
-                anchorStructureToGrid();
+                // Adjust position so width/depth centers match parent target, while the bottom base sets flush on grid (Y=0)
+                structureContainerGroup.position.x = -scaledCenterVector.x;
+                structureContainerGroup.position.z = -scaledCenterVector.z;
+                structureContainerGroup.position.y = -scaledBoundsBox.min.y; 
 
+                worldGroup.add(structureContainerGroup);
+
+                // Add reference overlay plane paired directly into context wrapper layers
                 if (scannedBackdropDataUrl) {
-                    const finalRecomputedBox = new THREE.Box3().setFromObject(worldGroup);
-                    const size = new THREE.Vector3(); finalRecomputedBox.getSize(size);
+                    let finalBoundsBox = new THREE.Box3().setFromObject(structureContainerGroup);
+                    let finalSize = new THREE.Vector3(); 
+                    finalBoundsBox.getSize(finalSize);
+                    let finalCenter = new THREE.Vector3(); 
+                    finalBoundsBox.getCenter(finalCenter);
+
                     const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
-                    floatingBackdropMesh = new THREE.Mesh(
+                    let structureBackdropMesh = new THREE.Mesh(
                         new THREE.PlaneGeometry(1, 1),
                         new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false })
                     );
                     
-                    floatingBackdropMesh.position.set(0, size.y / 2, finalRecomputedBox.min.z - 1.5);
-                    floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
-                    floatingBackdropMesh.visible = backdropOverlayActive;
+                    structureBackdropMesh.position.set(0, finalSize.y / 2, -finalSize.z / 2 - 0.2);
+                    structureBackdropMesh.scale.set(Math.max(finalSize.x, 6), Math.max(finalSize.y, 6), 1);
+                    structureBackdropMesh.visible = backdropOverlayActive;
+                    structureBackdropMesh.userData.isBackdrop = true;
                     
-                    worldGroup.add(floatingBackdropMesh);
+                    structureContainerGroup.add(structureBackdropMesh);
                 }
+
+                // Auto select newly computed element tree models dynamically
+                selectStructureInstance(structureContainerGroup);
+                
+                // Process deduplication conflict checking passes
+                resolveGeometryClipping();
             }
         }
 
@@ -1521,28 +1577,33 @@
             }
             
             controls = new THREE.OrbitControls(camera, renderer.domElement);
-            controls.minDistance = 0.01;
-            controls.maxDistance = Infinity;
+            controls.minDistance = 0.1;
+            controls.maxDistance = 50000;
             controls.target.copy(explicitTargetPoint);
             controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
+            controls.dampingFactor = 0.08;
             controls.update();
         }
 
         function clearSceneAndResetView() {
             console.clear();
+            deselectAllStructures();
+            
             while(worldGroup.children.length > 0) {
-                let c = worldGroup.children[0];
-                if (c.userData && c.userData.fadeTimer) {
-                    clearTimeout(c.userData.fadeTimer);
-                }
-                if(c.geometry) c.geometry.dispose();
-                if(c.material) {
-                    if (Array.isArray(c.material)) c.material.forEach(m => m.dispose());
-                    else c.material.dispose();
-                }
-                worldGroup.remove(c);
+                let container = worldGroup.children[0];
+                container.traverse(c => {
+                    if (c.userData && c.userData.fadeTimer) {
+                        clearTimeout(c.userData.fadeTimer);
+                    }
+                    if(c.geometry) c.geometry.dispose();
+                    if(c.material) {
+                        if (Array.isArray(c.material)) c.material.forEach(m => m.dispose());
+                        else c.material.dispose();
+                    }
+                });
+                worldGroup.remove(container);
             }
+            
             deactivateTrackingSensors();
             lockedGyroRoll = 0; 
             targetLinearVelocityX = 0;
@@ -1552,16 +1613,6 @@
             gyroYawOffset = 0;
             lastTapTime = 0;
             lastTargetMesh = null;
-            
-            if (floatingBackdropMesh) {
-                if (floatingBackdropMesh.geometry) floatingBackdropMesh.geometry.dispose();
-                if (floatingBackdropMesh.material) {
-                    if (floatingBackdropMesh.material.map) floatingBackdropMesh.material.map.dispose();
-                    floatingBackdropMesh.material.dispose();
-                }
-                worldGroup.remove(floatingBackdropMesh);
-                floatingBackdropMesh = null;
-            }
 
             camera.position.set(0, 2.0, 25.0);
             if (controls) {
@@ -1617,8 +1668,9 @@
                 return;
             }
 
-            const ACCELERATION_INTEGRATION_GAIN_Z = 0.025;
-            const ACCELERATION_INTEGRATION_GAIN_X = 0.006; 
+            // High precision gain adjustments mapping structural space updates safely
+            const ACCELERATION_INTEGRATION_GAIN_Z = 0.045;
+            const ACCELERATION_INTEGRATION_GAIN_X = 0.012; 
             targetLinearVelocityX -= worldSpaceAcceleration.x * ACCELERATION_INTEGRATION_GAIN_X;
             targetLinearVelocityZ -= worldSpaceAcceleration.z * ACCELERATION_INTEGRATION_GAIN_Z;
         }
@@ -1626,7 +1678,7 @@
         function animate() {
             requestAnimationFrame(animate);
             
-            let statusHorizonStr = "LOCKED";
+            let statusHorizonStr = "UNLIMITED";
             
             if (gyroActive) {
                 const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
@@ -1639,7 +1691,8 @@
                     targetLinearVelocityZ = 0;
                 }
 
-                const INTEGRATION_LEAK_DECAY = 0.78;
+                // Retained high response integration decay adjustments ensuring free movement behavior profile limits
+                const INTEGRATION_LEAK_DECAY = 0.94;
                 targetLinearVelocityX *= INTEGRATION_LEAK_DECAY;
                 targetLinearVelocityZ *= INTEGRATION_LEAK_DECAY;
 
@@ -1657,34 +1710,19 @@
                 }
             }
 
-            // UNBOUNDED PROXIMITY ZOOM TRAP PROTECTOR ENGINE
             if (controls && controls.enabled) {
                 controls.update();
-                
-                if (!gyroActive) {
-                    if (lockedGyroRoll !== 0) {
-                        cleanTargetQuaternion.copy(camera.quaternion);
-                        camera.rotateZ(lockedGyroRoll);
-                    }
-                    
-                    // Push the focal vector target outwards if the camera approaches near limit bounds
-                    let lookVectorDirection = new THREE.Vector3();
-                    camera.getWorldDirection(lookVectorDirection);
-                    let vectorTargetSpanDistance = camera.position.distanceTo(controls.target);
-                    
-                    if (vectorTargetSpanDistance < 4.0) {
-                        controls.target.addScaledVector(lookVectorDirection, 20.0);
-                        controls.update();
-                    }
+                if (!gyroActive && lockedGyroRoll !== 0) {
+                    cleanTargetQuaternion.copy(camera.quaternion);
+                    camera.rotateZ(lockedGyroRoll);
                 }
             }
             
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            // Grid helper position shifting tracking code is removed to keep it entirely static at origin coordinates
-            
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
+            // Grid locked in place removed layout position updates, preserving absolute environment stability constants
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Structures: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
             
