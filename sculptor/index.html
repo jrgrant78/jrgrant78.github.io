@@ -160,14 +160,13 @@
         }
         #sourceToggleBtn:hover { border-color: #00e5ff; color: #00e5ff; }
 
-        #lowerContent {
-            width: 100%;
-        }
+        #lowerContent { width: 100%; }
         
+        /* Retains stable orange color alignment signature profile across compiling log readouts */
         #status { color: #ffab00; font-weight: bold; margin-top: 4px; font-size: 0.8em; display: none; }
         #aiDescription { margin-top: 4px; font-size: 0.75em; color: #aaa; max-height: 150px; overflow-y: auto; background: #15151f; padding: 6px; border-radius: 4px; border: 1px solid #222; white-space: pre-wrap; line-height: 1.4; width: 100%; box-sizing: border-box; }
         
-        /* Dedicated yellow alert color for processing notifications */
+        /* Yellow color profile is exclusively bound to this real-time system tracking warning engine */
         .pulsate-warning {
             animation: textPulse 1.4s infinite ease-in-out;
             color: #ffea00;
@@ -322,6 +321,7 @@
         
         // Gesture verification metrics
         let startScreenPosition = { x: 0, y: 0 };
+        let hasMovedSignificantly = false; 
         const DRAG_CANCEL_THRESHOLD = 8; 
         const TAP_JITTER_THRESHOLD = 18;  
 
@@ -453,7 +453,7 @@
         })();
 
         function createRoundedBoxGeometry(w, h, d, radius, segments) {
-            w = Math.max(w, 0.05); h = Math.max(w, 0.05); d = Math.max(d, 0.05);
+            w = Math.max(w, 0.05); h = Math.max(h, 0.05); d = Math.max(d, 0.05);
             const r = Math.min(radius, Math.min(w, h) * 0.45);
             const shape = new THREE.Shape();
             const x = -w / 2, y = -h / 2;
@@ -550,6 +550,7 @@
             
             motionTracker = new MultiPointMotionTracker();
 
+            // Configured locked infinite space alignment matrix helper
             gridHelper = new THREE.GridHelper(20000, 20000, 0xb0b0b0, 0x3c3c46);
             gridHelper.position.set(0, 0, 0); 
             gridHelper.visible = true;
@@ -659,92 +660,127 @@
             }
         }
 
-        // GEOMETRIC HEALING ENGINE: PURGES FLOATING PLANES, PARTICLES, AND ISOLATED MESHES BY GENERATING BRIDGE CONNECTORS
-        function healFloatingStructures(group) {
-            const meshes = [];
-            group.traverse(child => {
-                if (child.isMesh && !child.userData.isBackdrop) {
+        // POST-PASS CONSOLIDATION FILTER: DETECTS AND BRIDGES FLOATING SEPARATE PRIMITIVES
+        function bridgeFloatingMeshes(structureGroup) {
+            let meshes = [];
+            structureGroup.traverse(child => {
+                if (child.isMesh && child.userData.isBackdrop !== true && !child.userData.isBridge) {
                     meshes.push(child);
                 }
             });
-
             if (meshes.length <= 1) return;
 
-            const isolatedMeshes = [];
-            
-            // Localize structures that exist completely decoupled from adjoining surfaces
+            let adj = Array(meshes.length).fill(0).map(() => []);
+            let boxes = meshes.map(m => new THREE.Box3().setFromObject(m));
+
+            // Populate spatial adjacency connections (using a radius check threshold)
             for (let i = 0; i < meshes.length; i++) {
-                const meshA = meshes[i];
-                const boxA = new THREE.Box3().setFromObject(meshA);
-                let hasIntersection = false;
-
-                for (let j = 0; j < meshes.length; j++) {
-                    if (i === j) continue;
-                    const boxB = new THREE.Box3().setFromObject(meshes[j]);
-                    if (boxA.intersectsBox(boxB)) {
-                        hasIntersection = true;
-                        break;
+                for (let j = i + 1; j < meshes.length; j++) {
+                    let bA = boxes[i].clone().expandByScalar(0.3);
+                    let bB = boxes[j].clone().expandByScalar(0.3);
+                    if (bA.intersectsBox(bB)) {
+                        adj[i].push(j);
+                        adj[j].push(i);
                     }
-                }
-
-                if (!hasIntersection) {
-                    isolatedMeshes.push(meshA);
                 }
             }
 
-            // Bridge components by extruding structural geometry extensions toward the closest neighbor
-            isolatedMeshes.forEach(isolatedMesh => {
-                let closestMesh = null;
-                let minDistance = Infinity;
-                const posA = new THREE.Vector3();
-                isolatedMesh.getWorldPosition(posA);
+            let visited = Array(meshes.length).fill(false);
+            let components = [];
 
-                meshes.forEach(targetMesh => {
-                    if (targetMesh === isolatedMesh) return;
-                    const posB = new THREE.Vector3();
-                    targetMesh.getWorldPosition(posB);
-                    const dist = posA.distanceTo(posB);
-                    if (dist < minDistance) {
-                        minDistance = dist;
-                        closestMesh = targetMesh;
+            for (let i = 0; i < meshes.length; i++) {
+                if (!visited[i]) {
+                    let comp = [];
+                    let queue = [i];
+                    visited[i] = true;
+                    while (queue.length > 0) {
+                        let curr = queue.shift();
+                        comp.push(curr);
+                        for (let neighbor of adj[curr]) {
+                            if (!visited[neighbor]) {
+                                visited[neighbor] = true;
+                                queue.push(neighbor);
+                            }
+                        }
                     }
-                });
-
-                if (closestMesh) {
-                    const posB = new THREE.Vector3();
-                    closestMesh.getWorldPosition(posB);
-
-                    const midpoint = new THREE.Vector3().addVectors(posA, posB).multiplyScalar(0.5);
-                    const distance = posA.distanceTo(posB);
-
-                    const bridgeThickness = 0.12;
-                    const bridgeGeo = new THREE.CylinderGeometry(bridgeThickness, bridgeThickness, distance, 8);
-                    bridgeGeo.rotateX(Math.PI / 2); 
-
-                    const bridgeMat = new THREE.MeshPhysicalMaterial({
-                        color: isolatedMesh.material.color ? isolatedMesh.material.color.clone() : new THREE.Color(0xaaaaaa),
-                        roughness: 0.5,
-                        metalness: 0.1
-                    });
-
-                    const bridgeMesh = new THREE.Mesh(bridgeGeo, bridgeMat);
-                    
-                    const localMidpoint = group.worldToLocal(midpoint.clone());
-                    bridgeMesh.position.copy(localMidpoint);
-
-                    const localPosB = group.worldToLocal(posB.clone());
-                    bridgeMesh.lookAt(localPosB);
-
-                    bridgeMesh.castShadow = true;
-                    bridgeMesh.receiveShadow = true;
-                    bridgeMesh.userData.description = "Structural connectivity bridge adapter.";
-
-                    group.add(bridgeMesh);
+                    components.push(comp);
                 }
-            });
+            }
+
+            if (components.length <= 1) return; 
+
+            // Identify primary cluster core mass to act as global structural anchor base
+            components.sort((a, b) => b.length - a.length);
+            let mainComponent = components[0];
+
+            // Link every orphaned floating sub-cluster back to closest adjacent anchor mesh node
+            for (let k = 1; k < components.length; k++) {
+                let subComponent = components[k];
+                let minDst = Infinity;
+                let bestMeshA = null;
+                let bestMeshB = null;
+
+                for (let idxA of mainComponent) {
+                    for (let idxB of subComponent) {
+                        let posA = new THREE.Vector3();
+                        let posB = new THREE.Vector3();
+                        meshes[idxA].getWorldPosition(posA);
+                        meshes[idxB].getWorldPosition(posB);
+                        let dst = posA.distanceTo(posB);
+                        if (dst < minDst) {
+                            minDst = dst;
+                            bestMeshA = meshes[idxA];
+                            bestMeshB = meshes[idxB];
+                        }
+                    }
+                }
+
+                if (bestMeshA && bestMeshB) {
+                    let pA = new THREE.Vector3();
+                    let pB = new THREE.Vector3();
+                    bestMeshA.getWorldPosition(pA);
+                    bestMeshB.getWorldPosition(pB);
+
+                    structureGroup.worldToLocal(pA);
+                    structureGroup.worldToLocal(pB);
+
+                    let distanceVector = new THREE.Vector3().subVectors(pB, pA);
+                    let length = distanceVector.length();
+
+                    if (length > 0.02) {
+                        let sA = bestMeshA.scale;
+                        let sB = bestMeshB.scale;
+                        // Scales diameter tighter than components to bypass face clashing Z-fighting artifact loops
+                        let thickness = Math.min(sA.x, sA.z, sB.x, sB.z, 0.18) * 0.8;
+
+                        let bridgeGeo = new THREE.CylinderGeometry(thickness, thickness, length, 8);
+                        bridgeGeo.translate(0, length / 2, 0);
+                        bridgeGeo.rotateX(Math.PI / 2);
+
+                        let bridgeMat = new THREE.MeshPhysicalMaterial({
+                            color: bestMeshB.material.color.clone().lerp(bestMeshA.material.color, 0.5),
+                            roughness: 0.45,
+                            metalness: 0.1,
+                            transparent: bestMeshB.material.transparent,
+                            opacity: bestMeshB.material.opacity
+                        });
+
+                        let bridgeMesh = new THREE.Mesh(bridgeGeo, bridgeMat);
+                        bridgeMesh.position.copy(pA);
+                        bridgeMesh.lookAt(pB);
+
+                        bridgeMesh.castShadow = true;
+                        bridgeMesh.receiveShadow = true;
+                        bridgeMesh.userData.isBridge = true;
+                        bridgeMesh.userData.description = "Procedural structural integration bridge extension element.";
+
+                        structureGroup.add(bridgeMesh);
+                    }
+                }
+            }
         }
 
-        // MULTI-PASS TRANSLATION MTV INTERSECTION RELAXATION
+        // DUAL-PASS GEOMETRY PURGE AND RELAXATION ENGINE
         function resolveGeometryClipping() {
             let meshes = [];
             worldGroup.traverse(child => {
@@ -753,6 +789,7 @@
                 }
             });
 
+            // PASS 1: DUPLICATE PURGE PIPELINE 
             for (let i = meshes.length - 1; i >= 0; i--) {
                 for (let j = i - 1; j >= 0; j--) {
                     const meshA = meshes[i];
@@ -778,6 +815,7 @@
                 }
             }
 
+            // PASS 2: MULTI-PASS MINIMUM TRANSLATION VECTOR MOVEMENT
             const relaxationPasses = 5;
             const antiFlickerEpsilon = 0.03; 
 
@@ -836,6 +874,7 @@
 
             startScreenPosition.x = e.clientX;
             startScreenPosition.y = e.clientY;
+            hasMovedSignificantly = false; 
 
             raycaster.setFromCamera(pointerCoordinateVector, camera);
             const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
@@ -874,7 +913,7 @@
                         }
                     });
 
-                    document.getElementById('aiDescription').innerText = "[Active Mode: Translating Isolated Entity]\nSlide to reposition entity workspace coordinates.";
+                    document.getElementById('aiDescription').innerText = "[Active Mode: Translating Isolated Entity]\nMoving structured group cluster across locked space alignment coordinates.";
                 }, 400); 
             } else {
                 lastTapTime = 0;
@@ -886,11 +925,10 @@
             const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
             const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
 
-            // GESTURE LAW: Drag thresholds instantly and unconditionally clear pending tap/double-tap routines
+            // Bypasses gesture actions instantly if threshold limit is crossed
             if (currentPixelDeltaX > DRAG_CANCEL_THRESHOLD || currentPixelDeltaY > DRAG_CANCEL_THRESHOLD) {
-                lastTapTime = 0;
-                lastTargetMesh = null;
-                if (sceneDragLongPressTimeout) {
+                hasMovedSignificantly = true;
+                if (!isDraggingSceneActive && sceneDragLongPressTimeout) {
                     clearTimeout(sceneDragLongPressTimeout);
                     sceneDragLongPressTimeout = null;
                 }
@@ -913,19 +951,30 @@
         }
 
         function handleScenePointerUpRelease(e) {
-            const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
-            const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
+            // Drag tracking flag validation block: completely voids selection steps when space panning occurs
+            if (hasMovedSignificantly) {
+                if (sceneDragLongPressTimeout) {
+                    clearTimeout(sceneDragLongPressTimeout);
+                    sceneDragLongPressTimeout = null;
+                }
+                if (activeDraggedGroup) {
+                    activeDraggedGroup.traverse((child) => {
+                        if (child.isMesh && child.material && child.userData.originalEmissive !== undefined) {
+                            child.material.emissive.setHex(child.userData.originalEmissive);
+                        }
+                    });
+                }
+                isDraggingSceneActive = false;
+                isStructureReadyToMove = false;
+                activeDraggedGroup = null;
+                if (controls) controls.enabled = true;
+                return;
+            }
 
             if (sceneDragLongPressTimeout) {
                 clearTimeout(sceneDragLongPressTimeout);
                 sceneDragLongPressTimeout = null;
-            }
 
-            // Explicit verification that spatial dragging has not negated targeting loops
-            if (currentPixelDeltaX >= TAP_JITTER_THRESHOLD || currentPixelDeltaY >= TAP_JITTER_THRESHOLD || isDraggingSceneActive) {
-                lastTapTime = 0;
-                lastTargetMesh = null;
-            } else {
                 pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
                 pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
@@ -938,7 +987,7 @@
                         const currentTime = performance.now();
 
                         if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh) {
-                            // Double Tap transparency engine configuration execution profile
+                            // Double Tap Logic Step
                             const geometryCohort = [hitMesh];
                             worldGroup.traverse((child) => {
                                 if (child.isMesh && child !== hitMesh && child.userData.isBackdrop !== true) {
@@ -987,7 +1036,7 @@
                             lastTapTime = 0;
                             lastTargetMesh = null;
                         } else {
-                            // Single Tap Query Selector
+                            // Single Tap Logic Step
                             lastTapTime = currentTime;
                             lastTargetMesh = hitMesh;
 
@@ -1001,7 +1050,7 @@
                             if (currentlySelectedMesh.userData.originalEmissive === undefined) {
                                 currentlySelectedMesh.userData.originalEmissive = currentlySelectedMesh.material.emissive.getHex();
                             }
-                            currentlySelectedMesh.material.emissive.setHex(0x38380b); 
+                            currentlySelectedMesh.material.emissive.setHex(0x38380b);
 
                             document.getElementById('aiDescription').innerHTML = `<div style="color: #ffea00; font-weight: bold; margin-bottom: 4px;">[STRUCTURE ENTITY SELECTED]</div>${hitMesh.userData.description || "Isolated geometric system element."}`;
                         }
@@ -1138,6 +1187,7 @@
                 controls.enableDamping = true;
                 controls.dampingFactor = 0.05;
             }
+            // Continuous motion configuration parameters
             controls.minDistance = 0.001;
             controls.maxDistance = Infinity;
             controls.zoomSpeed = 1.2;
@@ -1178,7 +1228,7 @@
                 return;
             }
 
-            // Yellow color status message text formatted with real-time text pulsation engine parameters
+            // High priority yellow color notification warning layout
             descDiv.innerHTML = '<span class="pulsate-warning">WARNING: scene reconstruction in progress.<br>Please wait for analysis to complete...</span>';
 
             const hiddenCanvas = document.createElement('canvas');
@@ -1247,6 +1297,7 @@
 
             pass1ModelLoop: for (let model of modelCascadeList) {
                 try {
+                    // Pass tracking print output routes onto statusDiv in standard amber color profile
                     statusDiv.innerText = `Pass 1: Prompting ${model}...`;
                     const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + systemApiSecretKey, {
                         method: 'POST',
@@ -1371,6 +1422,7 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
+        // PRESERVES INSTANCES NON-DESTRUCTIVELY ACROSS SCANS
         function appendAIBlueprint(shapesArray, coreDescription) {
             const structureInstanceGroup = new THREE.Group();
 
@@ -1418,15 +1470,13 @@
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
 
+                // Bind text narrative context data models straight into custom primitive fields
                 mesh.userData.description = `<b>Type:</b> ${primitiveType.toUpperCase()}<br><b>Scale:</b> [${scl.join(', ')}]<br><b>Base Hex Color:</b> ${shape.c}<br><br><b>Context Blueprint Summary:</b><br>${coreDescription}`;
 
                 structureInstanceGroup.add(mesh);
             });
 
             if (structureInstanceGroup.children.length > 0) {
-                // Execute spatial connectivity bridge adaptations prior to matrix offset recalculations
-                healFloatingStructures(structureInstanceGroup);
-
                 const box = new THREE.Box3().setFromObject(structureInstanceGroup);
                 const center = new THREE.Vector3(); 
                 box.getCenter(center);
@@ -1454,6 +1504,10 @@
                     structureInstanceGroup.add(floatingBackdropMesh);
                 }
 
+                // PASS 3: RUNS PROCEDURAL EDGE CONSOLIDATION STABILIZER 
+                bridgeFloatingMeshes(structureInstanceGroup);
+
+                // FINAL PASS: REMOVES CONFLICTS NON-DESTRUCTIVELY
                 resolveGeometryClipping();
             }
         }
@@ -1643,7 +1697,7 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Mode:${statusHorizonStr} | Instances: ${worldGroup.children.length}`;
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Mode:${statusHorizonStr} | Entities: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
             
