@@ -670,7 +670,7 @@
             }
         }
 
-        // ENHANCED NON-DESTRUCTIVE MULTI-PASS PHYSICS RELAXATION ENGINE
+        // ENHANCED TWO-PASS GEOMETRY RECONSTRUCTION RELAXATION SYSTEM
         function resolveGeometryClipping() {
             const meshes = [];
             worldGroup.traverse(child => {
@@ -679,9 +679,9 @@
                 }
             });
 
-            // Execute multiple relaxation loops to push cascading intersections clear of Z-fighting
-            const relaxationPasses = 4;
-            const antiFlickerEpsilon = 0.025; 
+            // --- PASS 1: Macro Interpenetration Volume Relaxation (MTV) ---
+            const relaxationPasses = 6;
+            const antiFlickerEpsilon = 0.03; 
 
             for (let pass = 0; pass < relaxationPasses; pass++) {
                 let currentPassCollisionsResolved = 0;
@@ -709,7 +709,6 @@
                             const overlapY = Math.min(boxCulprit.max.y, boxTarget.max.y) - Math.max(boxCulprit.min.y, boxTarget.min.y);
                             const overlapZ = Math.min(boxCulprit.max.z, boxTarget.max.z) - Math.max(boxCulprit.min.z, boxTarget.min.z);
 
-                            // Tie-breaker for perfect dimensional co-location overlap profiles
                             if (Math.abs(overlapX - overlapY) < 0.001 && Math.abs(overlapY - overlapZ) < 0.001) {
                                 culprit.position.y += (boxTarget.max.y - boxTarget.min.y) * 0.1 + antiFlickerEpsilon;
                                 continue;
@@ -728,8 +727,28 @@
                         }
                     }
                 }
-                // Break structural optimization passes early if spatial blocks settle cleanly
                 if (currentPassCollisionsResolved === 0) break;
+            }
+
+            // --- PASS 2: Targeted Coplanar Surface Precision Alignment ---
+            // Distinct secondary check pass targeting fine-grained residual plane-sharing conflicts causing Z-fighting
+            const microStaggerEpsilon = 0.008;
+            for (let i = 0; i < meshes.length; i++) {
+                for (let j = i + 1; j < meshes.length; j++) {
+                    const meshA = meshes[i];
+                    const meshB = meshes[j];
+                    
+                    const distX = Math.abs(meshA.position.x - meshB.position.x);
+                    const distY = Math.abs(meshA.position.y - meshB.position.y);
+                    const distZ = Math.abs(meshA.position.z - meshB.position.z);
+                    
+                    if (distX < 0.05 && distY < 0.05 && distZ < 0.05) {
+                        // Apply micro-offsets to cleanly separate shared faces in the depth buffer without distorting layout proportions
+                        meshA.position.y += microStaggerEpsilon;
+                        meshA.position.x += microStaggerEpsilon * 0.5;
+                        meshA.position.z += microStaggerEpsilon * 0.5;
+                    }
+                }
             }
         }
 
@@ -1046,7 +1065,6 @@
                 return;
             }
 
-            // Updated status alert formatting payload wrapping elements inside the newly assigned yellow pulsate tracker engine
             descDiv.innerHTML = '<span class="pulsate-warning">WARNING: scene reconstruction in progress.<br>Please wait for analysis to complete...</span>';
 
             const hiddenCanvas = document.createElement('canvas');
@@ -1547,6 +1565,7 @@
             camera.quaternion.setFromEuler(sensorEuler);
         }
 
+        // PHYSICAL ACCELERATION INTEGRATION ENGINE
         function handleInertialStepInput(e) {
             if (!gyroActive) return;
 
