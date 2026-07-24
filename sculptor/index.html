@@ -164,11 +164,9 @@
             width: 100%;
         }
         
-        /* Restored back to the stable baseline orange theme profile parameter signature */
         #status { color: #ffab00; font-weight: bold; margin-top: 4px; font-size: 0.8em; display: none; }
         #aiDescription { margin-top: 4px; font-size: 0.75em; color: #aaa; max-height: 150px; overflow-y: auto; background: #15151f; padding: 6px; border-radius: 4px; border: 1px solid #222; white-space: pre-wrap; line-height: 1.4; width: 100%; box-sizing: border-box; }
         
-        /* Yellow Pulsating Warning Alert Selector */
         .pulsate-warning {
             animation: textPulse 1.4s infinite ease-in-out;
             color: #ffea00;
@@ -321,11 +319,11 @@
         let activeDraggedGroup = null; 
         let currentlySelectedMesh = null; 
         
-        // Gesture verification metrics
+        // Interaction Tracking State
+        let hasDragged = false;
         let startScreenPosition = { x: 0, y: 0 };
         const DRAG_CANCEL_THRESHOLD = 8; 
         const TAP_JITTER_THRESHOLD = 18;  
-        let dragOccurred = false; // Dedicated flag ensuring dragging explicitly cancels all alternate gestures
 
         // Double tap sequence registers
         let lastTapTime = 0;
@@ -537,8 +535,7 @@
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x06060a);
 
-            // Permissive far clipping threshold enables completely frictionless camera traversal bounds indefinitely
-            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 500000);
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100000);
             camera.position.set(telemetryState.x, telemetryState.y, telemetryState.z);
 
             renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
@@ -553,8 +550,8 @@
             
             motionTracker = new MultiPointMotionTracker();
 
-            // Permanent global grid matrix configuration remains locked flat at baseline coordinates
-            gridHelper = new THREE.GridHelper(50000, 50000, 0xb0b0b0, 0x3c3c46);
+            // Pinned permanently at baseline coordinate origin (0, 0, 0)
+            gridHelper = new THREE.GridHelper(20000, 20000, 0xb0b0b0, 0x3c3c46);
             gridHelper.position.set(0, 0, 0); 
             gridHelper.visible = true;
             scene.add(gridHelper);
@@ -663,7 +660,6 @@
             }
         }
 
-        // DUAL-PASS GEOMETRY PURGE AND OVERLAP TRANSLATION ENGINE
         function resolveGeometryClipping() {
             let meshes = [];
             worldGroup.traverse(child => {
@@ -672,7 +668,7 @@
                 }
             });
 
-            // PASS 1: EXPLICIT DUPLICATE PURGE PIPELINE (Cleans overlapping elements)
+            // PASS 1: EXPLICIT DUPLICATE PURGE PIPELINE
             for (let i = meshes.length - 1; i >= 0; i--) {
                 for (let j = i - 1; j >= 0; j--) {
                     const meshA = meshes[i];
@@ -750,14 +746,13 @@
             }
         }
 
-        // DYNAMIC SPATIAL MANIPULATION EVENT HANDLERS
         function handleScenePointerDownActivation(e) {
             pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
             pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
             startScreenPosition.x = e.clientX;
             startScreenPosition.y = e.clientY;
-            dragOccurred = false;
+            hasDragged = false; // Reset session interaction flag
 
             raycaster.setFromCamera(pointerCoordinateVector, camera);
             const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
@@ -782,21 +777,24 @@
                 isDraggingSceneActive = false;
 
                 sceneDragLongPressTimeout = setTimeout(() => {
-                    isStructureReadyToMove = true;
-                    isDraggingSceneActive = true;
-                    
-                    if (controls) controls.enabled = false; 
+                    // Only trigger if active dragging hasn't already broken the operation bounds
+                    if (!hasDragged) {
+                        isStructureReadyToMove = true;
+                        isDraggingSceneActive = true;
+                        
+                        if (controls) controls.enabled = false; 
 
-                    activeDraggedGroup.traverse((child) => {
-                        if (child.isMesh && child.material && !child.userData.isBackdrop) {
-                            if (child.userData.originalEmissive === undefined) {
-                                child.userData.originalEmissive = child.material.emissive.getHex();
+                        activeDraggedGroup.traverse((child) => {
+                            if (child.isMesh && child.material && !child.userData.isBackdrop) {
+                                if (child.userData.originalEmissive === undefined) {
+                                    child.userData.originalEmissive = child.material.emissive.getHex();
+                                }
+                                child.material.emissive.setHex(0x224466); 
                             }
-                            child.material.emissive.setHex(0x224466); 
-                        }
-                    });
+                        });
 
-                    document.getElementById('aiDescription').innerText = "[Active Mode: Translating Isolated Entity]\nSlide to reposition entity coordinates.";
+                        document.getElementById('aiDescription').innerText = "[Active Mode: Translating Isolated Entity]\nSlide to reposition entity workspace coordinates.";
+                    }
                 }, 400); 
             } else {
                 lastTapTime = 0;
@@ -808,9 +806,9 @@
             const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
             const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
 
-            // Active tracking cancellation protocol if pointer shifts past bounds threshold
+            // ACTIVE INTERACTION CANCELLATION ENGINE
             if (currentPixelDeltaX > DRAG_CANCEL_THRESHOLD || currentPixelDeltaY > DRAG_CANCEL_THRESHOLD) {
-                dragOccurred = true;
+                hasDragged = true;
                 if (sceneDragLongPressTimeout) {
                     clearTimeout(sceneDragLongPressTimeout);
                     sceneDragLongPressTimeout = null;
@@ -834,30 +832,33 @@
         }
 
         function handleScenePointerUpRelease(e) {
-            // Absolute structural block preventing taps/longpress triggers if a drag gesture is registered
-            if (dragOccurred) {
-                dragOccurred = false;
-                if (activeDraggedGroup) {
+            if (sceneDragLongPressTimeout) {
+                clearTimeout(sceneDragLongPressTimeout);
+                sceneDragLongPressTimeout = null;
+            }
+
+            // DRAG CANCELLATION DISPATCHER
+            if (hasDragged) {
+                if (isDraggingSceneActive && activeDraggedGroup) {
                     activeDraggedGroup.traverse((child) => {
                         if (child.isMesh && child.material && child.userData.originalEmissive !== undefined) {
                             child.material.emissive.setHex(child.userData.originalEmissive);
                         }
                     });
-                }
-                if (isDraggingSceneActive) {
-                    isDraggingSceneActive = false;
-                    isStructureReadyToMove = false;
-                    if (controls) controls.enabled = true; 
                     resolveGeometryClipping();
+                    document.getElementById('aiDescription').innerText = "Isolated entity transform committed safely.";
                 }
+                isDraggingSceneActive = false;
+                isStructureReadyToMove = false;
                 activeDraggedGroup = null;
-                return;
+                if (controls) controls.enabled = true;
+                return; // Suppress all down-stream interaction paths completely
             }
 
-            if (sceneDragLongPressTimeout) {
-                clearTimeout(sceneDragLongPressTimeout);
-                sceneDragLongPressTimeout = null;
+            const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
+            const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
 
+            if (currentPixelDeltaX < TAP_JITTER_THRESHOLD && currentPixelDeltaY < TAP_JITTER_THRESHOLD) {
                 pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
                 pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
@@ -869,8 +870,8 @@
                     if (hitMesh.userData.isBackdrop !== true) {
                         const currentTime = performance.now();
 
-                        // DOUBLE-TAP GESTURE EXECUTION PASS
                         if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh) {
+                            // Cohort Analysis: Filters proximate meshes of similar scale and rotation
                             const geometryCohort = [hitMesh];
                             worldGroup.traverse((child) => {
                                 if (child.isMesh && child !== hitMesh && child.userData.isBackdrop !== true) {
@@ -880,7 +881,6 @@
                                     const deltaScaleZ = Math.abs(child.scale.z - hitMesh.scale.z);
                                     const deltaAngle = child.quaternion.angleTo(hitMesh.quaternion);
                                     
-                                    // Localized cohort matching criteria targets extreme close proximity and compatible bounds profiles
                                     if (dist < 0.3 && deltaScaleX < 0.2 && deltaScaleY < 0.2 && deltaScaleZ < 0.2 && deltaAngle < 0.2) {
                                         geometryCohort.push(child);
                                     }
@@ -920,7 +920,6 @@
                             lastTapTime = 0;
                             lastTargetMesh = null;
                         } else {
-                            // SINGLE-TAP HIGHLIGHING AND SELECTION QUERY PASS
                             lastTapTime = currentTime;
                             lastTargetMesh = hitMesh;
 
@@ -940,7 +939,6 @@
                         }
                     }
                 } else {
-                    // Empty space click target resets selections cleanly
                     if (currentlySelectedMesh) {
                         if (currentlySelectedMesh.userData.originalEmissive !== undefined) {
                             currentlySelectedMesh.material.emissive.setHex(currentlySelectedMesh.userData.originalEmissive);
@@ -1056,7 +1054,7 @@
                 controls.enableDamping = true;
                 controls.dampingFactor = 0.05;
             }
-            // Enforces continuous frictionless control panning trajectories infinitely across coordinate space
+            // Continuous frictionless traversal configurations
             controls.minDistance = 0.001;
             controls.maxDistance = Infinity;
             controls.zoomSpeed = 1.2;
@@ -1070,7 +1068,7 @@
             videoElement.addEventListener('loadedmetadata', () => { resizeCameraViewport(); });
 
             try {
-                localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+                localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, Caring: false });
                 videoElement.srcObject = localStream;
             } catch (err) {
                 try {
@@ -1093,11 +1091,11 @@
             const scanBtn = document.getElementById('scanBtn');
 
             if (!systemApiSecretKey) {
-                descDiv.innerHTML = "<span style='color:#ff3333; font-weight:bold;'>Authentication Error:</span> Dynamic scanning is disabled. You must supply a valid API key via browser parameter sequences.";
+                descDiv.innerHTML = "<span style='color:#ff3333; font-weight:bold;'>Authentication Error:</span> Dynamic scanning is disabled. You must supply a valid API key via the browser URL parameter string.";
                 return;
             }
 
-            // Exclusively flags the active scanner message text block using the yellow color pulsating CSS wrapper
+            // Yellow pulsating warning alert element
             descDiv.innerHTML = '<span class="pulsate-warning">WARNING: scene reconstruction in progress.<br>Please wait for analysis to complete...</span>';
 
             const hiddenCanvas = document.createElement('canvas');
@@ -1114,7 +1112,7 @@
             } else {
                 const libraryImg = document.getElementById('libraryPreview');
                 if (!libraryImg.src || libraryImg.style.display === 'none') {
-                    alert("Pipeline Error: Please upload an image target inside the source terminal view first.");
+                    alert("Pipeline Error: Please upload an image target first.");
                     return;
                 }
                 hiddenCanvas.width = libraryImg.naturalWidth || 800;
@@ -1140,12 +1138,11 @@
             let parsedPayload = null;
             let unifiedShapes = [];
             let successfulPass1Model = "none";
-            let debugDiagnosticsHistory = "";
 
             const pass1Prompt = `
                 Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely.
                 Your response must populate exactly two fields inside the target JSON object:
-                1. description: Provide a detailed text summary describing the exact subjects, furniture pieces, textures, layout colors, background architecture, or items observed in the current camera view.
+                1. description: Provide a detailed text summary describing the exact subjects observed.
                 2. blueprint: An architectural text blueprint manifest listing an ultra-dense array of raw description lines. You MUST generate at least 80 to 120 individual items total, distributed evenly across the following four headers:
                 
                 ### REGION: FOUNDATION
@@ -1157,17 +1154,19 @@
                 "- type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
             `;
 
-            // Prompt constraints explicitly lock spatial dimensions down to absolute metric scales irrespective of viewport orientations
+            // Enforces structural compilation regulations relative to the grid, independent of camera position or rotation
             const globalSpatialAnchorPrompt = `
-                Global Space Coordinates Alignment Protocol:
+                Global Space Coordinates & Sizing Symmetries Alignment Protocol:
                 - Center origin point is at (0, 0, 0). Ground level/floor planes should sit exactly at y = 0.
-                - All mesh elements must use absolute camera-agnostic coordinates relative strictly to the global structural grid bounds.
+                - ABSOLUTE SIZING INVARIANT CONSTRAINT: All generated dimensions and bounds metrics MUST conform strictly to standard grid spatial sizing rules (1 dimensional unit = 1 actual meter).
+                - Completely ignore current camera location matrices, perspective angles, distance zoom transformations, or workspace rotations when calculating object footprints. All output properties must remain invariant and globally anchored relative to the absolute scale of the system grid layout.
                 - Round all spatial floats (p, s, r) strictly to a max of 2 decimal places.
                 - Eliminate all optional whitespace padding inside the array syntax strings.
             `;
 
             pass1ModelLoop: for (let model of modelCascadeList) {
                 try {
+                    // Status parameters printed onto context log panels retain standard stable orange color signposts
                     statusDiv.innerText = `Pass 1: Prompting ${model}...`;
                     const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + systemApiSecretKey, {
                         method: 'POST',
@@ -1185,11 +1184,7 @@
                         })
                     });
 
-                    if (!res.ok) {
-                        const errorDetailsText = await res.text();
-                        debugDiagnosticsHistory += `• Pass 1 [${model}] Error ${res.status}: ${errorDetailsText.substring(0, 100)}...<br>`;
-                        continue;
-                    }
+                    if (!res.ok) continue;
 
                     const data = await res.json();
                     parsedPayload = JSON.parse(extractCleanJsonObject(data.candidates[0].content.parts[0].text));
@@ -1197,9 +1192,7 @@
                         successfulPass1Model = model;
                         break pass1ModelLoop; 
                     }
-                } catch (e) { 
-                    debugDiagnosticsHistory += `• Pass 1 [${model}] Exception: ${e.message}<br>`;
-                }
+                } catch (e) {}
             }
 
             if (!parsedPayload || !parsedPayload.blueprint) {
@@ -1209,20 +1202,20 @@
             }
 
             const structuralTasks = [
-                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Compile only the large flat floor bases, ground platforms, and main support mats from FOUNDATION.' },
-                { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Compile the detailed surface boundaries, secondary rug mats, and floor borders from FOUNDATION.' },
-                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: 'Compile the massive primary backing blocks of couches, structural seating from CORE_MASSES.' },
-                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: 'Compile the softer geometric overlays, layered cushions from CORE_MASSES.' },
-                { id: 'EXTENSIONS', subId: 'FRAMES', rules: 'Compile vertical boundaries, TV panels, display stands from EXTENSIONS.' },
+                { id: 'FOUNDATION', subId: 'PRIMITIVES', rules: 'Compile only the large flat floor bases from FOUNDATION.' },
+                { id: 'FOUNDATION', subId: 'SURFACE', rules: 'Compile detailed surface boundaries and floor borders from FOUNDATION.' },
+                { id: 'CORE_MASSES', subId: 'FURNITURE', rules: 'Compile primary backing blocks of furniture from CORE_MASSES.' },
+                { id: 'CORE_MASSES', subId: 'CUSHIONS', rules: 'Compile softer geometric overlays and cushions from CORE_MASSES.' },
+                { id: 'EXTENSIONS', subId: 'FRAMES', rules: 'Compile vertical boundaries and stands from EXTENSIONS.' },
                 { id: 'EXTENSIONS', subId: 'LIMBS', rules: 'Compile connecting arms, legs, or hardware rods from EXTENSIONS.' },
-                { id: 'ACCENTS', subId: 'ITEMS', rules: 'Compile standalone accent blocks, secondary decorative nodes from ACCENTS.' },
-                { id: 'ACCENTS', subId: 'TRIM', rules: 'Compile micro-geometric additions, small texturing adjustments from ACCENTS.' }
+                { id: 'ACCENTS', subId: 'ITEMS', rules: 'Compile standalone accent blocks and secondary items from ACCENTS.' },
+                { id: 'ACCENTS', subId: 'TRIM', rules: 'Compile micro-geometric additions and highlights from ACCENTS.' }
             ];
 
             const regionalCompilationPromises = structuralTasks.map(async (task, idx) => {
                 await delayExecutionTime(idx * 250);
                 const pass2Prompt = `
-                    Convert your targeted blueprint lines into an isolated JSON shapes layout array.
+                    Convert your targeted blueprint segment lines into a JSON shapes layout array.
                     ${globalSpatialAnchorPrompt}
                     MASTER BLUEPRINT Manifest:\n"""\n${parsedPayload.blueprint}\n"""\nINSTRUCTION: ${task.rules}
                 `;
@@ -1292,7 +1285,6 @@
             scanInProgress = false; scanBtn.disabled = false; statusDiv.style.display = 'none';
         }
 
-        // KEEPS PREVIOUS GENERATIONS UNIFORMLY STABLE AND INDEPENDENT WITHIN THE INSTANCE NODE MATRIX
         function appendAIBlueprint(shapesArray, coreDescription) {
             const structureInstanceGroup = new THREE.Group();
 
@@ -1339,85 +1331,17 @@
                 
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
-
-                // Enforces world space sizing regulation scales relative strictly to the grid bounds
-                mesh.userData.description = `<b>Primitive Node Type:</b> ${primitiveType.toUpperCase()}<br><b>Scale Profile Vector:</b> [${scl.join(', ')}]<br><b>Base Hex Assignment:</b> ${shape.c}<br><br><b>Context Blueprint Summary:</b><br>${coreDescription}`;
+                mesh.userData.description = `<b>Type:</b> ${primitiveType.toUpperCase()}<br><b>Scale:</b> [${scl.join(', ')}]<br><b>Base Hex Color:</b> ${shape.c}<br><br><b>Context Blueprint Summary:</b><br>${coreDescription}`;
 
                 structureInstanceGroup.add(mesh);
             });
-
-            // INTEGRATED POST-PASS 2 AUTOMATED BRIDGING PIPELINE (Purges disconnected components)
-            let structuralMeshes = [];
-            structureInstanceGroup.children.forEach(child => {
-                if (child.isMesh) structuralMeshes.push(child);
-            });
-
-            if (structuralMeshes.length > 1) {
-                let boundingDataArray = structuralMeshes.map(m => ({ mesh: m, box: new THREE.Box3().setFromObject(m) }));
-
-                structuralMeshes.forEach((mesh, index) => {
-                    let hasCohesiveIntersection = false;
-                    let currentBox = boundingDataArray[index].box;
-
-                    for (let i = 0; i < boundingDataArray.length; i++) {
-                        if (i === index) continue;
-                        if (currentBox.intersectsBox(boundingDataArray[i].box)) {
-                            hasCohesiveIntersection = true;
-                            break;
-                        }
-                    }
-
-                    // Automatically intercepts isolated elements and bridges them structurally to the nearest surface mass
-                    if (!hasCohesiveIntersection) {
-                        let nearestNeighbor = null;
-                        let minimumVectorDist = Infinity;
-                        let selfWorldPos = mesh.position;
-
-                        structuralMeshes.forEach((targetMesh, targetIndex) => {
-                            if (targetIndex === index) return;
-                            let computedDistance = selfWorldPos.distanceTo(targetMesh.position);
-                            if (computedDistance < minimumVectorDist) {
-                                minimumVectorDist = computedDistance;
-                                nearestNeighbor = targetMesh;
-                            }
-                        });
-
-                        if (nearestNeighbor) {
-                            let targetedSurfaceVector = nearestNeighbor.position;
-                            let linkVectorDirection = new THREE.Vector3().subVectors(targetedSurfaceVector, selfWorldPos);
-                            let structuralBeamLength = linkVectorDirection.length();
-
-                            if (structuralBeamLength > 0.01) {
-                                let linkGeo = new THREE.CylinderGeometry(0.08, 0.08, structuralBeamLength, 8);
-                                let linkMat = new THREE.MeshPhysicalMaterial({
-                                    color: mesh.material.color,
-                                    roughness: 0.5,
-                                    metalness: 0.1
-                                });
-                                let connectionBeamMesh = new THREE.Mesh(linkGeo, linkMat);
-
-                                connectionBeamMesh.position.copy(selfWorldPos).addScaledVector(linkVectorDirection, 0.5);
-                                let alignmentQuaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), linkVectorDirection.clone().normalize());
-                                connectionBeamMesh.setRotationFromQuaternion(alignmentQuaternion);
-                                
-                                connectionBeamMesh.castShadow = true;
-                                connectionBeamMesh.receiveShadow = true;
-                                connectionBeamMesh.userData.description = "Automated post-pass structural bridging connection element.";
-                                structureInstanceGroup.add(connectionBeamMesh);
-                                
-                                boundingDataArray.push({ mesh: connectionBeamMesh, box: new THREE.Box3().setFromObject(connectionBeamMesh) });
-                            }
-                        }
-                    }
-                });
-            }
 
             if (structureInstanceGroup.children.length > 0) {
                 const box = new THREE.Box3().setFromObject(structureInstanceGroup);
                 const center = new THREE.Vector3(); 
                 box.getCenter(center);
                 
-                // Normalizes generated assets perfectly flat flush along ground zero baseline parameters
+                // Align elements to local center offsets
                 structureInstanceGroup.children.forEach(child => {
                     child.position.x -= center.x;
                     child.position.z -= center.z;
@@ -1427,25 +1351,29 @@
                 structureInstanceGroup.position.set(center.x, 0, center.z);
                 worldGroup.add(structureInstanceGroup);
 
-                // DYNAMIC REFERENCE OVERLAY PLANE CALCULATION
+                // BACKDROP POSITION AUTO-ALIGNMENT PIPELINE
                 if (scannedBackdropDataUrl) {
+                    // Compute localized mesh boundaries post-repositioning maps
                     const localBox = new THREE.Box3().setFromObject(structureInstanceGroup);
-                    const size = new THREE.Vector3(); 
-                    localBox.getSize(size);
-                    
-                    const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
-                    const backdropHeight = Math.max(size.y, 6);
+                    const localSize = new THREE.Vector3(); 
+                    localBox.getSize(localSize);
+
+                    const backdropHeight = Math.max(localSize.y, 6);
                     const backdropWidth = backdropHeight * cameraStreamAspectRatio;
+                    const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
                     
                     const floatingBackdropMesh = new THREE.Mesh(
-                        new THREE.PlaneGeometry(backdropWidth, backdropHeight),
+                        new THREE.PlaneGeometry(1, 1),
                         new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false })
                     );
                     
-                    // Anchors reference texture plane safely behind structural depth boundaries without clipping below y = 0
-                    floatingBackdropMesh.position.set(0, backdropHeight / 2, localBox.min.z - structureInstanceGroup.position.z - 0.5);
+                    floatingBackdropMesh.scale.set(backdropWidth, backdropHeight, 1);
+                    
+                    // Locked fully behind the back localBox boundary edge, center Y set to keep bottom resting flush at grid zero
+                    floatingBackdropMesh.position.set(0, backdropHeight / 2, localBox.min.z - 0.75);
                     floatingBackdropMesh.userData.isBackdrop = true;
                     floatingBackdropMesh.visible = backdropOverlayActive;
+                    
                     structureInstanceGroup.add(floatingBackdropMesh);
                 }
 
@@ -1638,7 +1566,7 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Mode:${statusHorizonStr} | Entities: ${worldGroup.children.length}`;
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Mode:${statusHorizonStr} | Instances: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
             
