@@ -39,7 +39,7 @@
             flex-direction: column;
             gap: 6px;
             flex-shrink: 0;
-            width: 198px; /* Explicitly targets 3 buttons of 62px + 2 gaps of 6px */
+            width: 198px;
         }
 
         .icon-row, .btn-toolbar {
@@ -164,11 +164,10 @@
             width: 100%;
         }
         
-        /* Restored back to the unified stable orange theme parameter signature profile */
         #status { color: #ffab00; font-weight: bold; margin-top: 4px; font-size: 0.8em; display: none; }
         #aiDescription { margin-top: 4px; font-size: 0.75em; color: #aaa; max-height: 150px; overflow-y: auto; background: #15151f; padding: 6px; border-radius: 4px; border: 1px solid #222; white-space: pre-wrap; line-height: 1.4; width: 100%; box-sizing: border-box; }
         
-        /* Yellow Pulsating Warning Frame Selector */
+        /* Yellow Pulsating Display Warning Selector */
         .pulsate-warning {
             animation: textPulse 1.4s infinite ease-in-out;
             color: #ffea00;
@@ -562,8 +561,9 @@
             
             motionTracker = new MultiPointMotionTracker();
 
-            gridHelper = new THREE.GridHelper(50, 50, 0xb0b0b0, 0x777777);
-            gridHelper.position.y = 0.0; 
+            // Configured to cover workspace seamlessly from a fixed layout base position origin context footprint block
+            gridHelper = new THREE.GridHelper(10000, 10000, 0xb0b0b0, 0x777777);
+            gridHelper.position.set(0, 0, 0); 
             gridHelper.visible = true;
             scene.add(gridHelper);
 
@@ -583,7 +583,6 @@
 
             scene.add(worldGroup);
 
-            // POINTER INTERACTION WORKSPACE LISTENERS
             canvas.addEventListener('pointerdown', handleScenePointerDownActivation, { passive: false });
             window.addEventListener('pointermove', handleScenePointerDragSequence, { passive: false });
             window.addEventListener('pointerup', handleScenePointerUpRelease);
@@ -694,7 +693,6 @@
                                              Math.abs(meshA.scale.z - meshB.scale.z);
                     const angularDelta = meshA.quaternion.angleTo(meshB.quaternion);
 
-                    // If nodes exhibit virtually exact matching layout properties, treat as duplicates and drop immediately
                     if (positionalDelta < 0.015 && dimensionalDelta < 0.02 && angularDelta < 0.05) {
                         if (meshA.geometry) meshA.geometry.dispose();
                         if (meshA.material) {
@@ -708,7 +706,7 @@
                 }
             }
 
-            // PASS 2: MULTI-PASS MINIMUM TRANSLATION VECTOR RELAXATION (Nudges remaining valid distinct items)
+            // PASS 2: MULTI-PASS MINIMUM TRANSLATION VECTOR RELAXATION
             const relaxationPasses = 4;
             const antiFlickerEpsilon = 0.025; 
 
@@ -796,7 +794,7 @@
                         }
                     });
 
-                    document.getElementById('aiDescription').innerText = "[Active Mode: Translating Structure]\nSlide to reposition. Elements will snap to full integer grid cells.";
+                    document.getElementById('aiDescription').innerText = "[Active Mode: Translating Structure]\nSlide to reposition horizontally. Vertical base alignment remains locked to the grid.";
                 }, 400); 
             } else {
                 lastTapTime = 0;
@@ -832,6 +830,10 @@
             
             worldGroup.position.x = Math.round(intendedTargetPosition.x);
             worldGroup.position.z = Math.round(intendedTargetPosition.z);
+            // Explicitly verify that the structure base remains anchored flush against y = 0 during manual repositioning loops
+            if(worldGroup.userData.calculatedBaseOffsetY !== undefined) {
+                worldGroup.position.y = worldGroup.userData.calculatedBaseOffsetY;
+            }
         }
 
         function handleScenePointerUpRelease(e) {
@@ -1002,6 +1004,7 @@
             reader.readAsDataURL(targetFile);
         }
 
+        // CONTROL ELEMENT SHIELD HIDE AND TOGGLE ACTION BARS
         function toggleControlPanelsVisibility() {
             const togglePanel = document.getElementById('togglePanel');
             const toggleBtn = document.getElementById('uiToggleBtn');
@@ -1073,7 +1076,7 @@
                 return;
             }
 
-            // Target warning payload is wrapped inside the yellow text color pulsating warning span
+            // Target status log string rendered inside the yellow text color pulsating layout engine wrapper
             descDiv.innerHTML = '<span class="pulsate-warning">WARNING: scene reconstruction in progress.<br>Please wait for analysis to complete...</span>';
 
             const hiddenCanvas = document.createElement('canvas');
@@ -1164,7 +1167,7 @@
 
             pass1ModelLoop: for (let model of modelCascadeList) {
                 try {
-                    // Pass loops print onto statusDiv, rendering safely in baseline stable orange color text
+                    // Compilation text blocks retain standard orange interface accenting profiles safely
                     statusDiv.innerText = `Pass 1: Prompting ${model}...`;
                     const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + systemApiSecretKey, {
                         method: 'POST',
@@ -1330,7 +1333,10 @@
         }
 
         function renderAIBlueprint(shapesArray) {
+            // Reset parent structure properties before computing fresh scaling bounding footprints
+            worldGroup.scale.set(1, 1, 1);
             worldGroup.position.set(0, 0, 0);
+            worldGroup.rotation.set(0, 0, 0);
 
             while(worldGroup.children.length > 0) {
                 const child = worldGroup.children[0];
@@ -1422,19 +1428,31 @@
             });
 
             if (worldGroup.children.length > 0) {
+                // Compute raw dimensional boundaries before scaling operations execute
                 const box = new THREE.Box3().setFromObject(worldGroup);
                 const center = new THREE.Vector3(); 
                 box.getCenter(center);
                 
-                worldGroup.position.x = -center.x;
-                worldGroup.position.z = -center.z;
-                worldGroup.position.y = -box.min.y; 
+                const size = new THREE.Vector3();
+                box.getSize(size);
+                
+                // Scale entire structure uniformly to hit exactly 128 units tall along the vertical axis
+                const targetHeight = 128.0;
+                const scalingFactor = size.y > 0 ? (targetHeight / size.y) : 1.0;
+                worldGroup.scale.set(scalingFactor, scalingFactor, scalingFactor);
+                
+                // Reposition the structure group uniformly so its bottom edge locks flush with the grid top layout space at y = 0
+                worldGroup.position.x = -center.x * scalingFactor;
+                worldGroup.position.z = -center.z * scalingFactor;
+                worldGroup.position.y = -box.min.y * scalingFactor; 
+                
+                // Save calculated offsets to maintain Y anchoring integrity across pointer interactions
+                worldGroup.userData.calculatedBaseOffsetY = worldGroup.position.y;
 
-                // Process complete deduplication and overlap push relaxation sequences natively
+                // Process spatial clipping mitigation passes safely
                 resolveGeometryClipping();
 
                 if (scannedBackdropDataUrl) {
-                    const size = new THREE.Vector3(); box.getSize(size);
                     const texture = new THREE.TextureLoader().load(scannedBackdropDataUrl);
                     floatingBackdropMesh = new THREE.Mesh(
                         new THREE.PlaneGeometry(1, 1),
@@ -1442,7 +1460,8 @@
                     );
                     
                     floatingBackdropMesh.position.set(center.x, center.y, box.min.z - 1.5);
-                    floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1);
+                    // Divide footprint scale maps by scaling factor parameters so backdrop geometry aligns correctly
+                    floatingBackdropMesh.scale.set(Math.max(size.x, 6), Math.max(size.y, 6), 1).multiplyScalar(1.0 / scalingFactor);
                     floatingBackdropMesh.visible = backdropOverlayActive;
                     
                     worldGroup.add(floatingBackdropMesh);
@@ -1536,6 +1555,9 @@
             gyroYawOffset = 0;
             lastTapTime = 0;
             lastTargetMesh = null;
+            worldGroup.scale.set(1, 1, 1);
+            worldGroup.position.set(0, 0, 0);
+            worldGroup.userData.calculatedBaseOffsetY = undefined;
             
             if (floatingBackdropMesh) {
                 if (floatingBackdropMesh.geometry) floatingBackdropMesh.geometry.dispose();
@@ -1652,10 +1674,7 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            if (gridHelper && gridHelper.visible) {
-                gridHelper.position.x = Math.round(camera.position.x);
-                gridHelper.position.z = Math.round(camera.position.z);
-            }
+            // All dynamic alignment updates affecting grid helper positioning have been removed to ensure it stays locked in place
             
             document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | VelX:${targetLinearVelocityX.toFixed(3)} VelZ:${targetLinearVelocityZ.toFixed(3)} Mode:${statusHorizonStr} | Nodes: ${worldGroup.children.length}`;
             
