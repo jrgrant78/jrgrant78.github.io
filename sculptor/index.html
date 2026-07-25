@@ -3,107 +3,633 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Spatial Sculptor AR - Motion Logo Reveal</title>
+    <title>Spatial Sculptor AR - Workspace Matrix</title>
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; background: #050508; font-family: 'Segoe UI', sans-serif; color: #fff; }
-        #canvas3d { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
+        body { margin: 0; padding: 0; overflow: hidden; font-family: sans-serif; background: #0b0b0f; color: #fff; }
+
+        /* Main Application UI - Initially Hidden during Intro Sequence */
+        #controls { 
+            position: absolute; 
+            top: 10px; 
+            left: 10px; 
+            right: 10px; 
+            z-index: 10; 
+            background: rgba(15,15,22,0.9); 
+            padding: 12px; 
+            border-radius: 8px; 
+            border: 1px solid #333; 
+            box-shadow: 0 4px 25px rgba(0,0,0,0.8); 
+            box-sizing: border-box;
+            display: none;
+            flex-direction: column;
+            gap: 12px;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
         
-        /* Cinematic Typography Overlay */
+        .main-interface {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            width: 100%;
+        }
+
+        #leftContainer {
+            display: inline-flex;
+            flex-direction: column;
+            gap: 6px;
+            flex-shrink: 0;
+            width: 198px;
+        }
+
+        .icon-row, .btn-toolbar {
+            display: flex;
+            gap: 6px;
+            width: 100%;
+            margin: 0;
+            height: 62px;
+        }
+
+        #togglePanel {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            width: 100%;
+        }
+
+        #uiToggleBtn, #gridToggleBtn, .btn-overlay, button.action-btn { 
+            width: 62px; 
+            height: 62px; 
+            background: #1a1a24; 
+            color: #ffffff; 
+            border: 1px solid #444; 
+            border-radius: 6px; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            cursor: pointer; 
+            flex-shrink: 0;
+            box-sizing: border-box;
+            padding: 4px 2px;
+            margin: 0;
+            transition: all 0.2s ease;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #uiToggleBtn:active, #gridToggleBtn:active, .btn-overlay:active, button.action-btn:active { transform: scale(0.95); }
+        
+        #uiToggleBtn svg, #gridToggleBtn svg, .btn-overlay svg, button.action-btn svg {
+            width: 28px;
+            height: 28px;
+            flex-shrink: 0;
+        }
+
+        .btn-label {
+            font-size: 9px;
+            color: #aaa; 
+            margin-top: 2px;
+            line-height: 1;
+            text-align: center;
+            white-space: nowrap;
+            letter-spacing: -0.3px;
+            pointer-events: none;
+            width: 100%;
+            overflow: hidden;
+        }
+        
+        button.btn-scan { color: #00e676; border-color: #00e676; } 
+        button.btn-gyro { color: #ffea00; border-color: #ffea00; } 
+        button.btn-clear { color: #ff1744; border-color: #ff1744; } 
+        
+        .btn-active { background: #ffea00 !important; color: #0b0b0f !important; box-shadow: inset 0 3px 6px rgba(0,0,0,0.6); }
+        .btn-active .btn-label { color: #0b0b0f !important; }
+        button.btn-overlay.overlay-engaged { background: #00e5ff !important; color: #0b0b0f !important; border-color: #00e5ff !important; }
+        button.btn-overlay.overlay-engaged .btn-label { color: #0b0b0f !important; }
+
+        #cameraWindow { 
+            height: 130px; 
+            width: 173px; 
+            border: 2px solid #00e5ff; 
+            border-radius: 6px; 
+            overflow: hidden; 
+            background: #000; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5); 
+            box-sizing: border-box;
+            position: relative;
+            margin-left: auto; 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            flex-shrink: 0;
+        }
+        #cameraFeed { width: 100%; height: 100%; object-fit: fill; display: block; }
+        
+        #libraryPreview { width: 100%; height: 100%; object-fit: fill; display: none; cursor: pointer; }
+        #folderPlaceholder { 
+            width: 100%; 
+            height: 100%; 
+            display: none; 
+            align-items: center; 
+            justify-content: center; 
+            background: #111116; 
+            cursor: pointer; 
+            color: #88889c;
+        }
+        #folderPlaceholder svg { width: 32px; height: 32px; }
+        
+        #sourceToggleBtn {
+            position: absolute;
+            bottom: 4px;
+            left: 4px;
+            width: 24px;
+            height: 24px;
+            background: rgba(26,26,36,0.85);
+            border: 1px solid #555;
+            border-radius: 4px;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 12;
+            cursor: pointer;
+            padding: 0;
+            margin: 0;
+            transition: all 0.2s ease;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #sourceToggleBtn:hover { border-color: #00e5ff; color: #00e5ff; }
+
+        #lowerContent { width: 100%; }
+        #status { color: #ffab00; font-weight: bold; margin-top: 4px; font-size: 0.8em; display: none; }
+        #aiDescription { margin-top: 4px; font-size: 0.75em; color: #aaa; max-height: 150px; overflow-y: auto; background: #15151f; padding: 6px; border-radius: 4px; border: 1px solid #222; white-space: pre-wrap; line-height: 1.4; width: 100%; box-sizing: border-box; }
+        
+        .pulsate-warning {
+            animation: textPulse 1.4s infinite ease-in-out;
+            color: #ffea00;
+            font-weight: 600;
+            display: inline-block;
+        }
+
+        @keyframes textPulse {
+            0% { opacity: 0.35; transform: scale(0.995); }
+            50% { opacity: 1.0; transform: scale(1); }
+            100% { opacity: 0.35; transform: scale(0.995); }
+        }
+
+        #debugPanel { position: absolute; bottom: 10px; left: 10px; right: 65px; z-index: 10; background: rgba(0,0,0,0.85); padding: 8px; border-radius: 4px; font-family: monospace; font-size: 0.75em; color: #00ffcc; border: 1px solid #222; pointer-events: none; display: none; }
+        
+        #infoToggleBtn {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            width: 44px;
+            height: 34px;
+            background: #1a1a24;
+            color: #00e5ff;
+            border: 1px solid #444;
+            border-radius: 6px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 11;
+            font-weight: bold;
+            font-size: 16px;
+            font-family: serif;
+            font-style: italic;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            transition: all 0.2s ease;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #infoToggleBtn:active { transform: scale(0.92); background: #00e5ff; color: #0b0b0f; }
+
+        /* Help Overlay Layer Configurations */
+        #helpOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(10, 10, 14, 0.98);
+            color: #ffffff;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+        
+        .help-scroll-wrapper {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px 20px;
+            box-sizing: border-box;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+        }
+        
+        #closeHelpBtn {
+            position: fixed;
+            top: 15px;
+            right: 12px;
+            background: none;
+            border: none;
+            color: #ff1744;
+            font-size: 14px;
+            width: 14px;
+            height: 14px;
+            font-weight: 800;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+            z-index: 2001;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s ease;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .help-container { max-width: 640px; margin: 0 auto; width: 100%; }
+        .help-title { color: #00e5ff; font-size: 22px; font-weight: bold; border-bottom: 1px solid #333; padding-bottom: 8px; margin-top: 0; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .help-section { margin-bottom: 22px; }
+        .help-section h3 { color: #ffea00; font-size: 14px; margin: 0 0 8px 0; text-transform: uppercase; }
+        .help-grid { display: flex; flex-direction: column; gap: 8px; }
+        .help-row { display: flex; background: rgba(25, 25, 35, 0.6); border-radius: 4px; border: 1px solid #222; padding: 8px 12px; font-size: 12px; align-items: center; }
+        .help-key { font-weight: bold; color: #00e676; width: 155px; flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
+        .help-key svg { width: 14px; height: 14px; flex-shrink: 0; color: #00e5ff; }
+        .help-val { color: #ddd; line-height: 1.4; }
+
+        /* Motion Logo Overlay Components */
         #brandingOverlay {
             position: absolute;
             top: 0;
             left: 0;
             width: 100vw;
             height: 100vh;
-            z-index: 2;
+            z-index: 100;
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
             pointer-events: none;
+            background: transparent;
         }
         
         .logo-text {
-            font-size: 28px;
+            font-size: 32px;
             font-weight: 800;
-            letter-spacing: 6px;
+            letter-spacing: 8px;
             text-transform: uppercase;
             color: #ffffff;
             opacity: 0;
             transform: translateY(20px);
-            transition: all 1.5s cubic-bezier(0.25, 1, 0.5, 1);
-            text-shadow: 0 0 20px rgba(0, 229, 255, 0.6);
+            transition: all 1.2s cubic-bezier(0.25, 1, 0.5, 1);
+            text-shadow: 0 0 20px rgba(0, 229, 255, 0.5);
         }
         
         .logo-subtext {
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 400;
-            letter-spacing: 4px;
+            letter-spacing: 5px;
             text-transform: uppercase;
             color: #00e5ff;
-            margin-top: 8px;
+            margin-top: 10px;
             opacity: 0;
-            transition: all 2s cubic-bezier(0.25, 1, 0.5, 1) 0.5s;
+            transition: all 1.6s cubic-bezier(0.25, 1, 0.5, 1) 0.4s;
         }
         
-        #replayBtn {
+        #startSculptingBtn {
             position: absolute;
-            bottom: 30px;
-            z-index: 3;
-            background: rgba(26, 26, 36, 0.8);
-            border: 1px solid #333;
-            color: #aaa;
-            padding: 10px 20px;
-            border-radius: 4px;
-            font-size: 11px;
-            letter-spacing: 2px;
+            bottom: 45px;
+            z-index: 101;
+            background: #0b0b0f;
+            border: 1px solid #00e5ff;
+            color: #00e5ff;
+            padding: 14px 28px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: bold;
+            letter-spacing: 3px;
             text-transform: uppercase;
             cursor: pointer;
-            transition: all 0.3s ease;
+            box-shadow: 0 0 20px rgba(0, 229, 255, 0.2);
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            -webkit-tap-highlight-color: transparent;
         }
-        #replayBtn:hover { border-color: #00e5ff; color: #fff; box-shadow: 0 0 15px rgba(0,229,255,0.3); }
+        #startSculptingBtn:hover { background: #00e5ff; color: #0b0b0f; box-shadow: 0 0 25px rgba(0,229,255,0.5); }
+        #startSculptingBtn:active { transform: scale(0.96); }
+
+        #canvas3d { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; display: block; z-index: 2; touch-action: none; }
     </style>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
 
+    <!-- Instruction Help Interface Overlay -->
+    <div id="helpOverlay" style="display: none;">
+        <button id="closeHelpBtn" title="Close Overlay Panel">X</button>
+        <div class="help-scroll-wrapper">
+            <div class="help-container">
+                <h2 class="help-title">How to Use Spatial Sculptor</h2>
+                <div class="help-section">
+                    <h3>Interface Toolbar Control Systems</h3>
+                    <div class="help-grid">
+                        <div class="help-row"><div class="help-key"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>Show / Hide</div><div class="help-val">Toggles visibility layouts for console parameters and menus.</div></div>
+                        <div class="help-row"><div class="help-key"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>Grid Layer</div><div class="help-val">Toggles visual projection helpers.</div></div>
+                        <div class="help-row"><div class="help-key"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"></path></svg>Scan Element</div><div class="help-val">Dispatches interpretation pipelines via Gemini cascades.</div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cinematic Logo Component Markup -->
     <div id="brandingOverlay">
         <div id="mainTitle" class="logo-text">Spatial Sculptor</div>
         <div id="subTitle" class="logo-subtext">Augmented Reality</div>
     </div>
+    <button id="startSculptingBtn">Start Sculpting</button>
 
-    <button id="replayBtn">Trigger Reveal Sequence</button>
+    <!-- Operational Application UI Panel -->
+    <div id="controls">
+        <div class="main-interface">
+            <div id="leftContainer">
+                <div class="icon-row">
+                    <button id="uiToggleBtn" title="Toggle UI Controls">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <span class="btn-label">show/hide</span>
+                    </button>
+                    <button id="gridToggleBtn" class="btn-active" title="Toggle Navigation Grid">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
+                        <span class="btn-label">grid</span>
+                    </button>
+                    <button id="overlayToggleBtn" class="btn-overlay" title="Toggle Image Alignment Plane">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline></svg>
+                        <span class="btn-label">reference</span>
+                    </button>
+                </div>
+                <div id="togglePanel">
+                    <div class="btn-toolbar" id="toolbarNode">
+                        <button id="scanBtn" class="action-btn btn-scan" title="Scan Environment">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"></path></svg>
+                            <span class="btn-label">scan</span>
+                        </button>
+                        <button id="gyroBtn" class="action-btn btn-gyro" title="Toggle Free Walk">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+                            <span class="btn-label">gyroscope</span>
+                        </button>
+                        <button id="clearBtn" class="action-btn btn-clear" title="Reset Scene">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                            <span class="btn-label">clear/reset</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div id="cameraWindow">
+                <video id="cameraFeed" autoplay playsinline muted></video>
+                <img id="libraryPreview" alt="Device selection display element">
+                <div id="folderPlaceholder">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                </div>
+                <button id="sourceToggleBtn" title="Switch Input Type">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/></svg>
+                </button>
+            </div>
+        </div>
+        <div id="lowerContent">
+            <input type="file" id="fileInput" accept="image/*" style="display: none;">
+            <div id="status">Deconstructing spatial geometry orientation...</div>
+            <div id="aiDescription">Awaiting snapshot capture execution sequence...</div>
+        </div>
+    </div>
+
+    <div id="debugPanel">System Initializing...</div>
+    <button id="infoToggleBtn" title="Open Instruction Panel">i</button>
     <canvas id="canvas3d"></canvas>
 
     <script>
-        let scene, camera, renderer, clock;
-        let gridHelper, blocks = [];
-        const totalBlockCount = 200;
-        const blockGroup = new THREE.Group();
+        let scene, camera, renderer, controls, architectural3DGrid;
+        let videoElement, localStream, clock;
         
-        // Target structural layout positions forming a giant geometric monogram 'S'
+        // State Machine Registers
+        let introActive = true;
+        let introBlocks = [];
+        const introGroup = new THREE.Group();
+
+        let gyroActive = false;
+        let isFirstGyroFrame = false;
+        let lockedGyroRoll = 0; 
+        const cleanTargetQuaternion = new THREE.Quaternion(); 
+        
+        let gyroYawOffset = 0;
+        let targetLinearVelocityX = 0;
+        let targetLinearVelocityZ = 0;
+        const VELOCITY_DEADZONE_LIMIT = 0.0001;
+
+        let motionTracker;
+        const worldGroup = new THREE.Group();
+        let scanInProgress = false;
+        
+        let dynamicInputSourceMode = 'camera';
+        let scannedBackdropDataUrl = null;
+        let backdropOverlayActive = false;
+        let rawCachedShapesArray = null;  
+
+        let telemetryState = { x: 0, y: 2.0, z: 25.0 };
+        let cameraStreamAspectRatio = 4 / 3; 
+        let systemApiSecretKey = null; 
+
+        let raycaster = new THREE.Raycaster();
+        let pointerCoordinateVector = new THREE.Vector2();
+        let isDraggingSceneActive = false;
+        let isStructureReadyToMove = false;
+        let sceneDragLongPressTimeout = null;
+        let interactiveDragOffset = new THREE.Vector3();
+        let groundReferencePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        let activeDraggedGroup = null; 
+        let currentlySelectedMesh = null; 
+        
+        let hasDragged = false;
+        let startScreenPosition = { x: 0, y: 0 };
+        const DRAG_CANCEL_THRESHOLD = 8; 
+        const TAP_JITTER_THRESHOLD = 18;  
+
+        let lastTapTime = 0;
+        let lastTargetMesh = null;
+
+        const OPEN_EYE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+        const CLOSED_EYE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10c4 4 14 4 18 0"/><path d="M6 11.5l-1 2"/><path d="M12 13v3"/></svg>`;
+        const ICON_CAMERA_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/></svg>`;
+        const ICON_PHOTO_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"></polyline></svg>`;
+
+        // Optimized Geometric Coordinate Framework mapping a clean, non-looping Voxel 'S' Monogram
         const logoStructurePoints = [
-            {x:-2, y:4, z:0},  {x:-1, y:4, z:0},  {x:0, y:4, z:0},  {x:1, y:4, z:0},  {x:2, y:4, z:0},
-            {x:-2, y:3, z:0},                                                         {x:2, y:3, z:1},
-            {x:-2, y:2, z:0},                                                         {x:2, y:2, z:-1},
-            {x:-2, y:1, z:0},  {x:-1, y:1, z:0},  {x:0, y:1, z:0},  {x:1, y:1, z:0},  {x:2, y:1, z:0},
-                                                                                      {x:2, y:0, z:0},
-                                                                                      {x:2, y:-1, z:0},
+            // Top Bar
+            {x:-2, y:4, z:0}, {x:-1, y:4, z:0}, {x:0, y:4, z:0}, {x:1, y:4, z:0}, {x:2, y:4, z:0},
+            // Upper Left Spine Drop
+            {x:-2, y:3, z:0}, {x:-2, y:2, z:0},
+            // Center Horizontal Bar
+            {x:-2, y:1, z:0}, {x:-1, y:1, z:0}, {x:0, y:1, z:0}, {x:1, y:1, z:0}, {x:2, y:1, z:0},
+            // Lower Right Spine Drop
+            {x:2, y:0, z:0}, {x:2, y:-1, z:0},
+            // Bottom Bar
             {x:-2, y:-2, z:0}, {x:-1, y:-2, z:0}, {x:0, y:-2, z:0}, {x:1, y:-2, z:0}, {x:2, y:-2, z:0},
-            // Generates structural thickness anchoring into depth axes
-            {x:-2, y:4, z:-1}, {x:0, y:4, z:-1}, {x:2, y:4, z:-1}, {x:-2, y:1, z:-1}, {x:2, y:-2, z:-1}
+            // Volumetric Depth Extension Shell
+            {x:-2, y:4, z:-1}, {x:0, y:4, z:-1}, {x:2, y:4, z:-1}, {x:-2, y:1, z:-1}, {x:2, y:-2, z:-1},
+            {x:-2, y:2, z:-1}, {x:2, y:0, z:-1}
         ];
 
-        function init() {
+        class MultiPointMotionTracker {
+            constructor() {
+                this.canvas = document.createElement('canvas');
+                this.canvas.width = 64; this.canvas.height = 64;
+                this.ctx = this.canvas.getContext('2d');
+                this.prevBuffer = new Uint8ClampedArray(64 * 64);
+                this.initialized = false;
+                this.trackingPoints = [
+                    {x: 16, y: 16}, {x: 32, y: 16}, {x: 48, y: 16},
+                    {x: 16, y: 32}, {x: 32, y: 32}, {x: 48, y: 32},
+                    {x: 16, y: 48}, {x: 32, y: 48}, {x: 48, y: 48}
+                ];
+            }
+            analyze(video) {
+                if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) return { scale: 0, pan: 0 };
+                this.ctx.drawImage(video, 0, 0, 64, 64);
+                const frameData = this.ctx.getImageData(0, 0, 64, 64).data;
+                let curBuffer = new Uint8ClampedArray(64 * 64);
+                let curTotalLuma = 0; let prevTotalLuma = 0;
+                for (let i = 0; i < 64 * 64; i++) {
+                    curBuffer[i] = (frameData[i*4] + frameData[i*4+1] + frameData[i*4+2]) / 3;
+                    curTotalLuma += curBuffer[i];
+                    if (this.initialized) prevTotalLuma += this.prevBuffer[i];
+                }
+                if (!this.initialized) { this.prevBuffer.set(curBuffer); this.initialized = true; return { scale: 0, pan: 0 }; }
+                const lumaBalanceOffset = (curTotalLuma - prevTotalLuma) / 4096.0;
+                let totalVectorX = 0; let totalExpansion = 0; const searchRadius = 5; let activeMotionBlocksCount = 0;
+                for (let pt of this.trackingPoints) {
+                    let bestSAD = Infinity; let mvX = 0; let mvY = 0;
+                    for (let sy = -searchRadius; sy <= searchRadius; sy++) {
+                        for (let sx = -searchRadius; sx <= searchRadius; sx++) {
+                            let sad = 0;
+                            for (let wy = -1; wy <= 1; wy++) {
+                                const oldX = pt.x + wy; const oldY = pt.y + wy;
+                                const newX = pt.x + wy + sx; const newY = pt.y + wy + sy;
+                                if (oldX >= 0 && oldX < 64 && oldY >= 0 && oldY < 64 && newX >= 0 && newX < 64 && newY >= 0 && newY < 64) {
+                                    const normalizedCurPixel = curBuffer[newY * 64 + newX] - lumaBalanceOffset;
+                                    sad += Math.abs(normalizedCurPixel - this.prevBuffer[oldY * 64 + oldX]);
+                                }
+                            }
+                            if (sad < bestSAD) { bestSAD = sad; mvX = sx; mvY = sy; }
+                        }
+                    }
+                    if (mvX !== 0 || mvY !== 0) activeMotionBlocksCount++;
+                    totalVectorX += mvX;
+                    totalExpansion += (mvX * (pt.x - 32)) + (mvY * (pt.y - 32));
+                }
+                this.prevBuffer.set(curBuffer);
+                if (activeMotionBlocksCount < 5) return { scale: 0, pan: 0 };
+                let rawPan = -(totalVectorX / 9.0) * 0.25;
+                let rawScale = (totalExpansion / 9.0) * 0.015;
+                if (Math.abs(rawPan) < 0.14) rawPan = 0;
+                if (Math.abs(rawScale) < 0.10) rawScale = 0;
+                return { scale: THREE.MathUtils.clamp(rawScale, -0.2, 0.2), pan: THREE.MathUtils.clamp(rawPan, -0.2, 0.2) };
+            }
+        }
+
+        const getSensorQuaternion = (function () {
+            const zee = new THREE.Vector3( 0, 0, 1 );
+            const euler = new THREE.Euler();
+            const q0 = new THREE.Quaternion();
+            const q1 = new THREE.Quaternion( - Math.sqrt( 0.5 ), 0, 0, Math.sqrt( 0.5 ) ); 
+            return function ( alpha, beta, gamma, orient ) {
+                const q = new THREE.Quaternion();
+                euler.set( beta, alpha, - gamma, 'YXZ' ); q.setFromEuler( euler ); q.multiply( q1 ); q.multiply( q0.setFromAxisAngle( zee, - orient ) ); 
+                return q;
+            };
+        })();
+
+        // Construct a clean, unified wireframe container matrix serving as a highly precise 3D space tracking guide
+        function buildArchitectural3DGrid(width, height, depth, cellSize) {
+            const group = new THREE.Group();
+            const material = new THREE.LineBasicMaterial({ color: 0x1e1e2f, transparent: true, opacity: 0.4 });
+            const accentMaterial = new THREE.LineBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.15 });
+            
+            // Build out standard layer slices across Y boundaries
+            for (let y = 0; y <= height; y += cellSize) {
+                const gridPlane = new THREE.GridHelper(width, width / cellSize, (y === 0 ? 0x00e5ff : 0x2e2e42), 0x1a1a26);
+                gridPlane.position.y = y;
+                gridPlane.material.transparent = true;
+                gridPlane.material.opacity = y === 0 ? 0.4 : 0.15;
+                group.add(gridPlane);
+            }
+
+            // Build vertical framing elements along structural wire matrices
+            const halfW = width / 2;
+            const halfD = width / 2;
+            for (let x = -halfW; x <= halfW; x += cellSize * 2) {
+                for (let z = -halfD; z <= halfD; z += cellSize * 2) {
+                    const points = [new THREE.Vector3(x, 0, z), new THREE.Vector3(x, height, z)];
+                    const geo = new THREE.BufferGeometry().setFromPoints(points);
+                    const isCorner = Math.abs(x) === halfW && Math.abs(z) === halfD;
+                    const line = new THREE.Line(geo, isCorner ? accentMaterial : material);
+                    group.add(line);
+                }
+            }
+            return group;
+        }
+
+        function createRoundedBoxGeometry(w, h, d, radius, segments) {
+            w = Math.max(w, 0.05); h = Math.max(h, 0.05); d = Math.max(d, 0.05);
+            const r = Math.min(radius, Math.min(w, h) * 0.45);
+            const shape = new THREE.Shape(); const x = -w / 2, y = -h / 2;
+            shape.moveTo(x, y + r); shape.lineTo(x, y + h - r); shape.quadraticCurveTo(x, y + h, x + r, y + h);
+            shape.lineTo(x + w - r, y + h); shape.quadraticCurveTo(x + w, y + h, x + w, y + h - r);
+            shape.lineTo(x + w, y + r); shape.quadraticCurveTo(x + w, y, x + w - r, y);
+            shape.lineTo(x + r, y); shape.quadraticCurveTo(x, y, x, y + r);
+            const geo = new THREE.ExtrudeGeometry(shape, { depth: Math.max(0.01, d - (2 * r)), bevelEnabled: true, bevelSegments: segments, steps: 1, bevelSize: r, bevelThickness: r, curveSegments: segments * 2 });
+            geo.center(); return geo;
+        }
+
+        function extractCleanJsonObject(rawText) {
+            const firstOpen = rawText.indexOf('{'); if (firstOpen === -1) throw new Error("Object boundary missing.");
+            let depth = 0;
+            for (let i = firstOpen; i < rawText.length; i++) {
+                if (rawText[i] === '{') depth++;
+                else if (rawText[i] === '}') { depth--; if (depth === 0) return rawText.substring(firstOpen, i + 1); }
+            }
+            throw new Error("Mismatched block bounds.");
+        }
+
+        function resizeCameraViewport() {
+            const cameraWin = document.getElementById('cameraWindow'); if (!cameraWin) return;
+            if (dynamicInputSourceMode === 'camera') {
+                const camFeed = document.getElementById('cameraFeed');
+                if (camFeed && camFeed.videoWidth) cameraStreamAspectRatio = camFeed.videoWidth / camFeed.videoHeight;
+            } else {
+                const libPreview = document.getElementById('libraryPreview');
+                if (libPreview && libPreview.naturalWidth) cameraStreamAspectRatio = libPreview.naturalWidth / libPreview.naturalHeight;
+            }
+            const availableWidth = window.innerWidth - 20 - 24 - 198 - 12;
+            let calculatedWidthTarget = 130 * cameraStreamAspectRatio;
+            if (calculatedWidthTarget > availableWidth) calculatedWidthTarget = availableWidth;
+            cameraWin.style.width = calculatedWidthTarget + 'px';
+        }
+
+        function init3D() {
+            clock = new THREE.Clock();
             const canvas = document.getElementById('canvas3d');
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x040407);
-            scene.fog = new THREE.FogExp2(0x040407, 0.015);
+            scene.background = new THREE.Color(0x050508);
+            scene.fog = new THREE.FogExp2(0x050508, 0.012);
 
-            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-            // Dramatic low-angle cinematic camera placement framing the grid horizon
-            camera.position.set(0, 8, 35);
-            camera.lookAt(0, 1, 0);
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100000);
+            camera.position.set(0, 6, 32);
+            camera.lookAt(0, 2, 0);
 
             renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -111,180 +637,576 @@
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
             renderer.shadowMap.enabled = true;
 
-            clock = new THREE.Clock();
+            // Generate the advanced standardized architectural layout grid reference systems
+            architectural3DGrid = buildArchitectural3DGrid(80, 20, 80, 4);
+            architectural3DGrid.position.y = -3;
+            scene.add(architectural3DGrid);
 
-            // Architectural Construction Reference Grid System
-            gridHelper = new THREE.GridHelper(60, 60, 0x00e5ff, 0x1a1a26);
-            gridHelper.position.y = -3;
-            gridHelper.material.opacity = 0;
-            gridHelper.material.transparent = true;
-            scene.add(gridHelper);
-
-            // Studio Ambient and Neon Highlights
-            scene.add(new THREE.AmbientLight(0xffffff, 0.1));
+            scene.add(new THREE.AmbientLight(0xffffff, 0.2));
+            const keyLight = new THREE.DirectionalLight(0xfffecb, 1.4);
+            keyLight.position.set(20, 40, 20); keyLight.castShadow = true;
+            scene.add(keyLight);
             
-            const dynamicKeyLight = new THREE.DirectionalLight(0xffffff, 1.5);
-            dynamicKeyLight.position.set(20, 40, 20);
-            scene.add(dynamicKeyLight);
+            const neonRimLight = new THREE.PointLight(0x00e5ff, 2.5, 60);
+            neonRimLight.position.set(0, 4, -4); scene.add(neonRimLight);
 
-            const neonRimLight = new THREE.PointLight(0x00e5ff, 3, 50);
-            neonRimLight.position.set(0, 5, -5);
-            scene.add(neonRimLight);
+            scene.add(worldGroup);
+            scene.add(introGroup);
 
-            const amberAccentLight = new THREE.PointLight(0xffea00, 2, 40);
-            amberAccentLight.position.set(-10, -2, 10);
-            scene.add(amberAccentLight);
+            // Setup introductory animation components 
+            initializeIntroVoxelAssets();
 
-            buildRevealBlocks();
-            scene.add(blockGroup);
-
-            document.getElementById('replayBtn').addEventListener('click', restartRevealSequence);
+            // Setup interface element binding registers
+            document.getElementById('startSculptingBtn').addEventListener('click', enterMainApplicationViewImmediately);
+            document.getElementById('closeHelpBtn').addEventListener('click', () => { document.getElementById('helpOverlay').style.display = 'none'; });
+            document.getElementById('infoToggleBtn').addEventListener('click', () => { document.getElementById('helpOverlay').style.display = 'flex'; });
+            
+            canvas.addEventListener('pointerdown', handleScenePointerDownActivation, { passive: false });
+            window.addEventListener('pointermove', handleScenePointerDragSequence, { passive: false });
+            window.addEventListener('pointerup', handleScenePointerUpRelease);
             window.addEventListener('resize', onWindowResize);
 
+            // Bind workspace toolbar operations
+            document.getElementById('scanBtn').addEventListener('click', captureAndScanFrame);
+            document.getElementById('gyroBtn').addEventListener('click', toggleSensorsFunctionality);
+            document.getElementById('clearBtn').addEventListener('click', clearSceneAndResetView);
+            document.getElementById('uiToggleBtn').addEventListener('click', toggleControlPanelsVisibility);
+            document.getElementById('overlayToggleBtn').addEventListener('click', toggleSpatialBackdropOverlay);
+            document.getElementById('gridToggleBtn').addEventListener('click', () => {
+                architectural3DGrid.visible = !architectural3DGrid.visible;
+                document.getElementById('gridToggleBtn').classList.toggle('btn-active', architectural3DGrid.visible);
+            });
+            document.getElementById('sourceToggleBtn').addEventListener('click', toggleInputSourceMode);
+            document.getElementById('folderPlaceholder').addEventListener('click', triggerDeviceFileBrowser);
+            document.getElementById('libraryPreview').addEventListener('click', triggerDeviceFileBrowser);
+            document.getElementById('fileInput').addEventListener('change', handleDeviceFileSelection);
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlKey = urlParams.get('key');
+            if (urlKey) systemApiSecretKey = urlKey.trim();
+
+            initRearCameraStreamGracefully();
             animate();
         }
 
-        function buildRevealBlocks() {
-            // High-fidelity physical materials showing refraction and structural alignment properties
+        function initializeIntroVoxelAssets() {
             const materialPalette = [
-                new THREE.MeshPhysicalMaterial({ color: 0x00e5ff, roughness: 0.1, metalness: 0.1, transmission: 0.6, thickness: 0.5, transparent: true }),
-                new THREE.MeshPhysicalMaterial({ color: 0xffea00, roughness: 0.2, metalness: 0.8, clearcoat: 1.0 }),
-                new THREE.MeshStandardMaterial({ color: 0x181824, roughness: 0.4, metalness: 0.9 }),
-                new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.0, metalness: 0.2, transmission: 0.9, transparent: true })
+                new THREE.MeshPhysicalMaterial({ color: 0x00e5ff, roughness: 0.15, metalness: 0.2, transmission: 0.5, transparent: true }),
+                new THREE.MeshPhysicalMaterial({ color: 0xffea00, roughness: 0.1, metalness: 0.9, clearcoat: 1.0 }),
+                new THREE.MeshStandardMaterial({ color: 0x1c1c28, roughness: 0.3, metalness: 0.85 }),
+                new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.05, metalness: 0.1, transmission: 0.8, transparent: true })
             ];
+            const boxGeo = new THREE.BoxGeometry(0.75, 0.75, 0.75);
+            const totalBlocks = 240;
 
-            const boxGeometry = new THREE.BoxGeometry(0.8, 0.8, 0.8);
-
-            for (let i = 0; i < totalBlockCount; i++) {
-                const randomMaterial = materialPalette[Math.floor(Math.random() * materialPalette.length)];
-                const mesh = new THREE.Mesh(boxGeometry, randomMaterial.clone());
-                mesh.castShadow = true;
-                mesh.receiveShadow = true;
-
-                // Capture structural initial, randomized, and terminal data maps
-                const originalPhotoX = (Math.random() - 0.5) * 16;
-                const originalPhotoY = (Math.random() - 0.5) * 12 + 4;
-                const originalPhotoZ = 12; // Formulates a flat floating window slice relative to perspective axis
-
-                mesh.position.set(originalPhotoX, originalPhotoY, originalPhotoZ);
+            for (let i = 0; i < totalBlocks; i++) {
+                const mat = materialPalette[i % materialPalette.length].clone();
+                const mesh = new THREE.Mesh(boxGeo, mat);
                 
-                // Seed secondary scattered flight paths 
-                const scatterVector = new THREE.Vector3(
-                    (Math.random() - 0.5) * 35,
-                    Math.random() * 15 - 2,
-                    (Math.random() - 0.5) * 35
-                );
+                // Establish initial image-plane coordinate distributions
+                const photoX = (Math.random() - 0.5) * 14;
+                const photoY = (Math.random() - 0.5) * 10 + 3;
+                const photoZ = 8;
 
-                // Map target coordinates using the structural logo template array safely
-                const targetPoint = logoStructurePoints[i % logoStructurePoints.length];
-                const logoVector = new THREE.Vector3(
-                    targetPoint.x * 1.1, 
-                    targetPoint.y * 1.1 + 2, 
-                    targetPoint.z * 1.1
-                );
+                // Scatter positions inside spatial bounds fields
+                const scatterPos = new THREE.Vector3((Math.random() - 0.5) * 32, Math.random() * 12 - 1, (Math.random() - 0.5) * 32);
+                
+                // Corrected balanced 'S' monogram targets
+                const targetNode = logoStructurePoints[i % logoStructurePoints.length];
+                const logoPos = new THREE.Vector3(targetNode.x * 1.15, targetNode.y * 1.15 + 2.5, targetNode.z * 1.15);
 
+                mesh.position.set(photoX, photoY, photoZ);
                 mesh.userData = {
-                    photoPos: new THREE.Vector3(originalPhotoX, originalPhotoY, originalPhotoZ),
-                    scatterPos: scatterVector,
-                    logoPos: logoVector,
-                    randomRotationSpeed: new THREE.Euler(Math.random()*0.02, Math.random()*0.02, Math.random()*0.02)
+                    photoPos: new THREE.Vector3(photoX, photoY, photoZ),
+                    scatterPos: scatterPos,
+                    logoPos: logoPos,
+                    rotSpeed: new THREE.Euler(Math.random()*0.02, Math.random()*0.02, Math.random()*0.02)
                 };
 
-                blocks.push(mesh);
-                blockGroup.add(mesh);
+                introBlocks.push(mesh);
+                introGroup.add(mesh);
             }
         }
 
-        function restartRevealSequence() {
-            clock.stop();
-            clock.start();
+        function enterMainApplicationViewImmediately() {
+            introActive = false;
             
-            // Re-zero interface overlay visibility classes cleanly
-            const title = document.getElementById('mainTitle');
-            const subtitle = document.getElementById('subTitle');
-            title.style.opacity = '0';
-            title.style.transform = 'translateY(20px)';
-            subtitle.style.opacity = '0';
+            // Cleanly clear background introduction animation nodes from memory hooks
+            scene.remove(introGroup);
+            introBlocks.forEach(b => {
+                b.geometry.dispose();
+                if (Array.isArray(b.material)) b.material.forEach(m => m.dispose()); else b.material.dispose();
+            });
+            introBlocks = [];
+
+            // Fade branding text containers completely from UI contexts
+            document.getElementById('brandingOverlay').style.display = 'none';
+            document.getElementById('startSculptingBtn').style.display = 'none';
+
+            // Show standardized core workspace dashboard system controls
+            document.getElementById('controls').style.display = 'flex';
+            document.getElementById('infoToggleBtn').style.display = 'flex';
+            document.getElementById('debugPanel').style.display = 'block';
+
+            // Stabilize graphics engine camera positions cleanly pointing to spatial ground zeroes
+            camera.position.set(telemetryState.x, telemetryState.y, telemetryState.z);
+            initOrbitControls();
+            controls.target.set(0, 0, 0);
+            controls.update();
+
+            const desc = document.getElementById('aiDescription');
+            if (!systemApiSecretKey) {
+                desc.innerHTML = "<span style='color:#ff3333; font-weight:bold;'>Pipeline Authorization Missing:</span><br>Provide key string parameter extensions layout directly format matching: <code>?key=YOUR_API_TOKEN</code>.";
+            } else {
+                desc.innerHTML = "Workspace ready.<br>Dispatch capture stream analysis requests freely.";
+            }
+            resizeCameraViewport();
+        }
+
+        function initOrbitControls() {
+            if (!controls) {
+                controls = new THREE.OrbitControls(camera, renderer.domElement);
+                controls.enableDamping = true;
+                controls.dampingFactor = 0.05;
+            }
+            controls.minDistance = 0.001;
+            controls.maxDistance = Infinity;
+            controls.zoomSpeed = 1.2;
+            controls.panSpeed = 1.0;
+            controls.enabled = !gyroActive; 
+        }
+
+        function handleScenePointerDownActivation(e) {
+            if (introActive) return;
+            pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
+            pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            startScreenPosition.x = e.clientX; startScreenPosition.y = e.clientY;
+            hasDragged = false; 
+
+            raycaster.setFromCamera(pointerCoordinateVector, camera);
+            const intersects = raycaster.intersectObjects(worldGroup.children, true);
+
+            if (intersects.length > 0) {
+                const hitMesh = intersects[0].object; if(hitMesh.userData.isBackdrop) return;
+                let rootInstance = hitMesh;
+                while (rootInstance.parent && rootInstance.parent !== worldGroup) rootInstance = rootInstance.parent;
+                activeDraggedGroup = rootInstance;
+
+                let groundIntersectionVector = new THREE.Vector3();
+                raycaster.ray.intersectPlane(groundReferencePlane, groundIntersectionVector);
+                interactiveDragOffset.copy(groundIntersectionVector).sub(activeDraggedGroup.position);
+
+                if (sceneDragLongPressTimeout) clearTimeout(sceneDragLongPressTimeout);
+                isStructureReadyToMove = false; isDraggingSceneActive = false;
+
+                sceneDragLongPressTimeout = setTimeout(() => {
+                    if (!hasDragged) {
+                        isStructureReadyToMove = true; isDraggingSceneActive = true;
+                        if (controls) controls.enabled = false; 
+                        activeDraggedGroup.traverse((child) => {
+                            if (child.isMesh && child.material && !child.userData.isBackdrop) {
+                                if (child.userData.originalEmissive === undefined) child.userData.originalEmissive = child.material.emissive.getHex();
+                                child.material.emissive.setHex(0x224466); 
+                            }
+                        });
+                        document.getElementById('aiDescription').innerText = "[Active Mode: Translating Entity]\nSlide finger to shift layout location anchors.";
+                    }
+                }, 400); 
+            }
+        }
+
+        function handleScenePointerDragSequence(e) {
+            if (introActive) return;
+            const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
+            const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
+            if (currentPixelDeltaX > DRAG_CANCEL_THRESHOLD || currentPixelDeltaY > DRAG_CANCEL_THRESHOLD) {
+                hasDragged = true;
+                if (sceneDragLongPressTimeout) { clearTimeout(sceneDragLongPressTimeout); sceneDragLongPressTimeout = null; }
+            }
+            if (!isDraggingSceneActive || !activeDraggedGroup) return;
+
+            e.preventDefault();
+            pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
+            pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(pointerCoordinateVector, camera);
+            let currentGroundIntersection = new THREE.Vector3();
+            raycaster.ray.intersectPlane(groundReferencePlane, currentGroundIntersection);
+            let intendedTargetPosition = currentGroundIntersection.sub(interactiveDragOffset);
             
-            camera.position.set(0, 8, 35);
-            camera.lookAt(0, 1, 0);
+            activeDraggedGroup.position.x = Math.round(intendedTargetPosition.x);
+            activeDraggedGroup.position.z = Math.round(intendedTargetPosition.z);
+        }
+
+        function handleScenePointerUpRelease(e) {
+            if (introActive) return;
+            if (sceneDragLongPressTimeout) { clearTimeout(sceneDragLongPressTimeout); sceneDragLongPressTimeout = null; }
+            if (hasDragged) {
+                if (isDraggingSceneActive && activeDraggedGroup) {
+                    activeDraggedGroup.traverse((child) => {
+                        if (child.isMesh && child.material && child.userData.originalEmissive !== undefined) child.material.emissive.setHex(child.userData.originalEmissive);
+                    });
+                    resolveGeometryClipping();
+                    document.getElementById('aiDescription').innerText = "Entity transformation lock verified.";
+                }
+                isDraggingSceneActive = false; isStructureReadyToMove = false; activeDraggedGroup = null;
+                if (controls && !gyroActive) controls.enabled = true;
+                return; 
+            }
+
+            const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
+            const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
+            if (currentPixelDeltaX < TAP_JITTER_THRESHOLD && currentPixelDeltaY < TAP_JITTER_THRESHOLD) {
+                pointerCoordinateVector.x = (e.clientX / window.innerWidth) * 2 - 1;
+                pointerCoordinateVector.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                raycaster.setFromCamera(pointerCoordinateVector, camera);
+                const intersects = raycaster.intersectObjects(worldGroup.children, true);
+
+                if (intersects.length > 0) {
+                    const hitMesh = intersects[0].object; if (hitMesh.userData.isBackdrop === true) return;
+                    const currentTime = performance.now();
+
+                    if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh) {
+                        const geometryCohort = [hitMesh];
+                        worldGroup.traverse((child) => {
+                            if (child.isMesh && child !== hitMesh && child.userData.isBackdrop !== true) {
+                                if (child.position.distanceTo(hitMesh.position) < 0.3) geometryCohort.push(child);
+                            }
+                        });
+                        if (hitMesh.userData.fadeTimer) {
+                            geometryCohort.forEach(m => { clearTimeout(m.userData.fadeTimer); m.userData.fadeTimer = null; restoreMeshOpacity(m); });
+                            document.getElementById('aiDescription').innerText = "Cohort material opacity mask cleared.";
+                        } else {
+                            geometryCohort.forEach(m => { cacheMeshOpacity(m); applyMeshOpacity(m, 0.25); });
+                            document.getElementById('aiDescription').innerText = "Cohort transparent visual isolate engaged.";
+                            const unifiedTimer = setTimeout(() => {
+                                geometryCohort.forEach(m => { restoreMeshOpacity(m); m.userData.fadeTimer = null; });
+                            }, 3000);
+                            geometryCohort.forEach(m => m.userData.fadeTimer = unifiedTimer);
+                        }
+                        lastTapTime = 0; lastTargetMesh = null;
+                    } else {
+                        lastTapTime = currentTime; lastTargetMesh = hitMesh;
+                        if (currentlySelectedMesh && currentlySelectedMesh !== hitMesh) {
+                            if (currentlySelectedMesh.userData.originalEmissive !== undefined) currentlySelectedMesh.material.emissive.setHex(currentlySelectedMesh.userData.originalEmissive);
+                        }
+                        currentlySelectedMesh = hitMesh;
+                        if (currentlySelectedMesh.userData.originalEmissive === undefined) currentlySelectedMesh.userData.originalEmissive = currentlySelectedMesh.material.emissive.getHex();
+                        currentlySelectedMesh.material.emissive.setHex(0x38380b);
+                        document.getElementById('aiDescription').innerHTML = hitMesh.userData.description || "Parsed item system module.";
+                    }
+                }
+            }
+            activeDraggedGroup = null;
+        }
+
+        function cacheMeshOpacity(mesh) {
+            if (mesh.userData.savedOpacity === undefined) {
+                if (Array.isArray(mesh.material)) {
+                    mesh.userData.savedOpacity = mesh.material.map(m => m.opacity);
+                    mesh.userData.savedTransparent = mesh.material.map(m => m.transparent);
+                } else {
+                    mesh.userData.savedOpacity = mesh.material.opacity;
+                    mesh.userData.savedTransparent = mesh.material.transparent;
+                }
+            }
+        }
+        function applyMeshOpacity(mesh, targetOpacity) {
+            if (Array.isArray(mesh.material)) {
+                mesh.material.forEach(m => { m.transparent = true; m.opacity = targetOpacity; m.needsUpdate = true; });
+            } else { mesh.material.transparent = true; mesh.material.opacity = targetOpacity; mesh.material.needsUpdate = true; }
+        }
+        function restoreMeshOpacity(mesh) {
+            if (mesh.userData.savedOpacity !== undefined) {
+                if (Array.isArray(mesh.material)) {
+                    mesh.material.forEach((m, idx) => { m.opacity = mesh.userData.savedOpacity[idx]; m.transparent = mesh.userData.savedTransparent[idx]; m.needsUpdate = true; });
+                } else { mesh.material.opacity = mesh.userData.savedOpacity; mesh.material.transparent = mesh.userData.savedTransparent; mesh.material.needsUpdate = true; }
+                delete mesh.userData.savedOpacity; delete mesh.userData.savedTransparent;
+            }
+        }
+
+        function toggleSpatialBackdropOverlay() {
+            backdropOverlayActive = !backdropOverlayActive;
+            document.getElementById('overlayToggleBtn').classList.toggle('overlay-engaged', backdropOverlayActive);
+            worldGroup.traverse(child => { if (child.userData && child.userData.isBackdrop) child.visible = backdropOverlayActive; });
+        }
+
+        function toggleInputSourceMode(e) {
+            if(e) e.stopPropagation();
+            const camFeed = document.getElementById('cameraFeed');
+            const libPreview = document.getElementById('libraryPreview');
+            const placeholder = document.getElementById('folderPlaceholder');
+            const toggleBtn = document.getElementById('sourceToggleBtn');
+            if (dynamicInputSourceMode === 'camera') {
+                dynamicInputSourceMode = 'library'; toggleBtn.innerHTML = ICON_PHOTO_SVG; camFeed.style.display = 'none';
+                if (libPreview.src && libPreview.src !== window.location.href && libPreview.src !== '') { libPreview.style.display = 'block'; placeholder.style.display = 'none'; }
+                else { libPreview.style.display = 'none'; placeholder.style.display = 'flex'; }
+            } else {
+                dynamicInputSourceMode = 'camera'; toggleBtn.innerHTML = ICON_CAMERA_SVG; libPreview.style.display = 'none'; placeholder.style.display = 'none'; camFeed.style.display = 'block';
+            }
+            resizeCameraViewport();
+        }
+
+        function triggerDeviceFileBrowser() { if (dynamicInputSourceMode === 'library') document.getElementById('fileInput').click(); }
+        function handleDeviceFileSelection(e) {
+            const file = e.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                document.getElementById('libraryPreview').src = evt.target.result;
+                document.getElementById('libraryPreview').style.display = 'block';
+                document.getElementById('folderPlaceholder').style.display = 'none';
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function toggleControlPanelsVisibility() {
+            const panel = document.getElementById('togglePanel');
+            const btn = document.getElementById('uiToggleBtn');
+            const cameraWin = document.getElementById('cameraWindow');
+            const lower = document.getElementById('lowerContent');
+            const card = document.getElementById('controls');
+            const svgNode = btn.querySelector('svg');
+
+            if (panel.style.display === 'none') {
+                panel.style.display = 'flex'; cameraWin.style.display = 'flex'; lower.style.display = 'block'; card.style.right = '10px'; card.style.width = 'auto';
+                if (svgNode) svgNode.outerHTML = OPEN_EYE_SVG;
+                resizeCameraViewport();
+            } else {
+                panel.style.display = 'none'; cameraWin.style.display = 'none'; lower.style.display = 'none'; card.style.right = 'auto'; card.style.width = 'fit-content';
+                if (svgNode) svgNode.outerHTML = CLOSED_EYE_SVG;
+            }
+        }
+
+        async function initRearCameraStreamGracefully() {
+            videoElement = document.getElementById('cameraFeed');
+            videoElement.addEventListener('loadedmetadata', () => { resizeCameraViewport(); });
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+                videoElement.srcObject = localStream;
+            } catch (err) {
+                try {
+                    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    videoElement.srcObject = localStream;
+                } catch (e) { document.getElementById('debugPanel').innerText = "Lens stream map bypass active."; }
+            }
+        }
+
+        function resolveGeometryClipping() {
+            let meshes = []; worldGroup.traverse(c => { if (c.isMesh && !c.userData.isBackdrop) meshes.push(c); });
+            for (let i = meshes.length - 1; i >= 0; i--) {
+                for (let j = i - 1; j >= 0; j--) {
+                    const mA = meshes[i]; const mB = meshes[j]; if (!mA || !mB) continue;
+                    if (mA.position.distanceTo(mB.position) < 0.015) {
+                        if (mA.geometry) mA.geometry.dispose();
+                        if(mA.parent) mA.parent.remove(mA); meshes.splice(i, 1); break;
+                    }
+                }
+            }
+        }
+
+        async function captureAndScanFrame() {
+            if (scanInProgress) return;
+            const descDiv = document.getElementById('aiDescription');
+            const statusDiv = document.getElementById('status');
+            if (!systemApiSecretKey) { descDiv.innerHTML = "<span style='color:#ff3333;'>Error: missing query string auth configurations.</span>"; return; }
+            descDiv.innerHTML = '<span class="pulsate-warning">SCANNING METRIC ARRAYS...</span>';
+
+            const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
+            if (dynamicInputSourceMode === 'camera') {
+                if (!videoElement || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) return;
+                canvas.width = videoElement.videoWidth; canvas.height = videoElement.videoHeight;
+                ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+            } else {
+                const img = document.getElementById('libraryPreview'); if (!img.src || img.style.display === 'none') return;
+                canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            }
+            scannedBackdropDataUrl = canvas.toDataURL('image/jpeg');
+            const base64 = scannedBackdropDataUrl.split(',')[1];
+            scanInProgress = true; statusDiv.style.display = 'block';
+
+            const cascadeModels = ['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-2.5-pro'];
+            let parsed = null;
+
+            const prompt1 = `Act as an advanced 3D Spatial Scaffolder. Output JSON: {description: string, blueprint: string}. Populate blueprint with 80+ item lines inside: ### REGION: FOUNDATION, ### REGION: CORE_MASSES, ### REGION: EXTENSIONS, ### REGION: ACCENTS. Line syntax template matching: "- type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"`;
+
+            for (let model of cascadeModels) {
+                try {
+                    statusDiv.innerText = `Querying ${model}...`;
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${systemApiSecretKey}`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt1 }, { inlineData: { mimeType: "image/jpeg", data: base64 } }] }], generationConfig: { responseMimeType: "application/json" } })
+                    });
+                    if (res.ok) { const d = await res.json(); parsed = JSON.parse(extractCleanJsonObject(d.candidates[0].content.parts[0].text)); break; }
+                } catch(e) {}
+            }
+
+            if (!parsed || !parsed.blueprint) { descDiv.innerText = "Cascade stream failed parsing blueprint parameters."; scanInProgress = false; statusDiv.style.display = 'none'; return; }
+            
+            const shapeArray = [];
+            try {
+                statusDiv.innerText = "Assembling structural matrices...";
+                const prompt2 = `Convert segment parameters to JSON shape configurations matching fields exactly: shapes: Array<{t: string, label: string, p: [number,number,number], s: [number,number,number], r: [number,number,number], c: string, rough: number, metal: number, trans: number}>. Metric unit rule tracking invariant constraint baseline: 1 unit equals exactly 1 actual meter footprint dimension value. Absolute anchor grid coordinates baseline matrix relative system center (0,0,0) and ground levels fixed at y=0. Source manifest data:\n"""\n${parsed.blueprint}\n"""`;
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${systemApiSecretKey}`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt2 }] }], generationConfig: { responseMimeType: "application/json" } })
+                });
+                if(res.ok) { const d = await res.json(); const finalShapes = JSON.parse(extractCleanJsonObject(d.candidates[0].content.parts[0].text)); if (finalShapes.shapes) shapeArray.push(...finalShapes.shapes); }
+            } catch(e){}
+
+            descDiv.innerHTML = `<b>[Analysis Complete]</b><br>${parsed.description}`;
+            if(shapeArray.length > 0) appendAIBlueprint(shapeArray, parsed.description);
+            scanInProgress = false; statusDiv.style.display = 'none';
+        }
+
+        function appendAIBlueprint(shapes, coreDesc) {
+            const group = new THREE.Group();
+            shapes.forEach(s => {
+                let geo = new THREE.BoxGeometry(1,1,1);
+                const type = s.t ? String(s.t).toLowerCase() : 'box';
+                if (type === 'sphere') geo = new THREE.SphereGeometry(0.5, 16, 16);
+                else if (type === 'cylinder') geo = new THREE.CylinderGeometry(0.5,0.5,1,16);
+                else if (type === 'roundedbox') geo = createRoundedBoxGeometry(s.s[0]||1, s.s[1]||1, s.s[2]||1, 0.05, 2);
+
+                const mat = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(s.c || "#ffffff"), roughness: s.rough ?? 0.4, metalness: s.metal ?? 0.0, transmission: s.trans ?? 0.0, transparent: (s.trans > 0), side: THREE.DoubleSide });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(s.p[0], s.p[1], s.p[2]); mesh.rotation.set(s.r[0], s.r[1], s.r[2]);
+                if (type !== 'roundedbox') mesh.scale.set(s.s[0], s.s[1], s.s[2]);
+                mesh.castShadow = true; mesh.receiveShadow = true;
+                mesh.userData.description = `<b>Item:</b> ${String(s.label || "Entity").toUpperCase()}<br>${coreDesc}`;
+                group.add(mesh);
+            });
+
+            if (group.children.length > 0) {
+                const box = new THREE.Box3().setFromObject(group); const center = new THREE.Vector3(); box.getCenter(center);
+                group.children.forEach(c => { c.position.x -= center.x; c.position.z -= center.z; c.position.y -= box.min.y; });
+                group.position.set(center.x, 0, center.z); worldGroup.add(group);
+
+                if (scannedBackdropDataUrl) {
+                    const lBox = new THREE.Box3().setFromObject(group); const lSize = new THREE.Vector3(); lBox.getSize(lSize);
+                    const bH = Math.max(lSize.y, 6); const bW = bH * cameraStreamAspectRatio;
+                    const bMesh = new THREE.Mesh(new THREE.PlaneGeometry(bW, bH), new THREE.MeshBasicMaterial({ map: new THREE.TextureLoader().load(scannedBackdropDataUrl), transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false }));
+                    bMesh.position.set(0, bH/2, lBox.min.z - 0.5); bMesh.userData.isBackdrop = true; bMesh.visible = backdropOverlayActive; group.add(bMesh);
+                }
+                resolveGeometryClipping();
+            }
+        }
+
+        function toggleSensorsFunctionality() {
+            if (gyroActive) { deactivateTrackingSensors(); }
+            else {
+                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    DeviceOrientationEvent.requestPermission().then(state => { if(state === 'granted') activateTrackingSensors(); });
+                } else { activateTrackingSensors(); }
+            }
+        }
+        function activateTrackingSensors() {
+            if (controls) controls.enabled = false; isFirstGyroFrame = true;
+            window.addEventListener('deviceorientation', handleGyroscopeMotionInput, true);
+            window.addEventListener('devicemotion', handleInertialStepInput, true);
+            gyroActive = true; document.getElementById('gyroBtn').classList.add('btn-active');
+        }
+        function deactivateTrackingSensors() {
+            if (!gyroActive) return;
+            window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
+            window.removeEventListener('devicemotion', handleInertialStepInput);
+            gyroActive = false; targetLinearVelocityX = 0; targetLinearVelocityZ = 0;
+            document.getElementById('gyroBtn').classList.remove('btn-active');
+            const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+            lockedGyroRoll = euler.z; euler.z = 0; camera.quaternion.setFromEuler(euler);
+            const explicitTarget = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).multiplyScalar(10).add(camera.position);
+            initOrbitControls(); controls.target.copy(explicitTarget); controls.update();
+        }
+        function handleGyroscopeMotionInput(e) {
+            let alpha = e.alpha ? THREE.MathUtils.degToRad(e.alpha) : 0;
+            let beta = e.beta ? THREE.MathUtils.degToRad(e.beta) : 0;
+            let gamma = e.gamma ? THREE.MathUtils.degToRad(e.gamma) : 0;
+            let orient = window.orientation ? THREE.MathUtils.degToRad(window.orientation) : 0;
+            let qSensor = getSensorQuaternion(alpha, beta, gamma, orient);
+            let sEuler = new THREE.Euler().setFromQuaternion(qSensor, 'YXZ');
+            if (isFirstGyroFrame) { gyroYawOffset = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ').y - sEuler.y; isFirstGyroFrame = false; }
+            sEuler.y += gyroYawOffset; camera.quaternion.setFromEuler(sEuler);
+        }
+        function handleInertialStepInput(e) {
+            let acc = e.acceleration; if (!acc || acc.x === null) return;
+            const wAcc = new THREE.Vector3(acc.x, acc.y, acc.z).applyQuaternion(camera.quaternion); wAcc.y = 0;
+            if (wAcc.length() < 0.08) return;
+            targetLinearVelocityX -= wAcc.x * 0.006; targetLinearVelocityZ -= wAcc.z * 0.025;
+        }
+
+        function clearSceneAndResetView() {
+            while(worldGroup.children.length > 0) worldGroup.remove(worldGroup.children[0]);
+            deactivateTrackingSensors(); lockedGyroRoll = 0; currentlySelectedMesh = null;
+            camera.position.set(0, 2.0, 25.0); if(controls) { controls.target.set(0,0,0); controls.update(); }
         }
 
         function animate() {
             requestAnimationFrame(animate);
             const elapsedTime = clock.getElapsedTime();
 
-            // PHASE 1: The Live View Baseline (0.0s -> 1.5s)
-            if (elapsedTime < 1.5) {
-                const progress = elapsedTime / 1.5;
-                gridHelper.material.opacity = progress * 0.25; // Subtle architectural reference grid warmup
+            if (introActive) {
+                // Parameterized overlapping interpolation weights, creating a fluid, seamless loop handoff
+                let scatterWeight = Math.max(0, Math.min(1, (elapsedTime - 0.6) / 1.8));
+                let logoWeight = Math.max(0, Math.min(1, (elapsedTime - 2.2) / 2.0));
                 
-                blocks.forEach(block => {
-                    block.position.copy(block.userData.photoPos);
-                    block.rotation.set(0, 0, 0);
-                    block.material.opacity = 1.0;
-                });
-            } 
-            // PHASE 2: Volumetric Voxelization Explosion (1.5s -> 4.0s)
-            else if (elapsedTime >= 1.5 && elapsedTime < 4.0) {
-                const phaseProgress = (elapsedTime - 1.5) / 2.5;
-                // Custom smooth sinusoidal acceleration curve profiling
-                const easeOutCurve = Math.sin(phaseProgress * Math.PI * 0.5);
+                // Pure sinusoidal profiling eliminates direction breaks or positional snapping steps
+                let smoothScatter = Math.sin(scatterWeight * Math.PI * 0.5);
+                let smoothLogo = Math.sin(logoWeight * Math.PI * 0.5);
 
-                gridHelper.material.opacity = 0.25 + (easeOutCurve * 0.35);
+                introBlocks.forEach(b => {
+                    // Step 1: Blend from initialization photo coordinates into volumetric scatter field vectors
+                    let blendedScatter = new THREE.Vector3().lerpVectors(b.userData.photoPos, b.userData.scatterPos, smoothScatter);
+                    // Step 2: Transition from scatter layout fields cleanly into structured balance monogram nodes
+                    b.position.lerpVectors(blendedScatter, b.userData.logoPos, smoothLogo);
 
-                blocks.forEach(block => {
-                    block.position.lerpVectors(block.userData.photoPos, block.userData.scatterPos, easeOutCurve);
-                    block.rotation.x += block.userData.randomRotationSpeed.x;
-                    block.rotation.y += block.userData.randomRotationSpeed.y;
-                });
-                
-                // Sweep camera position dynamically down the grid pipeline
-                camera.position.z = 35 - (easeOutCurve * 8);
-                camera.position.y = 8 - (easeOutCurve * 3);
-                camera.lookAt(0, 1, 0);
-            } 
-            // PHASE 3 & 4: Structural Architecture Assembly and Logo Freeze (4.0s+)
-            else {
-                const phaseProgress = Math.min((elapsedTime - 4.0) / 3.0, 1.0);
-                const easeInOutCurve = phaseProgress * phaseProgress * (3.0 - 2.0 * phaseProgress);
-
-                blocks.forEach(block => {
-                    block.position.lerpVectors(block.userData.scatterPos, block.userData.logoPos, easeInOutCurve);
-                    
-                    // Smoothly arrest block rotational momentums down to target orientation metrics
-                    block.rotation.x = THREE.MathUtils.lerp(block.rotation.x, 0, easeInOutCurve * 0.1);
-                    block.rotation.y = THREE.MathUtils.lerp(block.rotation.y, 0, easeInOutCurve * 0.1);
-                    block.rotation.z = THREE.MathUtils.lerp(block.rotation.z, 0, easeInOutCurve * 0.1);
+                    b.rotation.x += b.userData.rotSpeed.x * (1.0 - smoothLogo);
+                    b.rotation.y += b.userData.rotSpeed.y * (1.0 - smoothLogo);
                 });
 
-                // Slowly orbit the structured asset during structural locking sequence
-                const slowOrbitAngle = (elapsedTime - 4.0) * 0.05;
-                blockGroup.rotation.y = easeInOutCurve * slowOrbitAngle;
+                // Smooth cinematic camera orbit path updates tracking tracking markers
+                camera.position.z = 32.0 - (smoothScatter * 4.0) - (smoothLogo * 3.0);
+                camera.position.y = 6.0 - (smoothScatter * 2.0) + (smoothLogo * 1.5);
+                camera.lookAt(0, 2.5, 0);
 
-                camera.position.z = 27 - (easeInOutCurve * 3);
-                camera.lookAt(0, 2, 0);
-
-                // Reveal typography overlay directly matching animation step convergence
-                if (phaseProgress > 0.5) {
-                    const title = document.getElementById('mainTitle');
-                    const subtitle = document.getElementById('subTitle');
-                    title.style.opacity = '1';
-                    title.style.transform = 'translateY(0)';
-                    subtitle.style.opacity = '1';
+                if (elapsedTime > 0.8) {
+                    document.getElementById('mainTitle').style.opacity = '1';
+                    document.getElementById('mainTitle').style.transform = 'translateY(0)';
+                    document.getElementById('subTitle').style.opacity = '1';
                 }
+            } else {
+                // Core operational workspace translation handling runs here unconstrained
+                if (gyroActive) {
+                    targetLinearVelocityX *= 0.78; targetLinearVelocityZ *= 0.78;
+                    if (Math.abs(targetLinearVelocityX) < VELOCITY_DEADZONE_LIMIT) targetLinearVelocityX = 0;
+                    if (Math.abs(targetLinearVelocityZ) < VELOCITY_DEADZONE_LIMIT) targetLinearVelocityZ = 0;
+                    camera.position.x += targetLinearVelocityX; camera.position.z += targetLinearVelocityZ;
+                }
+
+                if (controls && controls.enabled) {
+                    if (!gyroActive) {
+                        const forward = new THREE.Vector3(); camera.getWorldDirection(forward);
+                        // Force a strict distance baseline check to bypass exponential slows past Z=0 boundaries
+                        if (camera.position.distanceTo(controls.target) < 25.0) {
+                            controls.target.copy(camera.position).addScaledVector(forward, 25.0);
+                        }
+                    }
+                    controls.update();
+                    if (!gyroActive && lockedGyroRoll !== 0) { cleanTargetQuaternion.copy(camera.quaternion); camera.rotateZ(lockedGyroRoll); }
+                }
+                
+                telemetryState.x = camera.position.x; telemetryState.z = camera.position.z;
+                document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Groups: ${worldGroup.children.length}`;
             }
 
             renderer.render(scene, camera);
+            if (!introActive && controls && controls.enabled && !gyroActive && lockedGyroRoll !== 0) camera.quaternion.copy(cleanTargetQuaternion);
         }
 
         function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
+            camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight); resizeCameraViewport();
         }
 
-        init();
+        init3D();
     </script>
 </body>
 </html>
