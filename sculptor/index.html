@@ -224,20 +224,25 @@
             -webkit-overflow-scrolling: touch;
         }
         
-        /* Updated to float and remain static at viewport constraints during scroll travel */
+        /* Repositioned to the right edge and resized to 14px to match table row graphics */
         #closeHelpBtn {
             position: fixed;
             top: 15px;
-            right: 20px;
+            right: 12px;
             background: none;
             border: none;
             color: #ff1744;
-            font-size: 28px;
+            font-size: 14px;
+            width: 14px;
+            height: 14px;
             font-weight: 800;
             cursor: pointer;
-            padding: 4px 10px;
+            padding: 0;
             line-height: 1;
             z-index: 2001;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             transition: transform 0.2s ease;
             -webkit-tap-highlight-color: transparent;
         }
@@ -315,7 +320,6 @@
         <div class="help-container">
             <h2 class="help-title">How to Use Spatial Sculptor</h2>
             
-            <!-- 1. Interface Toolbar Control Systems Section -->
             <div class="help-section">
                 <h3>Interface Toolbar Control Systems</h3>
                 <div class="help-grid">
@@ -324,7 +328,6 @@
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                             Show / Hide
                         </div>
-                        <!-- Removed trailing phrase descriptor payload cleanly -->
                         <div class="help-val">Toggles visibility layouts for console parameters and menus.</div>
                     </div>
                     <div class="help-row">
@@ -353,7 +356,6 @@
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
                             Gyroscope
                         </div>
-                        <!-- Removed trailing visibility exception phrase text accurately -->
                         <div class="help-val">Enables coordinate navigation using structural device motion data.</div>
                     </div>
                     <div class="help-row">
@@ -380,7 +382,6 @@
                 </div>
             </div>
 
-            <!-- 2. Navigation & Virtual Space Traversal Section -->
             <div class="help-section">
                 <h3>Navigation &amp; Virtual Space Traversal</h3>
                 <div class="help-grid">
@@ -408,7 +409,6 @@
                 </div>
             </div>
             
-            <!-- 3. Touch Interaction Gestures Section -->
             <div class="help-section">
                 <h3>Touch Interaction Gestures</h3>
                 <div class="help-grid">
@@ -1805,7 +1805,18 @@
             }
 
             if (controls && controls.enabled) {
+                if (!gyroActive) {
+                    // Pushes look-targets along look vectors to glide past the axis origin unobstructed without target locking
+                    const forwardDir = new THREE.Vector3();
+                    camera.getWorldDirection(forwardDir);
+                    const distanceToTarget = camera.position.distanceTo(controls.target);
+                    if (distanceToTarget < 3.0) {
+                        controls.target.addScaledVector(forwardDir, 3.0 - distanceToTarget);
+                    }
+                }
+                
                 controls.update();
+                
                 if (!gyroActive && lockedGyroRoll !== 0) {
                     cleanTargetQuaternion.copy(camera.quaternion);
                     camera.rotateZ(lockedGyroRoll);
