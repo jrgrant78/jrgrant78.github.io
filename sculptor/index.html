@@ -840,9 +840,7 @@
                         }
                     });
                     resolveGeometryClipping();
-                    if (document.getElementById('lowerContent').style.display !== 'none') {
-                        document.getElementById('aiDescription').innerText = "Isolated entity transform committed safely.";
-                    }
+                    document.getElementById('aiDescription').innerText = "Isolated entity transform committed safely.";
                 }
                 isDraggingSceneActive = false;
                 isStructureReadyToMove = false;
@@ -892,26 +890,20 @@
                                     }
                                     restoreMeshOpacity(m);
                                 });
-                                if (document.getElementById('lowerContent').style.display !== 'none') {
-                                    document.getElementById('aiDescription').innerText = "Transparency cohort cleared by user override.";
-                                }
+                                document.getElementById('aiDescription').innerText = "Transparency cohort cleared by user override.";
                             } else {
                                 geometryCohort.forEach(m => {
                                     cacheMeshOpacity(m);
                                     applyMeshOpacity(m, 0.25);
                                 });
-                                if (document.getElementById('lowerContent').style.display !== 'none') {
-                                    document.getElementById('aiDescription').innerText = `Temporary transparency cohort active (${geometryCohort.length} meshes localized).`;
-                                }
+                                document.getElementById('aiDescription').innerText = `Temporary transparency cohort active (${geometryCohort.length} meshes localized).`;
 
                                 const unifiedTimer = setTimeout(() => {
                                     geometryCohort.forEach(m => {
                                         restoreMeshOpacity(m);
                                         m.userData.fadeTimer = null;
                                     });
-                                    if (document.getElementById('lowerContent').style.display !== 'none') {
-                                        document.getElementById('aiDescription').innerText = "Mesh material cohort profile restored automatically.";
-                                    }
+                                    document.getElementById('aiDescription').innerText = "Mesh material cohort profile restored automatically.";
                                 }, 3000);
 
                                 geometryCohort.forEach(m => {
@@ -936,9 +928,8 @@
                             }
                             currentlySelectedMesh.material.emissive.setHex(0x38380b);
 
-                            if (document.getElementById('lowerContent').style.display !== 'none') {
-                                document.getElementById('aiDescription').innerHTML = `<div style="color: #ffea00; font-weight: bold; margin-bottom: 4px;">[STRUCTURE ENTITY SELECTED]</div>${hitMesh.userData.description || "Isolated geometric system element."}`;
-                            }
+                            // Modified to display the real world representation label and exclude absolute structural geometry references
+                            document.getElementById('aiDescription').innerHTML = `<div style="color: #ffea00; font-weight: bold; margin-bottom: 4px;">[REAL-WORLD ITEM SELECTED]</div><b>Representing:</b> ${hitMesh.userData.label || "Scene Feature Object"}<br><br><b>Context Blueprint Summary:</b><br>${hitMesh.userData.blueprintDesc || "No dynamic architectural metadata found."}`;
                         }
                     }
                 } else {
@@ -947,9 +938,7 @@
                             currentlySelectedMesh.material.emissive.setHex(currentlySelectedMesh.userData.originalEmissive);
                         }
                         currentlySelectedMesh = null;
-                        if (document.getElementById('lowerContent').style.display !== 'none') {
-                            document.getElementById('aiDescription').innerText = "Deselected entity workspace context baseline.";
-                        }
+                        document.getElementById('aiDescription').innerText = "Deselected entity workspace context baseline.";
                     }
                     lastTapTime = 0;
                     lastTargetMesh = null;
@@ -1046,7 +1035,10 @@
             } else {
                 togglePanel.style.display = 'none';
                 cameraWin.style.display = 'none';
+                
+                // Retains lowerContent block updates fully in hidden memory matrix nodes
                 lowerContent.style.display = 'none';
+                
                 controlsCard.style.right = 'auto';
                 controlsCard.style.width = 'fit-content';
                 if (svgNode) svgNode.outerHTML = CLOSED_EYE_SVG;
@@ -1064,7 +1056,7 @@
             controls.zoomSpeed = 1.2;
             controls.panSpeed = 1.0;
             controls.target.set(0, 0, 0); 
-            controls.enabled = !gyroActive; // Decouples from navigation if gyro is active
+            controls.enabled = true;
         }
 
         async function initRearCameraStreamGracefully() {
@@ -1240,16 +1232,16 @@
                                                     type: "OBJECT",
                                                     properties: {
                                                         t: { type: "STRING", description: "type primitive token: cube, rectangular prism, pyramid, sphere, cylinder, cone, capsule, roundedbox, plane" }, 
+                                                        label: { type: "STRING", description: "The specific real-world structural part or semantic subject item this primitive represents (e.g. couch seat cushion, coffee table leg, laptop keypad, floor mat)" },
                                                         p: { type: "ARRAY", items: { type: "NUMBER" } },
                                                         s: { type: "ARRAY", items: { type: "NUMBER" } }, 
                                                         r: { type: "ARRAY", items: { type: "NUMBER" } },
                                                         c: { type: "STRING" }, 
                                                         rough: { type: "NUMBER" }, 
                                                         metal: { type: "NUMBER" }, 
-                                                        trans: { type: "NUMBER" },
-                                                        l: { type: "STRING", description: "The specific real-world object or component item this shape represents (e.g., 'table leg', 'couch cushion', 'computer monitor panel', 'rug floor mat')" }
+                                                        trans: { type: "NUMBER" }
                                                     },
-                                                    required: ["t", "p", "s", "r", "c", "rough", "metal", "trans", "l"]
+                                                    required: ["t", "label", "p", "s", "r", "c", "rough", "metal", "trans"]
                                                 }
                                             }
                                         },
@@ -1361,10 +1353,10 @@
                 
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
-
-                // Displays semantic real-world item description tags exclusively, omitting geometric component classification data
-                const componentLabel = shape.l ? String(shape.l).toUpperCase() : "WORKSPACE OBJECT INSTANCE";
-                mesh.userData.description = `<div style="font-size: 1.1em; font-weight: bold; margin-bottom: 4px; color: #00e5ff;">${componentLabel}</div><b>Scale Matrix:</b> [${scl.join(', ')}]<br><b>Color Key:</b> ${shape.c}<br><br><b>Context Blueprint Summary:</b><br>${coreDescription}`;
+                
+                // Maps real-world description tokens securely into memory context arrays
+                mesh.userData.label = shape.label ? String(shape.label).trim() : "Unknown subject component";
+                mesh.userData.blueprintDesc = coreDescription;
 
                 structureInstanceGroup.add(mesh);
             });
@@ -1429,11 +1421,11 @@
         }
 
         function activateTrackingSensors(btn) {
-            gyroActive = true;
             if (controls) controls.enabled = false; 
             isFirstGyroFrame = true;
             window.addEventListener('deviceorientation', handleGyroscopeMotionInput, true);
             window.addEventListener('devicemotion', handleInertialStepInput, true);
+            gyroActive = true;
             btn.classList.add('btn-active');
         }
 
@@ -1502,7 +1494,7 @@
         }
 
         function handleGyroscopeMotionInput(e) {
-            // Persists orientation frame synchronization loops independently of control panels visibility states
+            // Unconditionally persists execution loops whether the element panels are collapsed or visible
             if (!gyroActive) return;
             
             let alpha = e.alpha ? THREE.MathUtils.degToRad(e.alpha) : 0;
@@ -1524,7 +1516,6 @@
         }
 
         function handleInertialStepInput(e) {
-            // Maintains traversal physics pipelines continuously if free-walk maps are activated
             if (!gyroActive) return;
 
             let acc = e.acceleration; 
@@ -1556,7 +1547,6 @@
             requestAnimationFrame(animate);
             let statusHorizonStr = "LOCKED";
             
-            // Sensor motion loop continues executing unhindered regardless of UI show/hide panel states
             if (gyroActive) {
                 const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
                 
@@ -1597,7 +1587,7 @@
             telemetryState.x = camera.position.x;
             telemetryState.z = camera.position.z;
             
-            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Mode:${gyroActive ? statusHorizonStr : "MANUAL_ORBIT"} | Instances: ${worldGroup.children.length}`;
+            document.getElementById('debugPanel').innerText = `Coord: X:${telemetryState.x.toFixed(2)} Z:${telemetryState.z.toFixed(2)} | Mode:${statusHorizonStr} | Instances: ${worldGroup.children.length}`;
             
             renderer.render(scene, camera);
             
