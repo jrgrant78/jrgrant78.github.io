@@ -550,7 +550,6 @@
             
             motionTracker = new MultiPointMotionTracker();
 
-            // Pinned permanently at baseline coordinate origin (0, 0, 0)
             gridHelper = new THREE.GridHelper(20000, 20000, 0xb0b0b0, 0x3c3c46);
             gridHelper.position.set(0, 0, 0); 
             gridHelper.visible = true;
@@ -668,7 +667,6 @@
                 }
             });
 
-            // PASS 1: EXPLICIT DUPLICATE PURGE PIPELINE
             for (let i = meshes.length - 1; i >= 0; i--) {
                 for (let j = i - 1; j >= 0; j--) {
                     const meshA = meshes[i];
@@ -694,7 +692,6 @@
                 }
             }
 
-            // PASS 2: MULTI-PASS MINIMUM TRANSLATION VECTOR RELAXATION
             const relaxationPasses = 5;
             const antiFlickerEpsilon = 0.03; 
 
@@ -752,7 +749,7 @@
 
             startScreenPosition.x = e.clientX;
             startScreenPosition.y = e.clientY;
-            hasDragged = false; // Reset session interaction flag
+            hasDragged = false; 
 
             raycaster.setFromCamera(pointerCoordinateVector, camera);
             const targetedStructuralIntersects = raycaster.intersectObjects(worldGroup.children, true);
@@ -777,7 +774,6 @@
                 isDraggingSceneActive = false;
 
                 sceneDragLongPressTimeout = setTimeout(() => {
-                    // Only trigger if active dragging hasn't already broken the operation bounds
                     if (!hasDragged) {
                         isStructureReadyToMove = true;
                         isDraggingSceneActive = true;
@@ -806,7 +802,6 @@
             const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
             const currentPixelDeltaY = Math.abs(e.clientY - startScreenPosition.y);
 
-            // ACTIVE INTERACTION CANCELLATION ENGINE
             if (currentPixelDeltaX > DRAG_CANCEL_THRESHOLD || currentPixelDeltaY > DRAG_CANCEL_THRESHOLD) {
                 hasDragged = true;
                 if (sceneDragLongPressTimeout) {
@@ -837,7 +832,6 @@
                 sceneDragLongPressTimeout = null;
             }
 
-            // DRAG CANCELLATION DISPATCHER
             if (hasDragged) {
                 if (isDraggingSceneActive && activeDraggedGroup) {
                     activeDraggedGroup.traverse((child) => {
@@ -852,7 +846,7 @@
                 isStructureReadyToMove = false;
                 activeDraggedGroup = null;
                 if (controls) controls.enabled = true;
-                return; // Suppress all down-stream interaction paths completely
+                return; 
             }
 
             const currentPixelDeltaX = Math.abs(e.clientX - startScreenPosition.x);
@@ -871,7 +865,6 @@
                         const currentTime = performance.now();
 
                         if (currentTime - lastTapTime < 350 && lastTargetMesh === hitMesh) {
-                            // Cohort Analysis: Filters proximate meshes of similar scale and rotation
                             const geometryCohort = [hitMesh];
                             worldGroup.traverse((child) => {
                                 if (child.isMesh && child !== hitMesh && child.userData.isBackdrop !== true) {
@@ -1054,7 +1047,6 @@
                 controls.enableDamping = true;
                 controls.dampingFactor = 0.05;
             }
-            // Continuous frictionless traversal configurations
             controls.minDistance = 0.001;
             controls.maxDistance = Infinity;
             controls.zoomSpeed = 1.2;
@@ -1068,7 +1060,7 @@
             videoElement.addEventListener('loadedmetadata', () => { resizeCameraViewport(); });
 
             try {
-                localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, Caring: false });
+                localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
                 videoElement.srcObject = localStream;
             } catch (err) {
                 try {
@@ -1095,7 +1087,6 @@
                 return;
             }
 
-            // Yellow pulsating warning alert element
             descDiv.innerHTML = '<span class="pulsate-warning">WARNING: scene reconstruction in progress.<br>Please wait for analysis to complete...</span>';
 
             const hiddenCanvas = document.createElement('canvas');
@@ -1154,7 +1145,6 @@
                 "- type=[type], material=[material], color=[hex], position=[x,y,z], scale=[x,y,z], rotation=[x,y,z]"
             `;
 
-            // Enforces structural compilation regulations relative to the grid, independent of camera position or rotation
             const globalSpatialAnchorPrompt = `
                 Global Space Coordinates & Sizing Symmetries Alignment Protocol:
                 - Center origin point is at (0, 0, 0). Ground level/floor planes should sit exactly at y = 0.
@@ -1166,7 +1156,6 @@
 
             pass1ModelLoop: for (let model of modelCascadeList) {
                 try {
-                    // Status parameters printed onto context log panels retain standard stable orange color signposts
                     statusDiv.innerText = `Pass 1: Prompting ${model}...`;
                     const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + systemApiSecretKey, {
                         method: 'POST',
@@ -1238,9 +1227,14 @@
                                                 items: {
                                                     type: "OBJECT",
                                                     properties: {
-                                                        t: { type: "STRING" }, p: { type: "ARRAY", items: { type: "NUMBER" } },
-                                                        s: { type: "ARRAY", items: { type: "NUMBER" } }, r: { type: "ARRAY", items: { type: "NUMBER" } },
-                                                        c: { type: "STRING" }, rough: { type: "NUMBER" }, metal: { type: "NUMBER" }, trans: { type: "NUMBER" }
+                                                        t: { type: "STRING", description: "type primitive token: cube, rectangular prism, pyramid, sphere, cylinder, cone, capsule, roundedbox, plane" }, 
+                                                        p: { type: "ARRAY", items: { type: "NUMBER" } },
+                                                        s: { type: "ARRAY", items: { type: "NUMBER" } }, 
+                                                        r: { type: "ARRAY", items: { type: "NUMBER" } },
+                                                        c: { type: "STRING" }, 
+                                                        rough: { type: "NUMBER" }, 
+                                                        metal: { type: "NUMBER" }, 
+                                                        trans: { type: "NUMBER" }
                                                     },
                                                     required: ["t", "p", "s", "r", "c", "rough", "metal", "trans"]
                                                 }
@@ -1297,15 +1291,40 @@
                 const rot = shape.r || [0,0,0];
                 const primitiveType = shape.t ? String(shape.t).toLowerCase().trim() : 'box';
 
+                // Expanded geometry switches parsing appropriate primitives
                 switch(primitiveType) {
-                    case 'box': geo = new THREE.BoxGeometry(1, 1, 1); break;
-                    case 'roundedbox': geo = createRoundedBoxGeometry(scl[0]||1, scl[1]||1, scl[2]||1, Math.min(scl[0]||1, scl[1]||1, scl[2]||1) * 0.15, 4); break;
-                    case 'sphere': geo = new THREE.SphereGeometry(0.5, 32, 32); break;
-                    case 'cylinder': geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 32); break;
-                    case 'cone': geo = new THREE.ConeGeometry(0.5, 1, 32); break;
-                    case 'capsule': geo = new THREE.CylinderGeometry(0.4, 0.4, 1.0, 32); break;
-                    case 'plane': geo = new THREE.PlaneGeometry(1, 1); break;
-                    default: geo = new THREE.BoxGeometry(1, 1, 1);
+                    case 'cube': 
+                    case 'box': 
+                        geo = new THREE.BoxGeometry(1, 1, 1); 
+                        break;
+                    case 'rectangular prism':
+                    case 'rectangularprism':
+                        geo = new THREE.BoxGeometry(1, 1, 1); 
+                        break;
+                    case 'pyramid': 
+                        // Creates a precise 4-sided square-base pyramid using ConeGeometry
+                        geo = new THREE.ConeGeometry(0.5, 1, 4); 
+                        break;
+                    case 'roundedbox': 
+                        geo = createRoundedBoxGeometry(scl[0]||1, scl[1]||1, scl[2]||1, Math.min(scl[0]||1, scl[1]||1, scl[2]||1) * 0.15, 4); 
+                        break;
+                    case 'sphere': 
+                        geo = new THREE.SphereGeometry(0.5, 32, 32); 
+                        break;
+                    case 'cylinder': 
+                        geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 32); 
+                        break;
+                    case 'cone': 
+                        geo = new THREE.ConeGeometry(0.5, 1, 32); 
+                        break;
+                    case 'capsule': 
+                        geo = new THREE.CylinderGeometry(0.4, 0.4, 1.0, 32); 
+                        break;
+                    case 'plane': 
+                        geo = new THREE.PlaneGeometry(1, 1); 
+                        break;
+                    default: 
+                        geo = new THREE.BoxGeometry(1, 1, 1);
                 }
 
                 geo.computeBoundingBox();
@@ -1341,7 +1360,6 @@
                 const center = new THREE.Vector3(); 
                 box.getCenter(center);
                 
-                // Align elements to local center offsets
                 structureInstanceGroup.children.forEach(child => {
                     child.position.x -= center.x;
                     child.position.z -= center.z;
@@ -1351,9 +1369,7 @@
                 structureInstanceGroup.position.set(center.x, 0, center.z);
                 worldGroup.add(structureInstanceGroup);
 
-                // BACKDROP POSITION AUTO-ALIGNMENT PIPELINE
                 if (scannedBackdropDataUrl) {
-                    // Compute localized mesh boundaries post-repositioning maps
                     const localBox = new THREE.Box3().setFromObject(structureInstanceGroup);
                     const localSize = new THREE.Vector3(); 
                     localBox.getSize(localSize);
@@ -1368,8 +1384,6 @@
                     );
                     
                     floatingBackdropMesh.scale.set(backdropWidth, backdropHeight, 1);
-                    
-                    // Locked fully behind the back localBox boundary edge, center Y set to keep bottom resting flush at grid zero
                     floatingBackdropMesh.position.set(0, backdropHeight / 2, localBox.min.z - 0.75);
                     floatingBackdropMesh.userData.isBackdrop = true;
                     floatingBackdropMesh.visible = backdropOverlayActive;
