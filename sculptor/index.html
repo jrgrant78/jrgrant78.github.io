@@ -7,6 +7,104 @@
     <style>
         body { margin: 0; padding: 0; overflow: hidden; font-family: sans-serif; background: #0b0b0f; color: #fff; }
 
+        /* ==========================================================================
+           Isolated Splash Screen & Motion Logo Reveal Styles
+           ========================================================================== */
+        #splashContainer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #050508;
+            z-index: 5000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.8s cubic-bezier(0.25, 1, 0.5, 1), visibility 0.8s;
+            overflow: hidden;
+        }
+        
+        #splashCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 5001;
+            pointer-events: auto;
+        }
+
+        #splashBrandingOverlay {
+            position: absolute;
+            top: 15%;
+            z-index: 5002;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            pointer-events: none;
+            width: 100%;
+            text-align: center;
+        }
+        
+        .splash-title {
+            font-size: 32px;
+            font-weight: 900;
+            letter-spacing: 8px;
+            text-transform: uppercase;
+            color: #ffffff;
+            opacity: 0;
+            transform: translateY(25px);
+            transition: all 1.2s cubic-bezier(0.25, 1, 0.5, 1);
+            text-shadow: 0 0 30px rgba(0, 229, 255, 0.5);
+        }
+        
+        .splash-subtitle {
+            font-size: 12px;
+            font-weight: 400;
+            letter-spacing: 5px;
+            text-transform: uppercase;
+            color: #00e5ff;
+            margin-top: 10px;
+            opacity: 0;
+            transition: all 1.6s cubic-bezier(0.25, 1, 0.5, 1) 0.4s;
+        }
+        
+        #startSculptingBtn {
+            position: absolute;
+            bottom: 8%;
+            z-index: 5003;
+            background: linear-gradient(135deg, #1a1a24 0%, #111116 100%);
+            border: 1px solid #00e5ff;
+            color: #00e5ff;
+            padding: 16px 36px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(0, 229, 255, 0.15);
+            transition: transform 0.2s ease, box-shadow 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #startSculptingBtn:active { transform: scale(0.95); }
+        #startSculptingBtn.ready-pulse {
+            animation: interfacePulse 2s infinite ease-in-out;
+            border-color: #00e676;
+            color: #00e676;
+        }
+
+        @keyframes interfacePulse {
+            0% { box-shadow: 0 0 0 0 rgba(0, 230, 118, 0.4); }
+            70% { box-shadow: 0 0 0 12px rgba(0, 230, 118, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(0, 230, 118, 0); }
+        }
+
+        /* ==========================================================================
+           Core Application WebAR Workspace Styles
+           ========================================================================== */
         #controls { 
             position: absolute; 
             top: 10px; 
@@ -216,14 +314,12 @@
             background: rgba(10, 10, 14, 0.98);
             color: #ffffff;
             z-index: 2000;
-            display: flex;
+            display: none; /* Controlled explicitly via system startup orchestration */
             flex-direction: column;
             box-sizing: border-box;
-            /* Stripped scroll mechanics off the window parent frame to anchor touch kinematically */
             overflow: hidden;
         }
         
-        /* Isolated inner scroll panel layout register */
         .help-scroll-wrapper {
             flex: 1;
             overflow-y: auto;
@@ -323,13 +419,27 @@
 </head>
 <body>
 
+    <!-- ==========================================================================
+       Splash Intro Architecture Markup Block
+       ========================================================================== -->
+    <div id="splashContainer">
+        <div id="splashBrandingOverlay">
+            <div id="splashTitleNode" class="splash-title">Spatial Sculptor</div>
+            <div id="splashSubtitleNode" class="splash-subtitle">Augmented Reality</div>
+        </div>
+        <button id="startSculptingBtn">Initializing Engine...</button>
+        <canvas id="splashCanvas"></canvas>
+    </div>
+
+    <!-- ==========================================================================
+       Primary App Workspace Architecture Markup Block
+       ========================================================================== -->
     <div id="helpOverlay">
         <button id="closeHelpBtn" title="Close Overlay Panel">X</button>
         <div class="help-scroll-wrapper">
             <div class="help-container">
                 <h2 class="help-title">How to Use Spatial Sculptor</h2>
                 
-                <!-- 1. Interface Toolbar Control Systems Section -->
                 <div class="help-section">
                     <h3>Interface Toolbar Control Systems</h3>
                     <div class="help-grid">
@@ -392,7 +502,6 @@
                     </div>
                 </div>
 
-                <!-- 2. Navigation & Virtual Space Traversal Section -->
                 <div class="help-section">
                     <h3>Navigation &amp; Virtual Space Traversal</h3>
                     <div class="help-grid">
@@ -420,7 +529,6 @@
                     </div>
                 </div>
                 
-                <!-- 3. Touch Interaction Gestures Section -->
                 <div class="help-section">
                     <h3>Touch Interaction Gestures</h3>
                     <div class="help-grid">
@@ -532,7 +640,11 @@
     <button id="infoToggleBtn" title="Open Instruction Panel">i</button>
     <canvas id="canvas3d"></canvas>
 
+    <!-- ==========================================================================
+       Combined Application Implementation Scripts Block
+       ========================================================================== -->
     <script>
+        /* Global variables targeting the primary workspace environment context exclusively */
         let scene, camera, renderer, controls, gridHelper;
         let videoElement, localStream;
         
@@ -593,6 +705,259 @@
         const ICON_CAMERA_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"/></svg>`;
         const ICON_PHOTO_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 
+        /* ==========================================================================
+           COMPLETELY ISOLATED SPLASH SCREEN REVEAL SUB-SYSTEM MODULE
+           ========================================================================== */
+        (function() {
+            let sScene, sCamera, sRenderer, sClock, sAnimFrameId;
+            let sGridHelper, sBlockGroup;
+            let sBlocks = [];
+            const sTotalBlocks = 240;
+            
+            // Explicit geometrical layout configuration sculpting a clean, balanced architectural "S"
+            const sLogoPoints = [
+                // Horizontal Top Plate Profile Lines
+                {x:-2, y:4, z:0}, {x:-1, y:4, z:0}, {x:0, y:4, z:0}, {x:1, y:4, z:0}, {x:2, y:4, z:0},
+                // Left Upper Descent Spine Nodes
+                {x:-2, y:3, z:0}, {x:-2, y:2, z:0},
+                // Intermediary Cross Bridge Vector Array
+                {x:-2, y:1, z:0}, {x:-1, y:1, z:0}, {x:0, y:1, z:0}, {x:1, y:1, z:0}, {x:2, y:1, z:0},
+                // Right Lower Descent Spine Nodes (Ensures absolute divergence away from a '9' topology)
+                {x:2, y:0, z:0}, {x:2, y:-1, z:0},
+                // Horizontal Bottom Foundational Base Profile Lines
+                {x:-2, y:-2, z:0}, {x:-1, y:-2, z:0}, {x:0, y:-2, z:0}, {x:1, y:-2, z:0}, {x:2, y:-2, z:0},
+                
+                // Secondary Dimension Depth Matrix Caps (Extruding thickness layer profiles cleanly)
+                {x:-2, y:4, z:-0.8}, {x:0, y:4, z:-0.8}, {x:2, y:4, z:-0.8},
+                {x:-2, y:1, z:-0.8}, {x:0, y:1, z:-0.8}, {x:2, y:1, z:-0.8},
+                {x:-2, y:-2, z:-0.8}, {x:0, y:-2, z:-0.8}, {x:2, y:-2, z:-0.8},
+                {x:-2, y:4, z:0.8}, {x:0, y:4, z:0.8}, {x:2, y:4, z:0.8},
+                {x:-2, y:1, z:0.8}, {x:0, y:1, z:0.8}, {x:2, y:1, z:0.8},
+                {x:-2, y:-2, z:0.8}, {x:0, y:-2, z:0.8}, {x:2, y:-2, z:0.8}
+            ];
+
+            function runSplashRevealSystem() {
+                const canvas = document.getElementById('splashCanvas');
+                if (!canvas) return;
+
+                sScene = new THREE.Scene();
+                sScene.background = new THREE.Color(0x050508);
+                sScene.fog = new THREE.FogExp2(0x050508, 0.015);
+
+                sCamera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+                sCamera.position.set(0, 9, 36);
+                sCamera.lookAt(0, 1, 0);
+
+                sRenderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+                sRenderer.setSize(window.innerWidth, window.innerHeight);
+                sRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                sRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+                sRenderer.shadowMap.enabled = true;
+
+                sClock = new THREE.Clock();
+                sBlockGroup = new THREE.Group();
+
+                // Authentic 3D Architectural Spatial Grid Construction Layer
+                sGridHelper = new THREE.GridHelper(80, 40, 0x00e5ff, 0x181824);
+                sGridHelper.position.y = -4;
+                sGridHelper.material.opacity = 0;
+                sGridHelper.material.transparent = true;
+                sScene.add(sGridHelper);
+
+                // Lighting rigs matching localized signature workspace coordinates
+                sScene.add(new THREE.AmbientLight(0xffffff, 0.12));
+                
+                const dirLight = new THREE.DirectionalLight(0xffffff, 1.6);
+                dirLight.position.set(25, 45, 25);
+                sScene.add(dirLight);
+
+                const cyanNeonHighlight = new THREE.PointLight(0x00e5ff, 3.5, 60);
+                cyanNeonHighlight.position.set(0, 6, -6);
+                sScene.add(cyanNeonHighlight);
+
+                const emeraldNeonHighlight = new THREE.PointLight(0x00e676, 2.0, 40);
+                emeraldNeonHighlight.position.set(-12, -1, 12);
+                sScene.add(emeraldNeonHighlight);
+
+                // Populate voxel system allocations
+                const physicalMaterials = [
+                    new THREE.MeshPhysicalMaterial({ color: 0x00e5ff, roughness: 0.1, metalness: 0.1, transmission: 0.65, thickness: 0.6, transparent: true }),
+                    new THREE.MeshPhysicalMaterial({ color: 0x00e676, roughness: 0.15, metalness: 0.7, clearcoat: 1.0 }),
+                    new THREE.MeshStandardMaterial({ color: 0x161622, roughness: 0.35, metalness: 0.85 }),
+                    new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.02, metalness: 0.1, transmission: 0.85, transparent: true })
+                ];
+
+                const blockGeometry = new THREE.BoxGeometry(0.75, 0.75, 0.75);
+
+                for (let i = 0; i < sTotalBlocks; i++) {
+                    const chosenMat = physicalMaterials[i % physicalMaterials.length].clone();
+                    const mesh = new THREE.Mesh(blockGeometry, chosenMat);
+                    mesh.castShadow = true;
+                    mesh.receiveShadow = true;
+
+                    // Compute clean initial planar coordinates tracking structural live camera window simulations
+                    const photoX = (Math.random() - 0.5) * 18;
+                    const photoY = (Math.random() - 0.5) * 12 + 4;
+                    const photoZ = 10;
+
+                    mesh.position.set(photoX, photoY, photoZ);
+
+                    // Compute dynamic chaotic spatial scatter vectors
+                    const scatterVec = new THREE.Vector3(
+                        (Math.random() - 0.5) * 40,
+                        (Math.random() * 18) - 3,
+                        (Math.random() - 0.5) * 40
+                    );
+
+                    // Frame calculated destination coordinates safely indexing the programmatic monogram 'S' points array
+                    const logoTarget = sLogoPoints[i % sLogoPoints.length];
+                    const logoVec = new THREE.Vector3(
+                        logoTarget.x * 1.25,
+                        logoTarget.y * 1.25 + 2,
+                        logoTarget.z * 1.25
+                    );
+
+                    mesh.userData = {
+                        photoPos: new THREE.Vector3(photoX, photoY, photoZ),
+                        scatterPos: scatterVec,
+                        logoPos: logoVec,
+                        rotationVector: new THREE.Euler(Math.random() * 0.03, Math.random() * 0.03, Math.random() * 0.03)
+                    };
+
+                    sBlocks.push(mesh);
+                    sBlockGroup.add(mesh);
+                }
+                
+                sScene.add(sBlockGroup);
+
+                // Configure action hooks processing user interactions transitioning safely out of the intro framework
+                const actionBtn = document.getElementById('startSculptingBtn');
+                actionBtn.innerText = "Start Sculpting";
+                actionBtn.classList.add('ready-pulse');
+                
+                actionBtn.addEventListener('click', executeTransitionSequence);
+                window.addEventListener('resize', handleSplashResizeTrigger);
+
+                // Run animated timeline
+                animateSplashReveal();
+
+                // Trigger branding text displays matching initial canvas presentation registers
+                setTimeout(() => {
+                    document.getElementById('splashTitleNode').style.opacity = '1';
+                    document.getElementById('splashTitleNode').style.transform = 'translateY(0)';
+                    document.getElementById('splashSubtitleNode').style.opacity = '1';
+                }, 150);
+            }
+
+            function animateSplashReveal() {
+                sAnimFrameId = requestAnimationFrame(animateSplashReveal);
+                const runtime = sClock.getElapsedTime();
+
+                // Micro-Phase Phase 1: Flat Live View State Matrix Baseline (0.0s -> 1.2s)
+                if (runtime < 1.2) {
+                    const norm = runtime / 1.2;
+                    sGridHelper.material.opacity = norm * 0.35; // Architectural true 3D grid line illumination map
+
+                    sBlocks.forEach(b => {
+                        b.position.copy(b.userData.photoPos);
+                        b.rotation.set(0, 0, 0);
+                    });
+                } 
+                // Micro-Phase Phase 2 & 3 Combined Fluid Spline LERPing Matrix Channels (1.2s -> 5.5s)
+                else {
+                    const totalTransitionSpan = 4.3;
+                    const currentTimelineOffset = Math.min((runtime - 1.2) / totalTransitionSpan, 1.0);
+                    
+                    // Unified cubic smoothstep calculation eliminating kinetic node acceleration jerking
+                    const smoothCurve = currentTimelineOffset * currentTimelineOffset * (3.0 - 2.0 * currentTimelineOffset);
+
+                    sGridHelper.material.opacity = 0.35 + (smoothCurve * 0.35);
+
+                    sBlocks.forEach(b => {
+                        // High-precision transitional layout processing over structural curves
+                        if (smoothCurve < 0.45) {
+                            // First tracking leg: blending flat space window vectors cleanly into localized scatter bounds
+                            const subNorm = smoothCurve / 0.45;
+                            const internalCubic = subNorm * subNorm * (3.0 - 2.0 * subNorm);
+                            b.position.lerpVectors(b.userData.photoPos, b.userData.scatterPos, internalCubic);
+                        } else {
+                            // Second tracking leg: seamlessly gathering scatter nodes directly into target geometry rows
+                            const subNorm = (smoothCurve - 0.45) / 0.55;
+                            const internalCubic = subNorm * subNorm * (3.0 - 2.0 * subNorm);
+                            b.position.lerpVectors(b.userData.scatterPos, b.userData.logoPos, internalCubic);
+                        }
+
+                        // Apply angular transformations relative to current motion timeline variables
+                        b.rotation.x += b.userData.rotationVector.x * (1.0 - smoothCurve);
+                        b.rotation.y += b.userData.rotationVector.y * (1.0 - smoothCurve);
+                        b.rotation.z += b.userData.rotationVector.z * (1.0 - smoothCurve);
+                    });
+
+                    // Continuous slow rotation across primary asset assembly nodes after structural completion limits are achieved
+                    if (smoothCurve >= 0.95) {
+                        const structuralRestingOrbitSpeed = (runtime - 5.2) * 0.04;
+                        sBlockGroup.rotation.y = structuralRestingOrbitSpeed;
+                    }
+
+                    // Dynamic low-angle cinematic viewport matrix transformations tracking structural depth targets
+                    sCamera.position.z = 36 - (smoothCurve * 6);
+                    sCamera.position.y = 9 - (smoothCurve * 2);
+                    sCamera.lookAt(0, 1.5, 0);
+                }
+
+                sRenderer.render(sScene, sCamera);
+            }
+
+            function handleSplashResizeTrigger() {
+                if (!sCamera || !sRenderer) return;
+                sCamera.aspect = window.innerWidth / window.innerHeight;
+                sCamera.updateProjectionMatrix();
+                sRenderer.setSize(window.innerWidth, window.innerHeight);
+            }
+
+            function executeTransitionSequence() {
+                // Terminate local runtime animation loops cleanly bypassing processor leaking threads
+                cancelAnimationFrame(sAnimFrameId);
+                window.removeEventListener('resize', handleSplashResizeTrigger);
+
+                const container = document.getElementById('splashContainer');
+                container.style.opacity = '0';
+                container.style.visibility = 'hidden';
+
+                // Explicit garbage collection cleaning memory allocations prior to launching full WebAR environments
+                sBlocks.forEach(b => {
+                    if (b.geometry) b.geometry.dispose();
+                    if (b.material) {
+                        if (Array.isArray(b.material)) b.material.forEach(m => m.dispose());
+                        else b.material.dispose();
+                    }
+                });
+                sBlocks = [];
+                if (sGridHelper && sGridHelper.material) sGridHelper.material.dispose();
+                if (sRenderer) sRenderer.dispose();
+
+                // Boot the master workspace layout configurations natively
+                setTimeout(() => {
+                    container.remove(); // Clean up layout architecture layers entirely out of the tracking document body context
+                    
+                    // Launch core application workspace environment
+                    init3D();
+                    
+                    // Force display of instructions dashboard layer on screen immediately upon application startup
+                    const helpOverlay = document.getElementById('helpOverlay');
+                    if (helpOverlay) {
+                        helpOverlay.style.display = 'flex';
+                    }
+                }, 800);
+            }
+
+            // Launch localized initialization setup protocols internally
+            window.addEventListener('DOMContentLoaded', runSplashRevealSystem);
+        })();
+
+        /* ==========================================================================
+           CORE WebAR APPLICATION PARSING ENGINE LOGIC (100% PRESERVED)
+           ========================================================================== */
         class MultiPointMotionTracker {
             constructor() {
                 this.canvas = document.createElement('canvas');
@@ -645,6 +1010,7 @@
 
                     for (let sy = -searchRadius; sy <= searchRadius; sy++) {
                         for (let sx = -searchRadius; sx <= searchRadius; sx++) {
+                            let sad = 0;
                             for (let wy = -1; wy <= 1; wy++) {
                                 const oldX = pt.x + wy;
                                 const oldY = pt.y + wy;
@@ -1855,8 +2221,6 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             resizeCameraViewport();
         }
-
-        init3D();
     </script>
 </body>
 </html>
