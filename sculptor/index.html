@@ -845,7 +845,7 @@
                 isDraggingSceneActive = false;
                 isStructureReadyToMove = false;
                 activeDraggedGroup = null;
-                if (controls) controls.enabled = true;
+                if (controls && !gyroActive) controls.enabled = true;
                 return; 
             }
 
@@ -928,8 +928,8 @@
                             }
                             currentlySelectedMesh.material.emissive.setHex(0x38380b);
 
-                            // Modified to display the real world representation label and exclude absolute structural geometry references
-                            document.getElementById('aiDescription').innerHTML = `<div style="color: #ffea00; font-weight: bold; margin-bottom: 4px;">[REAL-WORLD ITEM SELECTED]</div><b>Representing:</b> ${hitMesh.userData.label || "Scene Feature Object"}<br><br><b>Context Blueprint Summary:</b><br>${hitMesh.userData.blueprintDesc || "No dynamic architectural metadata found."}`;
+                            // Displays the functional identifier label without exposing core primitive shape metadata
+                            document.getElementById('aiDescription').innerHTML = `<div style="color: #ffea00; font-weight: bold; margin-bottom: 4px;">[STRUCTURE ENTITY SELECTED]</div>${hitMesh.userData.description || "Isolated geometric system element."}`;
                         }
                     }
                 } else {
@@ -1035,10 +1035,7 @@
             } else {
                 togglePanel.style.display = 'none';
                 cameraWin.style.display = 'none';
-                
-                // Retains lowerContent block updates fully in hidden memory matrix nodes
                 lowerContent.style.display = 'none';
-                
                 controlsCard.style.right = 'auto';
                 controlsCard.style.width = 'fit-content';
                 if (svgNode) svgNode.outerHTML = CLOSED_EYE_SVG;
@@ -1056,7 +1053,7 @@
             controls.zoomSpeed = 1.2;
             controls.panSpeed = 1.0;
             controls.target.set(0, 0, 0); 
-            controls.enabled = true;
+            controls.enabled = !gyroActive; // Keeps OrbitControls disabled only if gyroscope is tracking
         }
 
         async function initRearCameraStreamGracefully() {
@@ -1232,7 +1229,7 @@
                                                     type: "OBJECT",
                                                     properties: {
                                                         t: { type: "STRING", description: "type primitive token: cube, rectangular prism, pyramid, sphere, cylinder, cone, capsule, roundedbox, plane" }, 
-                                                        label: { type: "STRING", description: "The specific real-world structural part or semantic subject item this primitive represents (e.g. couch seat cushion, coffee table leg, laptop keypad, floor mat)" },
+                                                        label: { type: "STRING", description: "The functional real-world name of this item component from the blueprint line, e.g., 'table leg', 'chair cushion', 'laptop display', 'floor rug'" },
                                                         p: { type: "ARRAY", items: { type: "NUMBER" } },
                                                         s: { type: "ARRAY", items: { type: "NUMBER" } }, 
                                                         r: { type: "ARRAY", items: { type: "NUMBER" } },
@@ -1354,9 +1351,8 @@
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
                 
-                // Maps real-world description tokens securely into memory context arrays
-                mesh.userData.label = shape.label ? String(shape.label).trim() : "Unknown subject component";
-                mesh.userData.blueprintDesc = coreDescription;
+                // Excludes geometric metadata to surface exclusively the parsed item label identity
+                mesh.userData.description = `<b>Item:</b> ${shape.label ? String(shape.label).toUpperCase() : "SPATIAL ENTITY LAYER"}<br><b>Scale:</b> [${scl.join(', ')}]<br><b>Base Hex Color:</b> ${shape.c}<br><br><b>Context Blueprint Summary:</b><br>${coreDescription}`;
 
                 structureInstanceGroup.add(mesh);
             });
@@ -1494,7 +1490,6 @@
         }
 
         function handleGyroscopeMotionInput(e) {
-            // Unconditionally persists execution loops whether the element panels are collapsed or visible
             if (!gyroActive) return;
             
             let alpha = e.alpha ? THREE.MathUtils.degToRad(e.alpha) : 0;
@@ -1521,15 +1516,6 @@
             let acc = e.acceleration; 
             if (!acc || acc.x === null) return;
 
-            const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
-            const horizonLevelEngaged = (Math.abs(currentEuler.x) <= LEVEL_PITCH_LIMIT && Math.abs(currentEuler.z) <= LEVEL_ROLL_LIMIT);
-            
-            if (!horizonLevelEngaged) {
-                targetLinearVelocityX = 0;
-                targetLinearVelocityZ = 0;
-                return;
-            }
-
             const localAccelerationVector = new THREE.Vector3(acc.x, acc.y, acc.z);
             const worldSpaceAcceleration = localAccelerationVector.clone().applyQuaternion(camera.quaternion);
             worldSpaceAcceleration.y = 0;
@@ -1548,15 +1534,8 @@
             let statusHorizonStr = "LOCKED";
             
             if (gyroActive) {
-                const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
-                
-                if (Math.abs(currentEuler.x) <= LEVEL_PITCH_LIMIT && Math.abs(currentEuler.z) <= LEVEL_ROLL_LIMIT) {
-                    statusHorizonStr = "LEVEL_WALK";
-                } else {
-                    statusHorizonStr = "TILT_GATED";
-                    targetLinearVelocityX = 0;
-                    targetLinearVelocityZ = 0;
-                }
+                // Device orientation continuous traversal mechanics execute uniformly across all view angles without gating locks
+                statusHorizonStr = "GYRO_WALK";
 
                 const INTEGRATION_LEAK_DECAY = 0.78;
                 targetLinearVelocityX *= INTEGRATION_LEAK_DECAY;
