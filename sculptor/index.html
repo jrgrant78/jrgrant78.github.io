@@ -1804,28 +1804,23 @@
             }
 
             if (controls && controls.enabled) {
-                controls.update();
-                
                 if (!gyroActive) {
-                    // Synchronously push both camera position and look target along the forward vector
-                    // whenever the distance drops below a specific spatial threshold.
-                    // This seamlessly translates the matrix coordinates and bypasses OrbitControls'
-                    // logarithmic deceleration curve to unlock infinite unconstrained movement across all axes.
                     const forwardDir = new THREE.Vector3();
                     camera.getWorldDirection(forwardDir);
-                    const minTargetDistance = 8.0;
                     const currentDistance = camera.position.distanceTo(controls.target);
                     
-                    if (currentDistance < minTargetDistance) {
-                        const translationDelta = minTargetDistance - currentDistance;
-                        camera.position.addScaledVector(forwardDir, translationDelta);
-                        controls.target.addScaledVector(forwardDir, translationDelta);
+                    // Enforces a strict distance baseline buffer to prevent zoom translation steps from decaying to zero near look-targets
+                    const uniformSpeedDistance = 25.0;
+                    if (currentDistance < uniformSpeedDistance) {
+                        controls.target.copy(camera.position).addScaledVector(forwardDir, uniformSpeedDistance);
                     }
-
-                    if (lockedGyroRoll !== 0) {
-                        cleanTargetQuaternion.copy(camera.quaternion);
-                        camera.rotateZ(lockedGyroRoll);
-                    }
+                }
+                
+                controls.update();
+                
+                if (!gyroActive && lockedGyroRoll !== 0) {
+                    cleanTargetQuaternion.copy(camera.quaternion);
+                    camera.rotateZ(lockedGyroRoll);
                 }
             }
             
