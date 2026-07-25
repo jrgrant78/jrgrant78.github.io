@@ -224,7 +224,6 @@
             -webkit-overflow-scrolling: touch;
         }
         
-        /* Repositioned to the right edge and resized to 14px to match table row graphics */
         #closeHelpBtn {
             position: fixed;
             top: 15px;
@@ -1805,21 +1804,28 @@
             }
 
             if (controls && controls.enabled) {
-                if (!gyroActive) {
-                    // Pushes look-targets along look vectors to glide past the axis origin unobstructed without target locking
-                    const forwardDir = new THREE.Vector3();
-                    camera.getWorldDirection(forwardDir);
-                    const distanceToTarget = camera.position.distanceTo(controls.target);
-                    if (distanceToTarget < 3.0) {
-                        controls.target.addScaledVector(forwardDir, 3.0 - distanceToTarget);
-                    }
-                }
-                
                 controls.update();
                 
-                if (!gyroActive && lockedGyroRoll !== 0) {
-                    cleanTargetQuaternion.copy(camera.quaternion);
-                    camera.rotateZ(lockedGyroRoll);
+                if (!gyroActive) {
+                    // Synchronously push both camera position and look target along the forward vector
+                    // whenever the distance drops below a specific spatial threshold.
+                    // This seamlessly translates the matrix coordinates and bypasses OrbitControls'
+                    // logarithmic deceleration curve to unlock infinite unconstrained movement across all axes.
+                    const forwardDir = new THREE.Vector3();
+                    camera.getWorldDirection(forwardDir);
+                    const minTargetDistance = 8.0;
+                    const currentDistance = camera.position.distanceTo(controls.target);
+                    
+                    if (currentDistance < minTargetDistance) {
+                        const translationDelta = minTargetDistance - currentDistance;
+                        camera.position.addScaledVector(forwardDir, translationDelta);
+                        controls.target.addScaledVector(forwardDir, translationDelta);
+                    }
+
+                    if (lockedGyroRoll !== 0) {
+                        cleanTargetQuaternion.copy(camera.quaternion);
+                        camera.rotateZ(lockedGyroRoll);
+                    }
                 }
             }
             
