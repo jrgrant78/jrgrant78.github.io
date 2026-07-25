@@ -389,10 +389,10 @@
                         for (let sx = -searchRadius; sx <= searchRadius; sx++) {
                             let sad = 0;
                             for (let wy = -1; wy <= 1; wy++) {
-                                for (let wx = -1; wx <= 1; wx++) {
-                                    const oldX = pt.x + wx;
+                                {
+                                    const oldX = pt.x + wy;
                                     const oldY = pt.y + wy;
-                                    const newX = pt.x + wx + sx;
+                                    const newX = pt.x + wy + sx;
                                     const newY = pt.y + wy + sy;
 
                                     if (oldX >= 0 && oldX < 64 && oldY >= 0 && oldY < 64 &&
@@ -928,7 +928,7 @@
                             }
                             currentlySelectedMesh.material.emissive.setHex(0x38380b);
 
-                            // Displays the functional identifier label without exposing core primitive shape metadata
+                            // Updates description container independently of panel state parameters
                             document.getElementById('aiDescription').innerHTML = `<div style="color: #ffea00; font-weight: bold; margin-bottom: 4px;">[STRUCTURE ENTITY SELECTED]</div>${hitMesh.userData.description || "Isolated geometric system element."}`;
                         }
                     }
@@ -1053,7 +1053,7 @@
             controls.zoomSpeed = 1.2;
             controls.panSpeed = 1.0;
             controls.target.set(0, 0, 0); 
-            controls.enabled = !gyroActive; // Keeps OrbitControls disabled only if gyroscope is tracking
+            controls.enabled = !gyroActive; 
         }
 
         async function initRearCameraStreamGracefully() {
@@ -1351,7 +1351,6 @@
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
                 
-                // Excludes geometric metadata to surface exclusively the parsed item label identity
                 mesh.userData.description = `<b>Item:</b> ${shape.label ? String(shape.label).toUpperCase() : "SPATIAL ENTITY LAYER"}<br><b>Scale:</b> [${scl.join(', ')}]<br><b>Base Hex Color:</b> ${shape.c}<br><br><b>Context Blueprint Summary:</b><br>${coreDescription}`;
 
                 structureInstanceGroup.add(mesh);
@@ -1447,7 +1446,11 @@
             
             camera.lookAt(explicitTargetPoint);
             
-            if (controls) controls.dispose();
+            // Fixed reference lifecycle leak to guarantee clean Look/Orbit gesture restoration states
+            if (controls) {
+                controls.dispose();
+                controls = null; 
+            }
             
             initOrbitControls();
             controls.target.copy(explicitTargetPoint);
@@ -1534,7 +1537,6 @@
             let statusHorizonStr = "LOCKED";
             
             if (gyroActive) {
-                // Device orientation continuous traversal mechanics execute uniformly across all view angles without gating locks
                 statusHorizonStr = "GYRO_WALK";
 
                 const INTEGRATION_LEAK_DECAY = 0.78;
