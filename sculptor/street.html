@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>GeoSpatial Real-Time Map & Humanoid Simulator</title>
+    <title>GeoSpatial Local-Anchored Map Simulator</title>
     <style>
         body {
             margin: 0;
@@ -240,6 +240,10 @@
             <svg viewBox="0 0 24 24"><path d="M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 21.5h2.1l1.9-8.2 2.1 2v6.2h2v-7.5l-2.1-2 .6-3c1 .8 2.4 1.5 4.1 1.5v-2c-1.5 0-2.7-.6-3.5-1.5l-1-1.5c-.4-.6-1-1-1.7-1-.3 0-.5 0-.8.1L5.7 6.3v5.2h2V8.9l2.1-.8z"/></svg>
             Simulate Walk Path
         </button>
+        <button id="reloadMapBtn" class="control-btn">
+            <svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+            Force Sync Bounding Box
+        </button>
     </div>
 
     <script>
@@ -258,14 +262,14 @@
         const VELOCITY_DEADZONE_LIMIT = 0.0001;
 
         // Geolocation Data Tracking States
-        let currentCoordinates = { lat: 40.7580, lon: -73.9855, alt: 15.0, accuracy: 5.0 }; // Core Times Square Baseline Anchor
-        let anchorCoordinates = { lat: 40.7580, lon: -73.9855 }; // Root origin system coordinates anchor
+        let currentCoordinates = { lat: 40.7580, lon: -73.9855, alt: 15.0, accuracy: 5.0 }; // Core Times Square Default
+        let anchorCoordinates = { lat: 40.7580, lon: -73.9855 }; // Static system geographic anchor
+        let mapLoadedForAnchor = false;
         const R_EARTH = 6378137;
 
-        // Real-Time Update Configurations
+        // Simulation Update Configurations
         let isAutoWalking = false;
         let osmFetchController = null; 
-        const STREAM_DISTANCE_THRESHOLD_METERS = 40; 
 
         // Simulation Entity Collections
         const humanoidsArray = [];
@@ -278,7 +282,7 @@
         const ROAD_WIDTH_METERS = 12;
 
         /* ==========================================================================
-           EXTRACTED INERTIAL CORE: CLEAN SENSOR QUATERNION CONVERTER MATRIX
+           EXTRACTED INERTIAL CORE: SENSOR QUATERNION CONVERTER MATRIX
            ========================================================================= */
         const getSensorQuaternion = (function () {
             const zee = new THREE.Vector3( 0, 0, 1 );
@@ -336,76 +340,57 @@
             return { x: x, z: z };
         }
 
-        function computeDistanceBetweenCoords(lat1, lon1, lat2, lon2) {
-            const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                      Math.sin(dLon/2) * Math.sin(dLon/2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-            return R_EARTH * c;
-        }
-
         /* ==========================================================================
-           REAL-TIME STREAMING MAP DATA ENGINE (RESILIENT INTERNALS CASCADE)
+           STATIC LOCAL MAP INGESTION ENGINE (DOWNLOAD ONCE STRATEGY)
            ========================================================================= */
         async function fetchLiveOpenStreetMapData(lat, lon) {
-            if (osmFetchController) {
-                osmFetchController.abort();
-            }
+            if (osmFetchController) osmFetchController.abort();
             osmFetchController = new AbortController();
 
             const dataStatus = document.getElementById('data-status-badge');
             
-            // Re-ordered list prioritizing high-capacity endpoints with strong CORS compliance
             const overpassEndpoints = [
                 `https://overpass-api.de/api/interpreter`,
                 `https://overpass.kumi.systems/api/interpreter`,
                 `https://lz4.overpass-api.de/api/interpreter`
             ];
 
-            const boundingBoxRange = 0.0035;
+            // INCREASED FOOTPRINT: Grab a large ~1.5km Bounding Box once so we can walk offline locally
+            const boundingBoxRange = 0.007; 
             const minLat = lat - boundingBoxRange;
             const minLon = lon - boundingBoxRange;
             const maxLat = lat + boundingBoxRange;
             const maxLon = lon + boundingBoxRange;
 
-            const query = `[out:json][timeout:20];(way["building"](${minLat},${minLon},${maxLat},${maxLon});way["highway"](${minLat},${minLon},${maxLat},${maxLon}););out body;>;out skel qt;`;
+            const query = `[out:json][timeout:25];(way["building"](${minLat},${minLon},${maxLat},${maxLon});way["highway"](${minLat},${minLon},${maxLat},${maxLon}););out body;>;out skel qt;`;
             
             let data = null;
             let success = false;
 
             for (let i = 0; i < overpassEndpoints.length; i++) {
-                // Set up a structured internal racer configuration per server ping
                 const localMirrorController = new AbortController();
                 const globalSignalListener = () => localMirrorController.abort();
                 osmFetchController.signal.addEventListener('abort', globalSignalListener);
 
-                // Enforce a hard-deadline 6-second timeout block
-                const networkTimeoutId = setTimeout(() => {
-                    localMirrorController.abort();
-                }, 6000);
+                const networkTimeoutId = setTimeout(() => localMirrorController.abort(), 7000);
 
                 try {
-                    dataStatus.innerText = `OSM Loop: Mirror ${i + 1}/${overpassEndpoints.length}...`;
+                    dataStatus.innerText = `OSM Cache: Mirror ${i + 1}/${overpassEndpoints.length}...`;
                     dataStatus.style.background = "rgba(255, 171, 0, 0.2)";
                     dataStatus.style.borderColor = "#ffab00";
                     dataStatus.style.color = "#ffab00";
 
-                    // Migrated completely to HTTP POST to avoid length filtering bottlenecks
                     const response = await fetch(overpassEndpoints[i], {
                         method: 'POST',
                         body: 'data=' + encodeURIComponent(query),
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded'
-                        },
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                         signal: localMirrorController.signal
                     });
                     
                     clearTimeout(networkTimeoutId);
                     osmFetchController.signal.removeEventListener('abort', globalSignalListener);
                     
-                    if (!response.ok) throw new Error(`HTTP Error Status ${response.status}`);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     
                     data = await response.json();
                     if (data && data.elements && data.elements.length > 0) {
@@ -415,33 +400,31 @@
                 } catch (err) {
                     clearTimeout(networkTimeoutId);
                     osmFetchController.signal.removeEventListener('abort', globalSignalListener);
-                    
-                    if (osmFetchController.signal.aborted) return; // Exit cleanly if general operation was aborted
-                    console.warn(`Node ${i + 1} timed out or failed. Cascading down. Error: ${err.message}`);
+                    if (osmFetchController.signal.aborted) return;
+                    console.warn(`Node ${i + 1} timeout/fail: ${err.message}`);
                 }
             }
 
             if (success && data) {
+                // LOCK THE ANCHOR COORDINATES PERMANENTLY FOR THIS MAP LOAD
                 anchorCoordinates.lat = lat;
                 anchorCoordinates.lon = lon;
+                mapLoadedForAnchor = true;
 
-                dataStatus.innerText = "OSM Engine: Data Extrusion...";
+                dataStatus.innerText = "OSM Engine: Extrusion Done";
                 parseAndBuildOSMWorld(data, anchorCoordinates.lat, anchorCoordinates.lon);
                 
-                dataStatus.innerText = "OSM Engine: Live Sync";
+                dataStatus.innerText = "Local Space Inactive Stream";
                 dataStatus.style.background = "rgba(0, 230, 118, 0.2)";
                 dataStatus.style.borderColor = "#00e676";
                 dataStatus.style.color = "#00e676";
             } else {
-                dataStatus.innerText = "OSM Engine: Mode Backup";
+                dataStatus.innerText = "OSM Engine: Using Fallback Grid";
                 dataStatus.style.background = "rgba(255, 23, 68, 0.2)";
                 dataStatus.style.borderColor = "#ff1744";
                 dataStatus.style.color = "#ff1744";
                 
-                // If mirrors are fully exhausted and scene is completely empty, initialize backup structural meshes
-                if (globalTrafficNodes.length === 0) {
-                    generateProceduralBackupInfrastructure();
-                }
+                if (globalTrafficNodes.length === 0) generateProceduralBackupInfrastructure();
             }
         }
 
@@ -483,13 +466,8 @@
                 }
             });
 
-            const localCamOffset = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorLat, anchorLon);
-            camera.position.x = localCamOffset.x;
-            camera.position.z = localCamOffset.z + 60; 
-            if (controls) {
-                controls.target.set(localCamOffset.x, 2, localCamOffset.z);
-            }
-
+            // Re-align space locally once
+            syncVirtualCameraToGpsCoordinates();
             repopulateHumanoidEntities();
         }
 
@@ -498,9 +476,7 @@
 
             const shapeOutline = new THREE.Shape();
             shapeOutline.moveTo(points[0].x, points[0].z);
-            for (let i = 1; i < points.length; i++) {
-                shapeOutline.lineTo(points[i].x, points[i].z);
-            }
+            for (let i = 1; i < points.length; i++) shapeOutline.lineTo(points[i].x, points[i].z);
             shapeOutline.closePath();
 
             let buildingHeight = 15 + Math.random() * 30;
@@ -520,7 +496,6 @@
 
             const structureColors = [0x141923, 0x1c1e24, 0x252a36, 0x111218];
             const primaryColor = structureColors[Math.floor(Math.random() * structureColors.length)];
-            
             const windowNeonGlows = [0x00e5ff, 0x00e676, 0xffea00, 0xff1744];
             const randomNeon = windowNeonGlows[Math.floor(Math.random() * windowNeonGlows.length)];
 
@@ -570,14 +545,11 @@
         }
 
         function generateProceduralBackupInfrastructure() {
-            // High fidelity generation fallback grid architecture map systems loop
             for (let x = -3; x <= 3; x++) {
                 for (let z = -3; z <= 3; z++) {
                     const worldX = x * 70;
                     const worldZ = z * 70;
                     globalTrafficNodes.push(new THREE.Vector3(worldX, 0.05, worldZ));
-                    
-                    // Render simple street ribbons
                     const fallbackMat = new THREE.MeshStandardMaterial({ map: streetTexture, roughness: 0.7 });
                     const lineGeo = new THREE.PlaneGeometry(ROAD_WIDTH_METERS, 70);
                     const seg = new THREE.Mesh(lineGeo, fallbackMat);
@@ -655,14 +627,10 @@
                 for (let i = 0; i < globalTrafficNodes.length; i++) {
                     if (i === this.currentNodeIndex) continue;
                     const evaluationDistance = currentPoint.distanceTo(globalTrafficNodes[i]);
-                    if (evaluationDistance < 80.0) { 
-                        validCandidateIndices.push(i);
-                    }
+                    if (evaluationDistance < 80.0) validCandidateIndices.push(i);
                 }
 
-                if (validCandidateIndices.length === 0) {
-                    return Math.floor(Math.random() * globalTrafficNodes.length);
-                }
+                if (validCandidateIndices.length === 0) return Math.floor(Math.random() * globalTrafficNodes.length);
                 return validCandidateIndices[Math.floor(Math.random() * validCandidateIndices.length)];
             }
 
@@ -684,10 +652,7 @@
                     return;
                 }
 
-                const movementHeadingDirection = new THREE.Vector3()
-                    .subVectors(absoluteTargetDestination, currentPositionVector)
-                    .normalize();
-
+                const movementHeadingDirection = new THREE.Vector3().subVectors(absoluteTargetDestination, currentPositionVector).normalize();
                 this.rootGroup.position.addScaledVector(movementHeadingDirection, this.movementVelocitySpeed * deltaTimeSeconds);
                 
                 const lookAngleRadians = Math.atan2(movementHeadingDirection.x, movementHeadingDirection.z);
@@ -703,11 +668,12 @@
         }
 
         /* ==========================================================================
-           2D TRACK-UP MINIMAP & CARDINAL COMPASS ENGINE
+           2D TRACK-UP MINIMAP & COMPASS REGION
            ========================================================================= */
         function update2DMinimapSystem() {
             if (!minimapCtx) return;
 
+            // TRACK LOCALLY: Relative vector layout offset generated directly using the static locked anchor coordinate base
             const localUserPos = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
 
             const targetDirectionVector = new THREE.Vector3();
@@ -722,7 +688,6 @@
 
             minimapCtx.clearRect(0, 0, 150, 150);
             minimapCtx.save();
-            
             minimapCtx.beginPath();
             minimapCtx.arc(75, 75, 72, 0, Math.PI * 2);
             minimapCtx.clip();
@@ -730,7 +695,7 @@
             minimapCtx.fillStyle = 'rgba(10, 10, 16, 0.94)';
             minimapCtx.fillRect(0, 0, 150, 150);
 
-            // Center the entire minimap layout coordinate field directly around camera parameters
+            // Pivot visual field around local player position
             minimapCtx.translate(75, 75);
             minimapCtx.rotate(-yawAngleRadians);
 
@@ -752,7 +717,7 @@
                 minimapCtx.stroke();
             });
 
-            // Minimap Layer B: Building Footprints
+            // Minimap Layer B: Buildings
             minimapCtx.fillStyle = 'rgba(255, 234, 0, 0.12)';
             minimapCtx.strokeStyle = 'rgba(255, 234, 0, 0.3)';
             minimapCtx.lineWidth = 1;
@@ -769,7 +734,7 @@
                 minimapCtx.fill(); minimapCtx.stroke();
             });
 
-            // Minimap Layer C: Humanoid Agents
+            // Minimap Layer C: Humanoids
             for (let i = 0; i < humanoidsArray.length; i++) {
                 const agentEntity = humanoidsArray[i];
                 const deltaPositionX = agentEntity.rootGroup.position.x - localUserPos.x;
@@ -778,7 +743,6 @@
                 if (Math.hypot(deltaPositionX, deltaPositionZ) * MINIMAP_GRAPHICS_SCALE < 72) {
                     const dx = deltaPositionX * MINIMAP_GRAPHICS_SCALE;
                     const dz = deltaPositionZ * MINIMAP_GRAPHICS_SCALE;
-                    
                     minimapCtx.fillStyle = `#${agentEntity.meshColorHex.getHexString()}`;
                     minimapCtx.beginPath();
                     minimapCtx.arc(dx, dz, 3, 0, Math.PI * 2);
@@ -788,20 +752,17 @@
 
             minimapCtx.restore();
 
-            // Outer structural bezel bounds
             minimapCtx.strokeStyle = 'rgba(0, 229, 255, 0.4)';
             minimapCtx.lineWidth = 2;
             minimapCtx.beginPath();
             minimapCtx.arc(75, 75, 73, 0, Math.PI * 2);
             minimapCtx.stroke();
 
-            // Center static tracking dot mapping local coordinate fixes
             minimapCtx.fillStyle = '#00ffcc';
             minimapCtx.beginPath();
             minimapCtx.arc(75, 75, 4, 0, Math.PI * 2);
             minimapCtx.fill();
 
-            // Track-Up Forward Facing Heading Vector
             minimapCtx.strokeStyle = '#00ffcc';
             minimapCtx.lineWidth = 2;
             minimapCtx.beginPath();
@@ -811,7 +772,7 @@
         }
 
         /* ==========================================================================
-           HARDWARE HARDLINK INTERACTIVE DRIVERS
+           HARDWARE INTERACTIVE SENSOR ENGINES
            ========================================================================= */
         function toggleSensorsFunctionality() {
             const btn = document.getElementById('gyroBtn');
@@ -859,10 +820,7 @@
             const currentForwardDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             const explicitTargetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(currentForwardDir, 40);
             
-            if (controls) {
-                controls.dispose();
-                controls = null; 
-            }
+            if (controls) controls.dispose();
             
             initOrbitControls();
             controls.target.copy(explicitTargetPoint);
@@ -909,7 +867,7 @@
         }
 
         /* ==========================================================================
-           DYNAMIC COORDINATES LOGS & TELEMETRY SYNC
+           OFFLINE LOCAL POSITION TRAVERSAL MATRIX
            ========================================================================= */
         function onDynamicLocationUpdate(lat, lon, accuracy, alt) {
             currentCoordinates.lat = lat;
@@ -919,13 +877,24 @@
 
             updateGpsHudDisplay();
 
-            const deltaDistance = computeDistanceBetweenCoords(
-                currentCoordinates.lat, currentCoordinates.lon,
-                anchorCoordinates.lat, anchorCoordinates.lon
-            );
+            // SOLID OFFLINE TRACKING: Instead of querying the network web API on shift, move variables locally
+            if (mapLoadedForAnchor) {
+                syncVirtualCameraToGpsCoordinates();
+            }
+        }
 
-            if (deltaDistance > STREAM_DISTANCE_THRESHOLD_METERS) {
-                fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
+        function syncVirtualCameraToGpsCoordinates() {
+            const mappedTargetPos = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
+            
+            if (!gyroActive && controls) {
+                const cameraPositionDeltaX = camera.position.x - controls.target.x;
+                const cameraPositionDeltaZ = camera.position.z - controls.target.z;
+                controls.target.set(mappedTargetPos.x, 2, mappedTargetPos.z);
+                camera.position.x = mappedTargetPos.x + cameraPositionDeltaX;
+                camera.position.z = mappedTargetPos.z + cameraPositionDeltaZ;
+            } else if (gyroActive) {
+                camera.position.x = mappedTargetPos.x;
+                camera.position.z = mappedTargetPos.z;
             }
         }
 
@@ -943,7 +912,6 @@
                 dynamicWorldGroup.remove(humanoidsArray[i].rootGroup);
             }
             humanoidsArray.length = 0;
-
             if(globalTrafficNodes.length === 0) return;
 
             const targetHumanoidsTotal = 60;
@@ -953,7 +921,7 @@
         }
 
         /* ==========================================================================
-           CORE ENVIRONMENT ARCHITECTURE INITIALIZATION
+           INITIALIZATION & LOOP PIPELINES
            ========================================================================= */
         function initOrbitControls() {
             if (!controls) {
@@ -988,13 +956,11 @@
             initOrbitControls();
 
             scene.add(new THREE.AmbientLight(0xffffff, 0.22));
-            
             const sunLight = new THREE.DirectionalLight(0xdbe7ff, 1.25);
-            sunSunlight: sunLight.position.set(150, 450, 150);
+            sunLight.position.set(150, 450, 150);
             sunLight.castShadow = true;
             sunLight.shadow.mapSize.width = 2048;
             sunLight.shadow.mapSize.height = 2048;
-            sunLight.shadow.bias = -0.0005;
             scene.add(sunLight);
 
             const skyLight = new THREE.HemisphereLight(0x00e5ff, 0xff1744, 0.45);
@@ -1006,6 +972,8 @@
             sidewalkTexture = createSidewalkCanvasTexture();
 
             updateGpsHudDisplay();
+            
+            // Initial batch load to construct the offline environment boundary
             fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
 
             if (navigator.geolocation) {
@@ -1032,9 +1000,13 @@
                 isAutoWalking = !isAutoWalking;
                 autoWalkBtn.classList.toggle('active', isAutoWalking);
                 if (isAutoWalking) {
-                    document.getElementById('gps-status-badge').innerText = "Auto Walk Path Mod";
+                    document.getElementById('gps-status-badge').innerText = "Simulated Path Run";
                     document.getElementById('gps-status-badge').style.cssText = "background: rgba(0, 229, 255, 0.2); border-color: #00e5ff; color: #00e5ff;";
                 }
+            });
+
+            document.getElementById('reloadMapBtn').addEventListener('click', () => {
+                fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
             });
 
             window.addEventListener('resize', onWindowResize);
@@ -1046,25 +1018,14 @@
                 const deltaTime = Math.min(clock.getDelta(), 0.1); 
 
                 if (isAutoWalking) {
-                    const latitudeStepHeading = 0.000025 * deltaTime; 
-                    const longitudeStepHeading = 0.000012 * deltaTime;
+                    // Update layout degrees locally safely across dimensions
+                    const latitudeStepHeading = 0.000020 * deltaTime; 
+                    const longitudeStepHeading = 0.000010 * deltaTime;
                     onDynamicLocationUpdate(
                         currentCoordinates.lat + latitudeStepHeading,
                         currentCoordinates.lon + longitudeStepHeading,
                         3.0, 15.0
                     );
-
-                    const mappedTargetPos = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
-                    if (!gyroActive && controls) {
-                        const cameraPositionDeltaX = camera.position.x - controls.target.x;
-                        const cameraPositionDeltaZ = camera.position.z - controls.target.z;
-                        controls.target.set(mappedTargetPos.x, 2, mappedTargetPos.z);
-                        camera.position.x = mappedTargetPos.x + cameraPositionDeltaX;
-                        camera.position.z = mappedTargetPos.z + cameraPositionDeltaZ;
-                    } else if (gyroActive) {
-                        camera.position.x = mappedTargetPos.x;
-                        camera.position.z = mappedTargetPos.z;
-                    }
                 }
 
                 for(let i = 0; i < humanoidsArray.length; i++) {
@@ -1085,7 +1046,6 @@
                         
                         const localMetersToLatLonShift = 1.0 / R_EARTH * (180.0 / Math.PI);
                         const radAnchorLat = anchorCoordinates.lat * Math.PI / 180;
-                        
                         const adjustedLat = currentCoordinates.lat - (targetLinearVelocityZ * localMetersToLatLonShift);
                         const adjustedLon = currentCoordinates.lon + (targetLinearVelocityX * localMetersToLatLonShift / Math.cos(radAnchorLat));
                         
@@ -1114,7 +1074,6 @@
                     camera.quaternion.copy(cleanTargetQuaternion);
                 }
             }
-
             animateLoop();
         }
 
