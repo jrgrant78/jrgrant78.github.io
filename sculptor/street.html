@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>GeoSpatial Local-Anchored Map Simulator</title>
+    <title>GeoSpatial Real-Time Map & Humanoid Simulator</title>
     <style>
         body {
             margin: 0;
@@ -355,14 +355,13 @@
                 `https://lz4.overpass-api.de/api/interpreter`
             ];
 
-            // INCREASED FOOTPRINT: Grab a large ~1.5km Bounding Box once so we can walk offline locally
-            const boundingBoxRange = 0.007; 
+            const boundingBoxRange = 0.005; 
             const minLat = lat - boundingBoxRange;
             const minLon = lon - boundingBoxRange;
             const maxLat = lat + boundingBoxRange;
             const maxLon = lon + boundingBoxRange;
 
-            const query = `[out:json][timeout:25];(way["building"](${minLat},${minLon},${maxLat},${maxLon});way["highway"](${minLat},${minLon},${maxLat},${maxLon}););out body;>;out skel qt;`;
+            const query = `[out:json][timeout:20];(way["building"](${minLat},${minLon},${maxLat},${maxLon});way["highway"](${minLat},${minLon},${maxLat},${maxLon}););out body;>;out skel qt;`;
             
             let data = null;
             let success = false;
@@ -372,7 +371,7 @@
                 const globalSignalListener = () => localMirrorController.abort();
                 osmFetchController.signal.addEventListener('abort', globalSignalListener);
 
-                const networkTimeoutId = setTimeout(() => localMirrorController.abort(), 7000);
+                const networkTimeoutId = setTimeout(() => localMirrorController.abort(), 6000);
 
                 try {
                     dataStatus.innerText = `OSM Cache: Mirror ${i + 1}/${overpassEndpoints.length}...`;
@@ -380,10 +379,10 @@
                     dataStatus.style.borderColor = "#ffab00";
                     dataStatus.style.color = "#ffab00";
 
-                    const response = await fetch(overpassEndpoints[i], {
-                        method: 'POST',
-                        body: 'data=' + encodeURIComponent(query),
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    // Highly compatible GET request model prevents pre-flight preemption issues
+                    const fetchUrl = `${overpassEndpoints[i]}?data=${encodeURIComponent(query)}`;
+                    const response = await fetch(fetchUrl, {
+                        method: 'GET',
                         signal: localMirrorController.signal
                     });
                     
@@ -406,7 +405,6 @@
             }
 
             if (success && data) {
-                // LOCK THE ANCHOR COORDINATES PERMANENTLY FOR THIS MAP LOAD
                 anchorCoordinates.lat = lat;
                 anchorCoordinates.lon = lon;
                 mapLoadedForAnchor = true;
@@ -414,7 +412,7 @@
                 dataStatus.innerText = "OSM Engine: Extrusion Done";
                 parseAndBuildOSMWorld(data, anchorCoordinates.lat, anchorCoordinates.lon);
                 
-                dataStatus.innerText = "Local Space Inactive Stream";
+                dataStatus.innerText = "Local Space Cache Active";
                 dataStatus.style.background = "rgba(0, 230, 118, 0.2)";
                 dataStatus.style.borderColor = "#00e676";
                 dataStatus.style.color = "#00e676";
@@ -424,7 +422,7 @@
                 dataStatus.style.borderColor = "#ff1744";
                 dataStatus.style.color = "#ff1744";
                 
-                if (globalTrafficNodes.length === 0) generateProceduralBackupInfrastructure();
+                generateProceduralBackupInfrastructure();
             }
         }
 
@@ -466,7 +464,6 @@
                 }
             });
 
-            // Re-align space locally once
             syncVirtualCameraToGpsCoordinates();
             repopulateHumanoidEntities();
         }
@@ -479,9 +476,10 @@
             for (let i = 1; i < points.length; i++) shapeOutline.lineTo(points[i].x, points[i].z);
             shapeOutline.closePath();
 
-            let buildingHeight = 15 + Math.random() * 30;
-            if (tags.height) buildingHeight = parseFloat(tags.height);
-            else if (tags["building:levels"]) buildingHeight = parseInt(tags["building:levels"]) * 3.5;
+            let buildingHeight = tags && tags.height ? parseFloat(tags.height) : (15 + Math.random() * 30);
+            if (!tags && tags.height) {
+                if (tags["building:levels"]) buildingHeight = parseInt(tags["building:levels"]) * 3.5;
+            }
 
             const extrusionSettings = {
                 depth: buildingHeight,
@@ -545,17 +543,53 @@
         }
 
         function generateProceduralBackupInfrastructure() {
+            while(dynamicWorldGroup.children.length > 0) {
+                dynamicWorldGroup.remove(dynamicWorldGroup.children[0]);
+            }
+            globalTrafficNodes.length = 0;
+            renderedStreetsList.length = 0;
+            renderedBuildingsList.length = 0;
+
+            const spacing = 80;
+            
+            // Generate full synthetic datasets for the 2D tracking engine
+            for (let x = -4; x <= 4; x++) {
+                const streetPointsV = [{ x: x * spacing, z: -350 }, { x: x * spacing, z: 350 }];
+                renderedStreetsList.push(streetPointsV);
+                globalTrafficNodes.push(new THREE.Vector3(x * spacing, 0.05, -350), new THREE.Vector3(x * spacing, 0.05, 350));
+
+                const streetPointsH = [{ x: -350, z: x * spacing }, { x: 350, z: x * spacing }];
+                renderedStreetsList.push(streetPointsH);
+                globalTrafficNodes.push(new THREE.Vector3(-350, 0.05, x * spacing), new THREE.Vector3(350, 0.05, x * spacing));
+            }
+
+            const streetMaterial = new THREE.MeshStandardMaterial({ map: streetTexture, roughness: 0.65 });
+            renderedStreetsList.forEach(points => {
+                const ptA = points[0]; const ptB = points[1];
+                const distance = Math.hypot(ptB.x - ptA.x, ptB.z - ptA.z);
+                const roadLineGeo = new THREE.PlaneGeometry(ROAD_WIDTH_METERS, distance);
+                const roadSegmentMesh = new THREE.Mesh(roadLineGeo, streetMaterial);
+                roadSegmentMesh.rotation.x = -Math.PI / 2;
+                roadSegmentMesh.position.set((ptA.x + ptB.x) / 2, 0.01, (ptA.z + ptB.z) / 2);
+                roadSegmentMesh.rotation.z = -Math.atan2(ptB.x - ptA.x, ptB.z - ptA.z);
+                roadSegmentMesh.receiveShadow = true;
+                dynamicWorldGroup.add(roadSegmentMesh);
+            });
+
+            // Populate the fallback data structures with building geometry matrices
             for (let x = -3; x <= 3; x++) {
                 for (let z = -3; z <= 3; z++) {
-                    const worldX = x * 70;
-                    const worldZ = z * 70;
-                    globalTrafficNodes.push(new THREE.Vector3(worldX, 0.05, worldZ));
-                    const fallbackMat = new THREE.MeshStandardMaterial({ map: streetTexture, roughness: 0.7 });
-                    const lineGeo = new THREE.PlaneGeometry(ROAD_WIDTH_METERS, 70);
-                    const seg = new THREE.Mesh(lineGeo, fallbackMat);
-                    seg.rotation.x = -Math.PI/2;
-                    seg.position.set(worldX, 0.01, worldZ);
-                    dynamicWorldGroup.add(seg);
+                    const centerX = x * spacing + spacing / 2;
+                    const centerZ = z * spacing + spacing / 2;
+                    const boxSize = 35;
+
+                    const buildingPoints = [
+                        { x: centerX - boxSize/2, z: centerZ - boxSize/2 },
+                        { x: centerX + boxSize/2, z: centerZ - boxSize/2 },
+                        { x: centerX + boxSize/2, z: centerZ + boxSize/2 },
+                        { x: centerX - boxSize/2, z: centerZ + boxSize/2 }
+                    ];
+                    buildRealStructuralPolygon(buildingPoints, null);
                 }
             }
             repopulateHumanoidEntities();
@@ -627,7 +661,7 @@
                 for (let i = 0; i < globalTrafficNodes.length; i++) {
                     if (i === this.currentNodeIndex) continue;
                     const evaluationDistance = currentPoint.distanceTo(globalTrafficNodes[i]);
-                    if (evaluationDistance < 80.0) validCandidateIndices.push(i);
+                    if (evaluationDistance < 90.0) validCandidateIndices.push(i);
                 }
 
                 if (validCandidateIndices.length === 0) return Math.floor(Math.random() * globalTrafficNodes.length);
@@ -668,12 +702,11 @@
         }
 
         /* ==========================================================================
-           2D TRACK-UP MINIMAP & COMPASS REGION
+           2D TRACK-UP MINIMAP & CARDINAL COMPASS ENGINE
            ========================================================================= */
         function update2DMinimapSystem() {
             if (!minimapCtx) return;
 
-            // TRACK LOCALLY: Relative vector layout offset generated directly using the static locked anchor coordinate base
             const localUserPos = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
 
             const targetDirectionVector = new THREE.Vector3();
@@ -688,6 +721,7 @@
 
             minimapCtx.clearRect(0, 0, 150, 150);
             minimapCtx.save();
+            
             minimapCtx.beginPath();
             minimapCtx.arc(75, 75, 72, 0, Math.PI * 2);
             minimapCtx.clip();
@@ -695,7 +729,6 @@
             minimapCtx.fillStyle = 'rgba(10, 10, 16, 0.94)';
             minimapCtx.fillRect(0, 0, 150, 150);
 
-            // Pivot visual field around local player position
             minimapCtx.translate(75, 75);
             minimapCtx.rotate(-yawAngleRadians);
 
@@ -717,7 +750,7 @@
                 minimapCtx.stroke();
             });
 
-            // Minimap Layer B: Buildings
+            // Minimap Layer B: Building Footprints
             minimapCtx.fillStyle = 'rgba(255, 234, 0, 0.12)';
             minimapCtx.strokeStyle = 'rgba(255, 234, 0, 0.3)';
             minimapCtx.lineWidth = 1;
@@ -821,7 +854,6 @@
             const explicitTargetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(currentForwardDir, 40);
             
             if (controls) controls.dispose();
-            
             initOrbitControls();
             controls.target.copy(explicitTargetPoint);
             controls.update();
@@ -876,11 +908,7 @@
             currentCoordinates.alt = alt || 15.0;
 
             updateGpsHudDisplay();
-
-            // SOLID OFFLINE TRACKING: Instead of querying the network web API on shift, move variables locally
-            if (mapLoadedForAnchor) {
-                syncVirtualCameraToGpsCoordinates();
-            }
+            syncVirtualCameraToGpsCoordinates();
         }
 
         function syncVirtualCameraToGpsCoordinates() {
@@ -972,8 +1000,6 @@
             sidewalkTexture = createSidewalkCanvasTexture();
 
             updateGpsHudDisplay();
-            
-            // Initial batch load to construct the offline environment boundary
             fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
 
             if (navigator.geolocation) {
@@ -1018,7 +1044,6 @@
                 const deltaTime = Math.min(clock.getDelta(), 0.1); 
 
                 if (isAutoWalking) {
-                    // Update layout degrees locally safely across dimensions
                     const latitudeStepHeading = 0.000020 * deltaTime; 
                     const longitudeStepHeading = 0.000010 * deltaTime;
                     onDynamicLocationUpdate(
