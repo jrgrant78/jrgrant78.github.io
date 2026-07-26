@@ -196,7 +196,6 @@
 
     <canvas id="canvas3d"></canvas>
 
-    <!-- Top View 2D Minimap Canvas Frame and Overlay Compass Assembly -->
     <div id="minimap-container">
         <canvas id="minimapCanvas" width="150" height="150"></canvas>
         <div id="compass-ring">
@@ -348,7 +347,7 @@
         }
 
         /* ==========================================================================
-           REAL-TIME STREAMING MAP DATA ENGINE (OSM CLIENT)
+           REAL-TIME STREAMING MAP DATA ENGINE (RESILIENT INTERNALS CASCADE)
            ========================================================================= */
         async function fetchLiveOpenStreetMapData(lat, lon) {
             if (osmFetchController) {
@@ -357,10 +356,13 @@
             osmFetchController = new AbortController();
 
             const dataStatus = document.getElementById('data-status-badge');
-            dataStatus.innerText = "OSM Engine: Syncing Loop...";
-            dataStatus.style.background = "rgba(255, 171, 0, 0.2)";
-            dataStatus.style.borderColor = "#ffab00";
-            dataStatus.style.color = "#ffab00";
+            
+            // Distributed public and mirror endpoint configurations to circumvent load shedding
+            const overpassEndpoints = [
+                `https://overpass.private.coffee/api/interpreter`, // Resilient high-quota Austrian mirror
+                `https://overpass-api.de/api/interpreter`,        // Core OSM standard mirror
+                `https://lz4.overpass-api.de/api/interpreter`      // Backup secondary node mirror
+            ];
 
             const boundingBoxRange = 0.004;
             const minLat = lat - boundingBoxRange;
@@ -368,28 +370,57 @@
             const maxLat = lat + boundingBoxRange;
             const maxLon = lon + boundingBoxRange;
 
-            const query = `[out:json][timeout:30];(way["building"](${minLat},${minLon},${maxLat},${maxLon});way["highway"](${minLat},${minLon},${maxLat},${maxLon}););out body;>;out skel qt;`;
-            const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+            const query = `[out:json][timeout:25];(way["building"](${minLat},${minLon},${maxLat},${maxLon});way["highway"](${minLat},${minLon},${maxLat},${maxLon}););out body;>;out skel qt;`;
+            
+            let data = null;
+            let success = false;
 
-            try {
-                const response = await fetch(url, { signal: osmFetchController.signal });
-                if (!response.ok) throw new Error("OSM Overpass API response execution dropped.");
-                const data = await response.json();
-                
+            // Sequential fallback processing loop
+            for (let i = 0; i < overpassEndpoints.length; i++) {
+                try {
+                    dataStatus.innerText = `OSM Engine: Mirror ${i + 1}/${overpassEndpoints.length}...`;
+                    dataStatus.style.background = "rgba(255, 171, 0, 0.2)";
+                    dataStatus.style.borderColor = "#ffab00";
+                    dataStatus.style.color = "#ffab00";
+
+                    const response = await fetch(overpassEndpoints[i] + `?data=${encodeURIComponent(query)}`, { 
+                        signal: osmFetchController.signal 
+                    });
+                    
+                    if (!response.ok) throw new Error(`Server returned HTTP ${response.status}`);
+                    
+                    data = await response.json();
+                    if (data && data.elements) {
+                        success = true;
+                        break; 
+                    }
+                } catch (err) {
+                    if (err.name === 'AbortError') return;
+                    console.warn(`Mirror ${i + 1} unreachable, cascading connection down structural array. Reason: ${err.message}`);
+                }
+            }
+
+            if (success && data) {
                 anchorCoordinates.lat = lat;
                 anchorCoordinates.lon = lon;
 
-                dataStatus.innerText = "OSM Engine: Streaming Geometry...";
+                dataStatus.innerText = "OSM Engine: Data Extrusion...";
                 parseAndBuildOSMWorld(data, anchorCoordinates.lat, anchorCoordinates.lon);
                 
                 dataStatus.innerText = "OSM Engine: Live Sync";
                 dataStatus.style.background = "rgba(0, 230, 118, 0.2)";
                 dataStatus.style.borderColor = "#00e676";
                 dataStatus.style.color = "#00e676";
-            } catch (err) {
-                if (err.name === 'AbortError') return; 
-                console.error("Geospatial Fetch Failure: ", err);
-                dataStatus.innerText = "OSM Engine: Retry Pending";
+            } else {
+                dataStatus.innerText = "OSM Engine: Outage Fallback";
+                dataStatus.style.background = "rgba(255, 23, 68, 0.2)";
+                dataStatus.style.borderColor = "#ff1744";
+                dataStatus.style.color = "#ff1744";
+                
+                // If network completely timeouts and scene is missing components, load geometric primitives baseline
+                if (globalTrafficNodes.length === 0) {
+                    generateProceduralBackupInfrastructure();
+                }
             }
         }
 
@@ -517,6 +548,21 @@
             }
         }
 
+        function generateProceduralBackupInfrastructure() {
+            globalTrafficNodes.push(new THREE.Vector3(0, 0, 0));
+            globalTrafficNodes.push(new THREE.Vector3(60, 0, 0));
+            globalTrafficNodes.push(new THREE.Vector3(0, 0, 60));
+            
+            const floorFallbackGeo = new THREE.PlaneGeometry(1000, 1000);
+            const floorFallbackMat = new THREE.MeshStandardMaterial({ map: sidewalkTexture, roughness: 0.9 });
+            const ground = new THREE.Mesh(floorFallbackGeo, floorFallbackMat);
+            ground.rotation.x = -Math.PI/2;
+            ground.receiveShadow = true;
+            dynamicWorldGroup.add(ground);
+            
+            repopulateHumanoidEntities();
+        }
+
         /* ==========================================================================
            AUTOMATED HUMANOID SIMULATION SYSTEM
            ========================================================================= */
@@ -636,26 +682,21 @@
         function update2DMinimapSystem() {
             if (!minimapCtx) return;
 
-            // Fetch absolute structural positions relative to current project anchors
             const localUserPos = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
 
-            // Compute precise current camera layout heading
             const targetDirectionVector = new THREE.Vector3();
             camera.getWorldDirection(targetDirectionVector);
             const yawAngleRadians = Math.atan2(targetDirectionVector.x, -targetDirectionVector.z);
 
-            // Rotate the HTML overlay compass ring to dynamically anchor North (-Z direction)
             const compassRing = document.getElementById('compass-ring');
             if (compassRing) {
                 const compassOrientationDegrees = THREE.MathUtils.radToDeg(-yawAngleRadians);
                 compassRing.style.transform = `rotate(${compassOrientationDegrees}deg)`;
             }
 
-            // Reset canvas frame buffer
             minimapCtx.clearRect(0, 0, 150, 150);
             minimapCtx.save();
             
-            // Build viewport mask clip
             minimapCtx.beginPath();
             minimapCtx.arc(75, 75, 72, 0, Math.PI * 2);
             minimapCtx.clip();
@@ -663,13 +704,13 @@
             minimapCtx.fillStyle = 'rgba(10, 10, 16, 0.94)';
             minimapCtx.fillRect(0, 0, 150, 150);
 
-            // CRITICAL ARCHITECTURAL SHIFT: Pivot environment directly around camera position
+            // Pivot visual map context layout smoothly around camera relative coordinates
             minimapCtx.translate(75, 75);
             minimapCtx.rotate(-yawAngleRadians);
 
             const MINIMAP_GRAPHICS_SCALE = 0.5;
 
-            // Minimap Layer A: Render Streets
+            // Minimap Layer A: Streets
             minimapCtx.strokeStyle = 'rgba(0, 229, 255, 0.3)';
             minimapCtx.lineWidth = ROAD_WIDTH_METERS * MINIMAP_GRAPHICS_SCALE;
             minimapCtx.lineCap = "round"; minimapCtx.lineJoin = "round";
@@ -685,7 +726,7 @@
                 minimapCtx.stroke();
             });
 
-            // Minimap Layer B: Render Building Footprints
+            // Minimap Layer B: Building Footprints
             minimapCtx.fillStyle = 'rgba(255, 234, 0, 0.12)';
             minimapCtx.strokeStyle = 'rgba(255, 234, 0, 0.3)';
             minimapCtx.lineWidth = 1;
@@ -702,7 +743,7 @@
                 minimapCtx.fill(); minimapCtx.stroke();
             });
 
-            // Minimap Layer C: Render Humanoid Agents
+            // Minimap Layer C: Humanoid Agents
             for (let i = 0; i < humanoidsArray.length; i++) {
                 const agentEntity = humanoidsArray[i];
                 const deltaPositionX = agentEntity.rootGroup.position.x - localUserPos.x;
@@ -721,20 +762,20 @@
 
             minimapCtx.restore();
 
-            // Outer HUD structural border trim
+            // Outer structural bezel bounds
             minimapCtx.strokeStyle = 'rgba(0, 229, 255, 0.4)';
             minimapCtx.lineWidth = 2;
             minimapCtx.beginPath();
             minimapCtx.arc(75, 75, 73, 0, Math.PI * 2);
             minimapCtx.stroke();
 
-            // Center Static Node (The camera point remains centered, reflecting the track-up shift)
+            // Center User Point Indicator Fix
             minimapCtx.fillStyle = '#00ffcc';
             minimapCtx.beginPath();
             minimapCtx.arc(75, 75, 4, 0, Math.PI * 2);
             minimapCtx.fill();
 
-            // Heading direction cone (Always points directly UP/Forward in Track-Up systems)
+            // Track-Up Heading Vector
             minimapCtx.strokeStyle = '#00ffcc';
             minimapCtx.lineWidth = 2;
             minimapCtx.beginPath();
