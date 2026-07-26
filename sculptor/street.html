@@ -189,8 +189,9 @@
         }
     </style>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- Bulletproof Unified Package Repository Imports -->
+    <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
 
@@ -262,14 +263,15 @@
         const VELOCITY_DEADZONE_LIMIT = 0.0001;
 
         // Geolocation Data Tracking States
-        let currentCoordinates = { lat: 40.7580, lon: -73.9855, alt: 15.0, accuracy: 5.0 }; // Core Times Square Default
-        let anchorCoordinates = { lat: 40.7580, lon: -73.9855 }; // Static system geographic anchor
+        let currentCoordinates = { lat: 40.7580, lon: -73.9855, alt: 15.0, accuracy: 5.0 }; 
+        let anchorCoordinates = { lat: 40.7580, lon: -73.9855 }; 
         let mapLoadedForAnchor = false;
         const R_EARTH = 6378137;
 
-        // Simulation Update Configurations
+        // Real-Time Update Configurations
         let isAutoWalking = false;
         let osmFetchController = null; 
+        const STREAM_DISTANCE_THRESHOLD_METERS = 40; 
 
         // Simulation Entity Collections
         const humanoidsArray = [];
@@ -340,8 +342,18 @@
             return { x: x, z: z };
         }
 
+        function computeDistanceBetweenCoords(lat1, lon1, lat2, lon2) {
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R_EARTH * c;
+        }
+
         /* ==========================================================================
-           STATIC LOCAL MAP INGESTION ENGINE (DOWNLOAD ONCE STRATEGY)
+           REAL-TIME STREAMING MAP DATA ENGINE (RESILIENT INTERNALS CASCADE)
            ========================================================================= */
         async function fetchLiveOpenStreetMapData(lat, lon) {
             if (osmFetchController) osmFetchController.abort();
@@ -475,7 +487,6 @@
             for (let i = 1; i < points.length; i++) shapeOutline.lineTo(points[i].x, points[i].z);
             shapeOutline.closePath();
 
-            // FIXED OBJECT EVALUATION NULL CHECK REFERENCE EXCEPTION
             let buildingHeight = (tags && tags.height) ? parseFloat(tags.height) : (15 + Math.random() * 30);
             if (tags && tags["building:levels"]) {
                 buildingHeight = parseInt(tags["building:levels"]) * 3.5;
@@ -552,7 +563,7 @@
 
             const spacing = 80;
             
-            // Populates fallback telemetry lists for minimap drawing
+            // Populates fallback data streams for rendering
             for (let x = -4; x <= 4; x++) {
                 const streetPointsV = [{ x: x * spacing, z: -350 }, { x: x * spacing, z: 350 }];
                 renderedStreetsList.push(streetPointsV);
@@ -983,8 +994,9 @@
             initOrbitControls();
 
             scene.add(new THREE.AmbientLight(0xffffff, 0.22));
+            
             const sunLight = new THREE.DirectionalLight(0xdbe7ff, 1.25);
-            sunLight.position.set(150, 450, 150); // FIXED TYPO LABELED STATEMENT BOTTLENECK
+            sunLight.position.set(150, 450, 150); // Syntax break repaired
             sunLight.castShadow = true;
             sunLight.shadow.mapSize.width = 2048;
             sunLight.shadow.mapSize.height = 2048;
@@ -1041,62 +1053,68 @@
             
             function animateLoop() {
                 requestAnimationFrame(animateLoop);
-                const deltaTime = Math.min(clock.getDelta(), 0.1); 
+                
+                // Active frame thread exception shield protection loop
+                try {
+                    const deltaTime = Math.min(clock.getDelta(), 0.1); 
 
-                if (isAutoWalking) {
-                    const latitudeStepHeading = 0.000020 * deltaTime; 
-                    const longitudeStepHeading = 0.000010 * deltaTime;
-                    onDynamicLocationUpdate(
-                        currentCoordinates.lat + latitudeStepHeading,
-                        currentCoordinates.lon + longitudeStepHeading,
-                        3.0, 15.0
-                    );
-                }
-
-                for(let i = 0; i < humanoidsArray.length; i++) {
-                    humanoidsArray[i].updateAgentPhysics(deltaTime);
-                }
-
-                if (gyroActive) {
-                    const INTEGRATION_LEAK_DECAY = 0.78;
-                    targetLinearVelocityX *= INTEGRATION_LEAK_DECAY;
-                    targetLinearVelocityZ *= INTEGRATION_LEAK_DECAY;
-
-                    if (Math.abs(targetLinearVelocityX) < VELOCITY_DEADZONE_LIMIT) targetLinearVelocityX = 0;
-                    if (Math.abs(targetLinearVelocityZ) < VELOCITY_DEADZONE_LIMIT) targetLinearVelocityZ = 0;
-
-                    if (targetLinearVelocityX !== 0 || targetLinearVelocityZ !== 0) {
-                        camera.position.x += targetLinearVelocityX;
-                        camera.position.z += targetLinearVelocityZ;
-                        
-                        const localMetersToLatLonShift = 1.0 / R_EARTH * (180.0 / Math.PI);
-                        const radAnchorLat = anchorCoordinates.lat * Math.PI / 180;
-                        const adjustedLat = currentCoordinates.lat - (targetLinearVelocityZ * localMetersToLatLonShift);
-                        const adjustedLon = currentCoordinates.lon + (targetLinearVelocityX * localMetersToLatLonShift / Math.cos(radAnchorLat));
-                        
-                        onDynamicLocationUpdate(adjustedLat, adjustedLon, currentCoordinates.accuracy, currentCoordinates.alt);
+                    if (isAutoWalking) {
+                        const latitudeStepHeading = 0.000020 * deltaTime; 
+                        const longitudeStepHeading = 0.000010 * deltaTime;
+                        onDynamicLocationUpdate(
+                            currentCoordinates.lat + latitudeStepHeading,
+                            currentCoordinates.lon + longitudeStepHeading,
+                            3.0, 15.0
+                        );
                     }
 
-                    document.getElementById('sensor-hud').innerHTML = `
-                        VELOCITY X: ${targetLinearVelocityX.toFixed(4)}<br>
-                        VELOCITY Z: ${targetLinearVelocityZ.toFixed(4)}<br>
-                        SYSTEM MODE: GYRO_DRIVE
-                    `;
-                }
-
-                if (controls && controls.enabled) {
-                    controls.update();
-                    if (!gyroActive && lockedGyroRoll !== 0) {
-                        cleanTargetQuaternion.copy(camera.quaternion);
-                        camera.rotateZ(lockedGyroRoll);
+                    for(let i = 0; i < humanoidsArray.length; i++) {
+                        humanoidsArray[i].updateAgentPhysics(deltaTime);
                     }
-                }
 
-                renderer.render(scene, camera);
-                update2DMinimapSystem();
+                    if (gyroActive) {
+                        const INTEGRATION_LEAK_DECAY = 0.78;
+                        targetLinearVelocityX *= INTEGRATION_LEAK_DECAY;
+                        targetLinearVelocityZ *= INTEGRATION_LEAK_DECAY;
 
-                if (controls && controls.enabled && !gyroActive && lockedGyroRoll !== 0) {
-                    camera.quaternion.copy(cleanTargetQuaternion);
+                        if (Math.abs(targetLinearVelocityX) < VELOCITY_DEADZONE_LIMIT) targetLinearVelocityX = 0;
+                        if (Math.abs(targetLinearVelocityZ) < VELOCITY_DEADZONE_LIMIT) targetLinearVelocityZ = 0;
+
+                        if (targetLinearVelocityX !== 0 || targetLinearVelocityZ !== 0) {
+                            camera.position.x += targetLinearVelocityX;
+                            camera.position.z += targetLinearVelocityZ;
+                            
+                            const localMetersToLatLonShift = 1.0 / R_EARTH * (180.0 / Math.PI);
+                            const radAnchorLat = anchorCoordinates.lat * Math.PI / 180;
+                            const adjustedLat = currentCoordinates.lat - (targetLinearVelocityZ * localMetersToLatLonShift);
+                            const adjustedLon = currentCoordinates.lon + (targetLinearVelocityX * localMetersToLatLonShift / Math.cos(radAnchorLat));
+                            
+                            onDynamicLocationUpdate(adjustedLat, adjustedLon, currentCoordinates.accuracy, currentCoordinates.alt);
+                        }
+
+                        document.getElementById('sensor-hud').innerHTML = `
+                            VELOCITY X: ${targetLinearVelocityX.toFixed(4)}<br>
+                            VELOCITY Z: ${targetLinearVelocityZ.toFixed(4)}<br>
+                            SYSTEM MODE: GYRO_DRIVE
+                        `;
+                    }
+
+                    if (controls && controls.enabled) {
+                        controls.update();
+                        if (!gyroActive && lockedGyroRoll !== 0) {
+                            cleanTargetQuaternion.copy(camera.quaternion);
+                            camera.rotateZ(lockedGyroRoll);
+                        }
+                    }
+
+                    renderer.render(scene, camera);
+                    update2DMinimapSystem();
+
+                    if (controls && controls.enabled && !gyroActive && lockedGyroRoll !== 0) {
+                        camera.quaternion.copy(cleanTargetQuaternion);
+                    }
+                } catch(loopError) {
+                    console.error("Internal loop handler exception intercepted safely:", loopError);
                 }
             }
             animateLoop();
