@@ -720,7 +720,7 @@
        Combined Application Implementation Scripts Block
        ========================================================================= -->
     <script>
-        let scene, camera, renderer, controls, gridHelper, keyLight;
+        let scene, camera, renderer, controls, gridHelper;
         let videoElement, localStream;
         
         let gyroActive = false;
@@ -1377,7 +1377,7 @@
 
             scene.add(new THREE.AmbientLight(0xffffff, 0.35));
             
-            keyLight = new THREE.DirectionalLight(0xfffecb, 1.4);
+            const keyLight = new THREE.DirectionalLight(0xfffecb, 1.4);
             keyLight.position.set(15, 25, 20);
             keyLight.castShadow = true;
             keyLight.shadow.mapSize.width = 1024;
@@ -2007,15 +2007,19 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
+                            // Added structural engine systemInstruction configuration parameters
+                            systemInstruction: {
+                                parts: [{ text: "Act as an analytical, mathematically rigid spatial scanning engine. Disregard creative variance and optimize for structural symmetry, relative scaling likeness, and precise absolute ground-plane anchoring." }]
+                            },
                             contents: [{ parts: [{ text: pass1Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }],
                             generationConfig: { 
                                 responseMimeType: "application/json",
-                                temperature: 0.1,
                                 responseSchema: {
                                     type: "OBJECT",
                                     properties: { description: { type: "STRING" }, blueprint: { type: "STRING" } },
                                     required: ["description", "blueprint"]
-                                }
+                                },
+                                temperature: 0.0 // Fixed randomness footprint to lock structural likeness variables
                             }
                         })
                     });
@@ -2064,10 +2068,13 @@
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
+                                // Added strict parsing systemInstruction guidelines
+                                systemInstruction: {
+                                    parts: [{ text: "Act as a strict geometry parser. Convert textual blueprint instructions into accurate numerical primitive configurations, matching relative visual size and layout data flawlessly." }]
+                                },
                                 contents: [{ parts: [{ text: pass2Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }], 
                                 generationConfig: { 
                                     responseMimeType: "application/json",
-                                    temperature: 0.1,
                                     responseSchema: {
                                         type: "OBJECT",
                                         properties: {
@@ -2076,11 +2083,12 @@
                                                 items: {
                                                     type: "OBJECT",
                                                     properties: {
-                                                        t: { type: "STRING", description: "type primitive token: cube, rectangular prism, pyramid, sphere, cylinder, cone, capsule, roundedbox, plane" }, 
-                                                        label: { type: "STRING", description: "The functional real-world name of this item component from the blueprint line, e.g., 'table leg', 'chair cushion', 'laptop display', 'floor rug'" },
-                                                        p: { type: "ARRAY", items: { type: "NUMBER" } },
-                                                        s: { type: "ARRAY", items: { type: "NUMBER" } }, 
-                                                        r: { type: "ARRAY", items: { type: "NUMBER" } },
+                                                        t: { type: "STRING", description: "Primitive type constraint token matching standard geometric names." }, 
+                                                        label: { type: "STRING", description: "Real-world functional identifier from blueprint." },
+                                                        // Injected property-level semantic metadata guidelines directly inside schema fields
+                                                        p: { type: "ARRAY", description: "3D translation vector [x, y, z] perfectly aligned relative to absolute global origin.", items: { type: "NUMBER" } },
+                                                        s: { type: "ARRAY", description: "3D box spatial boundary dimensions array [width, height, depth] maintaining visual proportions.", items: { type: "NUMBER" } }, 
+                                                        r: { type: "ARRAY", description: "Euler rotation orientation matrix angles vector in radians [x, y, z].", items: { type: "NUMBER" } },
                                                         c: { type: "STRING" }, 
                                                         rough: { type: "NUMBER" }, 
                                                         metal: { type: "NUMBER" }, 
@@ -2091,7 +2099,8 @@
                                             }
                                         },
                                         required: ["shapes"]
-                                    }
+                                    },
+                                    temperature: 0.0 // Forced absolute highest-probability deterministic coordinate extraction
                                 }
                             })
                         });
@@ -2166,7 +2175,7 @@
                         geo = new THREE.ConeGeometry(0.5, 1, 32); 
                         break;
                     case 'capsule': 
-                        geo = new THREE.CapsuleGeometry(0.4, 1.0, 4, 16); 
+                        geo = new THREE.CylinderGeometry(0.4, 0.4, 1.0, 32); 
                         break;
                     case 'plane': 
                         geo = new THREE.PlaneGeometry(1, 1); 
@@ -2179,19 +2188,14 @@
                 geo.computeBoundingSphere();
 
                 const isTranslucent = shape.trans > 0.05;
-                const isMetallic = shape.metal > 0.2;
-                
                 const mat = new THREE.MeshPhysicalMaterial({
                     color: new THREE.Color(shape.c || "#ffffff"),
                     roughness: shape.rough !== undefined ? THREE.MathUtils.clamp(shape.rough, 0, 1) : 0.4,
                     metalness: shape.metal !== undefined ? THREE.MathUtils.clamp(shape.metal, 0, 1) : 0.0,
                     transmission: shape.trans !== undefined ? THREE.MathUtils.clamp(shape.trans, 0, 1) : 0.0,
-                    ior: isTranslucent ? 1.52 : 1.50, 
+                    ior: isTranslucent ? 1.52 : 1.0, 
                     thickness: isTranslucent ? 1.0 : 0.0, 
-                    transparent: isTranslucent || shape.trans > 0,
-                    clearcoat: isMetallic ? 0.8 : 0.1,
-                    clearcoatRoughness: 0.1,
-                    reflectivity: 0.5,
+                    transparent: isTranslucent,
                     side: THREE.DoubleSide
                 });
 
@@ -2248,15 +2252,6 @@
                     floatingBackdropMesh.visible = backdropOverlayActive;
                     
                     structureInstanceGroup.add(floatingBackdropMesh);
-                }
-
-                // Dynamically expand directional light shadow volume to cover the spatial structure scale cleanly
-                if (keyLight && keyLight.shadow && keyLight.shadow.camera) {
-                    keyLight.shadow.camera.left = box.min.x - 6;
-                    keyLight.shadow.camera.right = box.max.x + 6;
-                    keyLight.shadow.camera.top = box.max.y + 6;
-                    keyLight.shadow.camera.bottom = box.min.y - 6;
-                    keyLight.shadow.camera.updateProjectionMatrix();
                 }
 
                 resolveGeometryClipping();
