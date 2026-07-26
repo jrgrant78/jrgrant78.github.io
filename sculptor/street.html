@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>GeoSpatial Real Map & Humanoid Simulator</title>
+    <title>GeoSpatial Real-Time Map & Humanoid Simulator</title>
     <style>
         body {
             margin: 0;
@@ -120,6 +120,7 @@
             flex-direction: column;
             align-items: flex-end;
             gap: 5px;
+            pointer-events: none;
         }
 
         .badge {
@@ -226,7 +227,7 @@
     </div>
 
     <div id="telemetry-log">
-        <span id="gps-status-badge" class="badge" style="background: rgba(255, 171, 0, 0.2); border-color: #ffab00; color: #ffab00;">Syncing Core...</span>
+        <span id="gps-status-badge" class="badge" style="background: rgba(255, 171, 0, 0.2); border-color: #ffab00; color: #ffab00;">Syncing Geo-Core...</span>
         <span id="data-status-badge" class="badge" style="background: rgba(0, 229, 255, 0.2); border-color: #00e5ff; color: #00e5ff;">OSM Engine: Idle</span>
     </div>
 
@@ -235,9 +236,9 @@
             <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/><circle cx="12" cy="12" r="3"/></svg>
             Sensor View Drive
         </button>
-        <button id="triggerGpsBtn" class="control-btn">
-            <svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
-            Trigger Location Shift
+        <button id="autoWalkBtn" class="control-btn">
+            <svg viewBox="0 0 24 24"><path d="M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 21.5h2.1l1.9-8.2 2.1 2v6.2h2v-7.5l-2.1-2 .6-3c1 .8 2.4 1.5 4.1 1.5v-2c-1.5 0-2.7-.6-3.5-1.5l-1-1.5c-.4-.6-1-1-1.7-1-.3 0-.5 0-.8.1L5.7 6.3v5.2h2V8.9l2.1-.8z"/></svg>
+            Simulate Walk Path
         </button>
     </div>
 
@@ -256,9 +257,15 @@
         let targetLinearVelocityZ = 0;
         const VELOCITY_DEADZONE_LIMIT = 0.0001;
 
-        // Geolocation Data Tracking States (Defaulting to a dense urban center: Times Square, NY)
-        let currentCoordinates = { lat: 40.7580, lon: -73.9855, alt: 15.0, accuracy: 5.0 };
-        const R_EARTH = 6378137; // Earth radius in meters
+        // Geolocation Data Tracking States
+        let currentCoordinates = { lat: 40.7580, lon: -73.9855, alt: 15.0, accuracy: 5.0 }; // Core Times Square Baseline Anchor
+        let anchorCoordinates = { lat: 40.7580, lon: -73.9855 }; // Root origin system coordinates anchor
+        const R_EARTH = 6378137;
+
+        // Real-Time Update Configurations
+        let isAutoWalking = false;
+        let osmFetchController = null; 
+        const STREAM_DISTANCE_THRESHOLD_METERS = 40; 
 
         // Simulation Entity Collections
         const humanoidsArray = [];
@@ -320,9 +327,8 @@
         }
 
         /* ==========================================================================
-           OPENSTREETMAP LIVE GEOSPATIAL DATA INGESTION ENGINE
+           GEOSPATIAL COORDINATES PROJECTIONS MATRIX
            ========================================================================= */
-        // Projects Lat/Lon degrees to local relative meters from current location anchor
         function latLonToLocalMeters(lat, lon, anchorLat, anchorLon) {
             const radLat = anchorLat * Math.PI / 180;
             const x = (lon - anchorLon) * (Math.PI / 180) * R_EARTH * Math.cos(radLat);
@@ -330,51 +336,72 @@
             return { x: x, z: z };
         }
 
+        function computeDistanceBetweenCoords(lat1, lon1, lat2, lon2) {
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R_EARTH * c;
+        }
+
+        /* ==========================================================================
+           REAL-TIME STREAMING MAP DATA ENGINE (OSM CLIENT)
+           ========================================================================= */
         async function fetchLiveOpenStreetMapData(lat, lon) {
+            // Abort ongoing parallel operations if updating rapidly
+            if (osmFetchController) {
+                osmFetchController.abort();
+            }
+            osmFetchController = new AbortController();
+
             const dataStatus = document.getElementById('data-status-badge');
-            dataStatus.innerText = "OSM Engine: Fetching...";
+            dataStatus.innerText = "OSM Engine: Syncing Loop...";
             dataStatus.style.background = "rgba(255, 171, 0, 0.2)";
             dataStatus.style.borderColor = "#ffab00";
             dataStatus.style.color = "#ffab00";
 
-            // Define a bounding box (~400 meters radius around current position)
-            const boundingBoxRange = 0.0035;
+            // Establish map coordinate bounds (~450 meters tracking viewport radius)
+            const boundingBoxRange = 0.004;
             const minLat = lat - boundingBoxRange;
             const minLon = lon - boundingBoxRange;
             const maxLat = lat + boundingBoxRange;
             const maxLon = lon + boundingBoxRange;
 
-            // Formulate standard target OSM Overpass QL Query syntax
             const query = `[out:json][timeout:30];(way["building"](${minLat},${minLon},${maxLat},${maxLon});way["highway"](${minLat},${minLon},${maxLat},${maxLon}););out body;>;out skel qt;`;
             const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
 
             try {
-                const response = await fetch(url);
-                if (!response.ok) throw new Error("Network metadata ingestion error.");
+                const response = await fetch(url, { signal: osmFetchController.signal });
+                if (!response.ok) throw new Error("OSM Overpass API response execution dropped.");
                 const data = await response.json();
                 
-                dataStatus.innerText = "OSM Engine: Parsing...";
-                parseAndBuildOSMWorld(data, lat, lon);
+                // Redraw architecture around the fresh geographic positioning
+                anchorCoordinates.lat = lat;
+                anchorCoordinates.lon = lon;
+
+                dataStatus.innerText = "OSM Engine: Streaming Geometry...";
+                parseAndBuildOSMWorld(data, anchorCoordinates.lat, anchorCoordinates.lon);
                 
                 dataStatus.innerText = "OSM Engine: Live Sync";
                 dataStatus.style.background = "rgba(0, 230, 118, 0.2)";
                 dataStatus.style.borderColor = "#00e676";
                 dataStatus.style.color = "#00e676";
             } catch (err) {
-                console.error("OSM Parsing Error: ", err);
-                dataStatus.innerText = "OSM Engine: API Error";
-                dataStatus.style.background = "rgba(255, 23, 68, 0.2)";
-                dataStatus.style.borderColor = "#ff1744";
-                dataStatus.style.color = "#ff1744";
-                // Generate safe runtime matrix defaults if networking drops out
-                generateProceduralBackupInfrastructure();
+                if (err.name === 'AbortError') return; // Smoothly exit if operation was superseded
+                console.error("Geospatial Fetch Failure: ", err);
+                dataStatus.innerText = "OSM Engine: Retry Pending";
             }
         }
 
         function parseAndBuildOSMWorld(osmData, anchorLat, anchorLon) {
-            // Clear existing scene maps
+            // Clean up old scene assets gracefully
             while(dynamicWorldGroup.children.length > 0) {
-                dynamicWorldGroup.remove(dynamicWorldGroup.children[0]);
+                const item = dynamicWorldGroup.children[0];
+                if (item.geometry) item.geometry.dispose();
+                if (item.material) item.material.dispose();
+                dynamicWorldGroup.remove(item);
             }
             globalTrafficNodes.length = 0;
             renderedStreetsList.length = 0;
@@ -382,42 +409,39 @@
 
             if (!osmData || !osmData.elements) return;
 
-            // Step 1: Map all node tracking definitions down to indexed dictionaries
             const nodesLookup = {};
             osmData.elements.forEach(element => {
                 if (element.type === 'node') {
                     const localMeters = latLonToLocalMeters(element.lat, element.lon, anchorLat, anchorLon);
-                    nodesLookup[element.id] = {
-                        x: localMeters.x,
-                        z: localMeters.z
-                    };
+                    nodesLookup[element.id] = { x: localMeters.x, z: localMeters.z };
                 }
             });
 
-            // Step 2: Separate and process continuous lines and structural polygons
             osmData.elements.forEach(element => {
                 if (element.type === 'way' && element.nodes) {
                     const localCoordinatesPoints = [];
                     element.nodes.forEach(nodeId => {
-                        if (nodesLookup[nodeId]) {
-                            localCoordinatesPoints.push(nodesLookup[nodeId]);
-                        }
+                        if (nodesLookup[nodeId]) localCoordinatesPoints.push(nodesLookup[nodeId]);
                     });
 
                     if (localCoordinatesPoints.length < 2) return;
 
-                    // Parse real building footprints
                     if (element.tags && element.tags.building) {
                         buildRealStructuralPolygon(localCoordinatesPoints, element.tags);
-                    } 
-                    // Parse real street segments
-                    else if (element.tags && element.tags.highway) {
+                    } else if (element.tags && element.tags.highway) {
                         buildRealStreetSegment(localCoordinatesPoints, element.tags);
                     }
                 }
             });
 
-            // Anchor humanoids directly to the newly parsed street coordinates
+            // Adjust relative camera viewport metrics so user tracking stays fluid during asset clearing
+            const localCamOffset = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorLat, anchorLon);
+            camera.position.x = localCamOffset.x;
+            camera.position.z = localCamOffset.z + 60; // Keep relative perspective viewing clear
+            if (controls) {
+                controls.target.set(localCamOffset.x, 2, localCamOffset.z);
+            }
+
             repopulateHumanoidEntities();
         }
 
@@ -431,13 +455,9 @@
             }
             shapeOutline.closePath();
 
-            // Evaluate building height from data profile tags or assign estimation scale metrics
-            let buildingHeight = 12 + Math.random() * 25;
-            if (tags.height) {
-                buildingHeight = parseFloat(tags.height);
-            } else if (tags["building:levels"]) {
-                buildingHeight = parseInt(tags["building:levels"]) * 3.5;
-            }
+            let buildingHeight = 15 + Math.random() * 30;
+            if (tags.height) buildingHeight = parseFloat(tags.height);
+            else if (tags["building:levels"]) buildingHeight = parseInt(tags["building:levels"]) * 3.5;
 
             const extrusionSettings = {
                 depth: buildingHeight,
@@ -448,20 +468,20 @@
             };
 
             const geom = new THREE.ExtrudeGeometry(shapeOutline, extrusionSettings);
-            geom.rotateX(Math.PI / 2); // Rotate to layout natively along the Y-axis floor plane
+            geom.rotateX(Math.PI / 2);
 
-            const structureColors = [0x1a2238, 0x22252c, 0x2d323f, 0x181a22];
+            const structureColors = [0x141923, 0x1c1e24, 0x252a36, 0x111218];
             const primaryColor = structureColors[Math.floor(Math.random() * structureColors.length)];
             
-            const windowNeonGlows = [0x00e5ff, 0x00e676, 0xffea00, 0x9c27b0];
+            const windowNeonGlows = [0x00e5ff, 0x00e676, 0xffea00, 0xff1744];
             const randomNeon = windowNeonGlows[Math.floor(Math.random() * windowNeonGlows.length)];
 
             const mat = new THREE.MeshStandardMaterial({
                 color: primaryColor,
-                roughness: 0.3,
-                metalness: 0.7,
+                roughness: 0.25,
+                metalness: 0.75,
                 emissive: randomNeon,
-                emissiveIntensity: Math.random() > 0.7 ? 0.08 : 0.01
+                emissiveIntensity: Math.random() > 0.8 ? 0.09 : 0.01
             });
 
             const buildingMesh = new THREE.Mesh(geom, mat);
@@ -469,24 +489,17 @@
             buildingMesh.receiveShadow = true;
             dynamicWorldGroup.add(buildingMesh);
 
-            // Cache metrics data configurations inside local tracking arrays for 2D map views
             renderedBuildingsList.push({ points: points, height: buildingHeight });
         }
 
         function buildRealStreetSegment(points, tags) {
             renderedStreetsList.push(points);
+            const streetMaterial = new THREE.MeshStandardMaterial({ map: streetTexture, roughness: 0.65 });
 
-            const streetMaterial = new THREE.MeshStandardMaterial({
-                map: streetTexture,
-                roughness: 0.7
-            });
-
-            // Convert raw linear vector traces into physical textured floor strips
             for (let i = 0; i < points.length - 1; i++) {
                 const ptA = points[i];
                 const ptB = points[i + 1];
 
-                // Register nodes directly to target traffic path vectors
                 globalTrafficNodes.push(new THREE.Vector3(ptA.x, 0.05, ptA.z));
                 globalTrafficNodes.push(new THREE.Vector3(ptB.x, 0.05, ptB.z));
 
@@ -496,7 +509,6 @@
                 const roadSegmentMesh = new THREE.Mesh(roadLineGeo, streetMaterial);
                 roadSegmentMesh.rotation.x = -Math.PI / 2;
                 
-                // Position and orient segment lengths toward the next continuous point
                 const centerX = (ptA.x + ptB.x) / 2;
                 const centerZ = (ptA.z + ptB.z) / 2;
                 roadSegmentMesh.position.set(centerX, 0.01, centerZ);
@@ -507,23 +519,6 @@
                 
                 dynamicWorldGroup.add(roadSegmentMesh);
             }
-        }
-
-        function generateProceduralBackupInfrastructure() {
-            // Safe fallback loop to populate objects if network environments are unavailable
-            globalTrafficNodes.push(new THREE.Vector3(0, 0, 0));
-            globalTrafficNodes.push(new THREE.Vector3(50, 0, 0));
-            globalTrafficNodes.push(new THREE.Vector3(0, 0, 50));
-            globalTrafficNodes.push(new THREE.Vector3(-50, 0, -50));
-            
-            const floorFallbackGeo = new THREE.PlaneGeometry(500, 500);
-            const floorFallbackMat = new THREE.MeshStandardMaterial({ map: sidewalkTexture, roughness: 0.9 });
-            const ground = new THREE.Mesh(floorFallbackGeo, floorFallbackMat);
-            ground.rotation.x = -Math.PI/2;
-            ground.receiveShadow = true;
-            dynamicWorldGroup.add(ground);
-            
-            repopulateHumanoidEntities();
         }
 
         /* ==========================================================================
@@ -538,16 +533,15 @@
                 
                 this.buildHumanoidTopology();
 
-                // Select a traffic node along a real street segment
                 this.currentNodeIndex = Math.floor(Math.random() * globalTrafficNodes.length);
                 const spawnAnchorPosition = globalTrafficNodes[this.currentNodeIndex] || new THREE.Vector3(0,0,0);
                 
-                this.lateralOffsetVector = new THREE.Vector3((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 4);
+                this.lateralOffsetVector = new THREE.Vector3((Math.random() - 0.5) * 5, 0, (Math.random() - 0.5) * 5);
                 this.rootGroup.position.copy(spawnAnchorPosition).add(this.lateralOffsetVector);
                 this.rootGroup.position.y = 0;
 
                 this.targetNodeIndex = this.findRandomConnectedTrafficNode();
-                this.movementVelocitySpeed = 2.5 + Math.random() * 3.5; 
+                this.movementVelocitySpeed = 3.0 + Math.random() * 4.0; 
                 this.animationPhaseOscillationTime = Math.random() * Math.PI * 2;
 
                 dynamicWorldGroup.add(this.rootGroup);
@@ -590,11 +584,10 @@
                 const currentPoint = globalTrafficNodes[this.currentNodeIndex] || new THREE.Vector3(0,0,0);
                 const validCandidateIndices = [];
 
-                // Simple path tracking algorithm: find matching street nodes within a practical range
                 for (let i = 0; i < globalTrafficNodes.length; i++) {
                     if (i === this.currentNodeIndex) continue;
                     const evaluationDistance = currentPoint.distanceTo(globalTrafficNodes[i]);
-                    if (evaluationDistance < 65.0) { 
+                    if (evaluationDistance < 80.0) { 
                         validCandidateIndices.push(i);
                     }
                 }
@@ -647,8 +640,7 @@
         function update2DMinimapSystem() {
             if (!minimapCtx) return;
 
-            const camX = camera.position.x;
-            const camZ = camera.position.z;
+            const localUserPos = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
 
             const targetDirectionVector = new THREE.Vector3();
             camera.getWorldDirection(targetDirectionVector);
@@ -666,51 +658,49 @@
             minimapCtx.arc(75, 75, 72, 0, Math.PI * 2);
             minimapCtx.clip();
 
-            minimapCtx.fillStyle = 'rgba(10, 10, 16, 0.92)';
+            minimapCtx.fillStyle = 'rgba(10, 10, 16, 0.94)';
             minimapCtx.fillRect(0, 0, 150, 150);
 
-            const MINIMAP_GRAPHICS_SCALE = 0.55; // Pixels per meter conversion scaling
+            const MINIMAP_GRAPHICS_SCALE = 0.5;
 
-            // Minimap Layer A: Render parsed physical street meshes
+            // Minimap Layer A: Render Streets
             minimapCtx.strokeStyle = 'rgba(0, 229, 255, 0.3)';
             minimapCtx.lineWidth = ROAD_WIDTH_METERS * MINIMAP_GRAPHICS_SCALE;
-            minimapCtx.lineCap = "round";
-            minimapCtx.lineJoin = "round";
+            minimapCtx.lineCap = "round"; minimapCtx.lineJoin = "round";
 
             renderedStreetsList.forEach(streetPoints => {
                 minimapCtx.beginPath();
                 streetPoints.forEach((pt, index) => {
-                    const canvasX = 75 + (pt.x - camX) * MINIMAP_GRAPHICS_SCALE;
-                    const canvasY = 75 + (pt.z - camZ) * MINIMAP_GRAPHICS_SCALE;
+                    const canvasX = 75 + (pt.x - localUserPos.x) * MINIMAP_GRAPHICS_SCALE;
+                    const canvasY = 75 + (pt.z - localUserPos.z) * MINIMAP_GRAPHICS_SCALE;
                     if (index === 0) minimapCtx.moveTo(canvasX, canvasY);
                     else minimapCtx.lineTo(canvasX, canvasY);
                 });
                 minimapCtx.stroke();
             });
 
-            // Minimap Layer B: Render parsed structural buildings footprints
-            minimapCtx.fillStyle = 'rgba(255, 234, 0, 0.15)';
-            minimapCtx.strokeStyle = 'rgba(255, 234, 0, 0.4)';
+            // Minimap Layer B: Render Buildings
+            minimapCtx.fillStyle = 'rgba(255, 234, 0, 0.12)';
+            minimapCtx.strokeStyle = 'rgba(255, 234, 0, 0.3)';
             minimapCtx.lineWidth = 1;
 
             renderedBuildingsList.forEach(building => {
                 minimapCtx.beginPath();
                 building.points.forEach((pt, index) => {
-                    const canvasX = 75 + (pt.x - camX) * MINIMAP_GRAPHICS_SCALE;
-                    const canvasY = 75 + (pt.z - camZ) * MINIMAP_GRAPHICS_SCALE;
+                    const canvasX = 75 + (pt.x - localUserPos.x) * MINIMAP_GRAPHICS_SCALE;
+                    const canvasY = 75 + (pt.z - localUserPos.z) * MINIMAP_GRAPHICS_SCALE;
                     if (index === 0) minimapCtx.moveTo(canvasX, canvasY);
                     else minimapCtx.lineTo(canvasX, canvasY);
                 });
                 minimapCtx.closePath();
-                minimapCtx.fill();
-                minimapCtx.stroke();
+                minimapCtx.fill(); minimapCtx.stroke();
             });
 
-            // Minimap Layer C: Render humanoids tracking positions
+            // Minimap Layer C: Render Tracking Humanoids
             for (let i = 0; i < humanoidsArray.length; i++) {
                 const agentEntity = humanoidsArray[i];
-                const deltaPositionX = agentEntity.rootGroup.position.x - camX;
-                const deltaPositionZ = agentEntity.rootGroup.position.z - camZ;
+                const deltaPositionX = agentEntity.rootGroup.position.x - localUserPos.x;
+                const deltaPositionZ = agentEntity.rootGroup.position.z - localUserPos.z;
 
                 if (Math.hypot(deltaPositionX, deltaPositionZ) * MINIMAP_GRAPHICS_SCALE < 72) {
                     const canvasAgentX = 75 + (deltaPositionX * MINIMAP_GRAPHICS_SCALE);
@@ -725,20 +715,20 @@
 
             minimapCtx.restore();
 
-            // Outer circular HUD frame trim ring element
+            // Outer interface geometry outlines
             minimapCtx.strokeStyle = 'rgba(0, 229, 255, 0.4)';
             minimapCtx.lineWidth = 2;
             minimapCtx.beginPath();
             minimapCtx.arc(75, 75, 73, 0, Math.PI * 2);
             minimapCtx.stroke();
 
-            // Center static point marker representing the local user position fix
+            // Static User Node
             minimapCtx.fillStyle = '#00ffcc';
             minimapCtx.beginPath();
             minimapCtx.arc(75, 75, 4, 0, Math.PI * 2);
             minimapCtx.fill();
 
-            // Dynamic camera view heading pointer frustum vector
+            // Heading Vector Cones
             minimapCtx.strokeStyle = '#00ffcc';
             minimapCtx.lineWidth = 2;
             minimapCtx.beginPath();
@@ -846,17 +836,26 @@
         }
 
         /* ==========================================================================
-           GEOLOCATION INTERACTION HANDLERS
+           DYNAMIC COORDINATES LOGS & TELEMETRY SYNC
            ========================================================================= */
-        function triggerManualLocationUpdate() {
-            // Shift coordinates to simulate user walking to an adjacent street block
-            currentCoordinates.lat += (Math.random() - 0.5) * 0.002;
-            currentCoordinates.lon += (Math.random() - 0.5) * 0.002;
-            currentCoordinates.alt = 15.0 + Math.random() * 5.0;
-            currentCoordinates.accuracy = 3.0 + Math.random() * 2.0;
+        function onDynamicLocationUpdate(lat, lon, accuracy, alt) {
+            currentCoordinates.lat = lat;
+            currentCoordinates.lon = lon;
+            currentCoordinates.accuracy = accuracy || 5.0;
+            currentCoordinates.alt = alt || 15.0;
 
             updateGpsHudDisplay();
-            fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
+
+            // Measure tracking delta thresholds relative to the active geometry origin anchor
+            const deltaDistance = computeDistanceBetweenCoords(
+                currentCoordinates.lat, currentCoordinates.lon,
+                anchorCoordinates.lat, anchorCoordinates.lon
+            );
+
+            // Fetch structural updates automatically if threshold bounds are breached
+            if (deltaDistance > STREAM_DISTANCE_THRESHOLD_METERS) {
+                fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
+            }
         }
 
         function updateGpsHudDisplay() {
@@ -869,7 +868,6 @@
         }
 
         function repopulateHumanoidEntities() {
-            // Clean up old agents from the rendering engine
             for (let i = 0; i < humanoidsArray.length; i++) {
                 dynamicWorldGroup.remove(humanoidsArray[i].rootGroup);
             }
@@ -877,8 +875,7 @@
 
             if(globalTrafficNodes.length === 0) return;
 
-            // Spawn automated humanoids on the network grid nodes
-            const targetHumanoidsTotal = 50;
+            const targetHumanoidsTotal = 60;
             for(let i = 0; i < targetHumanoidsTotal; i++) {
                 humanoidsArray.push(new AutomatedHumanoidAgent());
             }
@@ -894,7 +891,7 @@
                 controls.dampingFactor = 0.05;
             }
             controls.minDistance = 2;
-            controls.maxDistance = 800;
+            controls.maxDistance = 1000;
             controls.target.set(0, 2, 0);
             controls.enabled = !gyroActive;
         }
@@ -908,8 +905,8 @@
             scene.background = new THREE.Color(0x06060c);
             scene.fog = new THREE.FogExp2(0x06060c, 0.0025);
 
-            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 5000);
-            camera.position.set(0, 45, 110);
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 6000);
+            camera.position.set(0, 50, 120);
 
             renderer = new THREE.WebGLRenderer({ canvas: canvas3d, antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -919,23 +916,17 @@
 
             initOrbitControls();
 
-            scene.add(new THREE.AmbientLight(0xffffff, 0.2));
+            scene.add(new THREE.AmbientLight(0xffffff, 0.22));
             
-            const sunLight = new THREE.DirectionalLight(0xdbe7ff, 1.2);
-            sunLight.position.set(150, 400, 150);
+            const sunLight = new THREE.DirectionalLight(0xdbe7ff, 1.25);
+            sunLight.position.set(150, 450, 150);
             sunLight.castShadow = true;
             sunLight.shadow.mapSize.width = 2048;
             sunLight.shadow.mapSize.height = 2048;
             sunLight.shadow.bias = -0.0005;
-            
-            const shadowRadiusDim = 400;
-            sunLight.shadow.camera.left = -shadowRadiusDim;
-            sunLight.shadow.camera.right = shadowRadiusDim;
-            sunLight.shadow.camera.top = shadowRadiusDim;
-            sunLight.shadow.camera.bottom = -shadowRadiusDim;
             scene.add(sunLight);
 
-            const skyLight = new THREE.HemisphereLight(0x00e5ff, 0xff1744, 0.4);
+            const skyLight = new THREE.HemisphereLight(0x00e5ff, 0xff1744, 0.45);
             scene.add(skyLight);
 
             scene.add(dynamicWorldGroup);
@@ -943,30 +934,42 @@
             streetTexture = createStreetCanvasTexture();
             sidewalkTexture = createSidewalkCanvasTexture();
 
-            // Run initial asset collection queries
+            // Step 1: Request root baseline map assets
             updateGpsHudDisplay();
             fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
 
-            document.getElementById('gyroBtn').addEventListener('click', toggleSensorsFunctionality);
-            document.getElementById('triggerGpsBtn').addEventListener('click', triggerManualLocationUpdate);
-            window.addEventListener('resize', onWindowResize);
-
-            // Fetch live client hardware GPS logs if access permission is granted
+            // Step 2: Establish hardware links for real-time background tracking updates
             if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition((position) => {
-                    currentCoordinates.lat = position.coords.latitude;
-                    currentCoordinates.lon = position.coords.longitude;
-                    currentCoordinates.alt = position.coords.altitude || 15.0;
-                    currentCoordinates.accuracy = position.coords.accuracy;
-                    
+                navigator.geolocation.watchPosition((position) => {
                     const badge = document.getElementById('gps-status-badge');
-                    badge.innerText = "Live GPS Link";
+                    badge.innerText = "Live GPS Loop";
                     badge.style.cssText = "background: rgba(0, 230, 118, 0.2); border-color: #00e676; color: #00e676;";
                     
-                    updateGpsHudDisplay();
-                    fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
-                }, () => {}, { enableHighAccuracy: true });
+                    if (!isAutoWalking) {
+                        onDynamicLocationUpdate(
+                            position.coords.latitude,
+                            position.coords.longitude,
+                            position.coords.accuracy,
+                            position.coords.altitude
+                        );
+                    }
+                }, () => {}, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
             }
+
+            // Interface Control Actions Mapping
+            document.getElementById('gyroBtn').addEventListener('click', toggleSensorsFunctionality);
+            
+            const autoWalkBtn = document.getElementById('autoWalkBtn');
+            autoWalkBtn.addEventListener('click', () => {
+                isAutoWalking = !isAutoWalking;
+                autoWalkBtn.classList.toggle('active', isAutoWalking);
+                if (isAutoWalking) {
+                    document.getElementById('gps-status-badge').innerText = "Auto Walk Path Mod";
+                    document.getElementById('gps-status-badge').style.cssText = "background: rgba(0, 229, 255, 0.2); border-color: #00e5ff; color: #00e5ff;";
+                }
+            });
+
+            window.addEventListener('resize', onWindowResize);
 
             const clock = new THREE.Clock();
             
@@ -974,12 +977,36 @@
                 requestAnimationFrame(animateLoop);
                 const deltaTime = Math.min(clock.getDelta(), 0.1); 
 
-                // Update simulated humanoids physics loops
+                // Process simulation path coordinates shifts if Auto-Walk is active
+                if (isAutoWalking) {
+                    const latitudeStepHeading = 0.000025 * deltaTime; 
+                    const longitudeStepHeading = 0.000012 * deltaTime;
+                    onDynamicLocationUpdate(
+                        currentCoordinates.lat + latitudeStepHeading,
+                        currentCoordinates.lon + longitudeStepHeading,
+                        3.0, 15.0
+                    );
+
+                    // Re-align internal virtual space position variables to follow structural data projections
+                    const mappedTargetPos = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
+                    if (!gyroActive && controls) {
+                        const cameraPositionDeltaX = camera.position.x - controls.target.x;
+                        const cameraPositionDeltaZ = camera.position.z - controls.target.z;
+                        controls.target.set(mappedTargetPos.x, 2, mappedTargetPos.z);
+                        camera.position.x = mappedTargetPos.x + cameraPositionDeltaX;
+                        camera.position.z = mappedTargetPos.z + cameraPositionDeltaZ;
+                    } else if (gyroActive) {
+                        camera.position.x = mappedTargetPos.x;
+                        camera.position.z = mappedTargetPos.z;
+                    }
+                }
+
+                // Update active simulation humanoids physics loops
                 for(let i = 0; i < humanoidsArray.length; i++) {
                     humanoidsArray[i].updateAgentPhysics(deltaTime);
                 }
 
-                // Process active accelerometer engine movements
+                // Process active extracted accelerometer core mechanics adjustments
                 if (gyroActive) {
                     const INTEGRATION_LEAK_DECAY = 0.78;
                     targetLinearVelocityX *= INTEGRATION_LEAK_DECAY;
@@ -991,6 +1018,15 @@
                     if (targetLinearVelocityX !== 0 || targetLinearVelocityZ !== 0) {
                         camera.position.x += targetLinearVelocityX;
                         camera.position.z += targetLinearVelocityZ;
+                        
+                        // Sync virtual coordinate updates back to physical geographic parameters
+                        const localMetersToLatLonShift = 1.0 / R_EARTH * (180.0 / Math.PI);
+                        const radAnchorLat = anchorCoordinates.lat * Math.PI / 180;
+                        
+                        const adjustedLat = currentCoordinates.lat - (targetLinearVelocityZ * localMetersToLatLonShift);
+                        const adjustedLon = currentCoordinates.lon + (targetLinearVelocityX * localMetersToLatLonShift / Math.cos(radAnchorLat));
+                        
+                        onDynamicLocationUpdate(adjustedLat, adjustedLon, currentCoordinates.accuracy, currentCoordinates.alt);
                     }
 
                     document.getElementById('sensor-hud').innerHTML = `
