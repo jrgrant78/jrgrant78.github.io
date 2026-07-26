@@ -189,7 +189,7 @@
         }
     </style>
 
-    <!-- Bulletproof Unified Package Repository Imports -->
+    <!-- Unified Package Repository Imports -->
     <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
     <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
@@ -252,7 +252,6 @@
         let streetTexture, sidewalkTexture;
         let minimapCanvas, minimapCtx;
         
-        // Extracted Core Sensor Traversal Variables
         let gyroActive = false;
         let isFirstGyroFrame = false;
         let lockedGyroRoll = 0; 
@@ -262,29 +261,24 @@
         let targetLinearVelocityZ = 0;
         const VELOCITY_DEADZONE_LIMIT = 0.0001;
 
-        // Geolocation Data Tracking States
         let currentCoordinates = { lat: 40.7580, lon: -73.9855, alt: 15.0, accuracy: 5.0 }; 
         let anchorCoordinates = { lat: 40.7580, lon: -73.9855 }; 
         let mapLoadedForAnchor = false;
         const R_EARTH = 6378137;
 
-        // Real-Time Update Configurations
         let isAutoWalking = false;
         let osmFetchController = null; 
-        const STREAM_DISTANCE_THRESHOLD_METERS = 40; 
 
-        // Simulation Entity Collections
         const humanoidsArray = [];
         const dynamicWorldGroup = new THREE.Group();
         const globalTrafficNodes = [];
         const renderedStreetsList = [];
         const renderedBuildingsList = [];
 
-        // Core Spatial Constants
         const ROAD_WIDTH_METERS = 12;
 
         /* ==========================================================================
-           EXTRACTED INERTIAL CORE: SENSOR QUATERNION CONVERTER MATRIX
+           INERTIAL CORE ENGINE Matrix Conversion
            ========================================================================= */
         const getSensorQuaternion = (function () {
             const zee = new THREE.Vector3( 0, 0, 1 );
@@ -342,18 +336,8 @@
             return { x: x, z: z };
         }
 
-        function computeDistanceBetweenCoords(lat1, lon1, lat2, lon2) {
-            const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                      Math.sin(dLon/2) * Math.sin(dLon/2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-            return R_EARTH * c;
-        }
-
         /* ==========================================================================
-           REAL-TIME STREAMING MAP DATA ENGINE (RESILIENT INTERNALS CASCADE)
+           STATIC LOCAL MAP INGESTION ENGINE (DOWNLOAD ONCE STRATEGY)
            ========================================================================= */
         async function fetchLiveOpenStreetMapData(lat, lon) {
             if (osmFetchController) osmFetchController.abort();
@@ -411,7 +395,7 @@
                     clearTimeout(networkTimeoutId);
                     osmFetchController.signal.removeEventListener('abort', globalSignalListener);
                     if (osmFetchController.signal.aborted) return;
-                    console.warn(`Node ${i + 1} timeout/fail: ${err.message}`);
+                    console.warn(`Node ${i + 1} fail: ${err.message}`);
                 }
             }
 
@@ -479,12 +463,28 @@
             repopulateHumanoidEntities();
         }
 
+        /* ==========================================================================
+           ROBUST SPATIAL EXTRUSION: FIXED LOCAL CENTROID + MESH ROTATION
+           ========================================================================= */
         function buildRealStructuralPolygon(points, tags) {
             if (points.length < 3) return;
 
+            // 1. Calculate the geographic anchor center (Centroid) of the block
+            let sumX = 0;
+            let sumZ = 0;
+            points.forEach(p => {
+                sumX += p.x;
+                sumZ += p.z;
+            });
+            const centerX = sumX / points.length;
+            const centerZ = sumZ / points.length;
+
+            // 2. Build the shape path using relative local offsets to shield bounding boxes
             const shapeOutline = new THREE.Shape();
-            shapeOutline.moveTo(points[0].x, points[0].z);
-            for (let i = 1; i < points.length; i++) shapeOutline.lineTo(points[i].x, points[i].z);
+            shapeOutline.moveTo(points[0].x - centerX, points[0].z - centerZ);
+            for (let i = 1; i < points.length; i++) {
+                shapeOutline.lineTo(points[i].x - centerX, points[i].z - centerZ);
+            }
             shapeOutline.closePath();
 
             let buildingHeight = (tags && tags.height) ? parseFloat(tags.height) : (15 + Math.random() * 30);
@@ -501,7 +501,6 @@
             };
 
             const geom = new THREE.ExtrudeGeometry(shapeOutline, extrusionSettings);
-            geom.rotateX(Math.PI / 2);
 
             const structureColors = [0x141923, 0x1c1e24, 0x252a36, 0x111218];
             const primaryColor = structureColors[Math.floor(Math.random() * structureColors.length)];
@@ -517,6 +516,11 @@
             });
 
             const buildingMesh = new THREE.Mesh(geom, mat);
+            
+            // 3. Object-level orientation inversion maps geometry upward on the +Y axis seamlessly
+            buildingMesh.rotation.x = -Math.PI / 2;
+            buildingMesh.position.set(centerX, 0, centerZ);
+            
             buildingMesh.castShadow = true;
             buildingMesh.receiveShadow = true;
             dynamicWorldGroup.add(buildingMesh);
@@ -563,7 +567,6 @@
 
             const spacing = 80;
             
-            // Populates fallback data streams for rendering
             for (let x = -4; x <= 4; x++) {
                 const streetPointsV = [{ x: x * spacing, z: -350 }, { x: x * spacing, z: 350 }];
                 renderedStreetsList.push(streetPointsV);
@@ -603,6 +606,7 @@
                 }
             }
             repopulateHumanoidEntities();
+            syncVirtualCameraToGpsCoordinates();
         }
 
         /* ==========================================================================
@@ -744,7 +748,6 @@
 
             const MINIMAP_GRAPHICS_SCALE = 0.5;
 
-            // Minimap Layer A: Streets
             minimapCtx.strokeStyle = 'rgba(0, 229, 255, 0.3)';
             minimapCtx.lineWidth = ROAD_WIDTH_METERS * MINIMAP_GRAPHICS_SCALE;
             minimapCtx.lineCap = "round"; minimapCtx.lineJoin = "round";
@@ -760,7 +763,6 @@
                 minimapCtx.stroke();
             });
 
-            // Minimap Layer B: Buildings
             minimapCtx.fillStyle = 'rgba(255, 234, 0, 0.12)';
             minimapCtx.strokeStyle = 'rgba(255, 234, 0, 0.3)';
             minimapCtx.lineWidth = 1;
@@ -777,7 +779,6 @@
                 minimapCtx.fill(); minimapCtx.stroke();
             });
 
-            // Minimap Layer C: Humanoids
             for (let i = 0; i < humanoidsArray.length; i++) {
                 const agentEntity = humanoidsArray[i];
                 const deltaPositionX = agentEntity.rootGroup.position.x - localUserPos.x;
@@ -996,7 +997,7 @@
             scene.add(new THREE.AmbientLight(0xffffff, 0.22));
             
             const sunLight = new THREE.DirectionalLight(0xdbe7ff, 1.25);
-            sunLight.position.set(150, 450, 150); // Syntax break repaired
+            sunLight.position.set(150, 450, 150); 
             sunLight.castShadow = true;
             sunLight.shadow.mapSize.width = 2048;
             sunLight.shadow.mapSize.height = 2048;
@@ -1054,7 +1055,6 @@
             function animateLoop() {
                 requestAnimationFrame(animateLoop);
                 
-                // Active frame thread exception shield protection loop
                 try {
                     const deltaTime = Math.min(clock.getDelta(), 0.1); 
 
