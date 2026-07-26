@@ -357,46 +357,67 @@
 
             const dataStatus = document.getElementById('data-status-badge');
             
-            // Distributed public and mirror endpoint configurations to circumvent load shedding
+            // Re-ordered list prioritizing high-capacity endpoints with strong CORS compliance
             const overpassEndpoints = [
-                `https://overpass.private.coffee/api/interpreter`, // Resilient high-quota Austrian mirror
-                `https://overpass-api.de/api/interpreter`,        // Core OSM standard mirror
-                `https://lz4.overpass-api.de/api/interpreter`      // Backup secondary node mirror
+                `https://overpass-api.de/api/interpreter`,
+                `https://overpass.kumi.systems/api/interpreter`,
+                `https://lz4.overpass-api.de/api/interpreter`
             ];
 
-            const boundingBoxRange = 0.004;
+            const boundingBoxRange = 0.0035;
             const minLat = lat - boundingBoxRange;
             const minLon = lon - boundingBoxRange;
             const maxLat = lat + boundingBoxRange;
             const maxLon = lon + boundingBoxRange;
 
-            const query = `[out:json][timeout:25];(way["building"](${minLat},${minLon},${maxLat},${maxLon});way["highway"](${minLat},${minLon},${maxLat},${maxLon}););out body;>;out skel qt;`;
+            const query = `[out:json][timeout:20];(way["building"](${minLat},${minLon},${maxLat},${maxLon});way["highway"](${minLat},${minLon},${maxLat},${maxLon}););out body;>;out skel qt;`;
             
             let data = null;
             let success = false;
 
-            // Sequential fallback processing loop
             for (let i = 0; i < overpassEndpoints.length; i++) {
+                // Set up a structured internal racer configuration per server ping
+                const localMirrorController = new AbortController();
+                const globalSignalListener = () => localMirrorController.abort();
+                osmFetchController.signal.addEventListener('abort', globalSignalListener);
+
+                // Enforce a hard-deadline 6-second timeout block
+                const networkTimeoutId = setTimeout(() => {
+                    localMirrorController.abort();
+                }, 6000);
+
                 try {
-                    dataStatus.innerText = `OSM Engine: Mirror ${i + 1}/${overpassEndpoints.length}...`;
+                    dataStatus.innerText = `OSM Loop: Mirror ${i + 1}/${overpassEndpoints.length}...`;
                     dataStatus.style.background = "rgba(255, 171, 0, 0.2)";
                     dataStatus.style.borderColor = "#ffab00";
                     dataStatus.style.color = "#ffab00";
 
-                    const response = await fetch(overpassEndpoints[i] + `?data=${encodeURIComponent(query)}`, { 
-                        signal: osmFetchController.signal 
+                    // Migrated completely to HTTP POST to avoid length filtering bottlenecks
+                    const response = await fetch(overpassEndpoints[i], {
+                        method: 'POST',
+                        body: 'data=' + encodeURIComponent(query),
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        },
+                        signal: localMirrorController.signal
                     });
                     
-                    if (!response.ok) throw new Error(`Server returned HTTP ${response.status}`);
+                    clearTimeout(networkTimeoutId);
+                    osmFetchController.signal.removeEventListener('abort', globalSignalListener);
+                    
+                    if (!response.ok) throw new Error(`HTTP Error Status ${response.status}`);
                     
                     data = await response.json();
-                    if (data && data.elements) {
+                    if (data && data.elements && data.elements.length > 0) {
                         success = true;
                         break; 
                     }
                 } catch (err) {
-                    if (err.name === 'AbortError') return;
-                    console.warn(`Mirror ${i + 1} unreachable, cascading connection down structural array. Reason: ${err.message}`);
+                    clearTimeout(networkTimeoutId);
+                    osmFetchController.signal.removeEventListener('abort', globalSignalListener);
+                    
+                    if (osmFetchController.signal.aborted) return; // Exit cleanly if general operation was aborted
+                    console.warn(`Node ${i + 1} timed out or failed. Cascading down. Error: ${err.message}`);
                 }
             }
 
@@ -412,12 +433,12 @@
                 dataStatus.style.borderColor = "#00e676";
                 dataStatus.style.color = "#00e676";
             } else {
-                dataStatus.innerText = "OSM Engine: Outage Fallback";
+                dataStatus.innerText = "OSM Engine: Mode Backup";
                 dataStatus.style.background = "rgba(255, 23, 68, 0.2)";
                 dataStatus.style.borderColor = "#ff1744";
                 dataStatus.style.color = "#ff1744";
                 
-                // If network completely timeouts and scene is missing components, load geometric primitives baseline
+                // If mirrors are fully exhausted and scene is completely empty, initialize backup structural meshes
                 if (globalTrafficNodes.length === 0) {
                     generateProceduralBackupInfrastructure();
                 }
@@ -549,17 +570,22 @@
         }
 
         function generateProceduralBackupInfrastructure() {
-            globalTrafficNodes.push(new THREE.Vector3(0, 0, 0));
-            globalTrafficNodes.push(new THREE.Vector3(60, 0, 0));
-            globalTrafficNodes.push(new THREE.Vector3(0, 0, 60));
-            
-            const floorFallbackGeo = new THREE.PlaneGeometry(1000, 1000);
-            const floorFallbackMat = new THREE.MeshStandardMaterial({ map: sidewalkTexture, roughness: 0.9 });
-            const ground = new THREE.Mesh(floorFallbackGeo, floorFallbackMat);
-            ground.rotation.x = -Math.PI/2;
-            ground.receiveShadow = true;
-            dynamicWorldGroup.add(ground);
-            
+            // High fidelity generation fallback grid architecture map systems loop
+            for (let x = -3; x <= 3; x++) {
+                for (let z = -3; z <= 3; z++) {
+                    const worldX = x * 70;
+                    const worldZ = z * 70;
+                    globalTrafficNodes.push(new THREE.Vector3(worldX, 0.05, worldZ));
+                    
+                    // Render simple street ribbons
+                    const fallbackMat = new THREE.MeshStandardMaterial({ map: streetTexture, roughness: 0.7 });
+                    const lineGeo = new THREE.PlaneGeometry(ROAD_WIDTH_METERS, 70);
+                    const seg = new THREE.Mesh(lineGeo, fallbackMat);
+                    seg.rotation.x = -Math.PI/2;
+                    seg.position.set(worldX, 0.01, worldZ);
+                    dynamicWorldGroup.add(seg);
+                }
+            }
             repopulateHumanoidEntities();
         }
 
@@ -704,7 +730,7 @@
             minimapCtx.fillStyle = 'rgba(10, 10, 16, 0.94)';
             minimapCtx.fillRect(0, 0, 150, 150);
 
-            // Pivot visual map context layout smoothly around camera relative coordinates
+            // Center the entire minimap layout coordinate field directly around camera parameters
             minimapCtx.translate(75, 75);
             minimapCtx.rotate(-yawAngleRadians);
 
@@ -769,13 +795,13 @@
             minimapCtx.arc(75, 75, 73, 0, Math.PI * 2);
             minimapCtx.stroke();
 
-            // Center User Point Indicator Fix
+            // Center static tracking dot mapping local coordinate fixes
             minimapCtx.fillStyle = '#00ffcc';
             minimapCtx.beginPath();
             minimapCtx.arc(75, 75, 4, 0, Math.PI * 2);
             minimapCtx.fill();
 
-            // Track-Up Heading Vector
+            // Track-Up Forward Facing Heading Vector
             minimapCtx.strokeStyle = '#00ffcc';
             minimapCtx.lineWidth = 2;
             minimapCtx.beginPath();
@@ -964,7 +990,7 @@
             scene.add(new THREE.AmbientLight(0xffffff, 0.22));
             
             const sunLight = new THREE.DirectionalLight(0xdbe7ff, 1.25);
-            sunLight.position.set(150, 450, 150);
+            sunSunlight: sunLight.position.set(150, 450, 150);
             sunLight.castShadow = true;
             sunLight.shadow.mapSize.width = 2048;
             sunLight.shadow.mapSize.height = 2048;
