@@ -64,6 +64,72 @@
             line-height: 1.5;
         }
 
+        /* 2D Top-Down Minimap & Compass UI Architecture */
+        #minimap-container {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 150px;
+            height: 150px;
+            z-index: 100;
+            pointer-events: none;
+        }
+
+        #minimapCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            display: block;
+        }
+
+        #compass-ring {
+            position: absolute;
+            top: -8px;
+            left: -8px;
+            width: 162px;
+            height: 162px;
+            border: 2px dashed rgba(0, 229, 255, 0.25);
+            border-radius: 50%;
+            transform-origin: center;
+            will-change: transform;
+        }
+
+        .compass-marker {
+            position: absolute;
+            font-family: monospace;
+            font-size: 11px;
+            font-weight: 900;
+            color: #00e5ff;
+        }
+
+        #marker-n { top: 2px; left: 50%; transform: translateX(-50%); color: #ff1744; text-shadow: 0 0 5px rgba(255, 23, 68, 0.8); }
+        #marker-s { bottom: 2px; left: 50%; transform: translateX(-50%); }
+        #marker-e { right: 4px; top: 50%; transform: translateY(-50%); }
+        #marker-w { left: 4px; top: 50%; transform: translateY(-50%); }
+
+        /* Relocated Telemetry Status Block to avoid UI clutter */
+        #telemetry-log {
+            position: absolute;
+            top: 195px;
+            right: 20px;
+            z-index: 10;
+            text-align: right;
+        }
+
+        .badge {
+            background: rgba(0, 230, 118, 0.2);
+            border: 1px solid #00e676;
+            color: #00e676;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
         /* Control Panel Dashboard */
         #controls-panel {
             position: absolute;
@@ -109,32 +175,13 @@
             background: #ffea00;
             color: #050508;
             border-color: #ffea00;
-            box-shadow: 0 0 15px rgba(255, 234, 0, 0.4);
+            box-shadow: 0 0 15px rgba(255, 23, 0, 0.4);
         }
 
         .control-btn svg {
             width: 16px;
             height: 16px;
             fill: currentColor;
-        }
-
-        #telemetry-log {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            z-index: 10;
-            text-align: right;
-        }
-
-        .badge {
-            background: rgba(0, 230, 118, 0.2);
-            border: 1px solid #00e676;
-            color: #00e676;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 10px;
-            font-weight: 700;
-            text-transform: uppercase;
         }
     </style>
 
@@ -144,6 +191,17 @@
 <body>
 
     <canvas id="canvas3d"></canvas>
+
+    <!-- Top View 2D Minimap Canvas Frame and Overlay Compass Assembly -->
+    <div id="minimap-container">
+        <canvas id="minimapCanvas" width="150" height="150"></canvas>
+        <div id="compass-ring">
+            <span id="marker-n" class="compass-marker">N</span>
+            <span id="marker-e" class="compass-marker">E</span>
+            <span id="marker-s" class="compass-marker">S</span>
+            <span id="marker-w" class="compass-marker">W</span>
+        </div>
+    </div>
 
     <div id="hud-container">
         <div class="hud-card">
@@ -184,6 +242,7 @@
         // Global Systems Reference Context Setup
         let scene, camera, renderer, controls;
         let streetTexture, sidewalkTexture;
+        let minimapCanvas, minimapCtx;
         
         // Extracted Core Sensor Traversal Variables
         let gyroActive = false;
@@ -237,17 +296,14 @@
             canvas.height = 512;
             const ctx = canvas.getContext('2d');
 
-            // Asphalt Background
             ctx.fillStyle = '#18181f';
             ctx.fillRect(0, 0, 512, 512);
 
-            // Fine Asphalt Grain Noise Profile
             ctx.fillStyle = 'rgba(255,255,255,0.02)';
             for (let i = 0; i < 4000; i++) {
                 ctx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
             }
 
-            // Central Dual Lane Safety Divider Markings
             ctx.strokeStyle = '#ffea00';
             ctx.lineWidth = 4;
             ctx.setLineDash([20, 15]);
@@ -256,7 +312,6 @@
             ctx.lineTo(256, 512);
             ctx.stroke();
 
-            // Outer Boundary Solid White Road Fog Lines
             ctx.strokeStyle = 'rgba(255,255,255,0.4)';
             ctx.lineWidth = 3;
             ctx.setLineDash([]);
@@ -277,17 +332,14 @@
             canvas.height = 256;
             const ctx = canvas.getContext('2d');
 
-            // Concrete Core Base Block Color
             ctx.fillStyle = '#3a3a45';
             ctx.fillRect(0, 0, 256, 256);
 
-            // Concrete Texture Aggregate Grain
             ctx.fillStyle = 'rgba(0,0,0,0.1)';
             for (let i = 0; i < 800; i++) {
                 ctx.fillRect(Math.random() * 256, Math.random() * 256, 1, 1);
             }
 
-            // Concrete Pavement Joint Lines
             ctx.strokeStyle = '#25252d';
             ctx.lineWidth = 3;
             ctx.strokeRect(0, 0, 256, 256);
@@ -306,7 +358,6 @@
            GEOSPATIAL WORLD COMPONENT ENGINE
            ========================================================================= */
         function generateProceduralMapInfrastructure() {
-            // Clean up existing world elements
             while(dynamicWorldGroup.children.length > 0){
                 let targetChild = dynamicWorldGroup.children[0];
                 dynamicWorldGroup.remove(targetChild);
@@ -314,18 +365,15 @@
             globalTrafficNodes.length = 0;
 
             const halfBlockSize = GRID_BLOCK_SIZE / 2;
-            const iterationsRange = 4; // Expanded workspace grid footprint area
+            const iterationsRange = 4; 
 
-            // Generate Street Grid Network Layers
             for (let xOffset = -iterationsRange; xOffset <= iterationsRange; xOffset++) {
                 for (let zOffset = -iterationsRange; zOffset <= iterationsRange; zOffset++) {
                     const posX = xOffset * GRID_BLOCK_SIZE;
                     const posZ = zOffset * GRID_BLOCK_SIZE;
 
-                    // Compute Traffic Tracking Vector Node Matrix Connections
                     globalTrafficNodes.push(new THREE.Vector3(posX, 0.1, posZ));
 
-                    // Primary Road Segment (North-South Matrix)
                     const nsRoadGeo = new THREE.PlaneGeometry(ROAD_WIDTH_METERS, GRID_BLOCK_SIZE);
                     const nsRoadMat = new THREE.MeshStandardMaterial({ 
                         map: streetTexture, 
@@ -337,7 +385,6 @@
                     nsRoadMesh.receiveShadow = true;
                     dynamicWorldGroup.add(nsRoadMesh);
 
-                    // Primary Road Segment (East-West Matrix)
                     const ewRoadGeo = new THREE.PlaneGeometry(ROAD_WIDTH_METERS, GRID_BLOCK_SIZE);
                     const ewRoadMat = new THREE.MeshStandardMaterial({ 
                         map: streetTexture, 
@@ -350,7 +397,6 @@
                     ewRoadMesh.receiveShadow = true;
                     dynamicWorldGroup.add(ewRoadMesh);
 
-                    // Create Sidewalk Boundaries Around Structural Urban City Blocks
                     const sidewalkGeo = new THREE.PlaneGeometry(
                         GRID_BLOCK_SIZE - ROAD_WIDTH_METERS, 
                         GRID_BLOCK_SIZE - ROAD_WIDTH_METERS
@@ -365,7 +411,6 @@
                     sidewalkMesh.receiveShadow = true;
                     dynamicWorldGroup.add(sidewalkMesh);
 
-                    // Build Multifaceted 3D Architectural Structural Polygons inside Block Footprints
                     if (Math.random() > 0.15) {
                         createMultifacetedStructureGroup(
                             posX + halfBlockSize, 
@@ -384,7 +429,6 @@
             
             const outerBoundingRadius = maximumFootprintBoundingSpace * 0.48;
 
-            // Generate procedural algorithmic multifaceted polygon coordinate paths
             for(let i = 0; i < segmentsCount; i++) {
                 const angleRad = (i / segmentsCount) * Math.PI * 2;
                 const dynamicVariationalRadius = outerBoundingRadius * (0.78 + Math.random() * 0.22);
@@ -399,7 +443,6 @@
             }
             shapeOutline.closePath();
 
-            // Extrude polygon paths into 3D structural volumes
             const extrusionSettings = {
                 depth: architecturalBaseHeight,
                 bevelEnabled: true,
@@ -410,9 +453,8 @@
             };
 
             const structureGeometry = new THREE.ExtrudeGeometry(shapeOutline, extrusionSettings);
-            structureGeometry.rotateX(Math.PI / 2); // Correct orientation vectors to match vertical Y-axis ground bounds
+            structureGeometry.rotateX(Math.PI / 2); 
 
-            // Dynamic material styling arrays using glass/neon emissive features
             const structuralColorPalette = [0x1d2230, 0x111625, 0x2e3b4e, 0x0f1c2e];
             const rawThemeColor = structuralColorPalette[Math.floor(Math.random() * structuralColorPalette.length)];
             
@@ -442,7 +484,6 @@
             constructor() {
                 this.rootGroup = new THREE.Group();
                 
-                // Random scale dimensions to produce various human structural profiles
                 this.heightScaleFactor = 0.85 + Math.random() * 0.55;
                 this.widthScaleFactor = 0.85 + Math.random() * 0.4;
                 
@@ -450,11 +491,9 @@
                 
                 this.buildHumanoidTopology();
 
-                // Initialize starting steering tracking coordinates onto structural road nodes
                 this.currentNodeIndex = Math.floor(Math.random() * globalTrafficNodes.length);
                 const spawnAnchorPosition = globalTrafficNodes[this.currentNodeIndex];
                 
-                // Lateral street placement offset adjustment factor
                 this.lateralOffsetVector = new THREE.Vector3(
                     (Math.random() - 0.5) * (ROAD_WIDTH_METERS - 3.5),
                     0,
@@ -465,7 +504,7 @@
                 this.rootGroup.position.y = 0;
 
                 this.targetNodeIndex = this.findRandomConnectedTrafficNode();
-                this.movementVelocitySpeed = 3.5 + Math.random() * 4.0; // Scaled operational velocity values
+                this.movementVelocitySpeed = 3.5 + Math.random() * 4.0; 
                 this.animationPhaseOscillationTime = Math.random() * Math.PI * 2;
 
                 dynamicWorldGroup.add(this.rootGroup);
@@ -477,7 +516,6 @@
                     roughness: 0.5 
                 });
 
-                // Torso Primitive
                 const torsoGeo = new THREE.BoxGeometry(
                     0.5 * this.widthScaleFactor, 
                     0.7 * this.heightScaleFactor, 
@@ -488,14 +526,12 @@
                 this.torsoMesh.castShadow = true;
                 this.rootGroup.add(this.torsoMesh);
 
-                // Head Sphere
                 const headGeo = new THREE.SphereGeometry(0.18 * this.widthScaleFactor, 16, 16);
                 this.headMesh = new THREE.Mesh(headGeo, material);
                 this.headMesh.position.y = 1.35 * this.heightScaleFactor;
                 this.headMesh.castShadow = true;
                 this.rootGroup.add(this.headMesh);
 
-                // Left Leg Component Matrix
                 const legGeo = new THREE.CylinderGeometry(
                     0.09 * this.widthScaleFactor, 
                     0.07 * this.widthScaleFactor, 
@@ -509,7 +545,6 @@
                 this.leftLegPivot.add(leftLegMesh);
                 this.rootGroup.add(this.leftLegPivot);
 
-                // Right Leg Component Matrix
                 this.rightLegPivot = new THREE.Group();
                 this.rightLegPivot.position.set(0.16 * this.widthScaleFactor, 0.55 * this.heightScaleFactor, 0);
                 const rightLegMesh = new THREE.Mesh(legGeo, material);
@@ -527,7 +562,6 @@
                     if (i === this.currentNodeIndex) continue;
                     const evaluationDistance = currentPoint.distanceTo(globalTrafficNodes[i]);
                     
-                    // Match directly linear block connections limits
                     if (evaluationDistance < GRID_BLOCK_SIZE * 1.1) {
                         validCandidateIndices.push(i);
                     }
@@ -551,38 +585,137 @@
 
                 const distanceToDestination = currentPositionVector.distanceTo(absoluteTargetDestination);
 
-                // Arrived at intersection waypoint node limits
                 if (distanceToDestination < 1.0) {
                     this.currentNodeIndex = this.targetNodeIndex;
                     this.targetNodeIndex = this.findRandomConnectedTrafficNode();
                     return;
                 }
 
-                // Compute directional vectors
                 const movementHeadingDirection = new THREE.Vector3()
                     .subVectors(absoluteTargetDestination, currentPositionVector)
                     .normalize();
 
-                // Compute kinematic position changes
                 this.rootGroup.position.addScaledVector(
                     movementHeadingDirection, 
                     this.movementVelocitySpeed * deltaTimeSeconds
                 );
 
-                // Update heading orientation
                 const lookAngleRadians = Math.atan2(movementHeadingDirection.x, movementHeadingDirection.z);
                 this.rootGroup.rotation.y = lookAngleRadians;
 
-                // Drive procedural articulation oscillators
                 this.animationPhaseOscillationTime += this.movementVelocitySpeed * deltaTimeSeconds * 3.5;
                 const swingAmplitude = Math.sin(this.animationPhaseOscillationTime) * 0.45;
                 
                 this.leftLegPivot.rotation.x = swingAmplitude;
                 this.rightLegPivot.rotation.x = -swingAmplitude;
 
-                // Subtle torso posture calculations
                 this.torsoMesh.position.y = (0.85 * this.heightScaleFactor) + (Math.abs(Math.sin(this.animationPhaseOscillationTime)) * 0.04);
             }
+        }
+
+        /* ==========================================================================
+           2D TOP VIEW MINIMAP & COMPASS CORE LOGIC
+           ========================================================================= */
+        function update2DMinimapSystem() {
+            if (!minimapCtx) return;
+
+            const camX = camera.position.x;
+            const camZ = camera.position.z;
+
+            // Compute horizontal yaw vector relative to absolute North (-Z)
+            const targetDirectionVector = new THREE.Vector3();
+            camera.getWorldDirection(targetDirectionVector);
+            const yawAngleRadians = Math.atan2(targetDirectionVector.x, -targetDirectionVector.z);
+
+            // Orient the physical HTML/CSS Compass ring matching absolute world North matrix
+            const compassRing = document.getElementById('compass-ring');
+            if (compassRing) {
+                const compassOrientationDegrees = THREE.MathUtils.radToDeg(-yawAngleRadians);
+                compassRing.style.transform = `rotate(${compassOrientationDegrees}deg)`;
+            }
+
+            // Clear layout buffer frame
+            minimapCtx.clearRect(0, 0, 150, 150);
+
+            // Circular clip path context limits
+            minimapCtx.save();
+            minimapCtx.beginPath();
+            minimapCtx.arc(75, 75, 72, 0, Math.PI * 2);
+            minimapCtx.clip();
+
+            // Radar background layer filling
+            minimapCtx.fillStyle = 'rgba(10, 10, 16, 0.88)';
+            minimapCtx.fillRect(0, 0, 150, 150);
+
+            // Render street grid elements down to radar space maps
+            const MINIMAP_GRAPHICS_SCALE = 1.2; // Pixels per meter ratio
+            const currentCenteredBlockX = Math.round(camX / GRID_BLOCK_SIZE);
+            const currentCenteredBlockZ = Math.round(camZ / GRID_BLOCK_SIZE);
+
+            minimapCtx.strokeStyle = 'rgba(0, 229, 255, 0.15)';
+            minimapCtx.lineWidth = ROAD_WIDTH_METERS * MINIMAP_GRAPHICS_SCALE;
+
+            // Visible vertical grid paths rendering
+            for (let x = currentCenteredBlockX - 3; x <= currentCenteredBlockX + 3; x++) {
+                const worldX = x * GRID_BLOCK_SIZE;
+                const canvasX = 75 + (worldX - camX) * MINIMAP_GRAPHICS_SCALE;
+                minimapCtx.beginPath();
+                minimapCtx.moveTo(canvasX, 0);
+                minimapCtx.lineTo(canvasX, 150);
+                minimapCtx.stroke();
+            }
+            // Visible horizontal grid paths rendering
+            for (let z = currentCenteredBlockZ - 3; z <= currentCenteredBlockZ + 3; z++) {
+                const worldZ = z * GRID_BLOCK_SIZE;
+                const canvasY = 75 + (worldZ - camZ) * MINIMAP_GRAPHICS_SCALE;
+                minimapCtx.beginPath();
+                minimapCtx.moveTo(0, canvasY);
+                minimapCtx.lineTo(150, canvasY);
+                minimapCtx.stroke();
+            }
+
+            // Draw active automated humanoids tracking telemetry nodes
+            for (let i = 0; i < humanoidsArray.length; i++) {
+                const agentEntity = humanoidsArray[i];
+                const deltaPositionX = agentEntity.rootGroup.position.x - camX;
+                const deltaPositionZ = agentEntity.rootGroup.position.z - camZ;
+
+                if (Math.hypot(deltaPositionX, deltaPositionZ) * MINIMAP_GRAPHICS_SCALE < 72) {
+                    const canvasAgentX = 75 + (deltaPositionX * MINIMAP_GRAPHICS_SCALE);
+                    const canvasAgentY = 75 + (deltaPositionZ * MINIMAP_GRAPHICS_SCALE);
+                    
+                    minimapCtx.fillStyle = `#${agentEntity.meshColorHex.getHexString()}`;
+                    minimapCtx.beginPath();
+                    minimapCtx.arc(canvasAgentX, canvasAgentY, 3, 0, Math.PI * 2);
+                    minimapCtx.fill();
+                }
+            }
+
+            minimapCtx.restore();
+
+            // Outer circular HUD frame trim ring element
+            minimapCtx.strokeStyle = 'rgba(0, 229, 255, 0.4)';
+            minimapCtx.lineWidth = 2;
+            minimapCtx.beginPath();
+            minimapCtx.arc(75, 75, 73, 0, Math.PI * 2);
+            minimapCtx.stroke();
+
+            // Center static node indicator representing local user position fix
+            minimapCtx.fillStyle = '#00ffcc';
+            minimapCtx.beginPath();
+            minimapCtx.arc(75, 75, 4, 0, Math.PI * 2);
+            minimapCtx.fill();
+
+            // Dynamic camera view heading frustum pointer cone
+            minimapCtx.strokeStyle = '#00ffcc';
+            minimapCtx.lineWidth = 2;
+            minimapCtx.beginPath();
+            minimapCtx.moveTo(75, 75);
+            minimapCtx.lineTo(
+                75 + Math.sin(yawAngleRadians) * 14, 
+                75 - Math.cos(yawAngleRadians) * 14
+            );
+            minimapCtx.stroke();
         }
 
         /* ==========================================================================
@@ -690,15 +823,12 @@
            GEOLOCATION INTERACTION HANDLERS
            ========================================================================= */
         function triggerManualLocationUpdate() {
-            // Mock spatial translation changes across coordinate spaces
             currentCoordinates.lat += (Math.random() - 0.5) * 0.0015;
             currentCoordinates.lon += (Math.random() - 0.5) * 0.0015;
             currentCoordinates.alt = 10.0 + Math.random() * 5.0;
             currentCoordinates.accuracy = 2.0 + Math.random() * 2.0;
 
             updateGpsHudDisplay();
-            
-            // Re-render visual assets around new coordinate calculations
             generateProceduralMapInfrastructure();
             repopulateHumanoidEntities();
         }
@@ -713,10 +843,7 @@
         }
 
         function repopulateHumanoidEntities() {
-            // Purge collections
             humanoidsArray.length = 0;
-            
-            // Instantiation sequences
             const TargetHumanoidCount = 45;
             for(let i=0; i < TargetHumanoidCount; i++) {
                 humanoidsArray.push(new AutomatedHumanoidAgent());
@@ -741,6 +868,10 @@
         function init() {
             const canvas3d = document.getElementById('canvas3d');
 
+            // Set up context elements for 2D map graphics
+            minimapCanvas = document.getElementById('minimapCanvas');
+            minimapCtx = minimapCanvas.getContext('2d');
+
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x06060c);
             scene.fog = new THREE.FogExp2(0x06060c, 0.0035);
@@ -756,7 +887,6 @@
 
             initOrbitControls();
 
-            // Lighting Systems Setup
             scene.add(new THREE.AmbientLight(0xffffff, 0.15));
             
             const sunLight = new THREE.DirectionalLight(0xdbe7ff, 1.1);
@@ -774,27 +904,22 @@
             sunLight.shadow.camera.bottom = -size;
             scene.add(sunLight);
 
-            // Sky Hemisphere Accent Glow Sources
             const skyLight = new THREE.HemisphereLight(0x00e5ff, 0xff1744, 0.35);
             scene.add(skyLight);
 
             scene.add(dynamicWorldGroup);
 
-            // Build Procedural Materials
             streetTexture = createStreetCanvasTexture();
             sidewalkTexture = createSidewalkCanvasTexture();
 
-            // Primary System Triggers
             generateProceduralMapInfrastructure();
             repopulateHumanoidEntities();
             updateGpsHudDisplay();
 
-            // Event Listeners Integration
             document.getElementById('gyroBtn').addEventListener('click', toggleSensorsFunctionality);
             document.getElementById('triggerGpsBtn').addEventListener('click', triggerManualLocationUpdate);
             window.addEventListener('resize', onWindowResize);
 
-            // Hardware Hook Native Geolocation Setup
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition((position) => {
                     currentCoordinates.lat = position.coords.latitude;
@@ -808,12 +933,9 @@
                     updateGpsHudDisplay();
                     generateProceduralMapInfrastructure();
                     repopulateHumanoidEntities();
-                }, () => {
-                    // Fallback configuration parameters remain running seamlessly
-                }, { enableHighAccuracy: true });
+                }, () => {}, { enableHighAccuracy: true });
             }
 
-            // Execute Application Runtime Loops
             const clock = new THREE.Clock();
             
             function animateLoop() {
@@ -821,12 +943,10 @@
                 
                 const deltaTime = Math.min(clock.getDelta(), 0.1); 
 
-                // Dynamic Humanoid Routine Processes Update
                 for(let i = 0; i < humanoidsArray.length; i++) {
                     humanoidsArray[i].updateAgentPhysics(deltaTime);
                 }
 
-                // Extracted Accelerometer Inertial Core Processing Update Logic Loop
                 if (gyroActive) {
                     const INTEGRATION_LEAK_DECAY = 0.78;
                     targetLinearVelocityX *= INTEGRATION_LEAK_DECAY;
@@ -847,7 +967,6 @@
                     `;
                 }
 
-                // Camera Constraints Resolution Layer
                 if (controls && controls.enabled) {
                     controls.update();
                     
@@ -857,7 +976,9 @@
                     }
                 }
 
+                // Render both 3D matrix maps and 2D overlay minimap layers
                 renderer.render(scene, camera);
+                update2DMinimapSystem();
 
                 if (controls && controls.enabled && !gyroActive && lockedGyroRoll !== 0) {
                     camera.quaternion.copy(cleanTargetQuaternion);
