@@ -196,6 +196,7 @@
 
     <canvas id="canvas3d"></canvas>
 
+    <!-- Top View 2D Minimap Canvas Frame and Overlay Compass Assembly -->
     <div id="minimap-container">
         <canvas id="minimapCanvas" width="150" height="150"></canvas>
         <div id="compass-ring">
@@ -350,7 +351,6 @@
            REAL-TIME STREAMING MAP DATA ENGINE (OSM CLIENT)
            ========================================================================= */
         async function fetchLiveOpenStreetMapData(lat, lon) {
-            // Abort ongoing parallel operations if updating rapidly
             if (osmFetchController) {
                 osmFetchController.abort();
             }
@@ -362,7 +362,6 @@
             dataStatus.style.borderColor = "#ffab00";
             dataStatus.style.color = "#ffab00";
 
-            // Establish map coordinate bounds (~450 meters tracking viewport radius)
             const boundingBoxRange = 0.004;
             const minLat = lat - boundingBoxRange;
             const minLon = lon - boundingBoxRange;
@@ -377,7 +376,6 @@
                 if (!response.ok) throw new Error("OSM Overpass API response execution dropped.");
                 const data = await response.json();
                 
-                // Redraw architecture around the fresh geographic positioning
                 anchorCoordinates.lat = lat;
                 anchorCoordinates.lon = lon;
 
@@ -389,14 +387,13 @@
                 dataStatus.style.borderColor = "#00e676";
                 dataStatus.style.color = "#00e676";
             } catch (err) {
-                if (err.name === 'AbortError') return; // Smoothly exit if operation was superseded
+                if (err.name === 'AbortError') return; 
                 console.error("Geospatial Fetch Failure: ", err);
                 dataStatus.innerText = "OSM Engine: Retry Pending";
             }
         }
 
         function parseAndBuildOSMWorld(osmData, anchorLat, anchorLon) {
-            // Clean up old scene assets gracefully
             while(dynamicWorldGroup.children.length > 0) {
                 const item = dynamicWorldGroup.children[0];
                 if (item.geometry) item.geometry.dispose();
@@ -434,10 +431,9 @@
                 }
             });
 
-            // Adjust relative camera viewport metrics so user tracking stays fluid during asset clearing
             const localCamOffset = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorLat, anchorLon);
             camera.position.x = localCamOffset.x;
-            camera.position.z = localCamOffset.z + 60; // Keep relative perspective viewing clear
+            camera.position.z = localCamOffset.z + 60; 
             if (controls) {
                 controls.target.set(localCamOffset.x, 2, localCamOffset.z);
             }
@@ -635,31 +631,41 @@
         }
 
         /* ==========================================================================
-           2D TOP VIEW REAL MAP MINIMAP & COMPASS
+           2D TRACK-UP MINIMAP & CARDINAL COMPASS ENGINE
            ========================================================================= */
         function update2DMinimapSystem() {
             if (!minimapCtx) return;
 
+            // Fetch absolute structural positions relative to current project anchors
             const localUserPos = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
 
+            // Compute precise current camera layout heading
             const targetDirectionVector = new THREE.Vector3();
             camera.getWorldDirection(targetDirectionVector);
             const yawAngleRadians = Math.atan2(targetDirectionVector.x, -targetDirectionVector.z);
 
+            // Rotate the HTML overlay compass ring to dynamically anchor North (-Z direction)
             const compassRing = document.getElementById('compass-ring');
             if (compassRing) {
                 const compassOrientationDegrees = THREE.MathUtils.radToDeg(-yawAngleRadians);
                 compassRing.style.transform = `rotate(${compassOrientationDegrees}deg)`;
             }
 
+            // Reset canvas frame buffer
             minimapCtx.clearRect(0, 0, 150, 150);
             minimapCtx.save();
+            
+            // Build viewport mask clip
             minimapCtx.beginPath();
             minimapCtx.arc(75, 75, 72, 0, Math.PI * 2);
             minimapCtx.clip();
 
             minimapCtx.fillStyle = 'rgba(10, 10, 16, 0.94)';
             minimapCtx.fillRect(0, 0, 150, 150);
+
+            // CRITICAL ARCHITECTURAL SHIFT: Pivot environment directly around camera position
+            minimapCtx.translate(75, 75);
+            minimapCtx.rotate(-yawAngleRadians);
 
             const MINIMAP_GRAPHICS_SCALE = 0.5;
 
@@ -671,15 +677,15 @@
             renderedStreetsList.forEach(streetPoints => {
                 minimapCtx.beginPath();
                 streetPoints.forEach((pt, index) => {
-                    const canvasX = 75 + (pt.x - localUserPos.x) * MINIMAP_GRAPHICS_SCALE;
-                    const canvasY = 75 + (pt.z - localUserPos.z) * MINIMAP_GRAPHICS_SCALE;
-                    if (index === 0) minimapCtx.moveTo(canvasX, canvasY);
-                    else minimapCtx.lineTo(canvasX, canvasY);
+                    const dx = (pt.x - localUserPos.x) * MINIMAP_GRAPHICS_SCALE;
+                    const dz = (pt.z - localUserPos.z) * MINIMAP_GRAPHICS_SCALE;
+                    if (index === 0) minimapCtx.moveTo(dx, dz);
+                    else minimapCtx.lineTo(dx, dz);
                 });
                 minimapCtx.stroke();
             });
 
-            // Minimap Layer B: Render Buildings
+            // Minimap Layer B: Render Building Footprints
             minimapCtx.fillStyle = 'rgba(255, 234, 0, 0.12)';
             minimapCtx.strokeStyle = 'rgba(255, 234, 0, 0.3)';
             minimapCtx.lineWidth = 1;
@@ -687,53 +693,53 @@
             renderedBuildingsList.forEach(building => {
                 minimapCtx.beginPath();
                 building.points.forEach((pt, index) => {
-                    const canvasX = 75 + (pt.x - localUserPos.x) * MINIMAP_GRAPHICS_SCALE;
-                    const canvasY = 75 + (pt.z - localUserPos.z) * MINIMAP_GRAPHICS_SCALE;
-                    if (index === 0) minimapCtx.moveTo(canvasX, canvasY);
-                    else minimapCtx.lineTo(canvasX, canvasY);
+                    const dx = (pt.x - localUserPos.x) * MINIMAP_GRAPHICS_SCALE;
+                    const dz = (pt.z - localUserPos.z) * MINIMAP_GRAPHICS_SCALE;
+                    if (index === 0) minimapCtx.moveTo(dx, dz);
+                    else minimapCtx.lineTo(dx, dz);
                 });
                 minimapCtx.closePath();
                 minimapCtx.fill(); minimapCtx.stroke();
             });
 
-            // Minimap Layer C: Render Tracking Humanoids
+            // Minimap Layer C: Render Humanoid Agents
             for (let i = 0; i < humanoidsArray.length; i++) {
                 const agentEntity = humanoidsArray[i];
                 const deltaPositionX = agentEntity.rootGroup.position.x - localUserPos.x;
                 const deltaPositionZ = agentEntity.rootGroup.position.z - localUserPos.z;
 
                 if (Math.hypot(deltaPositionX, deltaPositionZ) * MINIMAP_GRAPHICS_SCALE < 72) {
-                    const canvasAgentX = 75 + (deltaPositionX * MINIMAP_GRAPHICS_SCALE);
-                    const canvasAgentY = 75 + (deltaPositionZ * MINIMAP_GRAPHICS_SCALE);
+                    const dx = deltaPositionX * MINIMAP_GRAPHICS_SCALE;
+                    const dz = deltaPositionZ * MINIMAP_GRAPHICS_SCALE;
                     
                     minimapCtx.fillStyle = `#${agentEntity.meshColorHex.getHexString()}`;
                     minimapCtx.beginPath();
-                    minimapCtx.arc(canvasAgentX, canvasAgentY, 3, 0, Math.PI * 2);
+                    minimapCtx.arc(dx, dz, 3, 0, Math.PI * 2);
                     minimapCtx.fill();
                 }
             }
 
             minimapCtx.restore();
 
-            // Outer interface geometry outlines
+            // Outer HUD structural border trim
             minimapCtx.strokeStyle = 'rgba(0, 229, 255, 0.4)';
             minimapCtx.lineWidth = 2;
             minimapCtx.beginPath();
             minimapCtx.arc(75, 75, 73, 0, Math.PI * 2);
             minimapCtx.stroke();
 
-            // Static User Node
+            // Center Static Node (The camera point remains centered, reflecting the track-up shift)
             minimapCtx.fillStyle = '#00ffcc';
             minimapCtx.beginPath();
             minimapCtx.arc(75, 75, 4, 0, Math.PI * 2);
             minimapCtx.fill();
 
-            // Heading Vector Cones
+            // Heading direction cone (Always points directly UP/Forward in Track-Up systems)
             minimapCtx.strokeStyle = '#00ffcc';
             minimapCtx.lineWidth = 2;
             minimapCtx.beginPath();
             minimapCtx.moveTo(75, 75);
-            minimapCtx.lineTo(75 + Math.sin(yawAngleRadians) * 14, 75 - Math.cos(yawAngleRadians) * 14);
+            minimapCtx.lineTo(75, 75 - 14); 
             minimapCtx.stroke();
         }
 
@@ -846,13 +852,11 @@
 
             updateGpsHudDisplay();
 
-            // Measure tracking delta thresholds relative to the active geometry origin anchor
             const deltaDistance = computeDistanceBetweenCoords(
                 currentCoordinates.lat, currentCoordinates.lon,
                 anchorCoordinates.lat, anchorCoordinates.lon
             );
 
-            // Fetch structural updates automatically if threshold bounds are breached
             if (deltaDistance > STREAM_DISTANCE_THRESHOLD_METERS) {
                 fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
             }
@@ -934,11 +938,9 @@
             streetTexture = createStreetCanvasTexture();
             sidewalkTexture = createSidewalkCanvasTexture();
 
-            // Step 1: Request root baseline map assets
             updateGpsHudDisplay();
             fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
 
-            // Step 2: Establish hardware links for real-time background tracking updates
             if (navigator.geolocation) {
                 navigator.geolocation.watchPosition((position) => {
                     const badge = document.getElementById('gps-status-badge');
@@ -956,7 +958,6 @@
                 }, () => {}, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
             }
 
-            // Interface Control Actions Mapping
             document.getElementById('gyroBtn').addEventListener('click', toggleSensorsFunctionality);
             
             const autoWalkBtn = document.getElementById('autoWalkBtn');
@@ -977,7 +978,6 @@
                 requestAnimationFrame(animateLoop);
                 const deltaTime = Math.min(clock.getDelta(), 0.1); 
 
-                // Process simulation path coordinates shifts if Auto-Walk is active
                 if (isAutoWalking) {
                     const latitudeStepHeading = 0.000025 * deltaTime; 
                     const longitudeStepHeading = 0.000012 * deltaTime;
@@ -987,7 +987,6 @@
                         3.0, 15.0
                     );
 
-                    // Re-align internal virtual space position variables to follow structural data projections
                     const mappedTargetPos = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
                     if (!gyroActive && controls) {
                         const cameraPositionDeltaX = camera.position.x - controls.target.x;
@@ -1001,12 +1000,10 @@
                     }
                 }
 
-                // Update active simulation humanoids physics loops
                 for(let i = 0; i < humanoidsArray.length; i++) {
                     humanoidsArray[i].updateAgentPhysics(deltaTime);
                 }
 
-                // Process active extracted accelerometer core mechanics adjustments
                 if (gyroActive) {
                     const INTEGRATION_LEAK_DECAY = 0.78;
                     targetLinearVelocityX *= INTEGRATION_LEAK_DECAY;
@@ -1019,7 +1016,6 @@
                         camera.position.x += targetLinearVelocityX;
                         camera.position.z += targetLinearVelocityZ;
                         
-                        // Sync virtual coordinate updates back to physical geographic parameters
                         const localMetersToLatLonShift = 1.0 / R_EARTH * (180.0 / Math.PI);
                         const radAnchorLat = anchorCoordinates.lat * Math.PI / 180;
                         
