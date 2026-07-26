@@ -720,7 +720,7 @@
        Combined Application Implementation Scripts Block
        ========================================================================= -->
     <script>
-        let scene, camera, renderer, controls, gridHelper;
+        let scene, camera, renderer, controls, gridHelper, keyLight;
         let videoElement, localStream;
         
         let gyroActive = false;
@@ -1377,7 +1377,7 @@
 
             scene.add(new THREE.AmbientLight(0xffffff, 0.35));
             
-            const keyLight = new THREE.DirectionalLight(0xfffecb, 1.4);
+            keyLight = new THREE.DirectionalLight(0xfffecb, 1.4);
             keyLight.position.set(15, 25, 20);
             keyLight.castShadow = true;
             keyLight.shadow.mapSize.width = 1024;
@@ -1977,10 +1977,10 @@
             let successfulPass1Model = "none";
 
             const pass1Prompt = `
-                Act as an advanced open-world 3D Spatial Scaffolder and high-fidelity reverse-renderer. Analyze this image frame completely.
+                Act as an advanced open-world 3D Spatial Scaffolder. Analyze this image frame completely.
                 Your response must populate exactly two fields inside the target JSON object:
-                1. description: Provide a detailed text summary describing the exact subjects observed, emphasizing their physical composition, materials, structural components, and color distribution.
-                2. blueprint: An architectural text blueprint manifest listing an ultra-dense array of raw description lines. You MUST generate at least 80 to 120 individual items total, distributed evenly across the following four headers. To maximize likeness, break complex real-world objects down into a high-density cluster of their individual micro-primitives (e.g., a chair should be composed of distinct parts: seat cushion, individual legs, back support, and structural hardware).
+                1. description: Provide a detailed text summary describing the exact subjects observed.
+                2. blueprint: An architectural text blueprint manifest listing an ultra-dense array of raw description lines. You MUST generate at least 80 to 120 individual items total, distributed evenly across the following four headers:
                 
                 ### REGION: FOUNDATION
                 ### REGION: CORE_MASSES
@@ -1992,11 +1992,9 @@
             `;
 
             const globalSpatialAnchorPrompt = `
-                Global Space Coordinates, Sub-Component Assembly & Sizing Symmetries Alignment Protocol:
+                Global Space Coordinates & Sizing Symmetries Alignment Protocol:
                 - Center origin point is at (0, 0, 0). Ground level/floor planes should sit exactly at y = 0.
                 - ABSOLUTE SIZING INVARIANT CONSTRAINT: All generated dimensions and bounds metrics MUST conform strictly to standard grid spatial sizing rules (1 dimensional unit = 1 actual meter).
-                - COMPOSITE ASSEMBLY RULE: Ensure extreme physical likeness by accurately positioning interlocking sub-components. Check that legs seamlessly connect to tables, screens snap onto bases, and cushions rest flush on frames without floating gaps or excessive overlapping intersections.
-                - COLOR & MATERIAL HIGHLIGHTS: Extract exact, high-fidelity CSS hex codes from the visual spectrum of the image. Accurately assign high roughness (>0.6) to matte/soft textiles and high metalness (>0.7) to reflective structures.
                 - Completely ignore current camera location matrices, perspective angles, distance zoom transformations, or workspace rotations when calculating object footprints. All output properties must remain invariant and globally anchored relative to the absolute scale of the system grid layout.
                 - Round all spatial floats (p, s, r) strictly to a max of 2 decimal places.
                 - Eliminate all optional whitespace padding inside the array syntax strings.
@@ -2012,6 +2010,7 @@
                             contents: [{ parts: [{ text: pass1Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }],
                             generationConfig: { 
                                 responseMimeType: "application/json",
+                                temperature: 0.1,
                                 responseSchema: {
                                     type: "OBJECT",
                                     properties: { description: { type: "STRING" }, blueprint: { type: "STRING" } },
@@ -2053,7 +2052,7 @@
                 await delayExecutionTime(idx * 250);
                 const pass2Prompt = `
                     Convert your targeted blueprint segment lines into a JSON shapes layout array.
-                    Cross-reference the attached image to ground your spatial reconstruction, ensuring absolute visual accuracy for item sizes, positions, colors, and materials. Use the visual cues to resolve fine depth hierarchies, relative spatial positioning, and intricate geometry combinations.
+                    Cross-reference the attached image to ground your spatial reconstruction, ensuring absolute visual accuracy for item sizes, positions, colors, and materials.
                     ${globalSpatialAnchorPrompt}
                     MASTER BLUEPRINT Manifest:\n"""\n${parsedPayload.blueprint}\n"""\nINSTRUCTION: ${task.rules}
                 `;
@@ -2068,6 +2067,7 @@
                                 contents: [{ parts: [{ text: pass2Prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }], 
                                 generationConfig: { 
                                     responseMimeType: "application/json",
+                                    temperature: 0.1,
                                     responseSchema: {
                                         type: "OBJECT",
                                         properties: {
@@ -2166,7 +2166,7 @@
                         geo = new THREE.ConeGeometry(0.5, 1, 32); 
                         break;
                     case 'capsule': 
-                        geo = new THREE.CylinderGeometry(0.4, 0.4, 1.0, 32); 
+                        geo = new THREE.CapsuleGeometry(0.4, 1.0, 4, 16); 
                         break;
                     case 'plane': 
                         geo = new THREE.PlaneGeometry(1, 1); 
@@ -2179,14 +2179,19 @@
                 geo.computeBoundingSphere();
 
                 const isTranslucent = shape.trans > 0.05;
+                const isMetallic = shape.metal > 0.2;
+                
                 const mat = new THREE.MeshPhysicalMaterial({
                     color: new THREE.Color(shape.c || "#ffffff"),
                     roughness: shape.rough !== undefined ? THREE.MathUtils.clamp(shape.rough, 0, 1) : 0.4,
                     metalness: shape.metal !== undefined ? THREE.MathUtils.clamp(shape.metal, 0, 1) : 0.0,
                     transmission: shape.trans !== undefined ? THREE.MathUtils.clamp(shape.trans, 0, 1) : 0.0,
-                    ior: isTranslucent ? 1.52 : 1.0, 
+                    ior: isTranslucent ? 1.52 : 1.50, 
                     thickness: isTranslucent ? 1.0 : 0.0, 
-                    transparent: isTranslucent,
+                    transparent: isTranslucent || shape.trans > 0,
+                    clearcoat: isMetallic ? 0.8 : 0.1,
+                    clearcoatRoughness: 0.1,
+                    reflectivity: 0.5,
                     side: THREE.DoubleSide
                 });
 
@@ -2243,6 +2248,15 @@
                     floatingBackdropMesh.visible = backdropOverlayActive;
                     
                     structureInstanceGroup.add(floatingBackdropMesh);
+                }
+
+                // Dynamically expand directional light shadow volume to cover the spatial structure scale cleanly
+                if (keyLight && keyLight.shadow && keyLight.shadow.camera) {
+                    keyLight.shadow.camera.left = box.min.x - 6;
+                    keyLight.shadow.camera.right = box.max.x + 6;
+                    keyLight.shadow.camera.top = box.max.y + 6;
+                    keyLight.shadow.camera.bottom = box.min.y - 6;
+                    keyLight.shadow.camera.updateProjectionMatrix();
                 }
 
                 resolveGeometryClipping();
