@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>GeoSpatial AR Map & Humanoid Simulator</title>
+    <title>GeoSpatial Real Map & Humanoid Simulator</title>
     <style>
         body {
             margin: 0;
@@ -110,13 +110,16 @@
         #marker-e { right: 4px; top: 50%; transform: translateY(-50%); }
         #marker-w { left: 4px; top: 50%; transform: translateY(-50%); }
 
-        /* Relocated Telemetry Status Block to avoid UI clutter */
         #telemetry-log {
             position: absolute;
             top: 195px;
             right: 20px;
             z-index: 10;
             text-align: right;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 5px;
         }
 
         .badge {
@@ -175,7 +178,7 @@
             background: #ffea00;
             color: #050508;
             border-color: #ffea00;
-            box-shadow: 0 0 15px rgba(255, 23, 0, 0.4);
+            box-shadow: 0 0 15px rgba(255, 234, 0, 0.4);
         }
 
         .control-btn svg {
@@ -192,7 +195,6 @@
 
     <canvas id="canvas3d"></canvas>
 
-    <!-- Top View 2D Minimap Canvas Frame and Overlay Compass Assembly -->
     <div id="minimap-container">
         <canvas id="minimapCanvas" width="150" height="150"></canvas>
         <div id="compass-ring">
@@ -224,7 +226,8 @@
     </div>
 
     <div id="telemetry-log">
-        <span id="gps-status-badge" class="badge" style="background: rgba(255, 171, 0, 0.2); border-color: #ffab00; color: #ffab00;">Simulated GPS Loop</span>
+        <span id="gps-status-badge" class="badge" style="background: rgba(255, 171, 0, 0.2); border-color: #ffab00; color: #ffab00;">Syncing Core...</span>
+        <span id="data-status-badge" class="badge" style="background: rgba(0, 229, 255, 0.2); border-color: #00e5ff; color: #00e5ff;">OSM Engine: Idle</span>
     </div>
 
     <div id="controls-panel">
@@ -239,7 +242,6 @@
     </div>
 
     <script>
-        // Global Systems Reference Context Setup
         let scene, camera, renderer, controls;
         let streetTexture, sidewalkTexture;
         let minimapCanvas, minimapCtx;
@@ -254,19 +256,19 @@
         let targetLinearVelocityZ = 0;
         const VELOCITY_DEADZONE_LIMIT = 0.0001;
 
-        // Geolocation Data Tracking States
-        let currentCoordinates = { lat: 40.7128, lon: -74.0060, alt: 10.0, accuracy: 3.0 };
-        const MAP_SCALE_FACTOR = 111000; 
+        // Geolocation Data Tracking States (Defaulting to a dense urban center: Times Square, NY)
+        let currentCoordinates = { lat: 40.7580, lon: -73.9855, alt: 15.0, accuracy: 5.0 };
+        const R_EARTH = 6378137; // Earth radius in meters
 
         // Simulation Entity Collections
         const humanoidsArray = [];
         const dynamicWorldGroup = new THREE.Group();
         const globalTrafficNodes = [];
+        const renderedStreetsList = [];
+        const renderedBuildingsList = [];
 
         // Core Spatial Constants
-        const GRID_BLOCK_SIZE = 60;
-        const ROAD_WIDTH_METERS = 14;
-        const SIDEWALK_WIDTH_METERS = 3;
+        const ROAD_WIDTH_METERS = 12;
 
         /* ==========================================================================
            EXTRACTED INERTIAL CORE: CLEAN SENSOR QUATERNION CONVERTER MATRIX
@@ -292,189 +294,236 @@
            ========================================================================= */
         function createStreetCanvasTexture() {
             const canvas = document.createElement('canvas');
-            canvas.width = 512;
-            canvas.height = 512;
+            canvas.width = 256; canvas.height = 256;
             const ctx = canvas.getContext('2d');
-
-            ctx.fillStyle = '#18181f';
-            ctx.fillRect(0, 0, 512, 512);
-
+            ctx.fillStyle = '#16161a'; ctx.fillRect(0, 0, 256, 256);
             ctx.fillStyle = 'rgba(255,255,255,0.02)';
-            for (let i = 0; i < 4000; i++) {
-                ctx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
-            }
-
-            ctx.strokeStyle = '#ffea00';
-            ctx.lineWidth = 4;
-            ctx.setLineDash([20, 15]);
-            ctx.beginPath();
-            ctx.moveTo(256, 0);
-            ctx.lineTo(256, 512);
-            ctx.stroke();
-
-            ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-            ctx.lineWidth = 3;
-            ctx.setLineDash([]);
-            ctx.beginPath();
-            ctx.moveTo(40, 0); ctx.lineTo(40, 512);
-            ctx.moveTo(472, 0); ctx.lineTo(472, 512);
-            ctx.stroke();
-
+            for (let i = 0; i < 1000; i++) ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+            ctx.strokeStyle = '#ffea00'; ctx.lineWidth = 2; ctx.setLineDash([10, 8]);
+            ctx.beginPath(); ctx.moveTo(128, 0); ctx.lineTo(128, 256); ctx.stroke();
             const texture = new THREE.CanvasTexture(canvas);
-            texture.wrapS = THREE.RepeatWrapping;
-            texture.wrapT = THREE.RepeatWrapping;
+            texture.wrapS = THREE.RepeatWrapping; texture.wrapT = THREE.RepeatWrapping;
+            texture.repeat.set(1, 4);
             return texture;
         }
 
         function createSidewalkCanvasTexture() {
             const canvas = document.createElement('canvas');
-            canvas.width = 256;
-            canvas.height = 256;
+            canvas.width = 128; canvas.height = 128;
             const ctx = canvas.getContext('2d');
-
-            ctx.fillStyle = '#3a3a45';
-            ctx.fillRect(0, 0, 256, 256);
-
-            ctx.fillStyle = 'rgba(0,0,0,0.1)';
-            for (let i = 0; i < 800; i++) {
-                ctx.fillRect(Math.random() * 256, Math.random() * 256, 1, 1);
-            }
-
-            ctx.strokeStyle = '#25252d';
-            ctx.lineWidth = 3;
-            ctx.strokeRect(0, 0, 256, 256);
-            ctx.beginPath();
-            ctx.moveTo(128, 0); ctx.lineTo(128, 256);
-            ctx.moveTo(0, 128); ctx.lineTo(256, 128);
-            ctx.stroke();
-
+            ctx.fillStyle = '#2d2d35'; ctx.fillRect(0, 0, 128, 128);
+            ctx.strokeStyle = '#202025'; ctx.lineWidth = 2;
+            ctx.strokeRect(0, 0, 128, 128);
             const texture = new THREE.CanvasTexture(canvas);
-            texture.wrapS = THREE.RepeatWrapping;
-            texture.wrapT = THREE.RepeatWrapping;
+            texture.wrapS = THREE.RepeatWrapping; texture.wrapT = THREE.RepeatWrapping;
             return texture;
         }
 
         /* ==========================================================================
-           GEOSPATIAL WORLD COMPONENT ENGINE
+           OPENSTREETMAP LIVE GEOSPATIAL DATA INGESTION ENGINE
            ========================================================================= */
-        function generateProceduralMapInfrastructure() {
-            while(dynamicWorldGroup.children.length > 0){
-                let targetChild = dynamicWorldGroup.children[0];
-                dynamicWorldGroup.remove(targetChild);
-            }
-            globalTrafficNodes.length = 0;
+        // Projects Lat/Lon degrees to local relative meters from current location anchor
+        function latLonToLocalMeters(lat, lon, anchorLat, anchorLon) {
+            const radLat = anchorLat * Math.PI / 180;
+            const x = (lon - anchorLon) * (Math.PI / 180) * R_EARTH * Math.cos(radLat);
+            const z = -(lat - anchorLat) * (Math.PI / 180) * R_EARTH;
+            return { x: x, z: z };
+        }
 
-            const halfBlockSize = GRID_BLOCK_SIZE / 2;
-            const iterationsRange = 4; 
+        async function fetchLiveOpenStreetMapData(lat, lon) {
+            const dataStatus = document.getElementById('data-status-badge');
+            dataStatus.innerText = "OSM Engine: Fetching...";
+            dataStatus.style.background = "rgba(255, 171, 0, 0.2)";
+            dataStatus.style.borderColor = "#ffab00";
+            dataStatus.style.color = "#ffab00";
 
-            for (let xOffset = -iterationsRange; xOffset <= iterationsRange; xOffset++) {
-                for (let zOffset = -iterationsRange; zOffset <= iterationsRange; zOffset++) {
-                    const posX = xOffset * GRID_BLOCK_SIZE;
-                    const posZ = zOffset * GRID_BLOCK_SIZE;
+            // Define a bounding box (~400 meters radius around current position)
+            const boundingBoxRange = 0.0035;
+            const minLat = lat - boundingBoxRange;
+            const minLon = lon - boundingBoxRange;
+            const maxLat = lat + boundingBoxRange;
+            const maxLon = lon + boundingBoxRange;
 
-                    globalTrafficNodes.push(new THREE.Vector3(posX, 0.1, posZ));
+            // Formulate standard target OSM Overpass QL Query syntax
+            const query = `[out:json][timeout:30];(way["building"](${minLat},${minLon},${maxLat},${maxLon});way["highway"](${minLat},${minLon},${maxLat},${maxLon}););out body;>;out skel qt;`;
+            const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
 
-                    const nsRoadGeo = new THREE.PlaneGeometry(ROAD_WIDTH_METERS, GRID_BLOCK_SIZE);
-                    const nsRoadMat = new THREE.MeshStandardMaterial({ 
-                        map: streetTexture, 
-                        roughness: 0.6 
-                    });
-                    const nsRoadMesh = new THREE.Mesh(nsRoadGeo, nsRoadMat);
-                    nsRoadMesh.rotation.x = -Math.PI / 2;
-                    nsRoadMesh.position.set(posX, 0, posZ);
-                    nsRoadMesh.receiveShadow = true;
-                    dynamicWorldGroup.add(nsRoadMesh);
-
-                    const ewRoadGeo = new THREE.PlaneGeometry(ROAD_WIDTH_METERS, GRID_BLOCK_SIZE);
-                    const ewRoadMat = new THREE.MeshStandardMaterial({ 
-                        map: streetTexture, 
-                        roughness: 0.6 
-                    });
-                    const ewRoadMesh = new THREE.Mesh(ewRoadGeo, ewRoadMat);
-                    ewRoadMesh.rotation.x = -Math.PI / 2;
-                    ewRoadMesh.rotation.z = Math.PI / 2;
-                    ewRoadMesh.position.set(posX, 0, posZ);
-                    ewRoadMesh.receiveShadow = true;
-                    dynamicWorldGroup.add(ewRoadMesh);
-
-                    const sidewalkGeo = new THREE.PlaneGeometry(
-                        GRID_BLOCK_SIZE - ROAD_WIDTH_METERS, 
-                        GRID_BLOCK_SIZE - ROAD_WIDTH_METERS
-                    );
-                    const sidewalkMat = new THREE.MeshStandardMaterial({ 
-                        map: sidewalkTexture, 
-                        roughness: 0.8 
-                    });
-                    const sidewalkMesh = new THREE.Mesh(sidewalkGeo, sidewalkMat);
-                    sidewalkMesh.rotation.x = -Math.PI / 2;
-                    sidewalkMesh.position.set(posX + halfBlockSize, 0.02, posZ + halfBlockSize);
-                    sidewalkMesh.receiveShadow = true;
-                    dynamicWorldGroup.add(sidewalkMesh);
-
-                    if (Math.random() > 0.15) {
-                        createMultifacetedStructureGroup(
-                            posX + halfBlockSize, 
-                            posZ + halfBlockSize, 
-                            GRID_BLOCK_SIZE - ROAD_WIDTH_METERS - (SIDEWALK_WIDTH_METERS * 2)
-                        );
-                    }
-                }
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error("Network metadata ingestion error.");
+                const data = await response.json();
+                
+                dataStatus.innerText = "OSM Engine: Parsing...";
+                parseAndBuildOSMWorld(data, lat, lon);
+                
+                dataStatus.innerText = "OSM Engine: Live Sync";
+                dataStatus.style.background = "rgba(0, 230, 118, 0.2)";
+                dataStatus.style.borderColor = "#00e676";
+                dataStatus.style.color = "#00e676";
+            } catch (err) {
+                console.error("OSM Parsing Error: ", err);
+                dataStatus.innerText = "OSM Engine: API Error";
+                dataStatus.style.background = "rgba(255, 23, 68, 0.2)";
+                dataStatus.style.borderColor = "#ff1744";
+                dataStatus.style.color = "#ff1744";
+                // Generate safe runtime matrix defaults if networking drops out
+                generateProceduralBackupInfrastructure();
             }
         }
 
-        function createMultifacetedStructureGroup(centerX, centerZ, maximumFootprintBoundingSpace) {
-            const architecturalBaseHeight = 15 + Math.random() * 45;
-            const segmentsCount = 3 + Math.floor(Math.random() * 5); 
-            const shapeOutline = new THREE.Shape();
-            
-            const outerBoundingRadius = maximumFootprintBoundingSpace * 0.48;
+        function parseAndBuildOSMWorld(osmData, anchorLat, anchorLon) {
+            // Clear existing scene maps
+            while(dynamicWorldGroup.children.length > 0) {
+                dynamicWorldGroup.remove(dynamicWorldGroup.children[0]);
+            }
+            globalTrafficNodes.length = 0;
+            renderedStreetsList.length = 0;
+            renderedBuildingsList.length = 0;
 
-            for(let i = 0; i < segmentsCount; i++) {
-                const angleRad = (i / segmentsCount) * Math.PI * 2;
-                const dynamicVariationalRadius = outerBoundingRadius * (0.78 + Math.random() * 0.22);
-                const localVectorPointX = Math.cos(angleRad) * dynamicVariationalRadius;
-                const localVectorPointY = Math.sin(angleRad) * dynamicVariationalRadius;
+            if (!osmData || !osmData.elements) return;
 
-                if(i === 0) {
-                    shapeOutline.moveTo(localVectorPointX, localVectorPointY);
-                } else {
-                    shapeOutline.lineTo(localVectorPointX, localVectorPointY);
+            // Step 1: Map all node tracking definitions down to indexed dictionaries
+            const nodesLookup = {};
+            osmData.elements.forEach(element => {
+                if (element.type === 'node') {
+                    const localMeters = latLonToLocalMeters(element.lat, element.lon, anchorLat, anchorLon);
+                    nodesLookup[element.id] = {
+                        x: localMeters.x,
+                        z: localMeters.z
+                    };
                 }
+            });
+
+            // Step 2: Separate and process continuous lines and structural polygons
+            osmData.elements.forEach(element => {
+                if (element.type === 'way' && element.nodes) {
+                    const localCoordinatesPoints = [];
+                    element.nodes.forEach(nodeId => {
+                        if (nodesLookup[nodeId]) {
+                            localCoordinatesPoints.push(nodesLookup[nodeId]);
+                        }
+                    });
+
+                    if (localCoordinatesPoints.length < 2) return;
+
+                    // Parse real building footprints
+                    if (element.tags && element.tags.building) {
+                        buildRealStructuralPolygon(localCoordinatesPoints, element.tags);
+                    } 
+                    // Parse real street segments
+                    else if (element.tags && element.tags.highway) {
+                        buildRealStreetSegment(localCoordinatesPoints, element.tags);
+                    }
+                }
+            });
+
+            // Anchor humanoids directly to the newly parsed street coordinates
+            repopulateHumanoidEntities();
+        }
+
+        function buildRealStructuralPolygon(points, tags) {
+            if (points.length < 3) return;
+
+            const shapeOutline = new THREE.Shape();
+            shapeOutline.moveTo(points[0].x, points[0].z);
+            for (let i = 1; i < points.length; i++) {
+                shapeOutline.lineTo(points[i].x, points[i].z);
             }
             shapeOutline.closePath();
 
+            // Evaluate building height from data profile tags or assign estimation scale metrics
+            let buildingHeight = 12 + Math.random() * 25;
+            if (tags.height) {
+                buildingHeight = parseFloat(tags.height);
+            } else if (tags["building:levels"]) {
+                buildingHeight = parseInt(tags["building:levels"]) * 3.5;
+            }
+
             const extrusionSettings = {
-                depth: architecturalBaseHeight,
+                depth: buildingHeight,
                 bevelEnabled: true,
-                bevelThickness: 0.4,
-                bevelSize: 0.2,
-                bevelSegments: 2,
-                curveSegments: 12
+                bevelThickness: 0.2,
+                bevelSize: 0.1,
+                bevelSegments: 1
             };
 
-            const structureGeometry = new THREE.ExtrudeGeometry(shapeOutline, extrusionSettings);
-            structureGeometry.rotateX(Math.PI / 2); 
+            const geom = new THREE.ExtrudeGeometry(shapeOutline, extrusionSettings);
+            geom.rotateX(Math.PI / 2); // Rotate to layout natively along the Y-axis floor plane
 
-            const structuralColorPalette = [0x1d2230, 0x111625, 0x2e3b4e, 0x0f1c2e];
-            const rawThemeColor = structuralColorPalette[Math.floor(Math.random() * structuralColorPalette.length)];
+            const structureColors = [0x1a2238, 0x22252c, 0x2d323f, 0x181a22];
+            const primaryColor = structureColors[Math.floor(Math.random() * structureColors.length)];
             
-            const networkNeonEmissivePalette = [0x00e5ff, 0x00e676, 0xffea00, 0xff1744];
-            const selectedEmissiveNeon = networkNeonEmissivePalette[Math.floor(Math.random() * networkNeonEmissivePalette.length)];
+            const windowNeonGlows = [0x00e5ff, 0x00e676, 0xffea00, 0x9c27b0];
+            const randomNeon = windowNeonGlows[Math.floor(Math.random() * windowNeonGlows.length)];
 
-            const structureMaterial = new THREE.MeshStandardMaterial({
-                color: rawThemeColor,
-                roughness: 0.2,
-                metalness: 0.8,
-                emissive: selectedEmissiveNeon,
-                emissiveIntensity: Math.random() * 0.12
+            const mat = new THREE.MeshStandardMaterial({
+                color: primaryColor,
+                roughness: 0.3,
+                metalness: 0.7,
+                emissive: randomNeon,
+                emissiveIntensity: Math.random() > 0.7 ? 0.08 : 0.01
             });
 
-            const buildingInstanceMesh = new THREE.Mesh(structureGeometry, structureMaterial);
-            buildingInstanceMesh.position.set(centerX, architecturalBaseHeight, centerZ);
-            buildingInstanceMesh.castShadow = true;
-            buildingInstanceMesh.receiveShadow = true;
+            const buildingMesh = new THREE.Mesh(geom, mat);
+            buildingMesh.castShadow = true;
+            buildingMesh.receiveShadow = true;
+            dynamicWorldGroup.add(buildingMesh);
 
-            dynamicWorldGroup.add(buildingInstanceMesh);
+            // Cache metrics data configurations inside local tracking arrays for 2D map views
+            renderedBuildingsList.push({ points: points, height: buildingHeight });
+        }
+
+        function buildRealStreetSegment(points, tags) {
+            renderedStreetsList.push(points);
+
+            const streetMaterial = new THREE.MeshStandardMaterial({
+                map: streetTexture,
+                roughness: 0.7
+            });
+
+            // Convert raw linear vector traces into physical textured floor strips
+            for (let i = 0; i < points.length - 1; i++) {
+                const ptA = points[i];
+                const ptB = points[i + 1];
+
+                // Register nodes directly to target traffic path vectors
+                globalTrafficNodes.push(new THREE.Vector3(ptA.x, 0.05, ptA.z));
+                globalTrafficNodes.push(new THREE.Vector3(ptB.x, 0.05, ptB.z));
+
+                const distance = Math.hypot(ptB.x - ptA.x, ptB.z - ptA.z);
+                const roadLineGeo = new THREE.PlaneGeometry(ROAD_WIDTH_METERS, distance);
+                
+                const roadSegmentMesh = new THREE.Mesh(roadLineGeo, streetMaterial);
+                roadSegmentMesh.rotation.x = -Math.PI / 2;
+                
+                // Position and orient segment lengths toward the next continuous point
+                const centerX = (ptA.x + ptB.x) / 2;
+                const centerZ = (ptA.z + ptB.z) / 2;
+                roadSegmentMesh.position.set(centerX, 0.01, centerZ);
+                
+                const headingAngle = Math.atan2(ptB.x - ptA.x, ptB.z - ptA.z);
+                roadSegmentMesh.rotation.z = -headingAngle;
+                roadSegmentMesh.receiveShadow = true;
+                
+                dynamicWorldGroup.add(roadSegmentMesh);
+            }
+        }
+
+        function generateProceduralBackupInfrastructure() {
+            // Safe fallback loop to populate objects if network environments are unavailable
+            globalTrafficNodes.push(new THREE.Vector3(0, 0, 0));
+            globalTrafficNodes.push(new THREE.Vector3(50, 0, 0));
+            globalTrafficNodes.push(new THREE.Vector3(0, 0, 50));
+            globalTrafficNodes.push(new THREE.Vector3(-50, 0, -50));
+            
+            const floorFallbackGeo = new THREE.PlaneGeometry(500, 500);
+            const floorFallbackMat = new THREE.MeshStandardMaterial({ map: sidewalkTexture, roughness: 0.9 });
+            const ground = new THREE.Mesh(floorFallbackGeo, floorFallbackMat);
+            ground.rotation.x = -Math.PI/2;
+            ground.receiveShadow = true;
+            dynamicWorldGroup.add(ground);
+            
+            repopulateHumanoidEntities();
         }
 
         /* ==========================================================================
@@ -483,44 +532,30 @@
         class AutomatedHumanoidAgent {
             constructor() {
                 this.rootGroup = new THREE.Group();
-                
                 this.heightScaleFactor = 0.85 + Math.random() * 0.55;
                 this.widthScaleFactor = 0.85 + Math.random() * 0.4;
-                
                 this.meshColorHex = new THREE.Color().setHSL(Math.random(), 0.85, 0.5);
                 
                 this.buildHumanoidTopology();
 
+                // Select a traffic node along a real street segment
                 this.currentNodeIndex = Math.floor(Math.random() * globalTrafficNodes.length);
-                const spawnAnchorPosition = globalTrafficNodes[this.currentNodeIndex];
+                const spawnAnchorPosition = globalTrafficNodes[this.currentNodeIndex] || new THREE.Vector3(0,0,0);
                 
-                this.lateralOffsetVector = new THREE.Vector3(
-                    (Math.random() - 0.5) * (ROAD_WIDTH_METERS - 3.5),
-                    0,
-                    (Math.random() - 0.5) * (ROAD_WIDTH_METERS - 3.5)
-                );
-
+                this.lateralOffsetVector = new THREE.Vector3((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 4);
                 this.rootGroup.position.copy(spawnAnchorPosition).add(this.lateralOffsetVector);
                 this.rootGroup.position.y = 0;
 
                 this.targetNodeIndex = this.findRandomConnectedTrafficNode();
-                this.movementVelocitySpeed = 3.5 + Math.random() * 4.0; 
+                this.movementVelocitySpeed = 2.5 + Math.random() * 3.5; 
                 this.animationPhaseOscillationTime = Math.random() * Math.PI * 2;
 
                 dynamicWorldGroup.add(this.rootGroup);
             }
 
             buildHumanoidTopology() {
-                const material = new THREE.MeshStandardMaterial({ 
-                    color: this.meshColorHex, 
-                    roughness: 0.5 
-                });
-
-                const torsoGeo = new THREE.BoxGeometry(
-                    0.5 * this.widthScaleFactor, 
-                    0.7 * this.heightScaleFactor, 
-                    0.3 * this.widthScaleFactor
-                );
+                const material = new THREE.MeshStandardMaterial({ color: this.meshColorHex, roughness: 0.5 });
+                const torsoGeo = new THREE.BoxGeometry(0.5 * this.widthScaleFactor, 0.7 * this.heightScaleFactor, 0.3 * this.widthScaleFactor);
                 this.torsoMesh = new THREE.Mesh(torsoGeo, material);
                 this.torsoMesh.position.y = 0.85 * this.heightScaleFactor;
                 this.torsoMesh.castShadow = true;
@@ -532,11 +567,7 @@
                 this.headMesh.castShadow = true;
                 this.rootGroup.add(this.headMesh);
 
-                const legGeo = new THREE.CylinderGeometry(
-                    0.09 * this.widthScaleFactor, 
-                    0.07 * this.widthScaleFactor, 
-                    0.6 * this.heightScaleFactor, 8
-                );
+                const legGeo = new THREE.CylinderGeometry(0.09 * this.widthScaleFactor, 0.07 * this.widthScaleFactor, 0.6 * this.heightScaleFactor, 8);
                 this.leftLegPivot = new THREE.Group();
                 this.leftLegPivot.position.set(-0.16 * this.widthScaleFactor, 0.55 * this.heightScaleFactor, 0);
                 const leftLegMesh = new THREE.Mesh(legGeo, material);
@@ -555,14 +586,15 @@
             }
 
             findRandomConnectedTrafficNode() {
-                const currentPoint = globalTrafficNodes[this.currentNodeIndex];
+                if(globalTrafficNodes.length === 0) return 0;
+                const currentPoint = globalTrafficNodes[this.currentNodeIndex] || new THREE.Vector3(0,0,0);
                 const validCandidateIndices = [];
 
+                // Simple path tracking algorithm: find matching street nodes within a practical range
                 for (let i = 0; i < globalTrafficNodes.length; i++) {
                     if (i === this.currentNodeIndex) continue;
                     const evaluationDistance = currentPoint.distanceTo(globalTrafficNodes[i]);
-                    
-                    if (evaluationDistance < GRID_BLOCK_SIZE * 1.1) {
+                    if (evaluationDistance < 65.0) { 
                         validCandidateIndices.push(i);
                     }
                 }
@@ -576,7 +608,7 @@
             updateAgentPhysics(deltaTimeSeconds) {
                 if (globalTrafficNodes.length === 0) return;
 
-                const baseDestinationPoint = globalTrafficNodes[this.targetNodeIndex];
+                const baseDestinationPoint = globalTrafficNodes[this.targetNodeIndex] || new THREE.Vector3(0,0,0);
                 const absoluteTargetDestination = new THREE.Vector3().copy(baseDestinationPoint).add(this.lateralOffsetVector);
                 absoluteTargetDestination.y = 0;
 
@@ -585,7 +617,7 @@
 
                 const distanceToDestination = currentPositionVector.distanceTo(absoluteTargetDestination);
 
-                if (distanceToDestination < 1.0) {
+                if (distanceToDestination < 1.5) {
                     this.currentNodeIndex = this.targetNodeIndex;
                     this.targetNodeIndex = this.findRandomConnectedTrafficNode();
                     return;
@@ -595,11 +627,8 @@
                     .subVectors(absoluteTargetDestination, currentPositionVector)
                     .normalize();
 
-                this.rootGroup.position.addScaledVector(
-                    movementHeadingDirection, 
-                    this.movementVelocitySpeed * deltaTimeSeconds
-                );
-
+                this.rootGroup.position.addScaledVector(movementHeadingDirection, this.movementVelocitySpeed * deltaTimeSeconds);
+                
                 const lookAngleRadians = Math.atan2(movementHeadingDirection.x, movementHeadingDirection.z);
                 this.rootGroup.rotation.y = lookAngleRadians;
 
@@ -608,13 +637,12 @@
                 
                 this.leftLegPivot.rotation.x = swingAmplitude;
                 this.rightLegPivot.rotation.x = -swingAmplitude;
-
                 this.torsoMesh.position.y = (0.85 * this.heightScaleFactor) + (Math.abs(Math.sin(this.animationPhaseOscillationTime)) * 0.04);
             }
         }
 
         /* ==========================================================================
-           2D TOP VIEW MINIMAP & COMPASS CORE LOGIC
+           2D TOP VIEW REAL MAP MINIMAP & COMPASS
            ========================================================================= */
         function update2DMinimapSystem() {
             if (!minimapCtx) return;
@@ -622,59 +650,63 @@
             const camX = camera.position.x;
             const camZ = camera.position.z;
 
-            // Compute horizontal yaw vector relative to absolute North (-Z)
             const targetDirectionVector = new THREE.Vector3();
             camera.getWorldDirection(targetDirectionVector);
             const yawAngleRadians = Math.atan2(targetDirectionVector.x, -targetDirectionVector.z);
 
-            // Orient the physical HTML/CSS Compass ring matching absolute world North matrix
             const compassRing = document.getElementById('compass-ring');
             if (compassRing) {
                 const compassOrientationDegrees = THREE.MathUtils.radToDeg(-yawAngleRadians);
                 compassRing.style.transform = `rotate(${compassOrientationDegrees}deg)`;
             }
 
-            // Clear layout buffer frame
             minimapCtx.clearRect(0, 0, 150, 150);
-
-            // Circular clip path context limits
             minimapCtx.save();
             minimapCtx.beginPath();
             minimapCtx.arc(75, 75, 72, 0, Math.PI * 2);
             minimapCtx.clip();
 
-            // Radar background layer filling
-            minimapCtx.fillStyle = 'rgba(10, 10, 16, 0.88)';
+            minimapCtx.fillStyle = 'rgba(10, 10, 16, 0.92)';
             minimapCtx.fillRect(0, 0, 150, 150);
 
-            // Render street grid elements down to radar space maps
-            const MINIMAP_GRAPHICS_SCALE = 1.2; // Pixels per meter ratio
-            const currentCenteredBlockX = Math.round(camX / GRID_BLOCK_SIZE);
-            const currentCenteredBlockZ = Math.round(camZ / GRID_BLOCK_SIZE);
+            const MINIMAP_GRAPHICS_SCALE = 0.55; // Pixels per meter conversion scaling
 
-            minimapCtx.strokeStyle = 'rgba(0, 229, 255, 0.15)';
+            // Minimap Layer A: Render parsed physical street meshes
+            minimapCtx.strokeStyle = 'rgba(0, 229, 255, 0.3)';
             minimapCtx.lineWidth = ROAD_WIDTH_METERS * MINIMAP_GRAPHICS_SCALE;
+            minimapCtx.lineCap = "round";
+            minimapCtx.lineJoin = "round";
 
-            // Visible vertical grid paths rendering
-            for (let x = currentCenteredBlockX - 3; x <= currentCenteredBlockX + 3; x++) {
-                const worldX = x * GRID_BLOCK_SIZE;
-                const canvasX = 75 + (worldX - camX) * MINIMAP_GRAPHICS_SCALE;
+            renderedStreetsList.forEach(streetPoints => {
                 minimapCtx.beginPath();
-                minimapCtx.moveTo(canvasX, 0);
-                minimapCtx.lineTo(canvasX, 150);
+                streetPoints.forEach((pt, index) => {
+                    const canvasX = 75 + (pt.x - camX) * MINIMAP_GRAPHICS_SCALE;
+                    const canvasY = 75 + (pt.z - camZ) * MINIMAP_GRAPHICS_SCALE;
+                    if (index === 0) minimapCtx.moveTo(canvasX, canvasY);
+                    else minimapCtx.lineTo(canvasX, canvasY);
+                });
                 minimapCtx.stroke();
-            }
-            // Visible horizontal grid paths rendering
-            for (let z = currentCenteredBlockZ - 3; z <= currentCenteredBlockZ + 3; z++) {
-                const worldZ = z * GRID_BLOCK_SIZE;
-                const canvasY = 75 + (worldZ - camZ) * MINIMAP_GRAPHICS_SCALE;
-                minimapCtx.beginPath();
-                minimapCtx.moveTo(0, canvasY);
-                minimapCtx.lineTo(150, canvasY);
-                minimapCtx.stroke();
-            }
+            });
 
-            // Draw active automated humanoids tracking telemetry nodes
+            // Minimap Layer B: Render parsed structural buildings footprints
+            minimapCtx.fillStyle = 'rgba(255, 234, 0, 0.15)';
+            minimapCtx.strokeStyle = 'rgba(255, 234, 0, 0.4)';
+            minimapCtx.lineWidth = 1;
+
+            renderedBuildingsList.forEach(building => {
+                minimapCtx.beginPath();
+                building.points.forEach((pt, index) => {
+                    const canvasX = 75 + (pt.x - camX) * MINIMAP_GRAPHICS_SCALE;
+                    const canvasY = 75 + (pt.z - camZ) * MINIMAP_GRAPHICS_SCALE;
+                    if (index === 0) minimapCtx.moveTo(canvasX, canvasY);
+                    else minimapCtx.lineTo(canvasX, canvasY);
+                });
+                minimapCtx.closePath();
+                minimapCtx.fill();
+                minimapCtx.stroke();
+            });
+
+            // Minimap Layer C: Render humanoids tracking positions
             for (let i = 0; i < humanoidsArray.length; i++) {
                 const agentEntity = humanoidsArray[i];
                 const deltaPositionX = agentEntity.rootGroup.position.x - camX;
@@ -700,21 +732,18 @@
             minimapCtx.arc(75, 75, 73, 0, Math.PI * 2);
             minimapCtx.stroke();
 
-            // Center static node indicator representing local user position fix
+            // Center static point marker representing the local user position fix
             minimapCtx.fillStyle = '#00ffcc';
             minimapCtx.beginPath();
             minimapCtx.arc(75, 75, 4, 0, Math.PI * 2);
             minimapCtx.fill();
 
-            // Dynamic camera view heading frustum pointer cone
+            // Dynamic camera view heading pointer frustum vector
             minimapCtx.strokeStyle = '#00ffcc';
             minimapCtx.lineWidth = 2;
             minimapCtx.beginPath();
             minimapCtx.moveTo(75, 75);
-            minimapCtx.lineTo(
-                75 + Math.sin(yawAngleRadians) * 14, 
-                75 - Math.cos(yawAngleRadians) * 14
-            );
+            minimapCtx.lineTo(75 + Math.sin(yawAngleRadians) * 14, 75 - Math.cos(yawAngleRadians) * 14);
             minimapCtx.stroke();
         }
 
@@ -761,7 +790,6 @@
             
             const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
             lockedGyroRoll = euler.z; 
-            
             euler.z = 0;
             camera.quaternion.setFromEuler(euler);
             
@@ -781,7 +809,6 @@
 
         function handleGyroscopeMotionInput(e) {
             if (!gyroActive) return;
-            
             let alpha = e.alpha ? THREE.MathUtils.degToRad(e.alpha) : 0;
             let beta = e.beta ? THREE.MathUtils.degToRad(e.beta) : 0;
             let gamma = e.gamma ? THREE.MathUtils.degToRad(e.gamma) : 0;
@@ -802,7 +829,6 @@
 
         function handleInertialStepInput(e) {
             if (!gyroActive) return;
-
             let acc = e.acceleration; 
             if (!acc || acc.x === null) return;
 
@@ -823,14 +849,14 @@
            GEOLOCATION INTERACTION HANDLERS
            ========================================================================= */
         function triggerManualLocationUpdate() {
-            currentCoordinates.lat += (Math.random() - 0.5) * 0.0015;
-            currentCoordinates.lon += (Math.random() - 0.5) * 0.0015;
-            currentCoordinates.alt = 10.0 + Math.random() * 5.0;
-            currentCoordinates.accuracy = 2.0 + Math.random() * 2.0;
+            // Shift coordinates to simulate user walking to an adjacent street block
+            currentCoordinates.lat += (Math.random() - 0.5) * 0.002;
+            currentCoordinates.lon += (Math.random() - 0.5) * 0.002;
+            currentCoordinates.alt = 15.0 + Math.random() * 5.0;
+            currentCoordinates.accuracy = 3.0 + Math.random() * 2.0;
 
             updateGpsHudDisplay();
-            generateProceduralMapInfrastructure();
-            repopulateHumanoidEntities();
+            fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
         }
 
         function updateGpsHudDisplay() {
@@ -843,9 +869,17 @@
         }
 
         function repopulateHumanoidEntities() {
+            // Clean up old agents from the rendering engine
+            for (let i = 0; i < humanoidsArray.length; i++) {
+                dynamicWorldGroup.remove(humanoidsArray[i].rootGroup);
+            }
             humanoidsArray.length = 0;
-            const TargetHumanoidCount = 45;
-            for(let i=0; i < TargetHumanoidCount; i++) {
+
+            if(globalTrafficNodes.length === 0) return;
+
+            // Spawn automated humanoids on the network grid nodes
+            const targetHumanoidsTotal = 50;
+            for(let i = 0; i < targetHumanoidsTotal; i++) {
                 humanoidsArray.push(new AutomatedHumanoidAgent());
             }
         }
@@ -860,24 +894,22 @@
                 controls.dampingFactor = 0.05;
             }
             controls.minDistance = 2;
-            controls.maxDistance = 600;
+            controls.maxDistance = 800;
             controls.target.set(0, 2, 0);
             controls.enabled = !gyroActive;
         }
 
         function init() {
             const canvas3d = document.getElementById('canvas3d');
-
-            // Set up context elements for 2D map graphics
             minimapCanvas = document.getElementById('minimapCanvas');
             minimapCtx = minimapCanvas.getContext('2d');
 
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x06060c);
-            scene.fog = new THREE.FogExp2(0x06060c, 0.0035);
+            scene.fog = new THREE.FogExp2(0x06060c, 0.0025);
 
-            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 4000);
-            camera.position.set(0, 30, 75);
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 5000);
+            camera.position.set(0, 45, 110);
 
             renderer = new THREE.WebGLRenderer({ canvas: canvas3d, antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -887,24 +919,23 @@
 
             initOrbitControls();
 
-            scene.add(new THREE.AmbientLight(0xffffff, 0.15));
+            scene.add(new THREE.AmbientLight(0xffffff, 0.2));
             
-            const sunLight = new THREE.DirectionalLight(0xdbe7ff, 1.1);
-            sunLight.position.set(100, 250, 100);
+            const sunLight = new THREE.DirectionalLight(0xdbe7ff, 1.2);
+            sunLight.position.set(150, 400, 150);
             sunLight.castShadow = true;
             sunLight.shadow.mapSize.width = 2048;
             sunLight.shadow.mapSize.height = 2048;
             sunLight.shadow.bias = -0.0005;
-            sunLight.shadow.camera.near = 0.5;
-            sunLight.shadow.camera.far = 1000;
-            const size = 300;
-            sunLight.shadow.camera.left = -size;
-            sunLight.shadow.camera.right = size;
-            sunLight.shadow.camera.top = size;
-            sunLight.shadow.camera.bottom = -size;
+            
+            const shadowRadiusDim = 400;
+            sunLight.shadow.camera.left = -shadowRadiusDim;
+            sunLight.shadow.camera.right = shadowRadiusDim;
+            sunLight.shadow.camera.top = shadowRadiusDim;
+            sunLight.shadow.camera.bottom = -shadowRadiusDim;
             scene.add(sunLight);
 
-            const skyLight = new THREE.HemisphereLight(0x00e5ff, 0xff1744, 0.35);
+            const skyLight = new THREE.HemisphereLight(0x00e5ff, 0xff1744, 0.4);
             scene.add(skyLight);
 
             scene.add(dynamicWorldGroup);
@@ -912,27 +943,28 @@
             streetTexture = createStreetCanvasTexture();
             sidewalkTexture = createSidewalkCanvasTexture();
 
-            generateProceduralMapInfrastructure();
-            repopulateHumanoidEntities();
+            // Run initial asset collection queries
             updateGpsHudDisplay();
+            fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
 
             document.getElementById('gyroBtn').addEventListener('click', toggleSensorsFunctionality);
             document.getElementById('triggerGpsBtn').addEventListener('click', triggerManualLocationUpdate);
             window.addEventListener('resize', onWindowResize);
 
+            // Fetch live client hardware GPS logs if access permission is granted
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition((position) => {
                     currentCoordinates.lat = position.coords.latitude;
                     currentCoordinates.lon = position.coords.longitude;
-                    currentCoordinates.alt = position.coords.altitude || 12.0;
+                    currentCoordinates.alt = position.coords.altitude || 15.0;
                     currentCoordinates.accuracy = position.coords.accuracy;
                     
-                    document.getElementById('gps-status-badge').innerText = "Live GPS Link";
-                    document.getElementById('gps-status-badge').style.cssText = "background: rgba(0, 230, 118, 0.2); border-color: #00e676; color: #00e676;";
+                    const badge = document.getElementById('gps-status-badge');
+                    badge.innerText = "Live GPS Link";
+                    badge.style.cssText = "background: rgba(0, 230, 118, 0.2); border-color: #00e676; color: #00e676;";
                     
                     updateGpsHudDisplay();
-                    generateProceduralMapInfrastructure();
-                    repopulateHumanoidEntities();
+                    fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
                 }, () => {}, { enableHighAccuracy: true });
             }
 
@@ -940,13 +972,14 @@
             
             function animateLoop() {
                 requestAnimationFrame(animateLoop);
-                
                 const deltaTime = Math.min(clock.getDelta(), 0.1); 
 
+                // Update simulated humanoids physics loops
                 for(let i = 0; i < humanoidsArray.length; i++) {
                     humanoidsArray[i].updateAgentPhysics(deltaTime);
                 }
 
+                // Process active accelerometer engine movements
                 if (gyroActive) {
                     const INTEGRATION_LEAK_DECAY = 0.78;
                     targetLinearVelocityX *= INTEGRATION_LEAK_DECAY;
@@ -969,14 +1002,12 @@
 
                 if (controls && controls.enabled) {
                     controls.update();
-                    
                     if (!gyroActive && lockedGyroRoll !== 0) {
                         cleanTargetQuaternion.copy(camera.quaternion);
                         camera.rotateZ(lockedGyroRoll);
                     }
                 }
 
-                // Render both 3D matrix maps and 2D overlay minimap layers
                 renderer.render(scene, camera);
                 update2DMinimapSystem();
 
