@@ -3,16 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>GeoSpatial Real-Time Map & Humanoid Simulator</title>
+    <title>Project A.R.I.S. - Spatial Tactical Visor</title>
     <style>
-        body {
+        body, html {
             margin: 0;
             padding: 0;
             overflow: hidden;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #050508;
-            color: #ffffff;
+            width: 100%;
+            height: 100%;
+            font-family: 'Courier New', Courier, monospace;
+            background: #020205;
+            color: #00ffcc;
             user-select: none;
+        }
+
+        /* Video Pass-Through Layer (True Physical AR Backdrop) */
+        #camera-feed {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            z-index: 1;
+            display: block;
+            transform: scaleX(1); 
         }
 
         #canvas3d {
@@ -21,313 +36,188 @@
             left: 0;
             width: 100vw;
             height: 100vh;
-            z-index: 1;
+            z-index: 2;
             display: block;
+            pointer-events: auto;
         }
 
-        /* HUD Interface Layout */
-        #hud-container {
-            position: absolute;
-            top: 15px;
-            left: 15px;
-            z-index: 10;
-            pointer-events: none;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .hud-card {
-            background: rgba(10, 10, 16, 0.85);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border: 1px solid rgba(0, 229, 255, 0.2);
-            padding: 12px 18px;
-            border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-            min-width: 240px;
-        }
-
-        .hud-title {
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            color: #00e5ff;
-            margin-bottom: 6px;
-        }
-
-        .hud-data {
-            font-family: monospace;
-            font-size: 13px;
-            color: #00ffcc;
-            line-height: 1.5;
-        }
-
-        /* 2D Top-Down Minimap & Compass UI Architecture */
-        #minimap-container {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            width: 150px;
-            height: 150px;
-            z-index: 100;
-            pointer-events: none;
-        }
-
-        #minimapCanvas {
+        /* Tactical Cyber Visor HUD Overlay Architecture */
+        #hud-visor-container {
             position: absolute;
             top: 0;
             left: 0;
-            width: 150px;
-            height: 150px;
-            border-radius: 50%;
-            display: block;
-        }
-
-        #compass-ring {
-            position: absolute;
-            top: -8px;
-            left: -8px;
-            width: 162px;
-            height: 162px;
-            border: 2px dashed rgba(0, 229, 255, 0.25);
-            border-radius: 50%;
-            transform-origin: center;
-            will-change: transform;
-        }
-
-        .compass-marker {
-            position: absolute;
-            font-family: monospace;
-            font-size: 11px;
-            font-weight: 900;
-            color: #00e5ff;
-        }
-
-        #marker-n { top: 2px; left: 50%; transform: translateX(-50%); color: #ff1744; text-shadow: 0 0 5px rgba(255, 23, 68, 0.8); }
-        #marker-s { bottom: 2px; left: 50%; transform: translateX(-50%); }
-        #marker-e { right: 4px; top: 50%; transform: translateY(-50%); }
-        #marker-w { left: 4px; top: 50%; transform: translateY(-50%); }
-
-        #telemetry-log {
-            position: absolute;
-            top: 195px;
-            right: 20px;
-            z-index: 10;
-            text-align: right;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            gap: 5px;
+            width: 100%;
+            height: 100%;
+            z-index: 3;
             pointer-events: none;
+            box-sizing: border-box;
+            border: 20px solid rgba(0, 255, 204, 0.03);
         }
 
-        .badge {
-            background: rgba(0, 230, 118, 0.2);
-            border: 1px solid #00e676;
-            color: #00e676;
-            padding: 4px 8px;
+        .hud-panel {
+            position: absolute;
+            background: rgba(4, 6, 15, 0.75);
+            border: 1px solid #00ffcc;
+            box-shadow: 0 0 15px rgba(0, 255, 204, 0.2);
+            padding: 12px;
             border-radius: 4px;
-            font-size: 10px;
-            font-weight: 700;
+            pointer-events: auto;
+        }
+
+        #hud-top-left {
+            top: 25px;
+            left: 25px;
+            min-width: 220px;
+        }
+
+        #hud-top-right {
+            top: 25px;
+            right: 25px;
+            text-align: right;
+            min-width: 180px;
+        }
+
+        .hud-header {
+            font-size: 11px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            color: #ff0055;
+            margin-bottom: 5px;
             text-transform: uppercase;
         }
 
-        /* Control Panel Dashboard */
-        #controls-panel {
+        .hud-readout {
+            font-size: 12px;
+            line-height: 1.4;
+            color: #00ffcc;
+            text-shadow: 0 0 4px rgba(0, 255, 204, 0.5);
+        }
+
+        /* Crosshair Reticle Matrix */
+        #targeting-matrix {
             position: absolute;
-            bottom: 20px;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80px;
+            height: 80px;
+            border: 2px solid rgba(0, 255, 204, 0.3);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+        #targeting-matrix::before {
+            content: '';
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 8px; height: 8px;
+            background: #ff0055;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 8px #ff0055;
+        }
+
+        #action-dashboard {
+            position: absolute;
+            bottom: 30px;
             left: 50%;
             transform: translateX(-50%);
             z-index: 10;
-            background: rgba(10, 10, 16, 0.9);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            padding: 10px 20px;
-            border-radius: 30px;
             display: flex;
             gap: 15px;
-            align-items: center;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
         }
 
-        .control-btn {
-            background: #111116;
-            color: #ffffff;
-            border: 1px solid #333344;
-            padding: 10px 20px;
+        .visor-btn {
+            background: rgba(6, 10, 25, 0.85);
+            color: #00ffcc;
+            border: 1px solid #00ffcc;
+            padding: 12px 24px;
             border-radius: 20px;
+            font-family: inherit;
             font-size: 12px;
-            font-weight: 600;
+            font-weight: bold;
             text-transform: uppercase;
             letter-spacing: 1px;
             cursor: pointer;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            -webkit-tap-highlight-color: transparent;
+            box-shadow: 0 0 10px rgba(0, 255, 204, 0.15);
+            transition: all 0.2s ease;
         }
 
-        .control-btn:active {
+        .visor-btn:active {
             transform: scale(0.95);
         }
 
-        .control-btn.active {
-            background: #ffea00;
-            color: #050508;
-            border-color: #ffea00;
-            box-shadow: 0 0 15px rgba(255, 234, 0, 0.4);
-        }
-
-        .control-btn svg {
-            width: 16px;
-            height: 16px;
-            fill: currentColor;
+        .visor-btn.active {
+            background: #00ffcc;
+            color: #020205;
+            box-shadow: 0 0 20px #00ffcc;
         }
     </style>
 
-    <!-- Unified Package Repository Imports -->
+    <!-- Core WebGL Engine Import -->
     <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
 
+    <!-- Camera Feed Node -->
+    <video id="camera-feed" autoplay playsinline muted></video>
+    
+    <!-- Render Port Node -->
     <canvas id="canvas3d"></canvas>
 
-    <div id="minimap-container">
-        <canvas id="minimapCanvas" width="150" height="150"></canvas>
-        <div id="compass-ring">
-            <span id="marker-n" class="compass-marker">N</span>
-            <span id="marker-e" class="compass-marker">E</span>
-            <span id="marker-s" class="compass-marker">S</span>
-            <span id="marker-w" class="compass-marker">W</span>
-        </div>
-    </div>
+    <!-- Visor Layer Matrix -->
+    <div id="hud-visor-container">
+        <div id="targeting-matrix"></div>
 
-    <div id="hud-container">
-        <div class="hud-card">
-            <div class="hud-title">Position Fix Data</div>
-            <div id="gps-hud" class="hud-data">
-                LAT: Fetching...<br>
-                LON: Fetching...<br>
-                ALT: -- m<br>
-                ACCURACY: -- m
+        <div id="hud-top-left" class="hud-panel">
+            <div class="hud-header">// Telemetry Fix</div>
+            <div id="geo-telemetry" class="hud-readout">
+                LAT: 40.758012<br>
+                LON: -73.985532<br>
+                ALT: 1.7m FIXED
             </div>
         </div>
-        <div class="hud-card">
-            <div class="hud-title">Inertial Telemetry Matrix</div>
-            <div id="sensor-hud" class="hud-data">
-                VELOCITY X: 0.0000<br>
-                VELOCITY Z: 0.0000<br>
-                SYSTEM MODE: DETACHED
+
+        <div id="hud-top-right" class="hud-panel">
+            <div class="hud-header">// Mission Objectives</div>
+            <div id="score-telemetry" class="hud-readout">
+                ANOMALIES FILTRATED: 0/5<br>
+                NEAREST DIST: SEARCHING
             </div>
         </div>
     </div>
 
-    <div id="telemetry-log">
-        <span id="gps-status-badge" class="badge" style="background: rgba(255, 171, 0, 0.2); border-color: #ffab00; color: #ffab00;">Syncing Geo-Core...</span>
-        <span id="data-status-badge" class="badge" style="background: rgba(0, 229, 255, 0.2); border-color: #00e5ff; color: #00e5ff;">OSM Engine: Idle</span>
-    </div>
-
-    <div id="controls-panel">
-        <button id="gyroBtn" class="control-btn">
-            <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/><circle cx="12" cy="12" r="3"/></svg>
-            Sensor View Drive
-        </button>
-        <button id="autoWalkBtn" class="control-btn">
-            <svg viewBox="0 0 24 24"><path d="M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 21.5h2.1l1.9-8.2 2.1 2v6.2h2v-7.5l-2.1-2 .6-3c1 .8 2.4 1.5 4.1 1.5v-2c-1.5 0-2.7-.6-3.5-1.5l-1-1.5c-.4-.6-1-1-1.7-1-.3 0-.5 0-.8.1L5.7 6.3v5.2h2V8.9l2.1-.8z"/></svg>
-            Simulate Walk Path
-        </button>
-        <button id="reloadMapBtn" class="control-btn">
-            <svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
-            Force Sync Bounding Box
-        </button>
+    <!-- Interface Dashboard -->
+    <div id="action-dashboard">
+        <button id="arToggleBtn" class="visor-btn">Activate Camera AR</button>
+        <button id="sensorBtn" class="visor-btn">Sync Motion Gyro</button>
+        <button id="stepSimBtn" class="visor-btn">Pulse Step Forward</button>
     </div>
 
     <script>
-        let scene, camera, renderer, controls;
-        let streetTexture, sidewalkTexture;
-        let minimapCanvas, minimapCtx;
+        let scene, camera, renderer;
+        let cameraStream = null;
+        let isARActive = false;
         
+        // Custom First-Person Camera Rotation Matrix state trackers
         let gyroActive = false;
-        let isFirstGyroFrame = false;
-        let lockedGyroRoll = 0; 
-        const cleanTargetQuaternion = new THREE.Quaternion(); 
-        let gyroYawOffset = 0;
-        let targetLinearVelocityX = 0;
-        let targetLinearVelocityZ = 0;
-        const VELOCITY_DEADZONE_LIMIT = 0.0001;
+        let lookYaw = 0;
+        let lookPitch = 0;
+        let isDragging = false;
+        let previousPointerX = 0;
+        let previousPointerY = 0;
 
-        let currentCoordinates = { lat: 40.7580, lon: -73.9855, alt: 15.0, accuracy: 5.0 }; 
-        let anchorCoordinates = { lat: 40.7580, lon: -73.9855 }; 
-        let mapLoadedForAnchor = false;
+        // Position & Geo-Tracking Engines
+        let currentCoordinates = { lat: 40.7580, lon: -73.9855 };
+        let anchorCoordinates = { lat: 40.7580, lon: -73.9855 };
         const R_EARTH = 6378137;
 
-        let isAutoWalking = false;
-        let osmFetchController = null; 
-
-        const humanoidsArray = [];
-        const dynamicWorldGroup = new THREE.Group();
-        const globalTrafficNodes = [];
-        const renderedStreetsList = [];
-        const renderedBuildingsList = [];
-
-        const ROAD_WIDTH_METERS = 12;
+        // Gameplay Loop Data Arrays
+        const spatialAnomaliesCollection = [];
+        const mapStructuralMeshes = new THREE.Group();
+        let anomaliesCollectedCount = 0;
 
         /* ==========================================================================
-           INERTIAL CORE ENGINE Matrix Conversion
-           ========================================================================= */
-        const getSensorQuaternion = (function () {
-            const zee = new THREE.Vector3( 0, 0, 1 );
-            const euler = new THREE.Euler();
-            const q0 = new THREE.Quaternion();
-            const q1 = new THREE.Quaternion( - Math.sqrt( 0.5 ), 0, 0, Math.sqrt( 0.5 ) ); 
-
-            return function ( alpha, beta, gamma, orient ) {
-                const q = new THREE.Quaternion();
-                euler.set( beta, alpha, - gamma, 'YXZ' ); 
-                q.setFromEuler( euler ); 
-                q.multiply( q1 ); 
-                q.multiply( q0.setFromAxisAngle( zee, - orient ) ); 
-                return q;
-            };
-        })();
-
-        /* ==========================================================================
-           PROCEDURAL TEXTURING GENERATORS
-           ========================================================================= */
-        function createStreetCanvasTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 256; canvas.height = 256;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#16161a'; ctx.fillRect(0, 0, 256, 256);
-            ctx.fillStyle = 'rgba(255,255,255,0.02)';
-            for (let i = 0; i < 1000; i++) ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
-            ctx.strokeStyle = '#ffea00'; ctx.lineWidth = 2; ctx.setLineDash([10, 8]);
-            ctx.beginPath(); ctx.moveTo(128, 0); ctx.lineTo(128, 256); ctx.stroke();
-            const texture = new THREE.CanvasTexture(canvas);
-            texture.wrapS = THREE.RepeatWrapping; texture.wrapT = THREE.RepeatWrapping;
-            texture.repeat.set(1, 4);
-            return texture;
-        }
-
-        function createSidewalkCanvasTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 128; canvas.height = 128;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#2d2d35'; ctx.fillRect(0, 0, 128, 128);
-            ctx.strokeStyle = '#202025'; ctx.lineWidth = 2;
-            ctx.strokeRect(0, 0, 128, 128);
-            const texture = new THREE.CanvasTexture(canvas);
-            texture.wrapS = THREE.RepeatWrapping; texture.wrapT = THREE.RepeatWrapping;
-            return texture;
-        }
-
-        /* ==========================================================================
-           GEOSPATIAL COORDINATES PROJECTIONS MATRIX
+           GEOSPATIAL SPATIAL PROJECTIONS
            ========================================================================= */
         function latLonToLocalMeters(lat, lon, anchorLat, anchorLon) {
             const radLat = anchorLat * Math.PI / 180;
@@ -337,787 +227,313 @@
         }
 
         /* ==========================================================================
-           STATIC LOCAL MAP INGESTION ENGINE (DOWNLOAD ONCE STRATEGY)
+           FIRST-PERSON VIEW INTERACTION HANDLERS (DESKTOP & MOBILE COMPATIBLE)
            ========================================================================= */
-        async function fetchLiveOpenStreetMapData(lat, lon) {
-            if (osmFetchController) osmFetchController.abort();
-            osmFetchController = new AbortController();
+        function initViewportInputControllers() {
+            const viewportCanvas = document.getElementById('canvas3d');
 
-            const dataStatus = document.getElementById('data-status-badge');
-            
-            const overpassEndpoints = [
-                `https://overpass-api.de/api/interpreter`,
-                `https://overpass.kumi.systems/api/interpreter`,
-                `https://lz4.overpass-api.de/api/interpreter`
-            ];
-
-            const boundingBoxRange = 0.0035; 
-            const minLat = lat - boundingBoxRange;
-            const minLon = lon - boundingBoxRange;
-            const maxLat = lat + boundingBoxRange;
-            const maxLon = lon + boundingBoxRange;
-
-            const query = `[out:json][timeout:20];(way["building"](${minLat},${minLon},${maxLat},${maxLon});way["highway"](${minLat},${minLon},${maxLat},${maxLon}););out body;>;out skel qt;`;
-            
-            let data = null;
-            let success = false;
-
-            for (let i = 0; i < overpassEndpoints.length; i++) {
-                const localMirrorController = new AbortController();
-                const globalSignalListener = () => localMirrorController.abort();
-                osmFetchController.signal.addEventListener('abort', globalSignalListener);
-
-                const networkTimeoutId = setTimeout(() => localMirrorController.abort(), 6000);
-
-                try {
-                    dataStatus.innerText = `OSM Cache: Mirror ${i + 1}/${overpassEndpoints.length}...`;
-                    dataStatus.style.background = "rgba(255, 171, 0, 0.2)";
-                    dataStatus.style.borderColor = "#ffab00";
-                    dataStatus.style.color = "#ffab00";
-
-                    const fetchUrl = `${overpassEndpoints[i]}?data=${encodeURIComponent(query)}`;
-                    const response = await fetch(fetchUrl, {
-                        method: 'GET',
-                        signal: localMirrorController.signal
-                    });
-                    
-                    clearTimeout(networkTimeoutId);
-                    osmFetchController.signal.removeEventListener('abort', globalSignalListener);
-                    
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    
-                    data = await response.json();
-                    if (data && data.elements && data.elements.length > 0) {
-                        success = true;
-                        break; 
-                    }
-                } catch (err) {
-                    clearTimeout(networkTimeoutId);
-                    osmFetchController.signal.removeEventListener('abort', globalSignalListener);
-                    if (osmFetchController.signal.aborted) return;
-                    console.warn(`Node ${i + 1} fail: ${err.message}`);
-                }
-            }
-
-            if (success && data) {
-                anchorCoordinates.lat = lat;
-                anchorCoordinates.lon = lon;
-                mapLoadedForAnchor = true;
-
-                dataStatus.innerText = "OSM Engine: Extrusion Done";
-                parseAndBuildOSMWorld(data, anchorCoordinates.lat, anchorCoordinates.lon);
-                
-                dataStatus.innerText = "Local Space Cache Active";
-                dataStatus.style.background = "rgba(0, 230, 118, 0.2)";
-                dataStatus.style.borderColor = "#00e676";
-                dataStatus.style.color = "#00e676";
-            } else {
-                dataStatus.innerText = "OSM Engine: Using Fallback Grid";
-                dataStatus.style.background = "rgba(255, 23, 68, 0.2)";
-                dataStatus.style.borderColor = "#ff1744";
-                dataStatus.style.color = "#ff1744";
-                
-                generateProceduralBackupInfrastructure();
-            }
-        }
-
-        function parseAndBuildOSMWorld(osmData, anchorLat, anchorLon) {
-            while(dynamicWorldGroup.children.length > 0) {
-                const item = dynamicWorldGroup.children[0];
-                if (item.geometry) item.geometry.dispose();
-                if (item.material) item.material.dispose();
-                dynamicWorldGroup.remove(item);
-            }
-            globalTrafficNodes.length = 0;
-            renderedStreetsList.length = 0;
-            renderedBuildingsList.length = 0;
-
-            if (!osmData || !osmData.elements) return;
-
-            const nodesLookup = {};
-            osmData.elements.forEach(element => {
-                if (element.type === 'node') {
-                    const localMeters = latLonToLocalMeters(element.lat, element.lon, anchorLat, anchorLon);
-                    nodesLookup[element.id] = { x: localMeters.x, z: localMeters.z };
-                }
+            // Drag/Swipe to Look around in first person natively
+            viewportCanvas.addEventListener('pointerdown', (e) => {
+                isDragging = true;
+                previousPointerX = e.clientX;
+                previousPointerY = e.clientY;
             });
 
-            osmData.elements.forEach(element => {
-                if (element.type === 'way' && element.nodes) {
-                    const localCoordinatesPoints = [];
-                    element.nodes.forEach(nodeId => {
-                        if (nodesLookup[nodeId]) localCoordinatesPoints.push(nodesLookup[nodeId]);
-                    });
+            window.addEventListener('pointermove', (e) => {
+                if (!isDragging) return;
+                const deltaX = e.clientX - previousPointerX;
+                const deltaY = e.clientY - previousPointerY;
+                
+                previousPointerX = e.clientX;
+                previousPointerY = e.clientY;
 
-                    if (localCoordinatesPoints.length < 2) return;
-
-                    if (element.tags && element.tags.building) {
-                        buildRealStructuralPolygon(localCoordinatesPoints, element.tags);
-                    } else if (element.tags && element.tags.highway) {
-                        buildRealStreetSegment(localCoordinatesPoints, element.tags);
-                    }
-                }
+                // Adjust look tracking properties vectors
+                lookYaw -= deltaX * 0.003;
+                lookPitch -= deltaY * 0.003;
+                
+                // Limit pitch rotation to avoid tumbling upside down
+                lookPitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, lookPitch));
+                
+                if (!gyroActive) updateCameraRotation();
             });
 
-            syncVirtualCameraToGpsCoordinates();
-            repopulateHumanoidEntities();
+            window.addEventListener('pointerup', () => isDragging = false);
+
+            document.getElementById('sensorBtn').addEventListener('click', toggleMotionSensors);
+            document.getElementById('arToggleBtn').addEventListener('click', toggleARCameraStream);
+            document.getElementById('stepSimBtn').addEventListener('click', simulateStepForward);
         }
 
-        /* ==========================================================================
-           ROBUST SPATIAL EXTRUSION: FIXED LOCAL CENTROID + MESH ROTATION
-           ========================================================================= */
-        function buildRealStructuralPolygon(points, tags) {
-            if (points.length < 3) return;
-
-            // 1. Calculate the geographic anchor center (Centroid) of the block
-            let sumX = 0;
-            let sumZ = 0;
-            points.forEach(p => {
-                sumX += p.x;
-                sumZ += p.z;
-            });
-            const centerX = sumX / points.length;
-            const centerZ = sumZ / points.length;
-
-            // 2. Build the shape path using relative local offsets to shield bounding boxes
-            const shapeOutline = new THREE.Shape();
-            shapeOutline.moveTo(points[0].x - centerX, points[0].z - centerZ);
-            for (let i = 1; i < points.length; i++) {
-                shapeOutline.lineTo(points[i].x - centerX, points[i].z - centerZ);
-            }
-            shapeOutline.closePath();
-
-            let buildingHeight = (tags && tags.height) ? parseFloat(tags.height) : (15 + Math.random() * 30);
-            if (tags && tags["building:levels"]) {
-                buildingHeight = parseInt(tags["building:levels"]) * 3.5;
-            }
-
-            const extrusionSettings = {
-                depth: buildingHeight,
-                bevelEnabled: true,
-                bevelThickness: 0.2,
-                bevelSize: 0.1,
-                bevelSegments: 1
-            };
-
-            const geom = new THREE.ExtrudeGeometry(shapeOutline, extrusionSettings);
-
-            const structureColors = [0x141923, 0x1c1e24, 0x252a36, 0x111218];
-            const primaryColor = structureColors[Math.floor(Math.random() * structureColors.length)];
-            const windowNeonGlows = [0x00e5ff, 0x00e676, 0xffea00, 0xff1744];
-            const randomNeon = windowNeonGlows[Math.floor(Math.random() * windowNeonGlows.length)];
-
-            const mat = new THREE.MeshStandardMaterial({
-                color: primaryColor,
-                roughness: 0.25,
-                metalness: 0.75,
-                emissive: randomNeon,
-                emissiveIntensity: Math.random() > 0.8 ? 0.09 : 0.01
-            });
-
-            const buildingMesh = new THREE.Mesh(geom, mat);
-            
-            // 3. Object-level orientation inversion maps geometry upward on the +Y axis seamlessly
-            buildingMesh.rotation.x = -Math.PI / 2;
-            buildingMesh.position.set(centerX, 0, centerZ);
-            
-            buildingMesh.castShadow = true;
-            buildingMesh.receiveShadow = true;
-            dynamicWorldGroup.add(buildingMesh);
-
-            renderedBuildingsList.push({ points: points, height: buildingHeight });
+        function updateCameraRotation() {
+            const eulerRotation = new THREE.Euler(lookPitch, lookYaw, 0, 'YXZ');
+            camera.quaternion.setFromEuler(eulerRotation);
         }
 
-        function buildRealStreetSegment(points, tags) {
-            renderedStreetsList.push(points);
-            const streetMaterial = new THREE.MeshStandardMaterial({ map: streetTexture, roughness: 0.65 });
-
-            for (let i = 0; i < points.length - 1; i++) {
-                const ptA = points[i];
-                const ptB = points[i + 1];
-
-                globalTrafficNodes.push(new THREE.Vector3(ptA.x, 0.05, ptA.z));
-                globalTrafficNodes.push(new THREE.Vector3(ptB.x, 0.05, ptB.z));
-
-                const distance = Math.hypot(ptB.x - ptA.x, ptB.z - ptA.z);
-                const roadLineGeo = new THREE.PlaneGeometry(ROAD_WIDTH_METERS, distance);
-                
-                const roadSegmentMesh = new THREE.Mesh(roadLineGeo, streetMaterial);
-                roadSegmentMesh.rotation.x = -Math.PI / 2;
-                
-                const centerX = (ptA.x + ptB.x) / 2;
-                const centerZ = (ptA.z + ptB.z) / 2;
-                roadSegmentMesh.position.set(centerX, 0.01, centerZ);
-                
-                const headingAngle = Math.atan2(ptB.x - ptA.x, ptB.z - ptA.z);
-                roadSegmentMesh.rotation.z = -headingAngle;
-                roadSegmentMesh.receiveShadow = true;
-                
-                dynamicWorldGroup.add(roadSegmentMesh);
-            }
-        }
-
-        function generateProceduralBackupInfrastructure() {
-            while(dynamicWorldGroup.children.length > 0) {
-                dynamicWorldGroup.remove(dynamicWorldGroup.children[0]);
-            }
-            globalTrafficNodes.length = 0;
-            renderedStreetsList.length = 0;
-            renderedBuildingsList.length = 0;
-
-            const spacing = 80;
-            
-            for (let x = -4; x <= 4; x++) {
-                const streetPointsV = [{ x: x * spacing, z: -350 }, { x: x * spacing, z: 350 }];
-                renderedStreetsList.push(streetPointsV);
-                globalTrafficNodes.push(new THREE.Vector3(x * spacing, 0.05, -350), new THREE.Vector3(x * spacing, 0.05, 350));
-
-                const streetPointsH = [{ x: -350, z: x * spacing }, { x: 350, z: x * spacing }];
-                renderedStreetsList.push(streetPointsH);
-                globalTrafficNodes.push(new THREE.Vector3(-350, 0.05, x * spacing), new THREE.Vector3(350, 0.05, x * spacing));
-            }
-
-            const streetMaterial = new THREE.MeshStandardMaterial({ map: streetTexture, roughness: 0.65 });
-            renderedStreetsList.forEach(points => {
-                const ptA = points[0]; const ptB = points[1];
-                const distance = Math.hypot(ptB.x - ptA.x, ptB.z - ptA.z);
-                const roadLineGeo = new THREE.PlaneGeometry(ROAD_WIDTH_METERS, distance);
-                const roadSegmentMesh = new THREE.Mesh(roadLineGeo, streetMaterial);
-                roadSegmentMesh.rotation.x = -Math.PI / 2;
-                roadSegmentMesh.position.set((ptA.x + ptB.x) / 2, 0.01, (ptA.z + ptB.z) / 2);
-                roadSegmentMesh.rotation.z = -Math.atan2(ptB.x - ptA.x, ptB.z - ptA.z);
-                roadSegmentMesh.receiveShadow = true;
-                dynamicWorldGroup.add(roadSegmentMesh);
-            });
-
-            for (let x = -3; x <= 3; x++) {
-                for (let z = -3; z <= 3; z++) {
-                    const centerX = x * spacing + spacing / 2;
-                    const centerZ = z * spacing + spacing / 2;
-                    const boxSize = 35;
-
-                    const buildingPoints = [
-                        { x: centerX - boxSize/2, z: centerZ - boxSize/2 },
-                        { x: centerX + boxSize/2, z: centerZ - boxSize/2 },
-                        { x: centerX + boxSize/2, z: centerZ + boxSize/2 },
-                        { x: centerX - boxSize/2, z: centerZ + boxSize/2 }
-                    ];
-                    buildRealStructuralPolygon(buildingPoints, null);
-                }
-            }
-            repopulateHumanoidEntities();
-            syncVirtualCameraToGpsCoordinates();
-        }
-
-        /* ==========================================================================
-           AUTOMATED HUMANOID SIMULATION SYSTEM
-           ========================================================================= */
-        class AutomatedHumanoidAgent {
-            constructor() {
-                this.rootGroup = new THREE.Group();
-                this.heightScaleFactor = 0.85 + Math.random() * 0.55;
-                this.widthScaleFactor = 0.85 + Math.random() * 0.4;
-                this.meshColorHex = new THREE.Color().setHSL(Math.random(), 0.85, 0.5);
-                
-                this.buildHumanoidTopology();
-
-                this.currentNodeIndex = Math.floor(Math.random() * globalTrafficNodes.length);
-                const spawnAnchorPosition = globalTrafficNodes[this.currentNodeIndex] || new THREE.Vector3(0,0,0);
-                
-                this.lateralOffsetVector = new THREE.Vector3((Math.random() - 0.5) * 5, 0, (Math.random() - 0.5) * 5);
-                this.rootGroup.position.copy(spawnAnchorPosition).add(this.lateralOffsetVector);
-                this.rootGroup.position.y = 0;
-
-                this.targetNodeIndex = this.findRandomConnectedTrafficNode();
-                this.movementVelocitySpeed = 3.0 + Math.random() * 4.0; 
-                this.animationPhaseOscillationTime = Math.random() * Math.PI * 2;
-
-                dynamicWorldGroup.add(this.rootGroup);
-            }
-
-            buildHumanoidTopology() {
-                const material = new THREE.MeshStandardMaterial({ color: this.meshColorHex, roughness: 0.5 });
-                const torsoGeo = new THREE.BoxGeometry(0.5 * this.widthScaleFactor, 0.7 * this.heightScaleFactor, 0.3 * this.widthScaleFactor);
-                this.torsoMesh = new THREE.Mesh(torsoGeo, material);
-                this.torsoMesh.position.y = 0.85 * this.heightScaleFactor;
-                this.torsoMesh.castShadow = true;
-                this.rootGroup.add(this.torsoMesh);
-
-                const headGeo = new THREE.SphereGeometry(0.18 * this.widthScaleFactor, 16, 16);
-                this.headMesh = new THREE.Mesh(headGeo, material);
-                this.headMesh.position.y = 1.35 * this.heightScaleFactor;
-                this.headMesh.castShadow = true;
-                this.rootGroup.add(this.headMesh);
-
-                const legGeo = new THREE.CylinderGeometry(0.09 * this.widthScaleFactor, 0.07 * this.widthScaleFactor, 0.6 * this.heightScaleFactor, 8);
-                this.leftLegPivot = new THREE.Group();
-                this.leftLegPivot.position.set(-0.16 * this.widthScaleFactor, 0.55 * this.heightScaleFactor, 0);
-                const leftLegMesh = new THREE.Mesh(legGeo, material);
-                leftLegMesh.position.y = -0.25 * this.heightScaleFactor;
-                leftLegMesh.castShadow = true;
-                this.leftLegPivot.add(leftLegMesh);
-                this.rootGroup.add(this.leftLegPivot);
-
-                this.rightLegPivot = new THREE.Group();
-                this.rightLegPivot.position.set(0.16 * this.widthScaleFactor, 0.55 * this.heightScaleFactor, 0);
-                const rightLegMesh = new THREE.Mesh(legGeo, material);
-                rightLegMesh.position.y = -0.25 * this.heightScaleFactor;
-                rightLegMesh.castShadow = true;
-                this.rightLegPivot.add(rightLegMesh);
-                this.rootGroup.add(this.rightLegPivot);
-            }
-
-            findRandomConnectedTrafficNode() {
-                if(globalTrafficNodes.length === 0) return 0;
-                const currentPoint = globalTrafficNodes[this.currentNodeIndex] || new THREE.Vector3(0,0,0);
-                const validCandidateIndices = [];
-
-                for (let i = 0; i < globalTrafficNodes.length; i++) {
-                    if (i === this.currentNodeIndex) continue;
-                    const evaluationDistance = currentPoint.distanceTo(globalTrafficNodes[i]);
-                    if (evaluationDistance < 90.0) validCandidateIndices.push(i);
-                }
-
-                if (validCandidateIndices.length === 0) return Math.floor(Math.random() * globalTrafficNodes.length);
-                return validCandidateIndices[Math.floor(Math.random() * validCandidateIndices.length)];
-            }
-
-            updateAgentPhysics(deltaTimeSeconds) {
-                if (globalTrafficNodes.length === 0) return;
-
-                const baseDestinationPoint = globalTrafficNodes[this.targetNodeIndex] || new THREE.Vector3(0,0,0);
-                const absoluteTargetDestination = new THREE.Vector3().copy(baseDestinationPoint).add(this.lateralOffsetVector);
-                absoluteTargetDestination.y = 0;
-
-                const currentPositionVector = new THREE.Vector3().copy(this.rootGroup.position);
-                currentPositionVector.y = 0;
-
-                const distanceToDestination = currentPositionVector.distanceTo(absoluteTargetDestination);
-
-                if (distanceToDestination < 1.5) {
-                    this.currentNodeIndex = this.targetNodeIndex;
-                    this.targetNodeIndex = this.findRandomConnectedTrafficNode();
-                    return;
-                }
-
-                const movementHeadingDirection = new THREE.Vector3().subVectors(absoluteTargetDestination, currentPositionVector).normalize();
-                this.rootGroup.position.addScaledVector(movementHeadingDirection, this.movementVelocitySpeed * deltaTimeSeconds);
-                
-                const lookAngleRadians = Math.atan2(movementHeadingDirection.x, movementHeadingDirection.z);
-                this.rootGroup.rotation.y = lookAngleRadians;
-
-                this.animationPhaseOscillationTime += this.movementVelocitySpeed * deltaTimeSeconds * 3.5;
-                const swingAmplitude = Math.sin(this.animationPhaseOscillationTime) * 0.45;
-                
-                this.leftLegPivot.rotation.x = swingAmplitude;
-                this.rightLegPivot.rotation.x = -swingAmplitude;
-                this.torsoMesh.position.y = (0.85 * this.heightScaleFactor) + (Math.abs(Math.sin(this.animationPhaseOscillationTime)) * 0.04);
-            }
-        }
-
-        /* ==========================================================================
-           2D TRACK-UP MINIMAP & CARDINAL COMPASS ENGINE
-           ========================================================================= */
-        function update2DMinimapSystem() {
-            if (!minimapCtx) return;
-
-            const localUserPos = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
-
-            const targetDirectionVector = new THREE.Vector3();
-            camera.getWorldDirection(targetDirectionVector);
-            const yawAngleRadians = Math.atan2(targetDirectionVector.x, -targetDirectionVector.z);
-
-            const compassRing = document.getElementById('compass-ring');
-            if (compassRing) {
-                const compassOrientationDegrees = THREE.MathUtils.radToDeg(-yawAngleRadians);
-                compassRing.style.transform = `rotate(${compassOrientationDegrees}deg)`;
-            }
-
-            minimapCtx.clearRect(0, 0, 150, 150);
-            minimapCtx.save();
-            
-            minimapCtx.beginPath();
-            minimapCtx.arc(75, 75, 72, 0, Math.PI * 2);
-            minimapCtx.clip();
-
-            minimapCtx.fillStyle = 'rgba(10, 10, 16, 0.94)';
-            minimapCtx.fillRect(0, 0, 150, 150);
-
-            minimapCtx.translate(75, 75);
-            minimapCtx.rotate(-yawAngleRadians);
-
-            const MINIMAP_GRAPHICS_SCALE = 0.5;
-
-            minimapCtx.strokeStyle = 'rgba(0, 229, 255, 0.3)';
-            minimapCtx.lineWidth = ROAD_WIDTH_METERS * MINIMAP_GRAPHICS_SCALE;
-            minimapCtx.lineCap = "round"; minimapCtx.lineJoin = "round";
-
-            renderedStreetsList.forEach(streetPoints => {
-                minimapCtx.beginPath();
-                streetPoints.forEach((pt, index) => {
-                    const dx = (pt.x - localUserPos.x) * MINIMAP_GRAPHICS_SCALE;
-                    const dz = (pt.z - localUserPos.z) * MINIMAP_GRAPHICS_SCALE;
-                    if (index === 0) minimapCtx.moveTo(dx, dz);
-                    else minimapCtx.lineTo(dx, dz);
-                });
-                minimapCtx.stroke();
-            });
-
-            minimapCtx.fillStyle = 'rgba(255, 234, 0, 0.12)';
-            minimapCtx.strokeStyle = 'rgba(255, 234, 0, 0.3)';
-            minimapCtx.lineWidth = 1;
-
-            renderedBuildingsList.forEach(building => {
-                minimapCtx.beginPath();
-                building.points.forEach((pt, index) => {
-                    const dx = (pt.x - localUserPos.x) * MINIMAP_GRAPHICS_SCALE;
-                    const dz = (pt.z - localUserPos.z) * MINIMAP_GRAPHICS_SCALE;
-                    if (index === 0) minimapCtx.moveTo(dx, dz);
-                    else minimapCtx.lineTo(dx, dz);
-                });
-                minimapCtx.closePath();
-                minimapCtx.fill(); minimapCtx.stroke();
-            });
-
-            for (let i = 0; i < humanoidsArray.length; i++) {
-                const agentEntity = humanoidsArray[i];
-                const deltaPositionX = agentEntity.rootGroup.position.x - localUserPos.x;
-                const deltaPositionZ = agentEntity.rootGroup.position.z - localUserPos.z;
-
-                if (Math.hypot(deltaPositionX, deltaPositionZ) * MINIMAP_GRAPHICS_SCALE < 72) {
-                    const dx = deltaPositionX * MINIMAP_GRAPHICS_SCALE;
-                    const dz = deltaPositionZ * MINIMAP_GRAPHICS_SCALE;
-                    minimapCtx.fillStyle = `#${agentEntity.meshColorHex.getHexString()}`;
-                    minimapCtx.beginPath();
-                    minimapCtx.arc(dx, dz, 3, 0, Math.PI * 2);
-                    minimapCtx.fill();
-                }
-            }
-
-            minimapCtx.restore();
-
-            minimapCtx.strokeStyle = 'rgba(0, 229, 255, 0.4)';
-            minimapCtx.lineWidth = 2;
-            minimapCtx.beginPath();
-            minimapCtx.arc(75, 75, 73, 0, Math.PI * 2);
-            minimapCtx.stroke();
-
-            minimapCtx.fillStyle = '#00ffcc';
-            minimapCtx.beginPath();
-            minimapCtx.arc(75, 75, 4, 0, Math.PI * 2);
-            minimapCtx.fill();
-
-            minimapCtx.strokeStyle = '#00ffcc';
-            minimapCtx.lineWidth = 2;
-            minimapCtx.beginPath();
-            minimapCtx.moveTo(75, 75);
-            minimapCtx.lineTo(75, 75 - 14); 
-            minimapCtx.stroke();
-        }
-
-        /* ==========================================================================
-           HARDWARE INTERACTIVE SENSOR ENGINES
-           ========================================================================= */
-        function toggleSensorsFunctionality() {
-            const btn = document.getElementById('gyroBtn');
+        function toggleMotionSensors() {
+            const sensorBtn = document.getElementById('sensorBtn');
             if (gyroActive) {
-                deactivateTrackingSensors();
+                window.removeEventListener('deviceorientation', handleVisorHardwareOrientation);
+                gyroActive = false;
+                sensorBtn.classList.remove('active');
             } else {
                 if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                    Promise.all([
-                        DeviceOrientationEvent.requestPermission(),
-                        typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function' ? 
-                            DeviceMotionEvent.requestPermission() : Promise.resolve('granted')
-                    ]).then(states => {
-                        if (states.every(s => s === 'granted')) activateTrackingSensors(btn);
-                    });
+                    DeviceOrientationEvent.requestPermission().then(permissionState => {
+                        if (permissionState === 'granted') activateGyroEvents(sensorBtn);
+                    }).catch(err => console.error("Sensor calibration rejected:", err));
                 } else {
-                    activateTrackingSensors(btn);
+                    activateGyroEvents(sensorBtn);
                 }
             }
         }
 
-        function activateTrackingSensors(btn) {
-            if (controls) controls.enabled = false; 
-            isFirstGyroFrame = true;
-            window.addEventListener('deviceorientation', handleGyroscopeMotionInput, true);
-            window.addEventListener('devicemotion', handleInertialStepInput, true);
+        function activateGyroEvents(btn) {
+            window.addEventListener('deviceorientation', handleVisorHardwareOrientation, true);
             gyroActive = true;
             btn.classList.add('active');
-            document.getElementById('sensor-hud').innerHTML = `VELOCITY X: 0.0000<br>VELOCITY Z: 0.0000<br>SYSTEM MODE: GYRO_DRIVE`;
         }
 
-        function deactivateTrackingSensors() {
-            if (!gyroActive) return;
-            window.removeEventListener('deviceorientation', handleGyroscopeMotionInput);
-            window.removeEventListener('devicemotion', handleInertialStepInput);
-            gyroActive = false;
-            targetLinearVelocityX = 0;
-            targetLinearVelocityZ = 0;
-            document.getElementById('gyroBtn').classList.remove('active');
-            
-            const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
-            lockedGyroRoll = euler.z; 
-            euler.z = 0;
+        function handleVisorHardwareOrientation(e) {
+            if (!gyroActive || e.alpha === null) return;
+
+            // Convert raw degrees to camera coordinates
+            const alphaRad = THREE.MathUtils.degToRad(e.alpha); 
+            const betaRad = THREE.MathUtils.degToRad(e.beta);   
+            const gammaRad = THREE.MathUtils.degToRad(e.gamma); 
+
+            // Direct First Person device mapping transformation
+            const euler = new THREE.Euler();
+            euler.set(betaRad + Math.PI/2, alphaRad, -gammaRad, 'YXZ');
             camera.quaternion.setFromEuler(euler);
-            
-            const currentForwardDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-            const explicitTargetPoint = new THREE.Vector3().copy(camera.position).addScaledVector(currentForwardDir, 40);
-            
-            if (controls) controls.dispose();
-            initOrbitControls();
-            controls.target.copy(explicitTargetPoint);
-            controls.update();
-            document.getElementById('sensor-hud').innerHTML = `VELOCITY X: 0.0000<br>VELOCITY Z: 0.0000<br>SYSTEM MODE: DETACHED`;
-        }
-
-        function handleGyroscopeMotionInput(e) {
-            if (!gyroActive) return;
-            let alpha = e.alpha ? THREE.MathUtils.degToRad(e.alpha) : 0;
-            let beta = e.beta ? THREE.MathUtils.degToRad(e.beta) : 0;
-            let gamma = e.gamma ? THREE.MathUtils.degToRad(e.gamma) : 0;
-            let orient = window.orientation ? THREE.MathUtils.degToRad(window.orientation) : 0;
-
-            let qSensor = getSensorQuaternion(alpha, beta, gamma, orient);
-            let sensorEuler = new THREE.Euler().setFromQuaternion(qSensor, 'YXZ');
-
-            if (isFirstGyroFrame) {
-                let currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
-                gyroYawOffset = currentEuler.y - sensorEuler.y;
-                isFirstGyroFrame = false;
-            }
-
-            sensorEuler.y += gyroYawOffset;
-            camera.quaternion.setFromEuler(sensorEuler);
-        }
-
-        function handleInertialStepInput(e) {
-            if (!gyroActive) return;
-            let acc = e.acceleration; 
-            if (!acc || acc.x === null) return;
-
-            const localAccelerationVector = new THREE.Vector3(acc.x, acc.y, acc.z);
-            const worldSpaceAcceleration = localAccelerationVector.clone().applyQuaternion(camera.quaternion);
-            worldSpaceAcceleration.y = 0;
-
-            const hardwareJitterFloor = 0.08; 
-            if (worldSpaceAcceleration.length() < hardwareJitterFloor) return;
-
-            const ACCELERATION_INTEGRATION_GAIN_Z = 0.035;
-            const ACCELERATION_INTEGRATION_GAIN_X = 0.012; 
-            targetLinearVelocityX -= worldSpaceAcceleration.x * ACCELERATION_INTEGRATION_GAIN_X;
-            targetLinearVelocityZ -= worldSpaceAcceleration.z * ACCELERATION_INTEGRATION_GAIN_Z;
         }
 
         /* ==========================================================================
-           OFFLINE LOCAL POSITION TRAVERSAL MATRIX
+           HARDWARE CAMERA WEBRTC AUDIO/VIDEO PASS-THROUGH STREAMS
            ========================================================================= */
-        function onDynamicLocationUpdate(lat, lon, accuracy, alt) {
-            currentCoordinates.lat = lat;
-            currentCoordinates.lon = lon;
-            currentCoordinates.accuracy = accuracy || 5.0;
-            currentCoordinates.alt = alt || 15.0;
+        async function toggleARCameraStream() {
+            const arBtn = document.getElementById('arToggleBtn');
+            const videoNode = document.getElementById('camera-feed');
 
-            updateGpsHudDisplay();
-            syncVirtualCameraToGpsCoordinates();
-        }
+            if (isARActive) {
+                if (cameraStream) {
+                    cameraStream.getTracks().forEach(track => track.stop());
+                }
+                videoNode.srcObject = null;
+                renderer.setClearColor(0x06060c, 1.0); // Reset solid background
+                isARActive = false;
+                arBtn.classList.remove('active');
+                arBtn.innerText = "Activate Camera AR";
+            } else {
+                try {
+                    const videoConstraints = {
+                        video: { facingMode: { exact: "environment" } }, // Force rear primary camera
+                        audio: false
+                    };
+                    cameraStream = await navigator.mediaDevices.getUserMedia(videoConstraints);
+                } catch (fallbackErr) {
+                    console.warn("Environment camera missing, using generalized fallback device stream options...");
+                    try {
+                        cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    } catch (fatalErr) {
+                        alert("Could not initialize device video streaming pipeline hardware profiles.");
+                        return;
+                    }
+                }
 
-        function syncVirtualCameraToGpsCoordinates() {
-            const mappedTargetPos = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
-            
-            if (!gyroActive && controls) {
-                const cameraPositionDeltaX = camera.position.x - controls.target.x;
-                const cameraPositionDeltaZ = camera.position.z - controls.target.z;
-                controls.target.set(mappedTargetPos.x, 2, mappedTargetPos.z);
-                camera.position.x = mappedTargetPos.x + cameraPositionDeltaX;
-                camera.position.z = mappedTargetPos.z + cameraPositionDeltaZ;
-            } else if (gyroActive) {
-                camera.position.x = mappedTargetPos.x;
-                camera.position.z = mappedTargetPos.z;
+                videoNode.srcObject = cameraStream;
+                renderer.setClearAlpha(0.0);
+                renderer.setClearColor(0x000000, 0.0); // Make WebGL engine fully transparent
+                isARActive = true;
+                arBtn.classList.add('active');
+                arBtn.innerText = "Disable Camera AR";
             }
         }
 
-        function updateGpsHudDisplay() {
-            document.getElementById('gps-hud').innerHTML = `
+        /* ==========================================================================
+           PROCEDURAL NEON CITY MAP GENERATION
+           ========================================================================= */
+        function generateProceduralARWorld() {
+            scene.add(mapStructuralMeshes);
+
+            const spacing = 75;
+            const gridLimit = 4;
+            
+            // 1. Generate Glowing Neon Vector Roads Layout
+            const laneMaterial = new THREE.LineBasicMaterial({ color: 0x00ffcc, linewidth: 2 });
+            
+            for (let i = -gridLimit; i <= gridLimit; i++) {
+                // Horizontal roadway strip geometry
+                const horizGeo = new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(-300, 0.01, i * spacing),
+                    new THREE.Vector3(300, 0.01, i * spacing)
+                ]);
+                mapStructuralMeshes.add(new THREE.Line(horizGeo, laneMaterial));
+
+                // Vertical roadway strip geometry
+                const vertGeo = new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(i * spacing, 0.01, -300),
+                    new THREE.Vector3(i * spacing, 0.01, 300)
+                ]);
+                mapStructuralMeshes.add(new THREE.Line(vertGeo, laneMaterial));
+            }
+
+            // 2. Build Glowing Cyber-Grid Building Footprints
+            for (let x = -gridLimit; x < gridLimit; x++) {
+                for (let z = -gridLimit; z < gridLimit; z++) {
+                    const cx = x * spacing + spacing / 2;
+                    const cz = z * spacing + spacing / 2;
+                    const size = 30 + Math.random() * 15;
+                    const height = 25 + Math.random() * 60;
+
+                    const wireBoxGeo = new THREE.BoxGeometry(size, height, size);
+                    const edgesGeometry = new THREE.EdgesGeometry(wireBoxGeo);
+                    const lineMaterial = new THREE.LineBasicMaterial({ color: 0xff0055, linewidth: 1 });
+                    const buildingWireMesh = new THREE.LineSegments(edgesGeometry, lineMaterial);
+                    
+                    // Set position so the bottom of the wireframe rests exactly on the floor ($Y=0$)
+                    buildingWireMesh.position.set(cx, height / 2, cz);
+                    mapStructuralMeshes.add(buildingWireMesh);
+                }
+            }
+
+            // Spawn localized game entities
+            spawnQuantumAnomalies();
+        }
+
+        /* ==========================================================================
+           GAMEPLAY ENGINE: ANOMALY HUNTING LOOP
+           ========================================================================= */
+        function spawnQuantumAnomalies() {
+            const anomalyGeometry = new THREE.IcosahedronGeometry(2, 1);
+            
+            // Cluster target anomalies near the initial user entry point footprint
+            for (let i = 0; i < 5; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const distance = 25 + Math.random() * 85; // Distributed locally within easy exploration walking distance
+                const localX = Math.cos(angle) * distance;
+                const localZ = Math.sin(angle) * distance;
+
+                const material = new THREE.MeshBasicMaterial({
+                    color: 0xffff00,
+                    wireframe: true
+                });
+
+                const anomalyMesh = new THREE.Mesh(anomalyGeometry, material);
+                
+                // Position anomaly precisely at eye-level floating off the deck array parameters
+                anomalyMesh.position.set(localX, 1.7, localZ);
+                scene.add(anomalyMesh);
+
+                spatialAnomaliesCollection.push({
+                    mesh: anomalyMesh,
+                    collected: false,
+                    radius: 6.0 
+                });
+            }
+        }
+
+        function simulateStepForward() {
+            // Push player ahead along their current first person look direction vector
+            const forwardDirectionVector = new THREE.Vector3();
+            camera.getWorldDirection(forwardDirectionVector);
+            forwardDirectionVector.y = 0; // Lock player footprint strictly to horizontal translation plane
+            forwardDirectionVector.normalize();
+
+            const strideMetersLength = 4.5;
+            camera.position.addScaledVector(forwardDirectionVector, strideMetersLength);
+
+            // Re-integrate coordinates relative shift back into mock geographic degrees
+            const localMetersToDegreesFactor = 1.0 / R_EARTH * (180.0 / Math.PI);
+            currentCoordinates.lat -= forwardDirectionVector.z * localMetersToDegreesFactor;
+            currentCoordinates.lon += forwardDirectionVector.x * localMetersToDegreesFactor / Math.cos(anchorCoordinates.lat * Math.PI / 180);
+
+            document.getElementById('geo-telemetry').innerHTML = `
                 LAT: ${currentCoordinates.lat.toFixed(6)}<br>
                 LON: ${currentCoordinates.lon.toFixed(6)}<br>
-                ALT: ${currentCoordinates.alt.toFixed(1)} m<br>
-                ACCURACY: ${currentCoordinates.accuracy.toFixed(1)} m
+                ALT: 1.7m FIXED
             `;
         }
 
-        function repopulateHumanoidEntities() {
-            for (let i = 0; i < humanoidsArray.length; i++) {
-                dynamicWorldGroup.remove(humanoidsArray[i].rootGroup);
-            }
-            humanoidsArray.length = 0;
-            if(globalTrafficNodes.length === 0) return;
+        function evaluateGameplayState() {
+            let closestDistanceMetric = Infinity;
 
-            const targetHumanoidsTotal = 60;
-            for(let i = 0; i < targetHumanoidsTotal; i++) {
-                humanoidsArray.push(new AutomatedHumanoidAgent());
-            }
+            spatialAnomaliesCollection.forEach((anomaly) => {
+                if (anomaly.collected) return;
+
+                const dx = anomaly.mesh.position.x - camera.position.x;
+                const dz = anomaly.mesh.position.z - camera.position.z;
+                const rawDistance = Math.hypot(dx, dz);
+
+                if (rawDistance < closestDistanceMetric) {
+                    closestDistanceMetric = rawDistance;
+                }
+
+                // Interaction verification cascade logic check
+                if (rawDistance <= anomaly.radius) {
+                    anomaly.collected = true;
+                    scene.remove(anomaly.mesh);
+                    anomaliesCollectedCount++;
+                    
+                    // Trigger haptic flash alert indicator signature metrics updates
+                    document.body.style.borderColor = "#ffff00";
+                    setTimeout(() => document.body.style.borderColor = "transparent", 300);
+                }
+            });
+
+            // Update user HUD panels elements data structures
+            const scoreText = `ANOMALIES FILTRATED: ${anomaliesCollectedCount}/5`;
+            const distText = closestDistanceMetric === Infinity ? "CLEAR" : `${closestDistanceMetric.toFixed(1)}m`;
+            
+            document.getElementById('score-telemetry').innerHTML = `
+                ${scoreText}<br>
+                NEAREST DIST: ${distText}
+            `;
         }
 
         /* ==========================================================================
-           INITIALIZATION & LOOP PIPELINES
+           MAIN INITIALIZATION PIPELINE ENGINE
            ========================================================================= */
-        function initOrbitControls() {
-            if (!controls) {
-                controls = new THREE.OrbitControls(camera, renderer.domElement);
-                controls.enableDamping = true;
-                controls.dampingFactor = 0.05;
-            }
-            controls.minDistance = 2;
-            controls.maxDistance = 1000;
-            controls.target.set(0, 2, 0);
-            controls.enabled = !gyroActive;
-        }
-
         function init() {
-            const canvas3d = document.getElementById('canvas3d');
-            minimapCanvas = document.getElementById('minimapCanvas');
-            minimapCtx = minimapCanvas.getContext('2d');
+            const canvasNode = document.getElementById('canvas3d');
 
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x06060c);
-            scene.fog = new THREE.FogExp2(0x06060c, 0.0025);
 
-            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 6000);
-            camera.position.set(0, 50, 120);
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+            
+            // LOCK THE POSITION: True first person human height configuration setting
+            camera.position.set(0, 1.7, 0); 
 
-            renderer = new THREE.WebGLRenderer({ canvas: canvas3d, antialias: true });
+            renderer = new THREE.WebGLRenderer({
+                canvas: canvasNode,
+                antialias: true,
+                alpha: true // Critical configuration parameter: allows underlying video pipeline stream element visibility
+            });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            renderer.shadowMap.enabled = true;
-            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-            initOrbitControls();
-
-            scene.add(new THREE.AmbientLight(0xffffff, 0.22));
+            // Generate structural environment asset arrays
+            generateProceduralARWorld();
             
-            const sunLight = new THREE.DirectionalLight(0xdbe7ff, 1.25);
-            sunLight.position.set(150, 450, 150); 
-            sunLight.castShadow = true;
-            sunLight.shadow.mapSize.width = 2048;
-            sunLight.shadow.mapSize.height = 2048;
-            sunLight.shadow.bias = -0.0005;
-            scene.add(sunLight);
-
-            const skyLight = new THREE.HemisphereLight(0x00e5ff, 0xff1744, 0.45);
-            scene.add(skyLight);
-
-            scene.add(dynamicWorldGroup);
-
-            streetTexture = createStreetCanvasTexture();
-            sidewalkTexture = createSidewalkCanvasTexture();
-
-            updateGpsHudDisplay();
-            fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
-
-            if (navigator.geolocation) {
-                navigator.geolocation.watchPosition((position) => {
-                    const badge = document.getElementById('gps-status-badge');
-                    badge.innerText = "Live GPS Loop";
-                    badge.style.cssText = "background: rgba(0, 230, 118, 0.2); border-color: #00e676; color: #00e676;";
-                    
-                    if (!isAutoWalking) {
-                        onDynamicLocationUpdate(
-                            position.coords.latitude,
-                            position.coords.longitude,
-                            position.coords.accuracy,
-                            position.coords.altitude
-                        );
-                    }
-                }, () => {}, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
-            }
-
-            document.getElementById('gyroBtn').addEventListener('click', toggleSensorsFunctionality);
-            
-            const autoWalkBtn = document.getElementById('autoWalkBtn');
-            autoWalkBtn.addEventListener('click', () => {
-                isAutoWalking = !isAutoWalking;
-                autoWalkBtn.classList.toggle('active', isAutoWalking);
-                if (isAutoWalking) {
-                    document.getElementById('gps-status-badge').innerText = "Simulated Path Run";
-                    document.getElementById('gps-status-badge').style.cssText = "background: rgba(0, 229, 255, 0.2); border-color: #00e5ff; color: #00e5ff;";
-                }
-            });
-
-            document.getElementById('reloadMapBtn').addEventListener('click', () => {
-                fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
-            });
-
+            // Initialize event drive bindings vectors
+            initViewportInputControllers();
             window.addEventListener('resize', onWindowResize);
 
-            const clock = new THREE.Clock();
-            
-            function animateLoop() {
-                requestAnimationFrame(animateLoop);
-                
-                try {
-                    const deltaTime = Math.min(clock.getDelta(), 0.1); 
+            // Trigger structural rendering frame loop matrix
+            function frameLoopEngine() {
+                requestAnimationFrame(frameLoopEngine);
 
-                    if (isAutoWalking) {
-                        const latitudeStepHeading = 0.000020 * deltaTime; 
-                        const longitudeStepHeading = 0.000010 * deltaTime;
-                        onDynamicLocationUpdate(
-                            currentCoordinates.lat + latitudeStepHeading,
-                            currentCoordinates.lon + longitudeStepHeading,
-                            3.0, 15.0
-                        );
+                // Spin target anomalies animations parameters
+                spatialAnomaliesCollection.forEach(anomaly => {
+                    if (!anomaly.collected) {
+                        anomaly.mesh.rotation.x += 0.01;
+                        anomaly.mesh.rotation.y += 0.02;
                     }
+                });
 
-                    for(let i = 0; i < humanoidsArray.length; i++) {
-                        humanoidsArray[i].updateAgentPhysics(deltaTime);
-                    }
-
-                    if (gyroActive) {
-                        const INTEGRATION_LEAK_DECAY = 0.78;
-                        targetLinearVelocityX *= INTEGRATION_LEAK_DECAY;
-                        targetLinearVelocityZ *= INTEGRATION_LEAK_DECAY;
-
-                        if (Math.abs(targetLinearVelocityX) < VELOCITY_DEADZONE_LIMIT) targetLinearVelocityX = 0;
-                        if (Math.abs(targetLinearVelocityZ) < VELOCITY_DEADZONE_LIMIT) targetLinearVelocityZ = 0;
-
-                        if (targetLinearVelocityX !== 0 || targetLinearVelocityZ !== 0) {
-                            camera.position.x += targetLinearVelocityX;
-                            camera.position.z += targetLinearVelocityZ;
-                            
-                            const localMetersToLatLonShift = 1.0 / R_EARTH * (180.0 / Math.PI);
-                            const radAnchorLat = anchorCoordinates.lat * Math.PI / 180;
-                            const adjustedLat = currentCoordinates.lat - (targetLinearVelocityZ * localMetersToLatLonShift);
-                            const adjustedLon = currentCoordinates.lon + (targetLinearVelocityX * localMetersToLatLonShift / Math.cos(radAnchorLat));
-                            
-                            onDynamicLocationUpdate(adjustedLat, adjustedLon, currentCoordinates.accuracy, currentCoordinates.alt);
-                        }
-
-                        document.getElementById('sensor-hud').innerHTML = `
-                            VELOCITY X: ${targetLinearVelocityX.toFixed(4)}<br>
-                            VELOCITY Z: ${targetLinearVelocityZ.toFixed(4)}<br>
-                            SYSTEM MODE: GYRO_DRIVE
-                        `;
-                    }
-
-                    if (controls && controls.enabled) {
-                        controls.update();
-                        if (!gyroActive && lockedGyroRoll !== 0) {
-                            cleanTargetQuaternion.copy(camera.quaternion);
-                            camera.rotateZ(lockedGyroRoll);
-                        }
-                    }
-
-                    renderer.render(scene, camera);
-                    update2DMinimapSystem();
-
-                    if (controls && controls.enabled && !gyroActive && lockedGyroRoll !== 0) {
-                        camera.quaternion.copy(cleanTargetQuaternion);
-                    }
-                } catch(loopError) {
-                    console.error("Internal loop handler exception intercepted safely:", loopError);
-                }
+                evaluateGameplayState();
+                renderer.render(scene, camera);
             }
-            animateLoop();
+            
+            frameLoopEngine();
         }
 
         function onWindowResize() {
