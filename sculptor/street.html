@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - Continuous Spatial Visor</title>
+    <title>Project A.R.I.S. - Real World Spatial Matrix</title>
     <style>
         body, html {
             margin: 0;
@@ -55,7 +55,7 @@
 
         .hud-panel {
             position: absolute;
-            background: rgba(4, 6, 15, 0.75);
+            background: rgba(4, 6, 15, 0.85);
             border: 1px solid #00ffcc;
             box-shadow: 0 0 15px rgba(0, 255, 204, 0.2);
             padding: 12px;
@@ -66,14 +66,14 @@
         #hud-top-left {
             top: 25px;
             left: 25px;
-            min-width: 240px;
+            min-width: 260px;
         }
 
         #hud-top-right {
             top: 25px;
             right: 25px;
             text-align: right;
-            min-width: 200px;
+            min-width: 220px;
         }
 
         .hud-header {
@@ -86,8 +86,8 @@
         }
 
         .hud-readout {
-            font-size: 12px;
-            line-height: 1.4;
+            font-size: 11px;
+            line-height: 1.5;
             color: #00ffcc;
             text-shadow: 0 0 4px rgba(0, 255, 204, 0.5);
         }
@@ -168,15 +168,16 @@
             <div id="geo-telemetry" class="hud-readout">
                 LAT: 40.758000<br>
                 LON: -73.985500<br>
-                SIGNAL: SEARCHING...
+                SIG: SEARCHING FIX...<br>
+                DATA: IDLE
             </div>
         </div>
 
         <div id="hud-top-right" class="hud-panel">
-            <div class="hud-header">// Mission Objectives</div>
+            <div class="hud-header">// Objective Index</div>
             <div id="score-telemetry" class="hud-readout">
-                ANOMALIES FILTRATED: 0/5<br>
-                NEAREST DIST: SEARCHING
+                RIFTS HARVESTED: 0/5<br>
+                PROXIMITY: SEARCHING
             </div>
         </div>
     </div>
@@ -191,7 +192,7 @@
         let cameraStream = null;
         let isARActive = false;
         
-        // Sensor Tracking Configuration Matrix
+        // Sensor State Management Matrix
         let isFirstGyroFrame = true;
         let gyroYawOffset = 0;
         let lookYaw = 0;
@@ -200,18 +201,21 @@
         let previousPointerX = 0;
         let previousPointerY = 0;
 
-        // Position & Pure Geo-Tracking Coordinates
+        // Geospatial Core Coordinate Registries
         let currentCoordinates = { lat: 40.7580, lon: -73.9855 };
         let anchorCoordinates = { lat: 40.7580, lon: -73.9855 };
         let hasLockedInitialAnchor = false;
+        let mapLoadedForAnchor = false;
+        let osmFetchController = null;
         const R_EARTH = 6378137;
 
+        // Entity Management Layers
         const spatialAnomaliesCollection = [];
         const mapStructuralMeshes = new THREE.Group();
         let anomaliesCollectedCount = 0;
 
         /* ==========================================================================
-           MATHEMATICAL CORE: SENSOR QUATERNION ALIGNMENT MATRIX
+           MATHEMATICAL INERTIAL CORE: SENSOR QUATERNION CONVERTER MATRIX
            ========================================================================= */
         const getSensorQuaternion = (function () {
             const zee = new THREE.Vector3(0, 0, 1);
@@ -230,7 +234,7 @@
         })();
 
         /* ==========================================================================
-           GEOSPATIAL SPATIAL PROJECTIONS
+           GEOSPATIAL COORDINATES PROJECTIONS MATRIX
            ========================================================================= */
         function latLonToLocalMeters(lat, lon, anchorLat, anchorLon) {
             const radLat = anchorLat * Math.PI / 180;
@@ -240,10 +244,9 @@
         }
 
         /* ==========================================================================
-           AUTOMATIC SENSOR INJECTION ENGINE
+           AUTOMATIC CORE INFRASTRUCTURE ROTATION & GYRO INJECTION
            ========================================================================= */
         function autoInitializeSensors() {
-            // Setup seamless fallback touch drag look controls for desktop users
             const viewportCanvas = document.getElementById('canvas3d');
 
             viewportCanvas.addEventListener('pointerdown', (e) => {
@@ -254,7 +257,6 @@
 
             window.addEventListener('pointermove', (e) => {
                 if (!isDragging) return;
-                
                 const deltaX = e.clientX - previousPointerX;
                 const deltaY = e.clientY - previousPointerY;
                 
@@ -265,7 +267,6 @@
                 lookPitch -= deltaY * 0.003;
                 lookPitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, lookPitch));
                 
-                // Only let touch mechanics override orientation if hardware sensors haven't fired yet
                 if (isFirstGyroFrame) {
                     const eulerRotation = new THREE.Euler(lookPitch, lookYaw, 0, 'YXZ');
                     camera.quaternion.setFromEuler(eulerRotation);
@@ -274,14 +275,13 @@
 
             window.addEventListener('pointerup', () => isDragging = false);
 
-            // AUTOMATIC GYRO ENGINE TRIGGER: Fires instantly upon the user's first page interaction
             const requestHardwareSensors = () => {
                 if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                     DeviceOrientationEvent.requestPermission().then(permissionState => {
                         if (permissionState === 'granted') {
                             window.addEventListener('deviceorientation', handleVisorHardwareOrientation, true);
                         }
-                    }).catch(err => console.error("Hardware sensor tracking authorization denied:", err));
+                    }).catch(err => console.error("Sensor matrix binding preempted:", err));
                 } else {
                     window.addEventListener('deviceorientation', handleVisorHardwareOrientation, true);
                 }
@@ -289,7 +289,6 @@
 
             window.addEventListener('pointerdown', requestHardwareSensors, { once: true });
             
-            // Link static controls panel interactions
             document.getElementById('arToggleBtn').addEventListener('click', toggleARCameraStream);
             document.getElementById('stepSimBtn').addEventListener('click', simulateGpsMovementUpdate);
         }
@@ -317,29 +316,205 @@
         }
 
         /* ==========================================================================
-           HARDWARE GEOLOCATION DRIVE ENGINE (REAL-WORLD TRACKING SYSTEM)
+           REAL-WORLD MAP DATA ENGINE (DOWNLOAD ONCE STRATEGY)
+           ========================================================================= */
+        async function fetchLiveOpenStreetMapData(lat, lon) {
+            if (osmFetchController) osmFetchController.abort();
+            osmFetchController = new AbortController();
+
+            updateTelemetryDisplay("STREAMING MATRIX...");
+
+            const overpassEndpoints = [
+                `https://overpass-api.de/api/interpreter`,
+                `https://overpass.kumi.systems/api/interpreter`,
+                `https://lz4.overpass-api.de/api/interpreter`
+            ];
+
+            // 3-MILE RADIUS SPATIAL BOUNDS: ~0.0435 degrees latitude/longitude range
+            const boundingBoxRange = 0.0435; 
+            const minLat = lat - boundingBoxRange;
+            const minLon = lon - boundingBoxRange;
+            const maxLat = lat + boundingBoxRange;
+            const maxLon = lon + boundingBoxRange;
+
+            // Highly targeted query layout fetches real ways within the 3-mile box
+            const query = `[out:json][timeout:35];(way["building"](${minLat},${minLon},${maxLat},${maxLon});way["highway"](${minLat},${minLon},${maxLat},${maxLon}););out body;>;out skel qt;`;
+            
+            let data = null;
+            let success = false;
+
+            for (let i = 0; i < overpassEndpoints.length; i++) {
+                const localMirrorController = new AbortController();
+                const globalSignalListener = () => localMirrorController.abort();
+                osmFetchController.signal.addEventListener('abort', globalSignalListener);
+                const networkTimeoutId = setTimeout(() => localMirrorController.abort(), 10000);
+
+                try {
+                    const fetchUrl = `${overpassEndpoints[i]}?data=${encodeURIComponent(query)}`;
+                    const response = await fetch(fetchUrl, {
+                        method: 'GET',
+                        signal: localMirrorController.signal
+                    });
+                    
+                    clearTimeout(networkTimeoutId);
+                    osmFetchController.signal.removeEventListener('abort', globalSignalListener);
+                    
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    
+                    data = await response.json();
+                    if (data && data.elements && data.elements.length > 0) {
+                        success = true;
+                        break; 
+                    }
+                } catch (err) {
+                    clearTimeout(networkTimeoutId);
+                    osmFetchController.signal.removeEventListener('abort', globalSignalListener);
+                    if (osmFetchController.signal.aborted) return;
+                    console.warn(`Mirror index ${i + 1} link failure: ${err.message}`);
+                }
+            }
+
+            if (success && data) {
+                mapLoadedForAnchor = true;
+                updateTelemetryDisplay("MESH CONSTRUCTED");
+                parseAndBuildOSMWorld(data, anchorCoordinates.lat, anchorCoordinates.lon);
+            } else {
+                updateTelemetryDisplay("FALLBACK GRID RUNNING");
+                generateProceduralBackupInfrastructure();
+            }
+        }
+
+        function parseAndBuildOSMWorld(osmData, anchorLat, anchorLon) {
+            // Flush old spatial nodes cleanly
+            while(mapStructuralMeshes.children.length > 0) {
+                const mesh = mapStructuralMeshes.children[0];
+                if (mesh.geometry) mesh.geometry.dispose();
+                if (mesh.material) mesh.material.dispose();
+                mapStructuralMeshes.remove(mesh);
+            }
+            globalTrafficNodes.length = 0;
+
+            if (!osmData || !osmData.elements) return;
+
+            const nodesLookup = {};
+            osmData.elements.forEach(element => {
+                if (element.type === 'node') {
+                    const localMeters = latLonToLocalMeters(element.lat, element.lon, anchorLat, anchorLon);
+                    nodesLookup[element.id] = { x: localMeters.x, z: localMeters.z };
+                }
+            });
+
+            osmData.elements.forEach(element => {
+                if (element.type === 'way' && element.nodes) {
+                    const points = [];
+                    element.nodes.forEach(nodeId => {
+                        if (nodesLookup[nodeId]) points.push(nodesLookup[nodeId]);
+                    });
+
+                    if (points.length < 2) return;
+
+                    if (element.tags && element.tags.building) {
+                        buildNeonStructuralHulls(points, element.tags);
+                    } else if (element.tags && element.tags.highway) {
+                        buildNeonVectorPathways(points, element.tags);
+                    }
+                }
+            });
+
+            spawnQuantumAnomalies();
+        }
+
+        /* ==========================================================================
+           HIGH-PERFORMANCE VISOR GEOMETRY COMPILERS (GLOWING HULL RENDERING)
+           ========================================================================= */
+        function buildNeonStructuralHulls(points, tags) {
+            if (points.length < 3) return;
+
+            let sumX = 0, sumZ = 0;
+            points.forEach(p => { sumX += p.x; sumZ += p.z; });
+            const cx = sumX / points.length;
+            const cz = sumZ / points.length;
+
+            const shapeOutline = new THREE.Shape();
+            shapeOutline.moveTo(points[0].x - cx, points[0].z - cz);
+            for (let i = 1; i < points.length; i++) {
+                shapeOutline.lineTo(points[i].x - cx, points[i].z - cz);
+            }
+            shapeOutline.closePath();
+
+            let buildingHeight = (tags && tags.height) ? parseFloat(tags.height) : (10 + Math.random() * 20);
+            if (tags && tags["building:levels"]) buildingHeight = parseInt(tags["building:levels"]) * 3.5;
+            
+            // Limit excessive architectural footprints to prevent rendering clipping bugs
+            buildingHeight = Math.min(buildingHeight, 80);
+
+            const extrusionSettings = { depth: buildingHeight, bevelEnabled: false };
+            const geom = new THREE.ExtrudeGeometry(shapeOutline, extrusionSettings);
+            
+            // Generate glowing wireframe profile boundaries
+            const edgesGeometry = new THREE.EdgesGeometry(geom);
+            const hullColor = Math.random() > 0.75 ? 0x00ffcc : 0xff0055;
+            const lineMaterial = new THREE.LineBasicMaterial({ color: hullColor, linewidth: 1 });
+            const buildingWireframeMesh = new THREE.LineSegments(edgesGeometry, lineMaterial);
+            
+            buildingWireframeMesh.rotation.x = -Math.PI / 2;
+            buildingWireframeMesh.position.set(cx, 0, cz);
+            
+            mapStructuralMeshes.add(buildingWireframeMesh);
+        }
+
+        function buildNeonVectorPathways(points, tags) {
+            const pathPoints = [];
+            points.forEach(pt => {
+                pathPoints.push(new THREE.Vector3(pt.x, 0.05, pt.z));
+                // Add node coordinates arrays into active simulation collection paths
+                if (Math.random() > 0.7) globalTrafficNodes.push(new THREE.Vector3(pt.x, 1.7, pt.z));
+            });
+
+            const routeGeo = new THREE.BufferGeometry().setFromPoints(pathPoints);
+            const lineMaterial = new THREE.LineBasicMaterial({ color: 0x00ffcc, linewidth: 2 });
+            const streetLineMesh = new THREE.Line(routeGeo, lineMaterial);
+            
+            mapStructuralMeshes.add(streetLineMesh);
+        }
+
+        function generateProceduralBackupInfrastructure() {
+            const spacing = 80;
+            const laneMaterial = new THREE.LineBasicMaterial({ color: 0x00ffcc, linewidth: 2 });
+            
+            for (let i = -6; i <= 6; i++) {
+                const horizGeo = new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(-500, 0.01, i * spacing), new THREE.Vector3(500, 0.01, i * spacing)
+                ]);
+                mapStructuralMeshes.add(new THREE.Line(horizGeo, laneMaterial));
+
+                const vertGeo = new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(i * spacing, 0.01, -500), new THREE.Vector3(i * spacing, 0.01, 500)
+                ]);
+                mapStructuralMeshes.add(new THREE.Line(vertGeo, laneMaterial));
+                
+                globalTrafficNodes.push(new THREE.Vector3(i * spacing, 1.7, i * spacing));
+            }
+            spawnQuantumAnomalies();
+        }
+
+        /* ==========================================================================
+           HARDWARE GEOLOCATION TRAVERSAL DRIVE ENGINE
            ========================================================================= */
         function initializeHighPrecisionGpsTracking() {
-            if (!navigator.geolocation) {
-                console.warn("Geolocation services unavailable on this system.");
-                return;
-            }
+            if (!navigator.geolocation) return;
 
             navigator.geolocation.watchPosition(
                 (position) => {
                     const freshLat = position.coords.latitude;
                     const freshLon = position.coords.longitude;
                     
-                    updatePlayerPositionFromGps(freshLat, freshLon, "LIVE GPS");
+                    updatePlayerPositionFromGps(freshLat, freshLon, "LIVE GPS FEED");
                 },
                 (error) => {
-                    console.warn(`GPS pipeline delay: ${error.message}. Using active simulation cache.`);
+                    console.warn(`GPS Stream latency: ${error.message}. Simulation cache online.`);
                 },
-                {
-                    enableHighAccuracy: true,
-                    timeout: 8000,
-                    maximumAge: 0
-                }
+                { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
             );
         }
 
@@ -347,61 +522,60 @@
             currentCoordinates.lat = latitude;
             currentCoordinates.lon = longitude;
 
-            // Lock structural map origin on the very first coordinate sync point received
             if (!hasLockedInitialAnchor) {
                 anchorCoordinates.lat = latitude;
                 anchorCoordinates.lon = longitude;
                 hasLockedInitialAnchor = true;
+                
+                // Trigger batch download exactly once using locked fixed coordinate metrics
+                fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
             }
 
-            // PURE GEOSPATIAL TRANSLATION: Derive coordinate spaces locally using the core anchor matrix
             const localMetersOffset = latLonToLocalMeters(
-                currentCoordinates.lat, 
-                currentCoordinates.lon, 
-                anchorCoordinates.lat, 
-                anchorCoordinates.lon
+                currentCoordinates.lat, currentCoordinates.lon, 
+                anchorCoordinates.lat, anchorCoordinates.lon
             );
 
-            // Shift camera through 3D space exclusively via GPS position coordinate offsets
+            // PURE GEOSPATIAL TRANSLATION: Move visor point array variables smoothly across real physical grids
             camera.position.x = localMetersOffset.x;
             camera.position.z = localMetersOffset.z;
-            camera.position.y = 1.7; // Keep camera rigidly at real human eye level
+            camera.position.y = 1.7; 
 
-            // Update tactical visor telemetry feed display
-            document.getElementById('geo-telemetry').innerHTML = `
-                LAT: ${currentCoordinates.lat.toFixed(6)}<br>
-                LON: ${currentCoordinates.lon.toFixed(6)}<br>
-                SIG: ${signalSource}
-            `;
+            updateTelemetryDisplay(mapLoadedForAnchor ? "MATRIX ACTIVE" : "EXTRUDING DATA...");
         }
 
         function simulateGpsMovementUpdate() {
-            // Extrapolate forward vector from look angle to push mock GPS registers ahead
-            const localHeadingVector = new THREE.Vector3();
-            camera.getWorldDirection(localHeadingVector);
-            localHeadingVector.y = 0; 
-            localHeadingVector.normalize();
+            const headingVector = new THREE.Vector3();
+            camera.getWorldDirection(headingVector);
+            headingVector.y = 0; headingVector.normalize();
 
-            const simulationStrideMeters = 5.0; 
+            const simulationStrideMeters = 8.0; 
             const degreesPerMeterFactor = 1.0 / R_EARTH * (180.0 / Math.PI);
             
-            const simulatedLat = currentCoordinates.lat - (localHeadingVector.z * simulationStrideMeters * degreesPerMeterFactor);
-            const simulatedLon = currentCoordinates.lon + (localHeadingVector.x * simulationStrideMeters * degreesPerMeterFactor / Math.cos(anchorCoordinates.lat * Math.PI / 180));
+            const simulatedLat = currentCoordinates.lat - (headingVector.z * simulationStrideMeters * degreesPerMeterFactor);
+            const simulatedLon = currentCoordinates.lon + (headingVector.x * simulationStrideMeters * degreesPerMeterFactor / Math.cos(anchorCoordinates.lat * Math.PI / 180));
 
-            updatePlayerPositionFromGps(simulatedLat, simulatedLon, "SIMULATED SPOOF");
+            updatePlayerPositionFromGps(simulatedLat, simulatedLon, "SIMULATED VECTOR");
+        }
+
+        function updateTelemetryDisplay(dataStatusString) {
+            document.getElementById('geo-telemetry').innerHTML = `
+                LAT: ${currentCoordinates.lat.toFixed(6)}<br>
+                LON: ${currentCoordinates.lon.toFixed(6)}<br>
+                ALT: 1.7m RIGID<br>
+                SYS: ${dataStatusString}
+            `;
         }
 
         /* ==========================================================================
-           WEBRTC BACKDROP VIDEO PASS-THROUGH
+           WEBRTC PASSTHROUGH AUDIO/VIDEO STREAM CAPTURE ENGINE
            ========================================================================= */
         async function toggleARCameraStream() {
             const arBtn = document.getElementById('arToggleBtn');
             const videoNode = document.getElementById('camera-feed');
 
             if (isARActive) {
-                if (cameraStream) {
-                    cameraStream.getTracks().forEach(track => track.stop());
-                }
+                if (cameraStream) cameraStream.getTracks().forEach(track => track.stop());
                 videoNode.srcObject = null;
                 renderer.setClearColor(0x020205, 1.0); 
                 isARActive = false;
@@ -409,20 +583,16 @@
                 arBtn.innerText = "Activate Camera AR";
             } else {
                 try {
-                    const videoConstraints = {
-                        video: { facingMode: { exact: "environment" } }, 
-                        audio: false
-                    };
-                    cameraStream = await navigator.mediaDevices.getUserMedia(videoConstraints);
-                } catch (fallbackErr) {
+                    cameraStream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: { exact: "environment" } }, audio: false
+                    });
+                } catch (err) {
                     try {
                         cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                     } catch (fatalErr) {
-                        alert("Camera backdrop stream channel handshake failed.");
-                        return;
+                        alert("Tactical capture hardware unlinked."); return;
                     }
                 }
-
                 videoNode.srcObject = cameraStream;
                 renderer.setClearColor(0x000000, 0.0); 
                 isARActive = true;
@@ -432,74 +602,36 @@
         }
 
         /* ==========================================================================
-           PROCEDURAL NEON AR CITY ENVIRONMENT
-           ========================================================================= */
-        function generateProceduralARWorld() {
-            scene.add(mapStructuralMeshes);
-
-            const spacing = 75;
-            const gridLimit = 4;
-            const laneMaterial = new THREE.LineBasicMaterial({ color: 0x00ffcc, linewidth: 2 });
-            
-            for (let i = -gridLimit; i <= gridLimit; i++) {
-                const horizGeo = new THREE.BufferGeometry().setFromPoints([
-                    new THREE.Vector3(-300, 0.01, i * spacing),
-                    new THREE.Vector3(300, 0.01, i * spacing)
-                ]);
-                mapStructuralMeshes.add(new THREE.Line(horizGeo, laneMaterial));
-
-                const vertGeo = new THREE.BufferGeometry().setFromPoints([
-                    new THREE.Vector3(i * spacing, 0.01, -300),
-                    new THREE.Vector3(i * spacing, 0.01, 300)
-                ]);
-                mapStructuralMeshes.add(new THREE.Line(vertGeo, laneMaterial));
-            }
-
-            for (let x = -gridLimit; x < gridLimit; x++) {
-                for (let z = -gridLimit; z < gridLimit; z++) {
-                    const cx = x * spacing + spacing / 2;
-                    const cz = z * spacing + spacing / 2;
-                    const size = 30 + Math.random() * 15;
-                    const height = 25 + Math.random() * 60;
-
-                    const wireBoxGeo = new THREE.BoxGeometry(size, height, size);
-                    const edgesGeometry = new THREE.EdgesGeometry(wireBoxGeo);
-                    const lineMaterial = new THREE.LineBasicMaterial({ color: 0xff0055, linewidth: 1 });
-                    const buildingWireMesh = new THREE.LineSegments(edgesGeometry, lineMaterial);
-                    
-                    buildingWireMesh.position.set(cx, height / 2, cz);
-                    mapStructuralMeshes.add(buildingWireMesh);
-                }
-            }
-
-            spawnQuantumAnomalies();
-        }
-
-        /* ==========================================================================
-           GAMEPLAY ENGINE: EVALUATE TARGET EXTRACTION MATRIX
+           TACTICAL AR GAMEPLAY MECHANICS: RIFT FILTRATION LOOP
            ========================================================================= */
         function spawnQuantumAnomalies() {
-            const anomalyGeometry = new THREE.IcosahedronGeometry(2, 1);
+            // Clean up old remaining anomalies before spawning fresh nodes
+            spatialAnomaliesCollection.forEach(a => scene.remove(a.mesh));
+            spatialAnomaliesCollection.length = 0;
+
+            const anomalyGeometry = new THREE.IcosahedronGeometry(1.5, 1);
             
             for (let i = 0; i < 5; i++) {
-                const angle = Math.random() * Math.PI * 2;
-                const distance = 20 + Math.random() * 60; 
-                const localX = Math.cos(angle) * distance;
-                const localZ = Math.sin(angle) * distance;
+                let spawnPos = new THREE.Vector3(
+                    (Math.random() - 0.5) * 120, 1.7, (Math.random() - 0.5) * 120
+                );
 
-                const material = new THREE.MeshBasicMaterial({
-                    color: 0xffff00,
-                    wireframe: true
-                });
+                // Dynamically snap spawn parameters directly onto actual real world network intersections if populated
+                if (globalTrafficNodes.length > 0) {
+                    const randomTrafficNode = globalTrafficNodes[Math.floor(Math.random() * globalTrafficNodes.length)];
+                    spawnPos.copy(randomTrafficNode);
+                    spawnPos.x += (Math.random() - 0.5) * 10;
+                    spawnPos.z += (Math.random() - 0.5) * 10;
+                }
 
+                const material = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true });
                 const anomalyMesh = new THREE.Mesh(anomalyGeometry, material);
-                anomalyMesh.position.set(localX, 1.7, localZ);
+                anomalyMesh.position.copy(spawnPos);
+                
                 scene.add(anomalyMesh);
 
                 spatialAnomaliesCollection.push({
-                    mesh: anomalyMesh,
-                    collected: false,
-                    radius: 6.0 
+                    mesh: anomalyMesh, collected: false, radius: 7.0 
                 });
             }
         }
@@ -512,25 +644,24 @@
 
                 const dx = anomaly.mesh.position.x - camera.position.x;
                 const dz = anomaly.mesh.position.z - camera.position.z;
-                const rawDistance = Math.hypot(dx, dz);
+                const distanceToTarget = Math.hypot(dx, dz);
 
-                if (rawDistance < closestDistanceMetric) {
-                    closestDistanceMetric = rawDistance;
-                }
+                if (distanceToTarget < closestDistanceMetric) closestDistanceMetric = distanceToTarget;
 
-                if (rawDistance <= anomaly.radius) {
+                // Extraction boundary validation logic check
+                if (distanceToTarget <= anomaly.radius) {
                     anomaly.collected = true;
                     scene.remove(anomaly.mesh);
                     anomaliesCollectedCount++;
                 }
             });
 
-            const scoreText = `ANOMALIES FILTRATED: ${anomaliesCollectedCount}/5`;
-            const distText = closestDistanceMetric === Infinity ? "CLEAR" : `${closestDistanceMetric.toFixed(1)}m`;
+            const scoreText = `RIFTS HARVESTED: ${anomaliesCollectedCount}/5`;
+            const distText = closestDistanceMetric === Infinity ? "SECTOR CLEAR" : `${closestDistanceMetric.toFixed(1)}m`;
             
             document.getElementById('score-telemetry').innerHTML = `
                 ${scoreText}<br>
-                NEAREST DIST: ${distText}
+                PROXIMITY: ${distText}
             `;
         }
 
@@ -541,21 +672,17 @@
             const canvasNode = document.getElementById('canvas3d');
 
             scene = new THREE.Scene();
-
-            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 4000);
+            
+            // Set first-person perspective at human height
             camera.position.set(0, 1.7, 0); 
 
-            renderer = new THREE.WebGLRenderer({
-                canvas: canvasNode,
-                antialias: true,
-                alpha: true 
-            });
+            renderer = new THREE.WebGLRenderer({ canvas: canvasNode, antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-            generateProceduralARWorld();
-            
-            // Fire automatic background tracking loops
+            scene.add(mapStructuralMeshes);
+
             autoInitializeSensors();
             initializeHighPrecisionGpsTracking();
             
@@ -574,7 +701,6 @@
                 evaluateGameplayState();
                 renderer.render(scene, camera);
             }
-            
             frameLoopEngine();
         }
 
