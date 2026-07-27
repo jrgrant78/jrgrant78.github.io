@@ -17,7 +17,7 @@
             user-select: none;
         }
 
-        /* Video Pass-Through Layer (True Physical AR Backdrop) */
+        /* Video Pass-Through Layer */
         #camera-feed {
             position: absolute;
             top: 0;
@@ -27,7 +27,6 @@
             object-fit: cover;
             z-index: 1;
             display: block;
-            transform: scaleX(1); 
         }
 
         #canvas3d {
@@ -158,13 +157,9 @@
 </head>
 <body>
 
-    <!-- Camera Feed Node -->
     <video id="camera-feed" autoplay playsinline muted></video>
-    
-    <!-- Render Port Node -->
     <canvas id="canvas3d"></canvas>
 
-    <!-- Visor Layer Matrix -->
     <div id="hud-visor-container">
         <div id="targeting-matrix"></div>
 
@@ -186,7 +181,6 @@
         </div>
     </div>
 
-    <!-- Interface Dashboard -->
     <div id="action-dashboard">
         <button id="arToggleBtn" class="visor-btn">Activate Camera AR</button>
         <button id="sensorBtn" class="visor-btn">Sync Motion Gyro</button>
@@ -198,23 +192,43 @@
         let cameraStream = null;
         let isARActive = false;
         
-        // Custom First-Person Camera Rotation Matrix state trackers
+        // Sensor Traversal & Drag Controls States
         let gyroActive = false;
+        let isFirstGyroFrame = false;
+        let gyroYawOffset = 0;
         let lookYaw = 0;
         let lookPitch = 0;
         let isDragging = false;
         let previousPointerX = 0;
         let previousPointerY = 0;
 
-        // Position & Geo-Tracking Engines
+        // Position Systems
         let currentCoordinates = { lat: 40.7580, lon: -73.9855 };
         let anchorCoordinates = { lat: 40.7580, lon: -73.9855 };
         const R_EARTH = 6378137;
 
-        // Gameplay Loop Data Arrays
         const spatialAnomaliesCollection = [];
         const mapStructuralMeshes = new THREE.Group();
         let anomaliesCollectedCount = 0;
+
+        /* ==========================================================================
+           RESTORED MATHEMATICAL CORE: SENSOR QUATERNION ALIGNMENT MATRIX
+           ========================================================================= */
+        const getSensorQuaternion = (function () {
+            const zee = new THREE.Vector3(0, 0, 1);
+            const euler = new THREE.Euler();
+            const q0 = new THREE.Quaternion();
+            const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); 
+
+            return function (alpha, beta, gamma, orient) {
+                const q = new THREE.Quaternion();
+                euler.set(beta, alpha, -gamma, 'YXZ'); 
+                q.setFromEuler(euler); 
+                q.multiply(q1); 
+                q.multiply(q0.setFromAxisAngle(zee, -orient)); 
+                return q;
+            };
+        })();
 
         /* ==========================================================================
            GEOSPATIAL SPATIAL PROJECTIONS
@@ -227,12 +241,11 @@
         }
 
         /* ==========================================================================
-           FIRST-PERSON VIEW INTERACTION HANDLERS (DESKTOP & MOBILE COMPATIBLE)
+           FIRST-PERSON VIEW INTERACTION HANDLERS
            ========================================================================= */
         function initViewportInputControllers() {
             const viewportCanvas = document.getElementById('canvas3d');
 
-            // Drag/Swipe to Look around in first person natively
             viewportCanvas.addEventListener('pointerdown', (e) => {
                 isDragging = true;
                 previousPointerX = e.clientX;
@@ -240,21 +253,19 @@
             });
 
             window.addEventListener('pointermove', (e) => {
-                if (!isDragging) return;
+                if (!isDragging || gyroActive) return;
+                
                 const deltaX = e.clientX - previousPointerX;
                 const deltaY = e.clientY - previousPointerY;
                 
                 previousPointerX = e.clientX;
                 previousPointerY = e.clientY;
 
-                // Adjust look tracking properties vectors
                 lookYaw -= deltaX * 0.003;
                 lookPitch -= deltaY * 0.003;
-                
-                // Limit pitch rotation to avoid tumbling upside down
                 lookPitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, lookPitch));
                 
-                if (!gyroActive) updateCameraRotation();
+                updateCameraRotation();
             });
 
             window.addEventListener('pointerup', () => isDragging = false);
@@ -275,11 +286,16 @@
                 window.removeEventListener('deviceorientation', handleVisorHardwareOrientation);
                 gyroActive = false;
                 sensorBtn.classList.remove('active');
+                
+                // Cache the look heading in manual variables to prevent snapping on screen drag
+                const currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+                lookYaw = currentEuler.y;
+                lookPitch = currentEuler.x;
             } else {
                 if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                     DeviceOrientationEvent.requestPermission().then(permissionState => {
                         if (permissionState === 'granted') activateGyroEvents(sensorBtn);
-                    }).catch(err => console.error("Sensor calibration rejected:", err));
+                    }).catch(err => console.error("Sensor tracking authorization denied:", err));
                 } else {
                     activateGyroEvents(sensorBtn);
                 }
@@ -287,27 +303,38 @@
         }
 
         function activateGyroEvents(btn) {
+            isFirstGyroFrame = true;
             window.addEventListener('deviceorientation', handleVisorHardwareOrientation, true);
             gyroActive = true;
             btn.classList.add('active');
         }
 
         function handleVisorHardwareOrientation(e) {
-            if (!gyroActive || e.alpha === null) return;
+            if (!gyroActive) return;
+            
+            let alpha = e.alpha ? THREE.MathUtils.degToRad(e.alpha) : 0;
+            let beta = e.beta ? THREE.MathUtils.degToRad(e.beta) : 0;
+            let gamma = e.gamma ? THREE.MathUtils.degToRad(e.gamma) : 0;
+            let orient = (window.orientation || window.screen.orientation?.angle || 0) * Math.PI / 180;
 
-            // Convert raw degrees to camera coordinates
-            const alphaRad = THREE.MathUtils.degToRad(e.alpha); 
-            const betaRad = THREE.MathUtils.degToRad(e.beta);   
-            const gammaRad = THREE.MathUtils.degToRad(e.gamma); 
+            // Generate accurate axis adjustments using the restored matrix engine
+            let qSensor = getSensorQuaternion(alpha, beta, gamma, orient);
+            
+            if (isFirstGyroFrame) {
+                // Calculate yaw spatial offset to keep camera looking in the same direction when gyro starts
+                let currentEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+                let sensorEuler = new THREE.Euler().setFromQuaternion(qSensor, 'YXZ');
+                gyroYawOffset = currentEuler.y - sensorEuler.y;
+                isFirstGyroFrame = false;
+            }
 
-            // Direct First Person device mapping transformation
-            const euler = new THREE.Euler();
-            euler.set(betaRad + Math.PI/2, alphaRad, -gammaRad, 'YXZ');
-            camera.quaternion.setFromEuler(euler);
+            let finalEuler = new THREE.Euler().setFromQuaternion(qSensor, 'YXZ');
+            finalEuler.y += gyroYawOffset;
+            camera.quaternion.setFromEuler(finalEuler);
         }
 
         /* ==========================================================================
-           HARDWARE CAMERA WEBRTC AUDIO/VIDEO PASS-THROUGH STREAMS
+           WEBRTC BACKDROP VIDEO CAMERA CAPTURE ENGINE
            ========================================================================= */
         async function toggleARCameraStream() {
             const arBtn = document.getElementById('arToggleBtn');
@@ -318,30 +345,29 @@
                     cameraStream.getTracks().forEach(track => track.stop());
                 }
                 videoNode.srcObject = null;
-                renderer.setClearColor(0x06060c, 1.0); // Reset solid background
+                renderer.setClearColor(0x020205, 1.0); 
                 isARActive = false;
                 arBtn.classList.remove('active');
                 arBtn.innerText = "Activate Camera AR";
             } else {
                 try {
                     const videoConstraints = {
-                        video: { facingMode: { exact: "environment" } }, // Force rear primary camera
+                        video: { facingMode: { exact: "environment" } }, 
                         audio: false
                     };
                     cameraStream = await navigator.mediaDevices.getUserMedia(videoConstraints);
                 } catch (fallbackErr) {
-                    console.warn("Environment camera missing, using generalized fallback device stream options...");
+                    console.warn("Primary rear lens missing, linking global media stream configurations...");
                     try {
                         cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                     } catch (fatalErr) {
-                        alert("Could not initialize device video streaming pipeline hardware profiles.");
+                        alert("Camera stream interface initialization failed.");
                         return;
                     }
                 }
 
                 videoNode.srcObject = cameraStream;
-                renderer.setClearAlpha(0.0);
-                renderer.setClearColor(0x000000, 0.0); // Make WebGL engine fully transparent
+                renderer.setClearColor(0x000000, 0.0); // Allow system pass-through transparencies
                 isARActive = true;
                 arBtn.classList.add('active');
                 arBtn.innerText = "Disable Camera AR";
@@ -349,26 +375,22 @@
         }
 
         /* ==========================================================================
-           PROCEDURAL NEON CITY MAP GENERATION
+           PROCEDURAL NEON AR CITY ENVIRONMENT
            ========================================================================= */
         function generateProceduralARWorld() {
             scene.add(mapStructuralMeshes);
 
             const spacing = 75;
             const gridLimit = 4;
-            
-            // 1. Generate Glowing Neon Vector Roads Layout
             const laneMaterial = new THREE.LineBasicMaterial({ color: 0x00ffcc, linewidth: 2 });
             
             for (let i = -gridLimit; i <= gridLimit; i++) {
-                // Horizontal roadway strip geometry
                 const horizGeo = new THREE.BufferGeometry().setFromPoints([
                     new THREE.Vector3(-300, 0.01, i * spacing),
                     new THREE.Vector3(300, 0.01, i * spacing)
                 ]);
                 mapStructuralMeshes.add(new THREE.Line(horizGeo, laneMaterial));
 
-                // Vertical roadway strip geometry
                 const vertGeo = new THREE.BufferGeometry().setFromPoints([
                     new THREE.Vector3(i * spacing, 0.01, -300),
                     new THREE.Vector3(i * spacing, 0.01, 300)
@@ -376,7 +398,6 @@
                 mapStructuralMeshes.add(new THREE.Line(vertGeo, laneMaterial));
             }
 
-            // 2. Build Glowing Cyber-Grid Building Footprints
             for (let x = -gridLimit; x < gridLimit; x++) {
                 for (let z = -gridLimit; z < gridLimit; z++) {
                     const cx = x * spacing + spacing / 2;
@@ -389,26 +410,23 @@
                     const lineMaterial = new THREE.LineBasicMaterial({ color: 0xff0055, linewidth: 1 });
                     const buildingWireMesh = new THREE.LineSegments(edgesGeometry, lineMaterial);
                     
-                    // Set position so the bottom of the wireframe rests exactly on the floor ($Y=0$)
                     buildingWireMesh.position.set(cx, height / 2, cz);
                     mapStructuralMeshes.add(buildingWireMesh);
                 }
             }
 
-            // Spawn localized game entities
             spawnQuantumAnomalies();
         }
 
         /* ==========================================================================
-           GAMEPLAY ENGINE: ANOMALY HUNTING LOOP
+           GAMEPLAY ENGINE
            ========================================================================= */
         function spawnQuantumAnomalies() {
             const anomalyGeometry = new THREE.IcosahedronGeometry(2, 1);
             
-            // Cluster target anomalies near the initial user entry point footprint
             for (let i = 0; i < 5; i++) {
                 const angle = Math.random() * Math.PI * 2;
-                const distance = 25 + Math.random() * 85; // Distributed locally within easy exploration walking distance
+                const distance = 25 + Math.random() * 85; 
                 const localX = Math.cos(angle) * distance;
                 const localZ = Math.sin(angle) * distance;
 
@@ -418,8 +436,6 @@
                 });
 
                 const anomalyMesh = new THREE.Mesh(anomalyGeometry, material);
-                
-                // Position anomaly precisely at eye-level floating off the deck array parameters
                 anomalyMesh.position.set(localX, 1.7, localZ);
                 scene.add(anomalyMesh);
 
@@ -432,16 +448,14 @@
         }
 
         function simulateStepForward() {
-            // Push player ahead along their current first person look direction vector
             const forwardDirectionVector = new THREE.Vector3();
             camera.getWorldDirection(forwardDirectionVector);
-            forwardDirectionVector.y = 0; // Lock player footprint strictly to horizontal translation plane
+            forwardDirectionVector.y = 0; 
             forwardDirectionVector.normalize();
 
             const strideMetersLength = 4.5;
             camera.position.addScaledVector(forwardDirectionVector, strideMetersLength);
 
-            // Re-integrate coordinates relative shift back into mock geographic degrees
             const localMetersToDegreesFactor = 1.0 / R_EARTH * (180.0 / Math.PI);
             currentCoordinates.lat -= forwardDirectionVector.z * localMetersToDegreesFactor;
             currentCoordinates.lon += forwardDirectionVector.x * localMetersToDegreesFactor / Math.cos(anchorCoordinates.lat * Math.PI / 180);
@@ -467,19 +481,13 @@
                     closestDistanceMetric = rawDistance;
                 }
 
-                // Interaction verification cascade logic check
                 if (rawDistance <= anomaly.radius) {
                     anomaly.collected = true;
                     scene.remove(anomaly.mesh);
                     anomaliesCollectedCount++;
-                    
-                    // Trigger haptic flash alert indicator signature metrics updates
-                    document.body.style.borderColor = "#ffff00";
-                    setTimeout(() => document.body.style.borderColor = "transparent", 300);
                 }
             });
 
-            // Update user HUD panels elements data structures
             const scoreText = `ANOMALIES FILTRATED: ${anomaliesCollectedCount}/5`;
             const distText = closestDistanceMetric === Infinity ? "CLEAR" : `${closestDistanceMetric.toFixed(1)}m`;
             
@@ -490,7 +498,7 @@
         }
 
         /* ==========================================================================
-           MAIN INITIALIZATION PIPELINE ENGINE
+           MAIN INITIALIZATION PIPELINE
            ========================================================================= */
         function init() {
             const canvasNode = document.getElementById('canvas3d');
@@ -498,30 +506,24 @@
             scene = new THREE.Scene();
 
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
-            
-            // LOCK THE POSITION: True first person human height configuration setting
             camera.position.set(0, 1.7, 0); 
 
             renderer = new THREE.WebGLRenderer({
                 canvas: canvasNode,
                 antialias: true,
-                alpha: true // Critical configuration parameter: allows underlying video pipeline stream element visibility
+                alpha: true 
             });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-            // Generate structural environment asset arrays
             generateProceduralARWorld();
-            
-            // Initialize event drive bindings vectors
             initViewportInputControllers();
+            
             window.addEventListener('resize', onWindowResize);
 
-            // Trigger structural rendering frame loop matrix
             function frameLoopEngine() {
                 requestAnimationFrame(frameLoopEngine);
 
-                // Spin target anomalies animations parameters
                 spatialAnomaliesCollection.forEach(anomaly => {
                     if (!anomaly.collected) {
                         anomaly.mesh.rotation.x += 0.01;
