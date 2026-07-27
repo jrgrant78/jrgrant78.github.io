@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - Tactical Landscape Matrix</title>
+    <title>Project A.R.I.S. - Pedestrian Network Matrix</title>
     <style>
         body, html {
             margin: 0;
@@ -299,6 +299,7 @@
         const globalTrafficNodes = [];
         const renderedStreetsList = [];
         const renderedBuildingsList = [];
+        const renderedPedestrianList = []; // Tracks sidewalks and crosswalks data
         let anomaliesCollectedCount = 0;
 
         /* ==========================================================================
@@ -360,13 +361,12 @@
             window.addEventListener('pointerup', () => isDragging = false);
 
             const requestHardwareSensors = () => {
-                // FORCE LANDSCAPE LOCK ON INTERACTION GESTURE SCREEN EVENT
                 if (document.documentElement.requestFullscreen) {
                     document.documentElement.requestFullscreen().then(() => {
                         if (screen.orientation && screen.orientation.lock) {
                             screen.orientation.lock('landscape').catch(e => console.warn("Orientation lock sandbox constraint:", e));
                         }
-                    }).catch(e => console.warn("Fullscreen permission processing error:", e));
+                    }).catch(e => console.warn("Fullscreen error:", e));
                 }
 
                 if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -483,6 +483,7 @@
             globalTrafficNodes.length = 0;
             renderedStreetsList.length = 0;
             renderedBuildingsList.length = 0;
+            renderedPedestrianList.length = 0;
 
             if (!osmData || !osmData.elements) return;
 
@@ -518,7 +519,13 @@
                     if (element.tags && element.tags.building) {
                         buildNeonStructuralHulls(points, element.tags, cx, cz);
                     } else if (element.tags && element.tags.highway) {
-                        buildNeonVectorPathways(points, element.tags);
+                        // Segregate pedestrian elements (footways, sidewalks, crosswalks) from standard driving tracks
+                        const pedTiers = ['footway', 'pedestrian', 'path', 'sidewalk'];
+                        if (pedTiers.includes(element.tags.highway) || element.tags.footway) {
+                            buildPedestrianConduits(points, element.tags);
+                        } else {
+                            buildNeonVectorPathways(points, element.tags);
+                        }
                     }
                 }
             });
@@ -528,7 +535,7 @@
         }
 
         /* ==========================================================================
-           HIGH-PERFORMANCE COMPILERS: BLACK OCCLUSION WALLS & YELLOW ROADS
+           HIGH-PERFORMANCE COMPILERS: BLACK HULLS, YELLOW ROADS, PALE YELLOW PATHS
            ========================================================================= */
         function buildNeonStructuralHulls(points, tags, cx, cz) {
             if (points.length < 3) return;
@@ -547,14 +554,9 @@
             const extrusionSettings = { depth: buildingHeight, bevelEnabled: false };
             const geom = new THREE.ExtrudeGeometry(shapeOutline, extrusionSettings);
             
-            // 1. SOLID BLACK OCCLUSION WALL MATERIALS
-            const blackWallMaterial = new THREE.MeshBasicMaterial({ 
-                color: 0x000000, 
-                depthWrite: true 
-            });
+            const blackWallMaterial = new THREE.MeshBasicMaterial({ color: 0x000000, depthWrite: true });
             const solidBlackMesh = new THREE.Mesh(geom, blackWallMaterial);
 
-            // 2. NEON WIREFRAME OUTER CONTURE LACES
             const edgesGeometry = new THREE.EdgesGeometry(geom);
             const hullColor = Math.random() > 0.7 ? 0x00ffcc : 0xff0055;
             const lineMaterial = new THREE.LineBasicMaterial({ color: hullColor });
@@ -572,7 +574,7 @@
         }
 
         function buildNeonVectorPathways(points, tags) {
-            const laneHalfWidth = 4.0; // Widened platform footprint base
+            const laneHalfWidth = 4.0; 
             const vertices = [];
             const indices = [];
             
@@ -582,7 +584,6 @@
             const pointsCount = points.length;
             const computedNormals = new Array(pointsCount);
 
-            // Parse if this pathway falls under the system "Main Road" tier parameters
             const mainRoadTiers = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'];
             const isMainRoad = tags && tags.highway && mainRoadTiers.includes(tags.highway);
 
@@ -613,11 +614,8 @@
                 vertices.push(lx, 0.01, lz); 
                 vertices.push(rx, 0.01, rz); 
 
-                // Edge Rails: Bright Neon Yellow Channels
                 leftCurbyPoints.push(new THREE.Vector3(lx, 0.02, lz));
                 rightCurbyPoints.push(new THREE.Vector3(rx, 0.02, rz));
-
-                // Center Vector Trace Core Mesh
                 centerLinePoints.push(new THREE.Vector3(pt.x, 0.03, pt.z));
 
                 if (i < pointsCount - 1) {
@@ -629,36 +627,67 @@
                 globalTrafficNodes.push(new THREE.Vector3(pt.x, 1.7, pt.z));
             }
 
-            // Construct Matte Black Asphalt Base Layer
             const roadGeometry = new THREE.BufferGeometry();
             roadGeometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
             roadGeometry.setIndex(indices);
             roadGeometry.computeVertexNormals();
-            const roadDeckMat = new THREE.MeshBasicMaterial({ color: 0x010103, side: THREE.DoubleSide });
-            const roadDeckMesh = new THREE.Mesh(roadGeometry, roadDeckMat);
+            const roadDeckMesh = new THREE.Mesh(roadGeometry, new THREE.MeshBasicMaterial({ color: 0x010103, side: THREE.DoubleSide }));
             mapStructuralMeshes.add(roadDeckMesh);
 
-            // Construct Dual Neon Yellow Edge Curbs
+            // High-intensity Neon Yellow Curbs
             const yellowCurbMat = new THREE.LineBasicMaterial({ color: 0xffff00 });
-            const leftCurb = new THREE.Line(new THREE.BufferGeometry().setFromPoints(leftCurbyPoints), yellowCurbMat);
-            const rightCurb = new THREE.Line(new THREE.BufferGeometry().setFromPoints(rightCurbyPoints), yellowCurbMat);
-            mapStructuralMeshes.add(leftCurb);
-            mapStructuralMeshes.add(rightCurb);
+            mapStructuralMeshes.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(leftCurbyPoints), yellowCurbMat));
+            mapStructuralMeshes.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(rightCurbyPoints), yellowCurbMat));
 
-            // Construct White Dashed Core Array if classified as Primary Main Infrastructure route
             if (isMainRoad) {
                 const centerDashedGeo = new THREE.BufferGeometry().setFromPoints(centerLinePoints);
-                const dashedCenterMat = new THREE.LineDashedMaterial({
-                    color: 0xffffff,
-                    dashSize: 3,
-                    gapSize: 3
-                });
+                const dashedCenterMat = new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 3, gapSize: 3 });
                 const centralConduitLine = new THREE.Line(centerDashedGeo, dashedCenterMat);
-                centralConduitLine.computeLineDistances(); // Calculates distance array maps to generate dashes cleanly
+                centralConduitLine.computeLineDistances();
                 mapStructuralMeshes.add(centralConduitLine);
             }
 
             renderedStreetsList.push({ points: points, isMain: isMainRoad });
+        }
+
+        /* ==========================================================================
+           NEW GEOMETRY GENERATOR: PALE YELLOW PEDESTRIAN ROUTE PIPELINE
+           ========================================================================= */
+        function buildPedestrianConduits(points, tags) {
+            const pathPoints = [];
+            points.forEach(pt => {
+                pathPoints.push(new THREE.Vector3(pt.x, 0.04, pt.z)); // Positioned cleanly above streets
+                globalTrafficNodes.push(new THREE.Vector3(pt.x, 1.7, pt.z));
+            });
+
+            const isCrosswalk = tags && (tags.footway === 'crosswalk' || tags.highway === 'crossing');
+            const pedestrianGeo = new THREE.BufferGeometry().setFromPoints(pathPoints);
+            
+            // Pale Yellow Vector Hex Signature Mapping
+            const paleYellowColor = 0xfffa9e; 
+            let pedestrianMaterial;
+
+            if (isCrosswalk) {
+                // Tactical Dashed Vector layout for designated street crosswalk grids
+                pedestrianMaterial = new THREE.LineDashedMaterial({
+                    color: paleYellowColor,
+                    dashSize: 1.5,
+                    gapSize: 1.5,
+                    linewidth: 2
+                });
+            } else {
+                // Continuous solid line for lateral sidewalks
+                pedestrianMaterial = new THREE.LineBasicMaterial({
+                    color: paleYellowColor,
+                    linewidth: 2
+                });
+            }
+
+            const pedestrianLineMesh = new THREE.Line(pedestrianGeo, pedestrianMaterial);
+            if (isCrosswalk) pedestrianLineMesh.computeLineDistances();
+            
+            mapStructuralMeshes.add(pedestrianLineMesh);
+            renderedPedestrianList.push({ points: points, isCrosswalk: isCrosswalk });
         }
 
         function generateProceduralBackupInfrastructure() {
@@ -666,14 +695,33 @@
             const gridLimit = 4;
             
             for (let i = -gridLimit; i <= gridLimit; i++) {
-                // Simulate Main High-Traffic Highways alternated systematically
                 renderedStreetsList.push({ points: [{ x: i * spacing, z: -350 }, { x: i * spacing, z: 350 }], isMain: (i % 2 === 0) });
                 renderedStreetsList.push({ points: [{ x: -350, z: i * spacing }, { x: 350, z: i * spacing }], isMain: true });
+
+                // Procedural Flanking Sidewalks (Offset roughly 5.5 meters from road centers)
+                renderedPedestrianList.push({ points: [{ x: i * spacing + 5.5, z: -350 }, { x: i * spacing + 5.5, z: 350 }], isCrosswalk: false });
+                renderedPedestrianList.push({ points: [{ x: i * spacing - 5.5, z: -350 }, { x: i * spacing - 5.5, z: 350 }], isCrosswalk: false });
+                renderedPedestrianList.push({ points: [{ x: -350, z: i * spacing + 5.5 }, { x: 350, z: i * spacing + 5.5 }], isCrosswalk: false });
+            }
+
+            // Generate localized tactical crosswalk links at procedural node intersections
+            for (let x = -gridLimit; x <= gridLimit; x++) {
+                for (let z = -gridLimit; z <= gridLimit; z++) {
+                    renderedPedestrianList.push({
+                        points: [{ x: x * spacing - 6, z: z * spacing }, { x: x * spacing + 6, z: z * spacing }],
+                        isCrosswalk: true
+                    });
+                }
             }
 
             renderedStreetsList.forEach(street => {
                 const dummyTag = street.isMain ? { highway: 'primary' } : { highway: 'residential' };
                 buildNeonVectorPathways(street.points, dummyTag);
+            });
+
+            renderedPedestrianList.forEach(ped => {
+                const dummyTag = ped.isCrosswalk ? { footway: 'crosswalk' } : { highway: 'footway' };
+                buildPedestrianConduits(ped.points, dummyTag);
             });
 
             for (let x = -gridLimit; x < gridLimit; x++) {
@@ -723,9 +771,8 @@
 
             const RADAR_ZOOM_SCALE = 0.65;
 
-            // Render Dimensional Yellow Highways onto Radar Lens
+            // 1. Render Yellow Streets Conduits Array
             renderedStreetsList.forEach(street => {
-                // Base thick corridor path
                 minimapCtx.strokeStyle = '#020205';
                 minimapCtx.lineWidth = 12;
                 minimapCtx.beginPath();
@@ -736,17 +783,15 @@
                 });
                 minimapCtx.stroke();
 
-                // High-visibility neon yellow boundaries
                 minimapCtx.strokeStyle = '#ffff00';
                 minimapCtx.lineWidth = 2;
                 minimapCtx.stroke();
 
-                // Centered white tactical segmentation lines
                 if (street.isMain) {
                     minimapCtx.save();
                     minimapCtx.strokeStyle = '#ffffff';
                     minimapCtx.lineWidth = 1.5;
-                    minimapCtx.setLineDash([4, 4]); // Dashed core layout
+                    minimapCtx.setLineDash([4, 4]);
                     minimapCtx.beginPath();
                     street.points.forEach((pt, idx) => {
                         const dx = (pt.x - camera.position.x) * RADAR_ZOOM_SCALE;
@@ -758,7 +803,27 @@
                 }
             });
 
-            // Render Volumetric Occluded Hulls onto Radar Lens
+            // 2. NEW MINIMAP LAYER: Draw Pale Yellow Pedestrian Sidewalk & Crosswalk Tracks
+            renderedPedestrianList.forEach(ped => {
+                minimapCtx.save();
+                minimapCtx.strokeStyle = '#fffa9e'; // Pale Yellow
+                minimapCtx.lineWidth = 1.5;
+                
+                if (ped.isCrosswalk) {
+                    minimapCtx.setLineDash([2, 3]); // Segmented UI pathing on radar lens
+                }
+
+                minimapCtx.beginPath();
+                ped.points.forEach((pt, idx) => {
+                    const dx = (pt.x - camera.position.x) * RADAR_ZOOM_SCALE;
+                    const dz = (pt.z - camera.position.z) * RADAR_ZOOM_SCALE;
+                    if (idx === 0) minimapCtx.moveTo(dx, dz); else minimapCtx.lineTo(dx, dz);
+                });
+                minimapCtx.stroke();
+                minimapCtx.restore();
+            });
+
+            // 3. Render Volumetric Solid Black Hulls
             renderedBuildingsList.forEach(b => {
                 minimapCtx.fillStyle = '#000000'; 
                 minimapCtx.strokeStyle = b.color === 0x00ffcc ? 'rgba(0, 255, 204, 0.5)' : 'rgba(255, 0, 85, 0.5)';
@@ -773,7 +838,7 @@
                 minimapCtx.fill(); minimapCtx.stroke();
             });
 
-            // Draw Target Anomalies (Plasma Purple Rifts)
+            // 4. Draw Plasma Purple Anomalies Units
             spatialAnomaliesCollection.forEach(anomaly => {
                 if (anomaly.collected) return;
                 const dx = (anomaly.mesh.position.x - camera.position.x) * RADAR_ZOOM_SCALE;
@@ -786,7 +851,7 @@
 
             minimapCtx.restore();
 
-            // FIXED USER RETICLE INDEX (Track-Up Target Fix)
+            // FIXED USER RETICLE INDEX (Track-Up Visual Alignment)
             minimapCtx.strokeStyle = '#00ffcc';
             minimapCtx.lineWidth = 2;
             minimapCtx.beginPath();
@@ -868,7 +933,7 @@
         }
 
         /* ==========================================================================
-           WEBRTC PASSTHROUGH VIDEO PASSTHROUGH FLOW
+           WEBRTC PASSTHROUGH AUDIO/VIDEO BACKDROP FEED
            ========================================================================= */
         async function toggleARCameraStream() {
             const arBtn = document.getElementById('arToggleBtn');
@@ -920,7 +985,6 @@
                     spawnPos.z += (Math.random() - 0.5) * 8;
                 }
 
-                // Shifting material signature to plasma purple to prevent road color collision
                 const material = new THREE.MeshBasicMaterial({ color: 0xbd00ff, wireframe: true });
                 const anomalyMesh = new THREE.Mesh(anomalyGeometry, material);
                 anomalyMesh.position.copy(spawnPos);
