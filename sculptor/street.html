@@ -158,7 +158,7 @@
         #marker-e { right: 4px; top: 50%; transform: translateY(-50%); }
         #marker-w { left: 4px; top: 50%; transform: translateY(-50%); }
 
-        /* ABSOLUTE RETICLE OVERRIDE LAYERING */
+        /* ABSOLUTE TOP DEPTH LAYERING FOR ACTIVE VISOR RETICLE */
         #targeting-matrix {
             position: absolute;
             top: 50%; left: 50%;
@@ -167,8 +167,8 @@
             border: 2px solid rgba(0, 255, 204, 0.2);
             border-radius: 50%;
             pointer-events: none;
-            display: none; 
-            z-index: 200; 
+            z-index: 1000; /* Layered directly above all game interfaces */
+            display: none; /* Controlled programmatically via sensor hooks */
         }
         @media (min-width: 768px) { #targeting-matrix { width: 80px; height: 80px; } }
         
@@ -204,7 +204,6 @@
             .visor-btn { padding: 12px 24px; font-size: 12px; gap: 15px; }
             #action-dashboard { bottom: 30px; }
         }
-        .visor-btn.active { background: #00ffcc; color: #020205; box-shadow: 0 0 20px #00ffcc; }
 
         #portrait-warning {
             display: none;
@@ -274,9 +273,8 @@
         let osmFetchController = null;
         const R_EARTH = 6378137;
 
-        // Motion Dampening Filtering Coords
-        let targetPlayerX = 0;
-        let targetPlayerZ = 0;
+        // Anti-Jitter Geolocation State Vectors
+        let gpsTargetPosition = new THREE.Vector3(0, 1.7, 0);
 
         let playerHealth = 100.0;
         let timeLastSeenByThreat = 0; 
@@ -706,9 +704,6 @@
             }
         }
 
-        /* ==========================================================================
-           TACTICAL PROCESSING LOGIC: INTERPOLATIONS, FLUID TURNS & MOVING LASERS
-           ========================================================================= */
         function advanceDronePatrolSimulation(timestamp) {
             let spaceOverlay = document.getElementById('visor-screen-overlay');
             let droneDetectedFlag = false; 
@@ -802,7 +797,6 @@
                         muzzleOffsetVector.applyMatrix4(bot.meshElement.matrixWorld);
 
                         const targetHitPosition = new THREE.Vector3().copy(camera.position);
-
                         const laserGeom = new THREE.CylinderGeometry(0.05, 0.05, 2.5);
                         const laserMesh = new THREE.Mesh(laserGeom, new THREE.MeshBasicMaterial({ color: 0xff0055 }));
                         
@@ -853,7 +847,7 @@
                 bot.armL.rotation.x = leftWalkSway;
                 bot.armR.rotation.x = THREE.MathUtils.lerp(rightWalkSway, -Math.PI / 2, bot.aimProgress);
                 bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
-            });
+            }          );
 
             for (let i = activeLasersCollection.length - 1; i >= 0; i--) {
                 const bolt = activeLasersCollection[i];
@@ -880,6 +874,13 @@
             if (isCurrentlyDetected) spaceOverlay.classList.add('pulse-yellow-alert');
             else spaceOverlay.classList.remove('pulse-yellow-alert');
 
+            // CONTINUOUS EXPONENTIAL MOVING AVERAGE (Dampens geolocation standing-still noise)
+            if (mapLoadedForAnchor) {
+                camera.position.x += (gpsTargetPosition.x - camera.position.x) * 0.04;
+                camera.position.z += (gpsTargetPosition.z - camera.position.z) * 0.04;
+                camera.position.y = 1.7; 
+            }
+
             updateVisorFeedbackHUD(timestamp);
         }
 
@@ -890,19 +891,20 @@
             const reticle = document.getElementById('targeting-matrix');
             const ctx = cracksCanvas.getContext('2d');
 
+            // Simulation text states
             if (!mapLoadedForAnchor) {
                 statusLabel.innerHTML = "Loading Simulation...";
                 statusLabel.classList.add('pulse-animation');
             } else if (mapLoadedForAnchor && !sensorsEngaged) {
-                statusLabel.innerHTML = "Touch screen to engage Simulation";
+                statusLabel.innerHTML = "Touch screen to engage simulation";
                 statusLabel.classList.add('pulse-animation');
             } else {
                 statusLabel.innerHTML = "";
                 statusLabel.classList.remove('pulse-animation');
             }
 
-            // RETICLE COUPLING LOOP METRICS
-            if (sensorsEngaged && mapLoadedForAnchor) {
+            // RETICLE COUPLING LOGIC (Explicit Layer depth separation)
+            if (sensorsEngaged) {
                 reticle.style.display = 'block';
             } else {
                 reticle.style.display = 'none';
@@ -996,7 +998,7 @@
             
             const scale = (minimapCanvas.width / 150) * 0.65;
 
-            // Streets
+            // StreetsFootprints
             renderedStreetsList.forEach(s => {
                 minimapCtx.strokeStyle = '#000000'; minimapCtx.lineWidth = 10 * scale;
                 minimapCtx.beginPath();
@@ -1008,7 +1010,7 @@
                 minimapCtx.strokeStyle = '#ffff00'; minimapCtx.lineWidth = 1.5 * scale; minimapCtx.stroke();
             });
 
-            // Sidewalks
+            // SidewalkCorridors
             renderedPedestrianList.forEach(p => {
                 minimapCtx.save();
                 if (p.isCrosswalk) { minimapCtx.strokeStyle = '#fffa9e'; minimapCtx.lineWidth = 1.5 * scale; minimapCtx.setLineDash([2, 3]); }
@@ -1021,7 +1023,7 @@
                 minimapCtx.stroke(); minimapCtx.restore();
             });
 
-            // Buildings
+            // Hulls
             renderedBuildingsList.forEach(b => {
                 minimapCtx.fillStyle = '#000000'; minimapCtx.strokeStyle = b.color === 0x00ffcc ? 'rgba(0,255,204,0.5)' : 'rgba(255,0,85,0.5)';
                 minimapCtx.lineWidth = 1.5 * scale; minimapCtx.beginPath();
@@ -1039,7 +1041,7 @@
                 minimapCtx.fillStyle = '#bd00ff'; minimapCtx.beginPath(); minimapCtx.arc(dx, dz, 4.5 * scale, 0, Math.PI * 2); minimapCtx.fill();
             });
 
-            // Threat Drones Target Trackers
+            // Threats Drones
             tacticalDronesCollection.forEach(d => {
                 const dx = (d.meshElement.position.x - camera.position.x) * scale; const dz = (d.meshElement.position.z - camera.position.z) * scale;
                 minimapCtx.save(); minimapCtx.fillStyle = alertStateActive ? '#ff0055' : '#ffaa00';
@@ -1049,7 +1051,7 @@
                 minimapCtx.fill(); minimapCtx.stroke(); minimapCtx.restore();
             });
 
-            // Threat Humanoid Ground Bots Trackers
+            // Threats Ground Bots
             humanoidBotsCollection.forEach(b => {
                 const dx = (b.meshElement.position.x - camera.position.x) * scale; const dz = (b.meshElement.position.z - camera.position.z) * scale;
                 minimapCtx.save(); minimapCtx.fillStyle = b.isAlerted ? '#ff0055' : '#ff7700';
@@ -1079,22 +1081,23 @@
 
         function updatePlayerPositionFromGps(latitude, longitude, signalSource) {
             currentCoordinates.lat = latitude; currentCoordinates.lon = longitude;
-            const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
             
             if (!hasLockedInitialAnchor) {
                 anchorCoordinates.lat = latitude; anchorCoordinates.lon = longitude;
                 hasLockedInitialAnchor = true;
-                const initialLocal = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
-                camera.position.x = initialLocal.x;
-                camera.position.z = initialLocal.z;
-                targetPlayerX = initialLocal.x;
-                targetPlayerZ = initialLocal.z;
+                
+                // Establish initial position snapshot instantly before interpolation layers engage
+                const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
+                camera.position.set(local.x, 1.7, local.z);
+                gpsTargetPosition.set(local.x, 1.7, local.z);
+                
                 fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
-                targetPlayerX = local.x;
-                targetPlayerZ = local.z;
+                // Pipe continuous streaming tracking fixes directly to calculation buffers
+                const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
+                gpsTargetPosition.x = local.x;
+                gpsTargetPosition.z = local.z;
             }
-            camera.position.y = 1.7; 
         }
 
         function simulateGpsMovementUpdate() {
@@ -1148,7 +1151,8 @@
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000);
             camera.position.set(0, 1.7, 0); 
 
-            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true, alpha: false });
+            // Configuration profile optimized for full solid color backdrops
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             renderer.setClearColor(0x020205, 1.0);
             scene.add(mapStructuralMeshes);
@@ -1162,14 +1166,6 @@
             function frameLoopEngine() {
                 requestAnimationFrame(frameLoopEngine);
                 const t = Date.now();
-                
-                // Jitter reduction moving scalar logic block
-                if (hasLockedInitialAnchor) {
-                    const lerpFactor = 0.05; 
-                    camera.position.x += (targetPlayerX - camera.position.x) * lerpFactor;
-                    camera.position.z += (targetPlayerZ - camera.position.z) * lerpFactor;
-                }
-
                 spatialAnomaliesCollection.forEach(a => {
                     if (!a.collected) { a.mesh.rotation.x += 0.01; a.mesh.rotation.y += 0.02; }
                 });
