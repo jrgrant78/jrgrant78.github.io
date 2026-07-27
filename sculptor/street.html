@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - Stabilized Simulation Visor</title>
+    <title>Project A.R.I.S. - True Heading Simulation Visor</title>
     <style>
         body, html {
             margin: 0;
@@ -158,7 +158,6 @@
         #marker-e { right: 4px; top: 50%; transform: translateY(-50%); }
         #marker-w { left: 4px; top: 50%; transform: translateY(-50%); }
 
-        /* ABSOLUTE TOP DEPTH LAYERING FOR ACTIVE VISOR RETICLE */
         #targeting-matrix {
             position: absolute;
             top: 50%; left: 50%;
@@ -167,8 +166,8 @@
             border: 2px solid rgba(0, 255, 204, 0.2);
             border-radius: 50%;
             pointer-events: none;
-            z-index: 1000; /* Layered directly above all game interfaces */
-            display: none; /* Controlled programmatically via sensor hooks */
+            z-index: 1000; 
+            display: none; 
         }
         @media (min-width: 768px) { #targeting-matrix { width: 80px; height: 80px; } }
         
@@ -273,7 +272,6 @@
         let osmFetchController = null;
         const R_EARTH = 6378137;
 
-        // Anti-Jitter Geolocation State Vectors
         let gpsTargetPosition = new THREE.Vector3(0, 1.7, 0);
 
         let playerHealth = 100.0;
@@ -372,12 +370,14 @@
             let gamma = THREE.MathUtils.degToRad(e.gamma);
             let orient = (window.orientation || window.screen.orientation?.angle || 0) * Math.PI / 180;
             let qSensor = getSensorQuaternion(alpha, beta, gamma, orient);
+            
+            // Flipped calibration mapping back-facing lenses directly to geo-coordinates tracking paths
             if (isFirstGyroFrame) {
-                gyroYawOffset = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ').y - new THREE.Euler().setFromQuaternion(qSensor, 'YXZ').y;
+                gyroYawOffset = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ').y - new THREE.Euler().setFromQuaternion(qSensor, 'YXZ').y - Math.PI;
                 isFirstGyroFrame = false;
             }
             let finalEuler = new THREE.Euler().setFromQuaternion(qSensor, 'YXZ');
-            finalEuler.y += gyroYawOffset;
+            finalEuler.y += gyroYawOffset + Math.PI; 
             camera.quaternion.setFromEuler(finalEuler);
         }
 
@@ -847,7 +847,7 @@
                 bot.armL.rotation.x = leftWalkSway;
                 bot.armR.rotation.x = THREE.MathUtils.lerp(rightWalkSway, -Math.PI / 2, bot.aimProgress);
                 bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
-            }          );
+            });
 
             for (let i = activeLasersCollection.length - 1; i >= 0; i--) {
                 const bolt = activeLasersCollection[i];
@@ -874,7 +874,6 @@
             if (isCurrentlyDetected) spaceOverlay.classList.add('pulse-yellow-alert');
             else spaceOverlay.classList.remove('pulse-yellow-alert');
 
-            // CONTINUOUS EXPONENTIAL MOVING AVERAGE (Dampens geolocation standing-still noise)
             if (mapLoadedForAnchor) {
                 camera.position.x += (gpsTargetPosition.x - camera.position.x) * 0.04;
                 camera.position.z += (gpsTargetPosition.z - camera.position.z) * 0.04;
@@ -891,7 +890,6 @@
             const reticle = document.getElementById('targeting-matrix');
             const ctx = cracksCanvas.getContext('2d');
 
-            // Simulation text states
             if (!mapLoadedForAnchor) {
                 statusLabel.innerHTML = "Loading Simulation...";
                 statusLabel.classList.add('pulse-animation');
@@ -903,7 +901,6 @@
                 statusLabel.classList.remove('pulse-animation');
             }
 
-            // RETICLE COUPLING LOGIC (Explicit Layer depth separation)
             if (sensorsEngaged) {
                 reticle.style.display = 'block';
             } else {
@@ -998,7 +995,7 @@
             
             const scale = (minimapCanvas.width / 150) * 0.65;
 
-            // StreetsFootprints
+            // Streets
             renderedStreetsList.forEach(s => {
                 minimapCtx.strokeStyle = '#000000'; minimapCtx.lineWidth = 10 * scale;
                 minimapCtx.beginPath();
@@ -1010,7 +1007,7 @@
                 minimapCtx.strokeStyle = '#ffff00'; minimapCtx.lineWidth = 1.5 * scale; minimapCtx.stroke();
             });
 
-            // SidewalkCorridors
+            // Sidewalks
             renderedPedestrianList.forEach(p => {
                 minimapCtx.save();
                 if (p.isCrosswalk) { minimapCtx.strokeStyle = '#fffa9e'; minimapCtx.lineWidth = 1.5 * scale; minimapCtx.setLineDash([2, 3]); }
@@ -1023,7 +1020,7 @@
                 minimapCtx.stroke(); minimapCtx.restore();
             });
 
-            // Hulls
+            // Buildings
             renderedBuildingsList.forEach(b => {
                 minimapCtx.fillStyle = '#000000'; minimapCtx.strokeStyle = b.color === 0x00ffcc ? 'rgba(0,255,204,0.5)' : 'rgba(255,0,85,0.5)';
                 minimapCtx.lineWidth = 1.5 * scale; minimapCtx.beginPath();
@@ -1041,7 +1038,7 @@
                 minimapCtx.fillStyle = '#bd00ff'; minimapCtx.beginPath(); minimapCtx.arc(dx, dz, 4.5 * scale, 0, Math.PI * 2); minimapCtx.fill();
             });
 
-            // Threats Drones
+            // Threat Drones
             tacticalDronesCollection.forEach(d => {
                 const dx = (d.meshElement.position.x - camera.position.x) * scale; const dz = (d.meshElement.position.z - camera.position.z) * scale;
                 minimapCtx.save(); minimapCtx.fillStyle = alertStateActive ? '#ff0055' : '#ffaa00';
@@ -1051,7 +1048,7 @@
                 minimapCtx.fill(); minimapCtx.stroke(); minimapCtx.restore();
             });
 
-            // Threats Ground Bots
+            // Threat Ground Bots
             humanoidBotsCollection.forEach(b => {
                 const dx = (b.meshElement.position.x - camera.position.x) * scale; const dz = (b.meshElement.position.z - camera.position.z) * scale;
                 minimapCtx.save(); minimapCtx.fillStyle = b.isAlerted ? '#ff0055' : '#ff7700';
@@ -1086,14 +1083,12 @@
                 anchorCoordinates.lat = latitude; anchorCoordinates.lon = longitude;
                 hasLockedInitialAnchor = true;
                 
-                // Establish initial position snapshot instantly before interpolation layers engage
                 const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
                 camera.position.set(local.x, 1.7, local.z);
                 gpsTargetPosition.set(local.x, 1.7, local.z);
                 
                 fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
-                // Pipe continuous streaming tracking fixes directly to calculation buffers
                 const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
                 gpsTargetPosition.x = local.x;
                 gpsTargetPosition.z = local.z;
@@ -1151,7 +1146,6 @@
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000);
             camera.position.set(0, 1.7, 0); 
 
-            // Configuration profile optimized for full solid color backdrops
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             renderer.setClearColor(0x020205, 1.0);
