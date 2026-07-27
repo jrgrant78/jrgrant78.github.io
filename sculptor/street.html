@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - True Heading Simulation Visor</title>
+    <title>Project A.R.I.S. - True Geographic Compass Matrix</title>
     <style>
         body, html {
             margin: 0;
@@ -257,9 +257,6 @@
 
     <script>
         let scene, camera, renderer;
-        
-        let isFirstGyroFrame = true;
-        let gyroYawOffset = 0;
         let lookYaw = 0; let lookPitch = 0;
         let isDragging = false;
         let previousPointerX = 0; let previousPointerY = 0;
@@ -303,11 +300,12 @@
             [{x:50,y:0},{x:48,y:15},{x:55,y:30},{x:45,y:45}]
         ];
 
+        // Core Mathematical Transform Matrix: Links Absolute W3C Device Sensors directly to WebGL Engine Space
         const getSensorQuaternion = (function () {
             const zee = new THREE.Vector3(0, 0, 1);
             const euler = new THREE.Euler();
             const q0 = new THREE.Quaternion();
-            const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); 
+            const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); // Base Pitch transformation (-90deg)
             return function (alpha, beta, gamma, orient) {
                 const q = new THREE.Quaternion();
                 euler.set(beta, alpha, -gamma, 'YXZ'); 
@@ -331,14 +329,12 @@
                 isDragging = true; previousPointerX = e.clientX; previousPointerY = e.clientY;
             });
             window.addEventListener('pointermove', (e) => {
-                if (!isDragging) return;
+                if (!isDragging || sensorsEngaged) return; // Ignore dragging once hardware streams active
                 const deltaX = e.clientX - previousPointerX; const deltaY = e.clientY - previousPointerY;
                 previousPointerX = e.clientX; previousPointerY = e.clientY;
                 lookYaw -= deltaX * 0.003; lookPitch -= deltaY * 0.003;
                 lookPitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, lookPitch));
-                if (isFirstGyroFrame) {
-                    camera.quaternion.setFromEuler(new THREE.Euler(lookPitch, lookYaw, 0, 'YXZ'));
-                }
+                camera.quaternion.setFromEuler(new THREE.Euler(lookPitch, lookYaw, 0, 'YXZ'));
             });
             window.addEventListener('pointerup', () => isDragging = false);
 
@@ -353,32 +349,45 @@
                 }
                 if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                     DeviceOrientationEvent.requestPermission().then(state => {
-                        if (state === 'granted') window.addEventListener('deviceorientation', handleVisorHardwareOrientation, true);
+                        if (state === 'granted') {
+                            bindAbsoluteCompassListeners();
+                        }
                     });
                 } else {
-                    window.addEventListener('deviceorientation', handleVisorHardwareOrientation, true);
+                    bindAbsoluteCompassListeners();
                 }
             };
             window.addEventListener('pointerdown', requestHardwareSensors, { once: true });
             document.getElementById('stepSimBtn').addEventListener('click', simulateGpsMovementUpdate);
         }
 
-        function handleVisorHardwareOrientation(e) {
-            if (e.alpha === null) return;
-            let alpha = THREE.MathUtils.degToRad(e.alpha);
-            let beta = THREE.MathUtils.degToRad(e.beta);
-            let gamma = THREE.MathUtils.degToRad(e.gamma);
-            let orient = (window.orientation || window.screen.orientation?.angle || 0) * Math.PI / 180;
-            let qSensor = getSensorQuaternion(alpha, beta, gamma, orient);
-            
-            // Flipped calibration mapping back-facing lenses directly to geo-coordinates tracking paths
-            if (isFirstGyroFrame) {
-                gyroYawOffset = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ').y - new THREE.Euler().setFromQuaternion(qSensor, 'YXZ').y - Math.PI;
-                isFirstGyroFrame = false;
+        // Routing engine selecting absolute magnetometers channels
+        function bindAbsoluteCompassListeners() {
+            if ('ondeviceorientationabsolute' in window) {
+                window.addEventListener('deviceorientationabsolute', handleVisorHardwareOrientation, true);
+            } else {
+                window.addEventListener('deviceorientation', handleVisorHardwareOrientation, true);
             }
-            let finalEuler = new THREE.Euler().setFromQuaternion(qSensor, 'YXZ');
-            finalEuler.y += gyroYawOffset + Math.PI; 
-            camera.quaternion.setFromEuler(finalEuler);
+        }
+
+        function handleVisorHardwareOrientation(e) {
+            let alpha = e.alpha;
+            
+            // Core Fallback Check: Parse iOS native compass headings directly into the absolute calculation track
+            if (e.webkitCompassHeading) {
+                alpha = 360 - e.webkitCompassHeading;
+            }
+            
+            if (alpha === null) return;
+
+            let alphaRad = THREE.MathUtils.degToRad(alpha);
+            let betaRad = THREE.MathUtils.degToRad(e.beta);
+            let gammaRad = THREE.MathUtils.degToRad(e.gamma);
+            let orient = (window.orientation || window.screen.orientation?.angle || 0) * Math.PI / 180;
+
+            // RESOLVED: Direct copying preserves absolute raw sensor values relative to true North (Identity maps to negative Z axis)
+            let qSensor = getSensorQuaternion(alphaRad, betaRad, gammaRad, orient);
+            camera.quaternion.copy(qSensor);
         }
 
         async function fetchLiveOpenStreetMapData(lat, lon) {
@@ -737,10 +746,11 @@
                     }
                 }
 
+                // Wrap-Around Rotational Smoothing Matrix
                 let angleDiff = targetAngle - drone.meshElement.rotation.y;
                 while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
                 while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-                drone.meshElement.rotation.y += angleDiff * 0.06;
+                drone.meshElement.rotation.y += angleDiff * 0.08;
 
                 pos.y = 25.0 + Math.sin(timestamp * 0.0012 + drone.id) * 0.4;
                 drone.leftArmAsset.rotation.x = Math.sin(timestamp * 0.0018 + drone.id) * 0.18;
@@ -835,17 +845,15 @@
                     }
                 }
 
+                // Fluid Rotational Turn Interpolation Matrix
                 let botAngleDiff = botTargetAngle - bot.meshElement.rotation.y;
                 while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2;
                 while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2;
                 bot.meshElement.rotation.y += botAngleDiff * 0.08;
 
                 const alternateCycle = Math.sin(timestamp * 0.008 * bot.velocity);
-                const leftWalkSway = -alternateCycle * 0.3;
-                const rightWalkSway = alternateCycle * 0.3; 
-
-                bot.armL.rotation.x = leftWalkSway;
-                bot.armR.rotation.x = THREE.MathUtils.lerp(rightWalkSway, -Math.PI / 2, bot.aimProgress);
+                bot.armL.rotation.x = -alternateCycle * 0.3;
+                bot.armR.rotation.x = THREE.MathUtils.lerp(alternateCycle * 0.3, -Math.PI / 2, bot.aimProgress);
                 bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
             });
 
@@ -874,6 +882,7 @@
             if (isCurrentlyDetected) spaceOverlay.classList.add('pulse-yellow-alert');
             else spaceOverlay.classList.remove('pulse-yellow-alert');
 
+            // Low-Pass Positioning Filter Matrix
             if (mapLoadedForAnchor) {
                 camera.position.x += (gpsTargetPosition.x - camera.position.x) * 0.04;
                 camera.position.z += (gpsTargetPosition.z - camera.position.z) * 0.04;
