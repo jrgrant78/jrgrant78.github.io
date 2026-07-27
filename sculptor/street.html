@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - Decoupled Spatial Visor</title>
+    <title>Project A.R.I.S. - Stabilized Spatial Matrix</title>
     <style>
         body, html {
             margin: 0;
@@ -354,7 +354,6 @@
                 isDragging = true; previousPointerX = e.clientX; previousPointerY = e.clientY;
             });
             window.addEventListener('pointermove', (e) => {
-                // HARD DECOUPLING CUTOFF: Manual drag coordinates immediately drop when absolute sensor matrix triggers
                 if (!isDragging || sensorsEngaged) return; 
                 const deltaX = e.clientX - previousPointerX; const deltaY = e.clientY - previousPointerY;
                 previousPointerX = e.clientX; previousPointerY = e.clientY;
@@ -412,8 +411,10 @@
             let gammaRad = THREE.MathUtils.degToRad(e.gamma);
             let orient = (window.orientation || window.screen.orientation?.angle || 0) * Math.PI / 180;
 
-            // EXCLUSIVE ATTITUDE UPDATE: Position coordinates have zero effect on this quaternion copy loop
-            camera.quaternion.copy(getSensorQuaternion(alphaRad, betaRad, gammaRad, orient));
+            let qSensor = getSensorQuaternion(alphaRad, betaRad, gammaRad, orient);
+            
+            // STABILIZATION MATRIX - SLERP INTERPOLATION: Filters high-frequency magnetometer sensor noise
+            camera.quaternion.slerp(qSensor, 0.12);
         }
 
         async function fetchLiveOpenStreetMapData(lat, lon) {
@@ -902,7 +903,7 @@
                 bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
             });
 
-            for (let i = 0; i < activeLasersCollection.length - 1; i++) {
+            for (let i = activeLasersCollection.length - 1; i >= 0; i--) {
                 const bolt = activeLasersCollection[i];
                 bolt.meshElement.position.addScaledVector(bolt.directionVector, bolt.velocitySpeed);
                 bolt.distanceTraveled += bolt.velocitySpeed;
@@ -927,12 +928,12 @@
             if (isCurrentlyDetected) spaceOverlay.classList.add('pulse-yellow-alert');
             else spaceOverlay.classList.remove('pulse-yellow-alert');
 
-            // ANTI-DRIFT GEO ENGINE MUTATOR: Linear positioning logic acts independent of camera rotational systems
+            // TRANSLATION ENGINE STABILIZATION: Hysteresis dead-zone prevents position interpolation drift
             if (mapLoadedForAnchor && !matrixOverloadActive) {
                 const distanceDeltaMetric = Math.hypot(gpsTargetPosition.x - camera.position.x, gpsTargetPosition.z - camera.position.z);
-                if (distanceDeltaMetric > 1.8) { 
-                    camera.position.x += (gpsTargetPosition.x - camera.position.x) * 0.04;
-                    camera.position.z += (gpsTargetPosition.z - camera.position.z) * 0.04;
+                if (distanceDeltaMetric > 2.0) { 
+                    camera.position.x += (gpsTargetPosition.x - camera.position.x) * 0.05;
+                    camera.position.z += (gpsTargetPosition.z - camera.position.z) * 0.05;
                 }
                 camera.position.y = 1.7; 
             }
@@ -1125,19 +1126,20 @@
         function updatePlayerPositionFromGps(latitude, longitude, signalSource) {
             currentCoordinates.lat = latitude; currentCoordinates.lon = longitude;
             
+            const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
+            
             if (!hasLockedInitialAnchor) {
                 anchorCoordinates.lat = latitude; anchorCoordinates.lon = longitude;
                 hasLockedInitialAnchor = true;
                 
-                const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
                 camera.position.set(local.x, 1.7, local.z);
                 gpsTargetPosition.set(local.x, 1.7, local.z);
                 
                 fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
-                const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
-                gpsTargetPosition.x = local.x;
-                gpsTargetPosition.z = local.z;
+                // INPUT RECEPTION FILTER: Smooth out sub-meter noise at telemetry collection stage
+                gpsTargetPosition.x += (local.x - gpsTargetPosition.x) * 0.15;
+                gpsTargetPosition.z += (local.z - gpsTargetPosition.z) * 0.15;
             }
         }
 
@@ -1147,7 +1149,11 @@
             const factor = 1.0 / R_EARTH * (180.0 / Math.PI);
             const simLat = currentCoordinates.lat - (vec.z * 8.0 * factor);
             const simLon = currentCoordinates.lon + (vec.x * 8.0 * factor / Math.cos(anchorCoordinates.lat * Math.PI / 180));
-            updatePlayerPositionFromGps(simLat, simLon, "SIMULATION MATRIX");
+            
+            // Bypass filter on manual user command strides for direct response feedback
+            const local = latLonToLocalMeters(simLat, simLon, anchorCoordinates.lat, anchorCoordinates.lon);
+            currentCoordinates.lat = simLat; currentCoordinates.lon = simLon;
+            gpsTargetPosition.set(local.x, 1.7, local.z);
         }
 
         function spawnQuantumAnomalies() {
@@ -1171,6 +1177,7 @@
             });
         }
 
+        bin = onWindowResize;
         function onWindowResize() {
             const width = window.innerWidth;
             const height = window.innerHeight;
