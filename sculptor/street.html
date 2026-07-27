@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - True Geographic Compass Matrix</title>
+    <title>Project A.R.I.S. - Core Simulation Matrix</title>
     <style>
         body, html {
             margin: 0;
@@ -90,6 +90,39 @@
             0% { transform: scale(0.96); opacity: 0.4; }
             50% { transform: scale(1.03); opacity: 1; }
             100% { transform: scale(0.96); opacity: 0.4; }
+        }
+
+        /* HIGH-CONTRAST CRITICAL DATA CRASH OVERLAYS */
+        .flash-error-banner {
+            animation: terminal-emergency-flash 0.4s infinite alternate;
+            color: #ff0055;
+            font-size: 34px;
+            font-weight: 900;
+            letter-spacing: 5px;
+            margin: 0;
+        }
+
+        @media (min-width: 768px) {
+            .flash-error-banner { font-size: 46px; letter-spacing: 8px; }
+        }
+
+        .pulse-reinit-subtext {
+            animation: loading-text-pulse 1.6s infinite ease-in-out;
+            color: #00ffcc;
+            font-size: 13px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            margin-top: 20px;
+            text-transform: uppercase;
+        }
+
+        @media (min-width: 768px) {
+            .pulse-reinit-subtext { font-size: 16px; }
+        }
+
+        @keyframes terminal-emergency-flash {
+            from { opacity: 0.2; text-shadow: 0 0 4px #ff0055; }
+            to { opacity: 1; text-shadow: 0 0 20px #ff0055, 0 0 40px #ff0055; }
         }
 
         #threat-tracker-display {
@@ -265,6 +298,7 @@
         let anchorCoordinates = { lat: 40.7580, lon: -73.9855 };
         let hasLockedInitialAnchor = false;
         let mapLoadedForAnchor = false;
+        let matrixOverloadState = false; // Core system failure state toggle flag
         let sensorsEngaged = false; 
         let osmFetchController = null;
         const R_EARTH = 6378137;
@@ -300,12 +334,11 @@
             [{x:50,y:0},{x:48,y:15},{x:55,y:30},{x:45,y:45}]
         ];
 
-        // Core Mathematical Transform Matrix: Links Absolute W3C Device Sensors directly to WebGL Engine Space
         const getSensorQuaternion = (function () {
             const zee = new THREE.Vector3(0, 0, 1);
             const euler = new THREE.Euler();
             const q0 = new THREE.Quaternion();
-            const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); // Base Pitch transformation (-90deg)
+            const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); 
             return function (alpha, beta, gamma, orient) {
                 const q = new THREE.Quaternion();
                 euler.set(beta, alpha, -gamma, 'YXZ'); 
@@ -329,7 +362,7 @@
                 isDragging = true; previousPointerX = e.clientX; previousPointerY = e.clientY;
             });
             window.addEventListener('pointermove', (e) => {
-                if (!isDragging || sensorsEngaged) return; // Ignore dragging once hardware streams active
+                if (!isDragging || sensorsEngaged) return; 
                 const deltaX = e.clientX - previousPointerX; const deltaY = e.clientY - previousPointerY;
                 previousPointerX = e.clientX; previousPointerY = e.clientY;
                 lookYaw -= deltaX * 0.003; lookPitch -= deltaY * 0.003;
@@ -338,30 +371,40 @@
             });
             window.addEventListener('pointerup', () => isDragging = false);
 
-            const requestHardwareSensors = () => {
-                sensorsEngaged = true; 
-                if (document.documentElement.requestFullscreen) {
-                    document.documentElement.requestFullscreen().then(() => {
-                        if (screen.orientation && screen.orientation.lock) {
-                            screen.orientation.lock('landscape').catch(() => {});
-                        }
-                    }).catch(() => {});
+            // Multi-Target Screen Touch Vector Interceptor
+            window.addEventListener('pointerdown', (e) => {
+                if (e.target.closest('#action-dashboard')) return;
+
+                // Reload Trigger Condition check
+                if (matrixOverloadState) {
+                    matrixOverloadState = false;
+                    mapLoadedForAnchor = false;
+                    fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
+                    return;
                 }
-                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                    DeviceOrientationEvent.requestPermission().then(state => {
-                        if (state === 'granted') {
-                            bindAbsoluteCompassListeners();
-                        }
-                    });
-                } else {
-                    bindAbsoluteCompassListeners();
+
+                if (!sensorsEngaged) {
+                    sensorsEngaged = true; 
+                    if (document.documentElement.requestFullscreen) {
+                        document.documentElement.requestFullscreen().then(() => {
+                            if (screen.orientation && screen.orientation.lock) {
+                                screen.orientation.lock('landscape').catch(() => {});
+                            }
+                        }).catch(() => {});
+                    }
+                    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                        DeviceOrientationEvent.requestPermission().then(state => {
+                            if (state === 'granted') bindAbsoluteCompassListeners();
+                        });
+                    } else {
+                        bindAbsoluteCompassListeners();
+                    }
                 }
-            };
-            window.addEventListener('pointerdown', requestHardwareSensors, { once: true });
+            });
+
             document.getElementById('stepSimBtn').addEventListener('click', simulateGpsMovementUpdate);
         }
 
-        // Routing engine selecting absolute magnetometers channels
         function bindAbsoluteCompassListeners() {
             if ('ondeviceorientationabsolute' in window) {
                 window.addEventListener('deviceorientationabsolute', handleVisorHardwareOrientation, true);
@@ -372,12 +415,7 @@
 
         function handleVisorHardwareOrientation(e) {
             let alpha = e.alpha;
-            
-            // Core Fallback Check: Parse iOS native compass headings directly into the absolute calculation track
-            if (e.webkitCompassHeading) {
-                alpha = 360 - e.webkitCompassHeading;
-            }
-            
+            if (e.webkitCompassHeading) alpha = 360 - e.webkitCompassHeading;
             if (alpha === null) return;
 
             let alphaRad = THREE.MathUtils.degToRad(alpha);
@@ -385,7 +423,6 @@
             let gammaRad = THREE.MathUtils.degToRad(e.gamma);
             let orient = (window.orientation || window.screen.orientation?.angle || 0) * Math.PI / 180;
 
-            // RESOLVED: Direct copying preserves absolute raw sensor values relative to true North (Identity maps to negative Z axis)
             let qSensor = getSensorQuaternion(alphaRad, betaRad, gammaRad, orient);
             camera.quaternion.copy(qSensor);
         }
@@ -393,6 +430,8 @@
         async function fetchLiveOpenStreetMapData(lat, lon) {
             if (osmFetchController) osmFetchController.abort();
             osmFetchController = new AbortController();
+            
+            matrixOverloadState = false;
 
             const overpassEndpoints = [
                 `https://overpass-api.de/api/interpreter`,
@@ -419,7 +458,9 @@
                 mapLoadedForAnchor = true;
                 parseAndBuildOSMWorld(data, anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
-                generateProceduralBackupInfrastructure();
+                // FALLBACK MOCK CODES PURGED: Activate terminal overload failure configuration
+                matrixOverloadState = true;
+                mapLoadedForAnchor = false;
             }
         }
 
@@ -436,7 +477,6 @@
             grassGroundMesh.rotation.x = -Math.PI / 2;
             mapStructuralMeshes.add(grassGroundMesh);
 
-            if (!osmData || !osmData.elements) return;
             const nodesLookup = {};
             osmData.elements.forEach(el => {
                 if (el.type === 'node') nodesLookup[el.id] = latLonToLocalMeters(el.lat, el.lon, anchorLat, anchorLon);
@@ -465,7 +505,6 @@
                 }
             });
 
-            mapLoadedForAnchor = true;
             spawnQuantumAnomalies();
             deployTacticalDronePlatoon();
             deployHumanoidGarrison();
@@ -746,7 +785,6 @@
                     }
                 }
 
-                // Wrap-Around Rotational Smoothing Matrix
                 let angleDiff = targetAngle - drone.meshElement.rotation.y;
                 while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
                 while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
@@ -800,8 +838,8 @@
                     if (distanceToPlayer <= 25.0 && timestamp - bot.lastFireTimestamp > 1200) {
                         bot.lastFireTimestamp = timestamp;
                         playerHealth = Math.max(0, playerHealth - 8.0);
-                        spaceOverlay.classList.add('flash-red-harm');
-                        setTimeout(() => spaceOverlay.classList.remove('flash-red-harm'), 150);
+                        spaceOverlay.style.background = 'rgba(255, 0, 85, 0.4)';
+                        setTimeout(() => spaceOverlay.style.background = 'rgba(255,255,255,0)', 150);
 
                         const muzzleOffsetVector = new THREE.Vector3(0.9, 0.4, 1.6); 
                         muzzleOffsetVector.applyMatrix4(bot.meshElement.matrixWorld);
@@ -845,7 +883,6 @@
                     }
                 }
 
-                // Fluid Rotational Turn Interpolation Matrix
                 let botAngleDiff = botTargetAngle - bot.meshElement.rotation.y;
                 while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2;
                 while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2;
@@ -882,10 +919,16 @@
             if (isCurrentlyDetected) spaceOverlay.classList.add('pulse-yellow-alert');
             else spaceOverlay.classList.remove('pulse-yellow-alert');
 
-            // Low-Pass Positioning Filter Matrix
+            // ANTI-JITTER POSITIONING GATE (Eliminates subtle drift while standing still)
             if (mapLoadedForAnchor) {
-                camera.position.x += (gpsTargetPosition.x - camera.position.x) * 0.04;
-                camera.position.z += (gpsTargetPosition.z - camera.position.z) * 0.04;
+                const deltaX = gpsTargetPosition.x - camera.position.x;
+                const deltaZ = gpsTargetPosition.z - camera.position.z;
+                const distanceDelta = Math.hypot(deltaX, deltaZ);
+                
+                if (distanceDelta > 2.5) { // 2.5-meter deadzone cancels noise updates while stationary
+                    camera.position.x += deltaX * 0.04;
+                    camera.position.z += deltaZ * 0.04;
+                }
                 camera.position.y = 1.7; 
             }
 
@@ -899,7 +942,14 @@
             const reticle = document.getElementById('targeting-matrix');
             const ctx = cracksCanvas.getContext('2d');
 
-            if (!mapLoadedForAnchor) {
+            // Terminal failure visual branching pipeline
+            if (matrixOverloadState) {
+                statusLabel.innerHTML = `
+                    <div class="flash-error-banner">Matrix Overload!</div>
+                    <div class="pulse-reinit-subtext">Touch screen to re-initiate spatial upload sequence.</div>
+                `;
+                statusLabel.classList.remove('pulse-animation');
+            } else if (!mapLoadedForAnchor) {
                 statusLabel.innerHTML = "Loading Simulation...";
                 statusLabel.classList.add('pulse-animation');
             } else if (mapLoadedForAnchor && !sensorsEngaged) {
@@ -910,16 +960,16 @@
                 statusLabel.classList.remove('pulse-animation');
             }
 
-            if (sensorsEngaged) {
+            if (sensorsEngaged && !matrixOverloadState) {
                 reticle.style.display = 'block';
             } else {
                 reticle.style.display = 'none';
             }
 
-            if (isCurrentlyDetected) {
+            if (isCurrentlyDetected && !matrixOverloadState) {
                 trackerContainer.style.display = 'block';
                 trackerContainer.innerHTML = "WARNING: POSITION EXPOSED";
-            } else if (alertStateActive) {
+            } else if (alertStateActive && !matrixOverloadState) {
                 trackerContainer.style.display = 'block';
                 const secondsRemaining = Math.max(0, (ALERT_COOLDOWN_MS - (timestamp - timeLastSeenByThreat)) / 1000);
                 trackerContainer.innerHTML = `EVADING THREAT: ${secondsRemaining.toFixed(1)}s`;
@@ -929,7 +979,8 @@
 
             if (ctx) {
                 ctx.clearRect(0, 0, cracksCanvas.width, cracksCanvas.height);
-                
+                if (matrixOverloadState) return; 
+
                 let activeCrackPathsCount = 0;
                 if (playerHealth < 90) activeCrackPathsCount = 1;
                 if (playerHealth < 70) activeCrackPathsCount = 2;
@@ -956,31 +1007,9 @@
             }
         }
 
-        function generateProceduralBackupInfrastructure() {
-            const spacing = 80; const gridLimit = 4;
-            mapStructuralMeshes.add(new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.MeshBasicMaterial({ color: 0x071e0e })));
-
-            for (let i = -gridLimit; i <= gridLimit; i++) {
-                renderedStreetsList.push({ points: [{ x: i * spacing, z: -350 }, { x: i * spacing, z: 350 }], isMain: (i % 2 === 0) });
-                renderedStreetsList.push({ points: [{ x: -350, z: i * spacing }, { x: 350, z: i * spacing }], isMain: true });
-                renderedPedestrianList.push({ points: [{ x: i * spacing + 5.5, z: -350 }, { x: i * spacing + 5.5, z: 350 }], isCrosswalk: false });
-                renderedPedestrianList.push({ points: [{ x: i * spacing - 5.5, z: -350 }, { x: i * spacing - 5.5, z: 350 }], isCrosswalk: false });
-            }
-            renderedStreetsList.forEach(s => buildNeonVectorPathways(s.points, s.isMain ? { highway: 'primary' } : { highway: 'residential' }));
-            renderedPedestrianList.forEach(p => buildPedestrianConduits(p.points, p.isCrosswalk ? { footway: 'crosswalk' } : { highway: 'footway' }));
-            for (let x = -gridLimit; x < gridLimit; x++) {
-                for (let z = -gridLimit; z < gridLimit; z++) {
-                    const cx = x * spacing + spacing / 2; const cz = z * spacing + spacing / 2; const size = 35;
-                    buildNeonStructuralHulls([{ x: cx - size/2, z: cz - size/2 }, { x: cx + size/2, z: cz - size/2 }, { x: cx + size/2, z: cz + size/2 }, { x: cx - size/2, z: cz + size/2 }], null, cx, cz);
-                }
-            }
-            mapLoadedForAnchor = true;
-            spawnQuantumAnomalies(); deployTacticalDronePlatoon(); deployHumanoidGarrison();
-        }
-
         function update2DMinimapSystem() {
             const minimapCanvas = document.getElementById('minimapCanvas');
-            const minimapCtx = minimapCanvas.getContext('2d'); if (!minimapCtx) return;
+            const minimapCtx = minimapCanvas.getContext('2d'); if (!minimapCtx || !mapLoadedForAnchor) return;
 
             const directionVector = new THREE.Vector3(); camera.getWorldDirection(directionVector);
             const yaw = Math.atan2(directionVector.x, -directionVector.z);
@@ -1105,6 +1134,7 @@
         }
 
         function simulateGpsMovementUpdate() {
+            if (matrixOverloadState) return; 
             const vec = new THREE.Vector3(); camera.getWorldDirection(vec); vec.y = 0; vec.normalize();
             const factor = 1.0 / R_EARTH * (180.0 / Math.PI);
             const simLat = currentCoordinates.lat - (vec.z * 8.0 * factor);
@@ -1125,6 +1155,7 @@
         }
 
         function evaluateGameplayState() {
+            if (matrixOverloadState) return;
             spatialAnomaliesCollection.forEach(a => {
                 if (a.collected) return;
                 const d = Math.hypot(a.mesh.position.x - camera.position.x, a.mesh.position.z - camera.position.z);
