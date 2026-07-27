@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - Stabilized Simulation Matrix</title>
+    <title>Project A.R.I.S. - Stabilized Simulation Visor</title>
     <style>
         body, html {
             margin: 0;
@@ -15,6 +15,15 @@
             background: #020205;
             color: #00ffcc;
             user-select: none;
+        }
+
+        #camera-feed {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            object-fit: cover;
+            z-index: 1;
+            display: block;
         }
 
         #canvas3d {
@@ -158,6 +167,7 @@
         #marker-e { right: 4px; top: 50%; transform: translateY(-50%); }
         #marker-w { left: 4px; top: 50%; transform: translateY(-50%); }
 
+        /* ABSOLUTE Z-INDEX RETICLE ARCHITECTURE PLACED ABOVE ALL OVERLAYS */
         #targeting-matrix {
             position: absolute;
             top: 50%; left: 50%;
@@ -166,6 +176,8 @@
             border: 2px solid rgba(0, 255, 204, 0.2);
             border-radius: 50%;
             pointer-events: none;
+            z-index: 9999;
+            display: none; /* Injected dynamically on initialization lock */
         }
         @media (min-width: 768px) { #targeting-matrix { width: 80px; height: 80px; } }
         
@@ -201,19 +213,6 @@
             .visor-btn { padding: 12px 24px; font-size: 12px; gap: 15px; }
             #action-dashboard { bottom: 30px; }
         }
-        .visor-btn.active { background: #00ffcc; color: #020205; box-shadow: 0 0 20px #00ffcc; }
-
-        #portrait-warning {
-            display: none;
-            position: absolute;
-            top: 0; left: 0;
-            width: 100vw; height: 100vh;
-            background: #04060f; color: #00ffcc;
-            z-index: 99999; box-sizing: border-box; padding: 40px;
-            justify-content: center; align-items: center; text-align: center;
-            border: 4px solid #ff0055; letter-spacing: 1px;
-        }
-        @media (orientation: portrait) { #portrait-warning { display: flex; } }
     </style>
     <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
 </head>
@@ -229,13 +228,14 @@
     <div id="visor-screen-overlay"></div>
     <canvas id="cracks-canvas"></canvas>
 
+    <video id="camera-feed" autoplay playsinline muted></video>
     <canvas id="canvas3d"></canvas>
 
     <div id="hud-visor-container">
         <div id="targeting-matrix"></div>
 
         <div id="central-hud-alerts">
-            <div id="main-hud-status" class="hud-banner-text pulse-animation">Loading Simulation...</div>
+            <div id="main-hud-status" class="hud-banner-text pulse-animation">LOADING SIMULATION...</div>
             <div id="threat-tracker-display">TARGET ACQUIRED</div>
         </div>
 
@@ -256,6 +256,8 @@
 
     <script>
         let scene, camera, renderer;
+        let cameraStream = null;
+        let isARActive = false;
         
         let isFirstGyroFrame = true;
         let gyroYawOffset = 0;
@@ -271,9 +273,9 @@
         let osmFetchController = null;
         const R_EARTH = 6378137;
 
-        // Position Dampening Target Anchors
-        let targetPosX = 0;
-        let targetPosZ = 0;
+        // Anti-Jitter Geolocation Storage Registries
+        let gpsTargetX = 0;
+        let gpsTargetZ = 0;
 
         let playerHealth = 100.0;
         let timeLastSeenByThreat = 0; 
@@ -359,6 +361,7 @@
                 } else {
                     window.addEventListener('deviceorientation', handleVisorHardwareOrientation, true);
                 }
+                autoToggleARStreamOnStartup(); // Automatically map underlying video frames on interaction
             };
             window.addEventListener('pointerdown', requestHardwareSensors, { once: true });
             document.getElementById('stepSimBtn').addEventListener('click', simulateGpsMovementUpdate);
@@ -703,16 +706,12 @@
             }
         }
 
+        /* ==========================================================================
+           CORE GEOLOCATION & STEALTH INTELLIGENCE PROCESSOR
+           ========================================================================= */
         function advanceDronePatrolSimulation(timestamp) {
             let spaceOverlay = document.getElementById('visor-screen-overlay');
             let droneDetectedFlag = false; 
-
-            // Player position filter loop (low-pass smoothing out static GPS micro-jumps)
-            if (mapLoadedForAnchor) {
-                camera.position.x += (targetPosX - camera.position.x) * 0.08;
-                camera.position.z += (targetPosZ - camera.position.z) * 0.08;
-                camera.position.y = 1.7;
-            }
 
             tacticalDronesCollection.forEach(drone => {
                 let pos = drone.meshElement.position;
@@ -743,11 +742,11 @@
                     }
                 }
 
-                // Smooth Heading Angular Interpolations
+                // Fluid wrap-around rotation interpolation
                 let angleDiff = targetAngle - drone.meshElement.rotation.y;
                 while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
                 while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-                drone.meshElement.rotation.y += angleDiff * 0.06;
+                drone.meshElement.rotation.y += angleDiff * 0.08;
 
                 pos.y = 25.0 + Math.sin(timestamp * 0.0012 + drone.id) * 0.4;
                 drone.leftArmAsset.rotation.x = Math.sin(timestamp * 0.0018 + drone.id) * 0.18;
@@ -842,14 +841,18 @@
                     }
                 }
 
+                // Fluid rotational kinematics translation step
                 let botAngleDiff = botTargetAngle - bot.meshElement.rotation.y;
                 while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2;
                 while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2;
                 bot.meshElement.rotation.y += botAngleDiff * 0.08;
 
                 const alternateCycle = Math.sin(timestamp * 0.008 * bot.velocity);
-                bot.armL.rotation.x = -alternateCycle * 0.3;
-                bot.armR.rotation.x = THREE.MathUtils.lerp(alternateCycle * 0.3, -Math.PI / 2, bot.aimProgress);
+                const leftWalkSway = -alternateCycle * 0.3;
+                const rightWalkSway = alternateCycle * 0.3; 
+
+                bot.armL.rotation.x = leftWalkSway;
+                bot.armR.rotation.x = THREE.MathUtils.lerp(rightWalkSway, -Math.PI / 2, bot.aimProgress);
                 bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
             });
 
@@ -885,17 +888,25 @@
             const statusLabel = document.getElementById('main-hud-status');
             const trackerContainer = document.getElementById('threat-tracker-display');
             const cracksCanvas = document.getElementById('cracks-canvas');
+            const reticle = document.getElementById('targeting-matrix');
             const ctx = cracksCanvas.getContext('2d');
 
             if (!mapLoadedForAnchor) {
-                statusLabel.innerHTML = "Loading Simulation...";
+                statusLabel.innerHTML = "LOADING SIMULATION...";
                 statusLabel.classList.add('pulse-animation');
             } else if (mapLoadedForAnchor && !sensorsEngaged) {
-                statusLabel.innerHTML = "Touch screen to engage VR";
+                statusLabel.innerHTML = "Touch screen to engage Simulation";
                 statusLabel.classList.add('pulse-animation');
             } else {
                 statusLabel.innerHTML = "";
                 statusLabel.classList.remove('pulse-animation');
+            }
+
+            // Manage layered crosshair visibility state fields based on interaction loops
+            if (sensorsEngaged) {
+                reticle.style.display = 'block';
+            } else {
+                reticle.style.display = 'none';
             }
 
             if (isCurrentlyDetected) {
@@ -961,19 +972,19 @@
         }
 
         /* ==========================================================================
-           RECTIFIED COMPASS & TRACK-UP RADAR ROTATION FORMULAS
+           REALIGNED FLUID COMPASS ENGINE MATRIX
            ========================================================================= */
         function update2DMinimapSystem() {
             const minimapCanvas = document.getElementById('minimapCanvas');
             const minimapCtx = minimapCanvas.getContext('2d'); if (!minimapCtx) return;
 
             const directionVector = new THREE.Vector3(); camera.getWorldDirection(directionVector);
-            // Extracted raw camera heading angle
-            const yaw = Math.atan2(directionVector.x, -directionVector.z);
+            
+            // RE-CALIBRATED COMPASS FORMULA (+ Math.PI corrects inversion drift)
+            const yaw = Math.atan2(directionVector.x, -directionVector.z) + Math.PI;
 
             const ring = document.getElementById('compass-ring');
-            // FIXED: Flipped rotation factor sign to align north metrics properly with environment vectors
-            if (ring) ring.style.transform = `rotate(${THREE.MathUtils.radToDeg(yaw)}deg)`;
+            if (ring) ring.style.transform = `rotate(${THREE.MathUtils.radToDeg(-yaw)}deg)`;
 
             const centerMeters = minimapCanvas.width / 2;
             minimapCtx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
@@ -987,8 +998,7 @@
             minimapCtx.fillRect(0, 0, minimapCanvas.width, minimapCanvas.height);
 
             minimapCtx.translate(centerMeters, centerMeters); 
-            // FIXED: Inverted map rotation matrix coordinate projection
-            minimapCtx.rotate(yaw);
+            minimapCtx.rotate(-yaw);
             
             const scale = (minimapCanvas.width / 150) * 0.65;
 
@@ -1075,24 +1085,24 @@
 
         function updatePlayerPositionFromGps(latitude, longitude, signalSource) {
             currentCoordinates.lat = latitude; currentCoordinates.lon = longitude;
-            const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
             
             if (!hasLockedInitialAnchor) {
                 anchorCoordinates.lat = latitude; anchorCoordinates.lon = longitude;
+                const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
+                
+                // Secure stable initial coordinate locking positions
+                camera.position.x = local.x; 
+                camera.position.z = local.z;
+                gpsTargetX = local.x;
+                gpsTargetZ = local.z;
+                
                 hasLockedInitialAnchor = true;
-                
-                // Hard snap coordinate points precisely during core bootup initialization framework
-                const firstFix = latLonToLocalMeters(latitude, longitude, latitude, longitude);
-                camera.position.x = firstFix.x;
-                camera.position.z = firstFix.z;
-                targetPosX = firstFix.x;
-                targetPosZ = firstFix.z;
-                
                 fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
-                // Route telemetry configurations directly into dampening buffers
-                targetPosX = local.x;
-                targetPosZ = local.z;
+                const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
+                // Pipeline values straight down into target smoothing registers
+                gpsTargetX = local.x;
+                gpsTargetZ = local.z;
             }
         }
 
@@ -1102,6 +1112,16 @@
             const simLat = currentCoordinates.lat - (vec.z * 8.0 * factor);
             const simLon = currentCoordinates.lon + (vec.x * 8.0 * factor / Math.cos(anchorCoordinates.lat * Math.PI / 180));
             updatePlayerPositionFromGps(simLat, simLon, "SIMULATION MATRIX");
+        }
+
+        async function autoToggleARStreamOnStartup() {
+            const node = document.getElementById('camera-feed');
+            try {
+                cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: "environment" } }, audio: false });
+            } catch (e) {
+                try { cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }); } catch (f) { return; }
+            }
+            node.srcObject = cameraStream; renderer.setClearColor(0x000000, 0.0); isARActive = true;
         }
 
         function spawnQuantumAnomalies() {
@@ -1160,9 +1180,18 @@
             function frameLoopEngine() {
                 requestAnimationFrame(frameLoopEngine);
                 const t = Date.now();
+
+                // ANTI-JITTER: Smoothly update player camera position via exponential moving average filtering loops
+                if (hasLockedInitialAnchor) {
+                    camera.position.x += (gpsTargetX - camera.position.x) * 0.04;
+                    camera.position.z += (gpsTargetZ - camera.position.z) * 0.04;
+                    camera.position.y = 1.7; // Constant camera height allocation
+                }
+
                 spatialAnomaliesCollection.forEach(a => {
                     if (!a.collected) { a.mesh.rotation.x += 0.01; a.mesh.rotation.y += 0.02; }
                 });
+                
                 advanceDronePatrolSimulation(t); evaluateGameplayState();
                 renderer.render(scene, camera); update2DMinimapSystem();
             }
