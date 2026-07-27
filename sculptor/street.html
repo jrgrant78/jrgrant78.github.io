@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - Airborne Threat Tracking Matrix</title>
+    <title>Project A.R.I.S. - Tactical Intercept Matrix</title>
     <style>
         body, html {
             margin: 0;
@@ -96,7 +96,53 @@
             top: 25px;
             right: 25px;
             text-align: right;
-            min-width: 220px;
+            min-width: 240px;
+        }
+
+        #hud-top-center {
+            top: 25px;
+            left: 50%;
+            transform: translateX(-50%);
+            min-width: 300px;
+            text-align: center;
+        }
+
+        /* Tactical Vitals & Threat Assessment HUD Bars */
+        .vitals-container {
+            margin-top: 8px;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.1);
+            height: 10px;
+            border: 1px solid #00ffcc;
+            border-radius: 2px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .vitals-bar-fill {
+            height: 100%;
+            width: 100%;
+            background: #00ffcc;
+            box-shadow: 0 0 8px #00ffcc;
+            transition: width 0.1s linear, background-color 0.3s ease;
+        }
+
+        .vitals-bar-fill.danger {
+            background: #ff0055;
+            box-shadow: 0 0 8px #ff0055;
+        }
+
+        #seen-status-indicator {
+            font-weight: bold;
+            letter-spacing: 1px;
+            transition: all 0.2s ease;
+        }
+
+        .status-clear { color: #00ffcc; text-shadow: 0 0 4px #00ffcc; }
+        .status-alert { color: #ff0055; text-shadow: 0 0 8px #ff0055; animation: pulse-text 1s infinite alternate; }
+
+        @keyframes pulse-text {
+            from { opacity: 0.6; } to { opacity: 1; }
         }
 
         /* 2D Track-Up Minimap & Integrated Compass Layout */
@@ -249,6 +295,17 @@
             </div>
         </div>
 
+        <!-- New Unified Tactical Vitals Center Dashboard -->
+        <div id="hud-top-center" class="hud-panel">
+            <div class="hud-header">// Visor Armor Integrity //</div>
+            <div class="vitals-container">
+                <div id="health-bar-fill" class="vitals-bar-fill"></div>
+            </div>
+            <div id="seen-status-container" class="hud-readout" style="margin-top: 6px; font-weight: bold;">
+                TRACKER: <span id="seen-status-indicator" class="status-clear">SYSTEMS SECURE</span>
+            </div>
+        </div>
+
         <div id="hud-top-right" class="hud-panel">
             <div class="hud-header">// Core Metrics</div>
             <div id="score-telemetry" class="hud-readout">
@@ -293,6 +350,13 @@
         let osmFetchController = null;
         const R_EARTH = 6378137;
 
+        // Gameplay Parameters Matrix
+        let playerHealth = 100.0;
+        let timeLastSeenByThreat = 0; // Timestamp tracking disengagement timers
+        let isCurrentlyDetected = false;
+        let alertStateActive = false;
+        const ALERT_COOLDOWN_MS = 5000;
+
         // Visual Layout Databases
         const spatialAnomaliesCollection = [];
         const mapStructuralMeshes = new THREE.Group();
@@ -300,8 +364,13 @@
         const renderedStreetsList = [];
         const renderedBuildingsList = [];
         const renderedPedestrianList = []; 
-        const tacticalDronesCollection = []; // Operational threat data arrays
+        const tacticalDronesCollection = []; 
         let anomaliesCollectedCount = 0;
+
+        // Pre-calculated geometric angles for optimization
+        const CONE_RADIUS = 3.8;
+        const CONE_HEIGHT = 35.0;
+        const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
         /* ==========================================================================
            MATHEMATICAL CORE: INERTIAL SENSOR QUATERNION CONVERTER
@@ -676,7 +745,7 @@
         }
 
         /* ==========================================================================
-           ENTITIES COMPILER: MECHANICAL SPHERICAL PATROL DRONES
+           ENTITIES COMPILER: MECHANICAL SPHERICAL PATROL DRONES (ANIMATABLE LIMBS)
            ========================================================================= */
         function compileTacticalPatrolDrone() {
             const droneCompositeGroup = new THREE.Group();
@@ -693,9 +762,12 @@
             const bodyWireframeMesh = new THREE.LineSegments(frameEdges, wireframeMat);
             droneCompositeGroup.add(bodyMesh, bodyWireframeMesh);
 
-            // 2. Articulated Mechanical Limb System Architecture
-            function compileBentClawLimb(isLeftHandSide) {
-                const armAnchorGroup = new THREE.Group();
+            // Stored references for fully independent limb mapping
+            let leftArmPivot = new THREE.Group();
+            let rightArmPivot = new THREE.Group();
+
+            // 2. Articulated Mechanical Limb Architecture
+            function compileBentClawLimb(isLeftHandSide, targetGroup) {
                 const mirrorMultiplier = isLeftHandSide ? -1 : 1;
                 const componentMat = new THREE.MeshBasicMaterial({ color: chassisColor });
                 const jointMat = new THREE.MeshBasicMaterial({ color: mechanicalAccentColor });
@@ -704,18 +776,18 @@
                 const upperArmSegmentMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.2), componentMat);
                 upperArmSegmentMesh.position.set(0.5 * mirrorMultiplier, -0.3, 0);
                 upperArmSegmentMesh.rotation.z = (Math.PI / 3.5) * mirrorMultiplier;
-                armAnchorGroup.add(upperArmSegmentMesh);
+                targetGroup.add(upperArmSegmentMesh);
 
                 // Articulated Elbow Joint Capsule
                 const elbowJointMesh = new THREE.Mesh(new THREE.SphereGeometry(0.18, 6, 6), jointMat);
                 elbowJointMesh.position.set(1.0 * mirrorMultiplier, -0.7, 0);
-                armAnchorGroup.add(elbowJointMesh);
+                targetGroup.add(elbowJointMesh);
 
-                // Forearm Structural Segment (Bending inward at elbow)
+                // Forearm Segment (Bending inward at elbow)
                 const forearmSegmentMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.1), componentMat);
                 forearmSegmentMesh.position.set(0.85 * mirrorMultiplier, -1.2, 0);
                 forearmSegmentMesh.rotation.z = (-Math.PI / 4) * mirrorMultiplier;
-                armAnchorGroup.add(forearmSegmentMesh);
+                targetGroup.add(forearmSegmentMesh);
 
                 // Manipulator Claw Assembly Array
                 const clawWristGroup = new THREE.Group();
@@ -733,25 +805,23 @@
                 rightPincerClaw.rotation.z = -0.2;
 
                 clawWristGroup.add(leftPincerClaw, rightPincerClaw);
-                armAnchorGroup.add(clawWristGroup);
+                targetGroup.add(clawWristGroup);
 
-                // Shift translation coordinates base out past core shell perimeter
-                armAnchorGroup.position.x = 1.2 * mirrorMultiplier;
-                return armAnchorGroup;
+                targetGroup.position.x = 1.2 * mirrorMultiplier;
+                return targetGroup;
             }
 
-            droneCompositeGroup.add(compileBentClawLimb(true));  // Left side arm assembly
-            droneCompositeGroup.add(compileBentClawLimb(false)); // Right side arm assembly
+            droneCompositeGroup.add(compileBentClawLimb(true, leftArmPivot));  
+            droneCompositeGroup.add(compileBentClawLimb(false, rightArmPivot)); 
 
-            // 3. Volumetric Search Scanner Spotlight Cone
-            const coneHeightMetric = 26.0;
-            const beamConicGeo = new THREE.ConeGeometry(7.0, coneHeightMetric, 16, 1, true);
-            beamConicGeo.translate(0, -coneHeightMetric / 2, 0); // Re-anchor apex transform to drone center points
+            // 3. Volumetric Search Scanner Spotlight Cone (Narrower profile, extended length)
+            const beamConicGeo = new THREE.ConeGeometry(CONE_RADIUS, CONE_HEIGHT, 16, 1, true);
+            beamConicGeo.translate(0, -CONE_HEIGHT / 2, 0); 
 
             const scanningBeamMat = new THREE.MeshBasicMaterial({
                 color: mechanicalAccentColor,
                 transparent: true,
-                opacity: 0.18,
+                opacity: 0.15,
                 side: THREE.DoubleSide,
                 depthWrite: false
             });
@@ -761,17 +831,20 @@
             scanningRigGroup.add(beamMesh);
             droneCompositeGroup.add(scanningRigGroup);
 
-            return { coreAsset: droneCompositeGroup, dynamicScannerBeam: scanningRigGroup };
+            return { 
+                coreAsset: droneCompositeGroup, 
+                dynamicScannerBeam: scanningRigGroup,
+                leftArm: leftArmPivot,
+                rightArm: rightArmPivot
+            };
         }
 
         function deployTacticalDronePlatoon() {
-            // Clean up old active drone loops
             tacticalDronesCollection.forEach(d => scene.remove(d.meshElement));
             tacticalDronesCollection.length = 0;
 
             if (renderedStreetsList.length === 0) return;
 
-            // Generate 3 unique sweeping patrol platforms linked to real map layout paths
             const patrolUnitsTotalCount = Math.min(3, renderedStreetsList.length);
             for (let i = 0; i < patrolUnitsTotalCount; i++) {
                 const assignedStreetAsset = renderedStreetsList[i];
@@ -780,54 +853,160 @@
                 const droneAssetMatrix = compileTacticalPatrolDrone();
                 const initialPointFix = assignedStreetAsset.points[0];
                 
-                // Position drone high above the roadway coordinates line
                 droneAssetMatrix.coreAsset.position.set(initialPointFix.x, 25.0, initialPointFix.z);
                 scene.add(droneAssetMatrix.coreAsset);
 
                 tacticalDronesCollection.push({
+                    id: i,
                     meshElement: droneAssetMatrix.coreAsset,
                     scannerBeamGroup: droneAssetMatrix.dynamicScannerBeam,
+                    leftArmAsset: droneAssetMatrix.leftArm,
+                    rightArmAsset: droneAssetMatrix.rightArm,
                     routeCoordinates: assignedStreetAsset.points,
                     currentNodeIndex: 0,
                     patrolDirectionFactor: 1,
-                    movementVelocityFactor: 0.08 + Math.random() * 0.06
+                    movementVelocityFactor: 0.08 + Math.random() * 0.05,
+                    isChasingPlayer: false
                 });
             }
         }
 
-        function advanceDronePatrolSimulation(timeDeltaTicks) {
+        /* ==========================================================================
+           CORE TRACKING ENGINE: DYNAMICS, DETECTION & CHASE STATE ARRAYS
+           ========================================================================= */
+        function advanceDronePatrolSimulation(timestamp) {
+            isCurrentlyDetected = false; 
+
             tacticalDronesCollection.forEach(drone => {
-                const targetCoordinatesFix = drone.routeCoordinates[drone.currentNodeIndex];
-                const currentPosVector = drone.meshElement.position;
+                let currentPosVector = drone.meshElement.position;
+                let targetX = 0, targetZ = 0;
 
-                const dx = targetCoordinatesFix.x - currentPosVector.x;
-                const dz = targetCoordinatesFix.z - currentPosVector.z;
-                const distanceRemaining = Math.hypot(dx, dz);
+                // 1. DYNAMIC ENHANCED RADAR CHASE LOOP
+                if (drone.isChasingPlayer || alertStateActive) {
+                    // Lock interception target onto player coordinates space
+                    targetX = camera.position.x;
+                    targetZ = camera.position.z;
+                    
+                    // Break normal routines to intercept player at higher tracking speeds
+                    const dx = targetX - currentPosVector.x;
+                    const dz = targetZ - currentPosVector.z;
+                    const distToPlayer = Math.hypot(dx, dz);
 
-                // Face the drone toward its current patrol direction
-                if (distanceRemaining > 0.1) {
-                    const movementHeadingAngle = Math.atan2(dx, dz);
-                    drone.meshElement.rotation.y = movementHeadingAngle;
-                }
-
-                if (distanceRemaining < 1.0) {
-                    // Update navigation arrays looping logic when passing waypoint index thresholds
-                    drone.currentNodeIndex += drone.patrolDirectionFactor;
-                    if (drone.currentNodeIndex >= drone.routeCoordinates.length || drone.currentNodeIndex < 0) {
-                        drone.patrolDirectionFactor *= -1;
-                        drone.currentNodeIndex += drone.patrolDirectionFactor * 2;
-                        drone.currentNodeIndex = Math.max(0, Math.min(drone.currentNodeIndex, drone.routeCoordinates.length - 1));
+                    if (distToPlayer > 1.0) {
+                        drone.meshElement.rotation.y = Math.atan2(dx, dz);
+                        // Increase chase speed when target is confirmed
+                        const interceptSpeed = drone.movementVelocityFactor * 1.5;
+                        currentPosVector.x += (dx / distToPlayer) * interceptSpeed;
+                        currentPosVector.z += (dz / distToPlayer) * interceptSpeed;
                     }
                 } else {
-                    // Drive drone coordinates forward along street grid lines
-                    currentPosVector.x += (dx / distanceRemaining) * drone.movementVelocityFactor;
-                    currentPosVector.z += (dz / distanceRemaining) * drone.movementVelocityFactor;
+                    // Standard Waypoint Traversal Routine
+                    const targetCoordinatesFix = drone.routeCoordinates[drone.currentNodeIndex];
+                    targetX = targetCoordinatesFix.x;
+                    targetZ = targetCoordinatesFix.z;
+
+                    const dx = targetX - currentPosVector.x;
+                    const dz = targetZ - currentPosVector.z;
+                    const distanceRemaining = Math.hypot(dx, dz);
+
+                    if (distanceRemaining > 0.1) {
+                        drone.meshElement.rotation.y = Math.atan2(dx, dz);
+                    }
+
+                    if (distanceRemaining < 2.0) {
+                        drone.currentNodeIndex += drone.patrolDirectionFactor;
+                        if (drone.currentNodeIndex >= drone.routeCoordinates.length || drone.currentNodeIndex < 0) {
+                            drone.patrolDirectionFactor *= -1;
+                            drone.currentNodeIndex += drone.patrolDirectionFactor * 2;
+                            drone.currentNodeIndex = Math.max(0, Math.min(drone.currentNodeIndex, drone.routeCoordinates.length - 1));
+                        }
+                    } else {
+                        currentPosVector.x += (dx / distanceRemaining) * drone.movementVelocityFactor;
+                        currentPosVector.z += (dz / distanceRemaining) * drone.movementVelocityFactor;
+                    }
                 }
 
-                // Execute Continuous Spotlight Sway Animation Engine (Left/Right sweeping arc matrix)
-                const localizedScanningCycle = Math.sin(timeDeltaTicks * 0.0025 + drone.meshElement.position.x) * 0.32;
-                drone.scannerBeamGroup.rotation.z = localizedScanningCycle;
+                // 2. LAYERED PROCEDURAL KINEMATICS (Harmonic Vertical Bobbing)
+                const slowVerticalBobbing = Math.sin(timestamp * 0.0012 + drone.id) * 0.4;
+                currentPosVector.y = 25.0 + slowVerticalBobbing;
+
+                // Independent Limb Movement Arrays
+                drone.leftArmAsset.rotation.x = Math.sin(timestamp * 0.0018 + drone.id) * 0.18;
+                drone.leftArmAsset.rotation.z = Math.cos(timestamp * 0.0014 + drone.id) * 0.08;
+                
+                drone.rightArmAsset.rotation.x = Math.cos(timestamp * 0.0022 + drone.id) * 0.15;
+                drone.rightArmAsset.rotation.z = Math.sin(timestamp * 0.0016 + drone.id) * 0.08;
+
+                // 3. VOLUMETRIC SCANNER SLOW INTERPOLATED SWEEP (Ease In / Ease Out Harmonic Cycle)
+                const slowSmoothedSwayAngle = Math.sin(timestamp * 0.0008 + drone.id * 1.5) * 0.35;
+                drone.scannerBeamGroup.rotation.z = slowSmoothedSwayAngle;
+
+                // 4. VECTOR CONE DETECTION MATRIX (Dot-Product Frustum Collision Test)
+                const vecToPlayer = new THREE.Vector3().copy(camera.position).sub(currentPosVector);
+                const distanceToPlayer = vecToPlayer.length();
+
+                // Compute global vector direction of the current scanning beam
+                const localBeamDir = new THREE.Vector3(0, -1, 0);
+                localBeamDir.applyQuaternion(drone.scannerBeamGroup.quaternion);
+                localBeamDir.applyQuaternion(drone.meshElement.quaternion).normalize();
+
+                vecToPlayer.normalize();
+                const beamTargetAngleCosine = localBeamDir.dot(vecToPlayer);
+                const actualAngleDeviation = Math.acos(beamTargetAngleCosine);
+
+                // Check if player falls inside cone parameters
+                if (actualAngleDeviation <= CONE_SEMI_ANGLE && distanceToPlayer <= CONE_HEIGHT) {
+                    isCurrentlyDetected = true;
+                    drone.isChasingPlayer = true;
+                } else {
+                    // Individual disengagement if the specific tracker loses alignment
+                    if (!alertStateActive) {
+                        drone.isChasingPlayer = false;
+                    }
+                }
             });
+
+            // 5. GLOBAL ALERT STATE CONTROLLER MATRIX
+            if (isCurrentlyDetected) {
+                timeLastSeenByThreat = timestamp;
+                alertStateActive = true;
+                
+                // Deal tick-based damage to armor integrity layers while detected
+                playerHealth = Math.max(0, playerHealth - 0.12);
+            } else {
+                // Keep alert status running until the 5-second cooldown clears
+                if (alertStateActive && (timestamp - timeLastSeenByThreat >= ALERT_COOLDOWN_MS)) {
+                    alertStateActive = false;
+                    // Reset all drone intercept configurations to base parameters
+                    tacticalDronesCollection.forEach(d => d.isChasingPlayer = false);
+                }
+            }
+
+            // Sync structural parameters out to HTML engine modules
+            updateVitalsHUD(timestamp);
+        }
+
+        function updateVitalsHUD(timestamp) {
+            const barFill = document.getElementById('health-bar-fill');
+            const statusInd = document.getElementById('seen-status-indicator');
+
+            // RenderArmor Bar updates
+            barFill.style.width = `${playerHealth}%`;
+            if (playerHealth < 30) barFill.classList.add('danger');
+            else barFill.classList.remove('danger');
+
+            // Render Alert Tracker states
+            if (isCurrentlyDetected) {
+                statusInd.innerHTML = "TARGET LOCK DETECTED";
+                statusInd.className = "status-alert";
+            } else if (alertStateActive) {
+                const secondsRemaining = Math.max(0, (ALERT_COOLDOWN_MS - (timestamp - timeLastSeenByThreat)) / 1000);
+                statusInd.innerHTML = `LOST LOCK - DISENGAGING: ${secondsRemaining.toFixed(1)}s`;
+                statusInd.className = "status-alert";
+            } else {
+                statusInd.innerHTML = "SYSTEMS SECURE";
+                statusInd.className = "status-clear";
+            }
         }
 
         function generateProceduralBackupInfrastructure() {
@@ -903,7 +1082,7 @@
 
             const RADAR_ZOOM_SCALE = 0.65;
 
-            // 1. Render Yellow Streets Conduits Array
+            // Yellow Streets Layer
             renderedStreetsList.forEach(street => {
                 minimapCtx.strokeStyle = '#020205';
                 minimapCtx.lineWidth = 12;
@@ -935,7 +1114,7 @@
                 }
             });
 
-            // 2. Pale Yellow Pedestrian Sidewalk Layer
+            // Pale Yellow Pedestrian Sidewalk Layer
             renderedPedestrianList.forEach(ped => {
                 minimapCtx.save();
                 minimapCtx.strokeStyle = '#fffa9e'; 
@@ -951,7 +1130,7 @@
                 minimapCtx.restore();
             });
 
-            // 3. Render Volumetric Solid Black Occluding Hulls
+            // Volumetric Solid Black Hulls
             renderedBuildingsList.forEach(b => {
                 minimapCtx.fillStyle = '#000000'; 
                 minimapCtx.strokeStyle = b.color === 0x00ffcc ? 'rgba(0, 255, 204, 0.5)' : 'rgba(255, 0, 85, 0.5)';
@@ -966,7 +1145,7 @@
                 minimapCtx.fill(); minimapCtx.stroke();
             });
 
-            // 4. Draw Plasma Purple Anomalies Units
+            // Plasma Purple Anomalies Units
             spatialAnomaliesCollection.forEach(anomaly => {
                 if (anomaly.collected) return;
                 const dx = (anomaly.mesh.position.x - camera.position.x) * RADAR_ZOOM_SCALE;
@@ -977,23 +1156,22 @@
                 minimapCtx.fill();
             });
 
-            // 5. NEW MINIMAP LAYER: Render Active Drones Tracking Signatures
+            // Threats Tracking Signatures (Red Blips)
             tacticalDronesCollection.forEach(drone => {
                 const dx = (drone.meshElement.position.x - camera.position.x) * RADAR_ZOOM_SCALE;
                 const dz = (drone.meshElement.position.z - camera.position.z) * RADAR_ZOOM_SCALE;
                 
                 minimapCtx.save();
-                minimapCtx.fillStyle = '#ff0055';
+                minimapCtx.fillStyle = alertStateActive ? '#ff0055' : '#ffaa00';
                 minimapCtx.strokeStyle = '#00ffcc';
                 minimapCtx.lineWidth = 1;
                 
-                // Draw a small distinct threat triangle pointing in drone vector heading
                 minimapCtx.translate(dx, dz);
                 minimapCtx.rotate(drone.meshElement.rotation.y);
                 minimapCtx.beginPath();
-                minimapCtx.moveTo(0, -5);   // Front nose tip
-                minimapCtx.lineTo(-4, 4);   // Back left side point
-                minimapCtx.lineTo(4, 4);    // Back right side point
+                minimapCtx.moveTo(0, -6);   
+                minimapCtx.lineTo(-4, 4);   
+                minimapCtx.lineTo(4, 4);    
                 minimapCtx.closePath();
                 minimapCtx.fill(); minimapCtx.stroke();
                 minimapCtx.restore();
