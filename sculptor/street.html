@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - Scaled Radar Visor</title>
+    <title>Project A.R.I.S. - Projectile Engagement Matrix</title>
     <style>
         body, html {
             margin: 0;
@@ -115,27 +115,25 @@
             #threat-tracker-display { font-size: 18px; letter-spacing: 3px; margin-top: 60px; }
         }
 
-        /* DYNAMIC MINIMAP SCALING ENGINE WITH PHONE OPTIMIZATIONS */
         #minimap-container {
             position: absolute;
             bottom: 5vh;
             left: 5vh;
-            width: 26vh; /* Scaled dynamically off landscape short-axis floor */
+            width: 26vh; 
             height: 26vh;
-            min-width: 90px; min-height: 90px; /* Safe minimum boundary layer for compact phones */
-            max-width: 180px; max-height: 180px; /* Safe ceiling floor for larger tablet monitors */
+            min-width: 90px; min-height: 90px; 
+            max-width: 180px; max-height: 180px; 
             z-index: 100;
             pointer-events: none;
         }
 
-        /* Mobile Device Landscape Explicit Override Constraints */
         @media (max-height: 480px) {
             #minimap-container {
                 bottom: 4vh;
                 left: 4vh;
                 width: 28vh;
                 height: 28vh;
-                max-width: 105px; max-height: 105px; /* Aggressively downscale to retain screen space */
+                max-width: 105px; max-height: 105px; 
             }
         }
 
@@ -300,6 +298,7 @@
         const renderedPedestrianList = []; 
         const tacticalDronesCollection = []; 
         const humanoidBotsCollection = []; 
+        const activeLasersCollection = []; // Real-time projectile storage arrays
         let anomaliesCollectedCount = 0;
 
         const CONE_RADIUS = 2.4; 
@@ -470,7 +469,7 @@
             spawnQuantumAnomalies();
             deployTacticalDronePlatoon();
             deployHumanoidGarrison();
-            onWindowResize(); // Force re-calculation of relative canvas limits
+            onWindowResize(); 
         }
 
         function buildNeonStructuralHulls(points, tags, cx, cz) {
@@ -661,17 +660,19 @@
             torsoMesh.position.y = 0.65;
             botGroup.add(torsoMesh);
 
+            // Re-engineered Arm System to hang downward at rotation 0
             const leftArmGroup = new THREE.Group(); leftArmGroup.position.set(-0.45, 1.0, 0);
             const lLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: skinColor }));
             lLimbs.position.y = -0.4; leftArmGroup.add(lLimbs);
             botGroup.add(leftArmGroup);
 
+            // Right Blaster Arm Group matching shoulder structures
             const rightArmGroup = new THREE.Group(); rightArmGroup.position.set(0.45, 1.0, 0);
             const rLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: skinColor }));
-            rLimbs.position.set(0, -0.2, 0.3); rLimbs.rotation.x = Math.PI / 2; rightArmGroup.add(rLimbs);
+            rLimbs.position.y = -0.4; rightArmGroup.add(rLimbs);
             
-            const pistolBlaster = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.4), new THREE.MeshBasicMaterial({ color: accentColor }));
-            pistolBlaster.position.set(0, -0.2, 0.7); pistolBlaster.rotation.x = Math.PI / 2;
+            const pistolBlaster = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.07, 0.3), new THREE.MeshBasicMaterial({ color: accentColor }));
+            pistolBlaster.position.set(0, -0.9, 0); 
             rightArmGroup.add(pistolBlaster);
             botGroup.add(rightArmGroup);
 
@@ -709,31 +710,36 @@
                     id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg,
                     armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData,
                     currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3,
-                    isAlerted: false, lastFireTimestamp: 0
+                    isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0 // Kinematic interpolation weights
                 });
             }
         }
 
+        /* ==========================================================================
+           TACTICAL PROCESSING LOGIC: INTERPOLATIONS, FLUID TURNS & MOVING LASERS
+           ========================================================================= */
         function advanceDronePatrolSimulation(timestamp) {
             let spaceOverlay = document.getElementById('visor-screen-overlay');
             let droneDetectedFlag = false; 
 
+            // 1. Process Airborne Threat Drones With Angular Ease Intercepts
             tacticalDronesCollection.forEach(drone => {
                 let pos = drone.meshElement.position;
                 let tx = 0, tz = 0;
+                let targetAngle = drone.meshElement.rotation.y;
 
                 if (drone.isChasingPlayer || alertStateActive) {
                     tx = camera.position.x; tz = camera.position.z;
                     const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
                     if (dist > 1.0) {
-                        drone.meshElement.rotation.y = Math.atan2(dx, dz);
+                        targetAngle = Math.atan2(dx, dz);
                         pos.x += (dx / dist) * drone.movementVelocityFactor * 1.4;
                         pos.z += (dz / dist) * drone.movementVelocityFactor * 1.4;
                     }
                 } else {
                     const node = drone.routeCoordinates[drone.currentNodeIndex];
                     const dx = node.x - pos.x; const dz = node.z - pos.z; const dist = Math.hypot(dx, dz);
-                    if (dist > 0.1) drone.meshElement.rotation.y = Math.atan2(dx, dz);
+                    if (dist > 0.1) targetAngle = Math.atan2(dx, dz);
                     if (dist < 2.0) {
                         drone.currentNodeIndex += drone.patrolDirectionFactor;
                         if (drone.currentNodeIndex >= drone.routeCoordinates.length || drone.currentNodeIndex < 0) {
@@ -745,6 +751,12 @@
                         pos.z += (dz / dist) * drone.movementVelocityFactor;
                     }
                 }
+
+                // Smooth Wrap-Around Heading Easing
+                let angleDiff = targetAngle - drone.meshElement.rotation.y;
+                while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+                while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+                drone.meshElement.rotation.y += angleDiff * 0.06;
 
                 pos.y = 25.0 + Math.sin(timestamp * 0.0012 + drone.id) * 0.4;
                 drone.leftArmAsset.rotation.x = Math.sin(timestamp * 0.0018 + drone.id) * 0.18;
@@ -763,12 +775,14 @@
                 }
             });
 
+            // 2. Process Ground Infantry Intercepts With Peripheral Vision & Reciprocal Sway
             let botDetectedFlag = false;
             humanoidBotsCollection.forEach(bot => {
                 let pos = bot.meshElement.position;
                 let headingVectorToPlayer = new THREE.Vector3(camera.position.x - pos.x, 0, camera.position.z - pos.z);
                 const distanceToPlayer = headingVectorToPlayer.length();
                 let canBotSeePlayerRightNow = false;
+                let botTargetAngle = bot.meshElement.rotation.y;
 
                 if (distanceToPlayer <= 30.0) {
                     headingVectorToPlayer.normalize();
@@ -785,17 +799,43 @@
                     bot.isAlerted = false;
                 }
 
+                // Animate Aim Weight Fluid Transitions
                 if (bot.isAlerted) {
+                    bot.aimProgress = Math.min(1.0, bot.aimProgress + 0.07);
                     const dx = camera.position.x - pos.x; const dz = camera.position.z - pos.z;
-                    bot.meshElement.rotation.y = Math.atan2(dx, dz);
+                    botTargetAngle = Math.atan2(dx, dz);
                     
+                    // Fire Cycle Spawning Real Visible Laser Projectiles
                     if (distanceToPlayer <= 25.0 && timestamp - bot.lastFireTimestamp > 1200) {
                         bot.lastFireTimestamp = timestamp;
                         playerHealth = Math.max(0, playerHealth - 8.0);
                         spaceOverlay.classList.add('flash-red-harm');
                         setTimeout(() => spaceOverlay.classList.remove('flash-red-harm'), 150);
+
+                        // Calculate Muzzle Global Position
+                        const muzzleOffsetVector = new THREE.Vector3(0.9, 0.4, 1.6); // Mapped to upscale dimensions
+                        muzzleOffsetVector.applyMatrix4(bot.meshElement.matrixWorld);
+
+                        const targetHitPosition = new THREE.Vector3().copy(camera.position);
+
+                        const laserGeom = new THREE.CylinderGeometry(0.05, 0.05, 2.5);
+                        const laserMesh = new THREE.Mesh(laserGeom, new THREE.MeshBasicMaterial({ color: 0xff0055 }));
+                        
+                        laserMesh.position.copy(muzzleOffsetVector);
+                        laserMesh.lookAt(targetHitPosition);
+                        laserMesh.rotation.x += Math.PI / 2; // Realign length alignment vectors
+                        scene.add(laserMesh);
+
+                        activeLasersCollection.push({
+                            meshElement: laserMesh,
+                            directionVector: new THREE.Vector3().subVectors(targetHitPosition, muzzleOffsetVector).normalize(),
+                            velocitySpeed: 5.5,
+                            distanceTraveled: 0,
+                            maxDistanceLimit: muzzleOffsetVector.distanceTo(targetHitPosition)
+                        });
                     }
                 } else {
+                    bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07);
                     const targetNode = bot.routeCoordinates[bot.currentNodeIndex];
                     const ndx = targetNode.x - pos.x; const ndz = targetNode.z - pos.z;
                     const ndist = Math.hypot(ndx, ndz);
@@ -809,17 +849,44 @@
                     }
 
                     if (ndist > 0.1) {
-                        bot.meshElement.rotation.y = Math.atan2(ndx, ndz);
+                        botTargetAngle = Math.atan2(ndx, ndz);
                         const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12);
                         pos.x += (ndx / ndist) * frameVelocityStride;
                         pos.z += (ndz / ndist) * frameVelocityStride;
                     }
                 }
 
+                // Fluid Heading Rotations
+                let botAngleDiff = botTargetAngle - bot.meshElement.rotation.y;
+                while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2;
+                while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2;
+                bot.meshElement.rotation.y += botAngleDiff * 0.08;
+
+                // Arm Blending Engine (Reciprocal Sway vs Raised Aim Forward)
                 const alternateCycle = Math.sin(timestamp * 0.008 * bot.velocity);
+                const leftWalkSway = -alternateCycle * 0.3;
+                const rightWalkSway = alternateCycle * 0.3; // Mapped opposite to other arm
+
+                bot.armL.rotation.x = leftWalkSway;
+                
+                // Fluid blend right arm from walk sway to forward firing position (-Math.PI / 2)
+                bot.armR.rotation.x = THREE.MathUtils.lerp(rightWalkSway, -Math.PI / 2, bot.aimProgress);
                 bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
-                bot.armL.rotation.x = -alternateCycle * 0.3;
             });
+
+            // 3. Process Visible Laser Velocities Matrix
+            for (let i = activeLasersCollection.length - 1; i >= 0; i--) {
+                const bolt = activeLasersCollection[i];
+                bolt.meshElement.position.addScaledVector(bolt.directionVector, bolt.velocitySpeed);
+                bolt.distanceTraveled += bolt.velocitySpeed;
+
+                if (bolt.distanceTraveled >= bolt.maxDistanceLimit || bolt.distanceTraveled > 250) {
+                    scene.remove(bolt.meshElement);
+                    bolt.meshElement.geometry.dispose();
+                    bolt.meshElement.material.dispose();
+                    activeLasersCollection.splice(i, 1);
+                }
+            }
 
             isCurrentlyDetected = (droneDetectedFlag || botDetectedFlag);
 
@@ -1071,11 +1138,9 @@
         }
 
         function evaluateGameplayState() {
-            let close = Infinity;
             spatialAnomaliesCollection.forEach(a => {
                 if (a.collected) return;
                 const d = Math.hypot(a.mesh.position.x - camera.position.x, a.mesh.position.z - camera.position.z);
-                if (d < close) close = d;
                 if (d <= a.radius) { a.collected = true; scene.remove(a.mesh); anomaliesCollectedCount++; }
             });
         }
@@ -1092,7 +1157,6 @@
             cracksCanvas.width = width;
             cracksCanvas.height = height;
 
-            // Recalculate dynamic internal resolution backing layers for the canvas layout container
             const minimapCanvas = document.getElementById('minimapCanvas');
             const containerWidth = document.getElementById('minimap-container').offsetWidth;
             minimapCanvas.width = containerWidth;
