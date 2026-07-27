@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - Core Simulation Matrix</title>
+    <title>Project A.R.I.S. - Stabilized Simulation Visor</title>
     <style>
         body, html {
             margin: 0;
@@ -158,17 +158,17 @@
         #marker-e { right: 4px; top: 50%; transform: translateY(-50%); }
         #marker-w { left: 4px; top: 50%; transform: translateY(-50%); }
 
-        /* CRITICAL RENDER STACK OVERRIDE: TARGET RETICLE DESIGN ARCHITECTURE */
+        /* ABSOLUTE RETICLE OVERRIDE LAYERING */
         #targeting-matrix {
             position: absolute;
             top: 50%; left: 50%;
             transform: translate(-50%, -50%);
             width: 60px; height: 60px;
-            border: 2px solid rgba(0, 255, 204, 0.25);
+            border: 2px solid rgba(0, 255, 204, 0.2);
             border-radius: 50%;
             pointer-events: none;
-            z-index: 90; /* Anchored over full-screen canvas layers and visor post-effects */
-            display: none; /* Managed explicitly via runtime sensor engagement flags */
+            display: none; 
+            z-index: 200; 
         }
         @media (min-width: 768px) { #targeting-matrix { width: 80px; height: 80px; } }
         
@@ -204,6 +204,7 @@
             .visor-btn { padding: 12px 24px; font-size: 12px; gap: 15px; }
             #action-dashboard { bottom: 30px; }
         }
+        .visor-btn.active { background: #00ffcc; color: #020205; box-shadow: 0 0 20px #00ffcc; }
 
         #portrait-warning {
             display: none;
@@ -234,7 +235,6 @@
     <canvas id="canvas3d"></canvas>
 
     <div id="hud-visor-container">
-        <!-- Reticle separated out to respect explicit z-index layering overrides -->
         <div id="targeting-matrix"></div>
 
         <div id="central-hud-alerts">
@@ -274,8 +274,9 @@
         let osmFetchController = null;
         const R_EARTH = 6378137;
 
-        // Position Tracking Vector Architecture (Stabilizes path math from micro-noise noise offsets)
-        const basePlayerPos = new THREE.Vector3(0, 1.7, 0);
+        // Motion Dampening Filtering Coords
+        let targetPlayerX = 0;
+        let targetPlayerZ = 0;
 
         let playerHealth = 100.0;
         let timeLastSeenByThreat = 0; 
@@ -705,13 +706,12 @@
             }
         }
 
+        /* ==========================================================================
+           TACTICAL PROCESSING LOGIC: INTERPOLATIONS, FLUID TURNS & MOVING LASERS
+           ========================================================================= */
         function advanceDronePatrolSimulation(timestamp) {
             let spaceOverlay = document.getElementById('visor-screen-overlay');
             let droneDetectedFlag = false; 
-
-            // Calculate base position target locks first before tracking noise filters
-            const targetPositionX = basePlayerPos.x;
-            const targetPositionZ = basePlayerPos.z;
 
             tacticalDronesCollection.forEach(drone => {
                 let pos = drone.meshElement.position;
@@ -719,7 +719,7 @@
                 let targetAngle = drone.meshElement.rotation.y;
 
                 if (drone.isChasingPlayer || alertStateActive) {
-                    tx = targetPositionX; tz = targetPositionZ;
+                    tx = camera.position.x; tz = camera.position.z;
                     const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
                     if (dist > 1.0) {
                         targetAngle = Math.atan2(dx, dz);
@@ -752,7 +752,7 @@
                 drone.rightArmAsset.rotation.x = Math.cos(timestamp * 0.0022 + drone.id) * 0.15;
                 drone.scannerBeamGroup.rotation.z = Math.sin(timestamp * 0.0008 + drone.id * 1.5) * 0.35;
 
-                const vToP = new THREE.Vector3().copy(basePlayerPos).sub(pos);
+                const vToP = new THREE.Vector3().copy(camera.position).sub(pos);
                 const dToP = vToP.length();
                 const beamDir = new THREE.Vector3(0, -1, 0).applyQuaternion(drone.scannerBeamGroup.quaternion).applyQuaternion(drone.meshElement.quaternion).normalize();
                 vToP.normalize();
@@ -767,7 +767,7 @@
             let botDetectedFlag = false;
             humanoidBotsCollection.forEach(bot => {
                 let pos = bot.meshElement.position;
-                let headingVectorToPlayer = new THREE.Vector3(targetPositionX - pos.x, 0, targetPositionZ - pos.z);
+                let headingVectorToPlayer = new THREE.Vector3(camera.position.x - pos.x, 0, camera.position.z - pos.z);
                 const distanceToPlayer = headingVectorToPlayer.length();
                 let canBotSeePlayerRightNow = false;
                 let botTargetAngle = bot.meshElement.rotation.y;
@@ -789,7 +789,7 @@
 
                 if (bot.isAlerted) {
                     bot.aimProgress = Math.min(1.0, bot.aimProgress + 0.07);
-                    const dx = targetPositionX - pos.x; const dz = targetPositionZ - pos.z;
+                    const dx = camera.position.x - pos.x; const dz = camera.position.z - pos.z;
                     botTargetAngle = Math.atan2(dx, dz);
                     
                     if (distanceToPlayer <= 25.0 && timestamp - bot.lastFireTimestamp > 1200) {
@@ -801,7 +801,7 @@
                         const muzzleOffsetVector = new THREE.Vector3(0.9, 0.4, 1.6); 
                         muzzleOffsetVector.applyMatrix4(bot.meshElement.matrixWorld);
 
-                        const targetHitPosition = new THREE.Vector3().copy(basePlayerPos);
+                        const targetHitPosition = new THREE.Vector3().copy(camera.position);
 
                         const laserGeom = new THREE.CylinderGeometry(0.05, 0.05, 2.5);
                         const laserMesh = new THREE.Mesh(laserGeom, new THREE.MeshBasicMaterial({ color: 0xff0055 }));
@@ -887,10 +887,9 @@
             const statusLabel = document.getElementById('main-hud-status');
             const trackerContainer = document.getElementById('threat-tracker-display');
             const cracksCanvas = document.getElementById('cracks-canvas');
-            const targetingMatrix = document.getElementById('targeting-matrix');
+            const reticle = document.getElementById('targeting-matrix');
             const ctx = cracksCanvas.getContext('2d');
 
-            // 1. Central Telemetry Banner Handling Mapping
             if (!mapLoadedForAnchor) {
                 statusLabel.innerHTML = "Loading Simulation...";
                 statusLabel.classList.add('pulse-animation');
@@ -902,11 +901,11 @@
                 statusLabel.classList.remove('pulse-animation');
             }
 
-            // 2. Reticle Visor Layer Matrix Override Rules
-            if (sensorsEngaged) {
-                targetingMatrix.style.display = 'block';
+            // RETICLE COUPLING LOOP METRICS
+            if (sensorsEngaged && mapLoadedForAnchor) {
+                reticle.style.display = 'block';
             } else {
-                targetingMatrix.style.display = 'none';
+                reticle.style.display = 'none';
             }
 
             if (isCurrentlyDetected) {
@@ -997,37 +996,37 @@
             
             const scale = (minimapCanvas.width / 150) * 0.65;
 
-            // Streets Footprints
+            // Streets
             renderedStreetsList.forEach(s => {
                 minimapCtx.strokeStyle = '#000000'; minimapCtx.lineWidth = 10 * scale;
                 minimapCtx.beginPath();
                 s.points.forEach((pt, idx) => {
-                    const dx = (pt.x - basePlayerPos.x) * scale; const dz = (pt.z - basePlayerPos.z) * scale;
+                    const dx = (pt.x - camera.position.x) * scale; const dz = (pt.z - camera.position.z) * scale;
                     if (idx === 0) minimapCtx.moveTo(dx, dz); else minimapCtx.lineTo(dx, dz);
                 });
                 minimapCtx.stroke();
                 minimapCtx.strokeStyle = '#ffff00'; minimapCtx.lineWidth = 1.5 * scale; minimapCtx.stroke();
             });
 
-            // Sidewalk Corridors
+            // Sidewalks
             renderedPedestrianList.forEach(p => {
                 minimapCtx.save();
                 if (p.isCrosswalk) { minimapCtx.strokeStyle = '#fffa9e'; minimapCtx.lineWidth = 1.5 * scale; minimapCtx.setLineDash([2, 3]); }
                 else { minimapCtx.strokeStyle = '#555555'; minimapCtx.lineWidth = 3 * scale; }
                 minimapCtx.beginPath();
                 p.points.forEach((pt, idx) => {
-                    const dx = (pt.x - basePlayerPos.x) * scale; const dz = (pt.z - basePlayerPos.z) * scale;
+                    const dx = (pt.x - camera.position.x) * scale; const dz = (pt.z - camera.position.z) * scale;
                     if (idx === 0) minimapCtx.moveTo(dx, dz); else minimapCtx.lineTo(dx, dz);
                 });
                 minimapCtx.stroke(); minimapCtx.restore();
             });
 
-            // Buildings Hulls
+            // Buildings
             renderedBuildingsList.forEach(b => {
                 minimapCtx.fillStyle = '#000000'; minimapCtx.strokeStyle = b.color === 0x00ffcc ? 'rgba(0,255,204,0.5)' : 'rgba(255,0,85,0.5)';
                 minimapCtx.lineWidth = 1.5 * scale; minimapCtx.beginPath();
                 b.points.forEach((pt, idx) => {
-                    const dx = (pt.x - basePlayerPos.x) * scale; const dz = (pt.z - basePlayerPos.z) * scale;
+                    const dx = (pt.x - camera.position.x) * scale; const dz = (pt.z - camera.position.z) * scale;
                     if (idx === 0) minimapCtx.moveTo(dx, dz); else minimapCtx.lineTo(dx, dz);
                 });
                 minimapCtx.closePath(); minimapCtx.fill(); minimapCtx.stroke();
@@ -1036,13 +1035,13 @@
             // Anomalies
             spatialAnomaliesCollection.forEach(a => {
                 if (a.collected) return;
-                const dx = (a.mesh.position.x - basePlayerPos.x) * scale; const dz = (a.mesh.position.z - basePlayerPos.z) * scale;
+                const dx = (a.mesh.position.x - camera.position.x) * scale; const dz = (a.mesh.position.z - camera.position.z) * scale;
                 minimapCtx.fillStyle = '#bd00ff'; minimapCtx.beginPath(); minimapCtx.arc(dx, dz, 4.5 * scale, 0, Math.PI * 2); minimapCtx.fill();
             });
 
-            // Airborne Threats
+            // Threat Drones Target Trackers
             tacticalDronesCollection.forEach(d => {
-                const dx = (d.meshElement.position.x - basePlayerPos.x) * scale; const dz = (d.meshElement.position.z - basePlayerPos.z) * scale;
+                const dx = (d.meshElement.position.x - camera.position.x) * scale; const dz = (d.meshElement.position.z - camera.position.z) * scale;
                 minimapCtx.save(); minimapCtx.fillStyle = alertStateActive ? '#ff0055' : '#ffaa00';
                 minimapCtx.strokeStyle = '#00ffcc'; minimapCtx.lineWidth = 1;
                 minimapCtx.translate(dx, dz); minimapCtx.rotate(d.meshElement.rotation.y);
@@ -1050,15 +1049,15 @@
                 minimapCtx.fill(); minimapCtx.stroke(); minimapCtx.restore();
             });
 
-            // Infantry Ground Squads
+            // Threat Humanoid Ground Bots Trackers
             humanoidBotsCollection.forEach(b => {
-                const dx = (b.meshElement.position.x - basePlayerPos.x) * scale; const dz = (b.meshElement.position.z - basePlayerPos.z) * scale;
+                const dx = (b.meshElement.position.x - camera.position.x) * scale; const dz = (b.meshElement.position.z - camera.position.z) * scale;
                 minimapCtx.save(); minimapCtx.fillStyle = b.isAlerted ? '#ff0055' : '#ff7700';
                 minimapCtx.strokeStyle = '#ffffff'; minimapCtx.lineWidth = 1;
                 minimapCtx.translate(dx, dz);
                 const boxMetric = 8 * scale;
                 minimapCtx.fillRect(-boxMetric/2, -boxMetric/2, boxMetric, boxMetric);
-                minimapCtx.strokeRect(-boxMetric/2, -boxPosMetric/2 || -boxMetric/2, boxMetric, boxMetric);
+                minimapCtx.strokeRect(-boxMetric/2, -boxMetric/2, boxMetric, boxMetric);
                 minimapCtx.restore();
             });
 
@@ -1080,13 +1079,22 @@
 
         function updatePlayerPositionFromGps(latitude, longitude, signalSource) {
             currentCoordinates.lat = latitude; currentCoordinates.lon = longitude;
+            const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
+            
             if (!hasLockedInitialAnchor) {
                 anchorCoordinates.lat = latitude; anchorCoordinates.lon = longitude;
                 hasLockedInitialAnchor = true;
+                const initialLocal = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
+                camera.position.x = initialLocal.x;
+                camera.position.z = initialLocal.z;
+                targetPlayerX = initialLocal.x;
+                targetPlayerZ = initialLocal.z;
                 fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
+            } else {
+                targetPlayerX = local.x;
+                targetPlayerZ = local.z;
             }
-            const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
-            basePlayerPos.set(local.x, 1.7, local.z);
+            camera.position.y = 1.7; 
         }
 
         function simulateGpsMovementUpdate() {
@@ -1112,7 +1120,7 @@
         function evaluateGameplayState() {
             spatialAnomaliesCollection.forEach(a => {
                 if (a.collected) return;
-                const d = Math.hypot(a.mesh.position.x - basePlayerPos.x, a.mesh.position.z - basePlayerPos.z);
+                const d = Math.hypot(a.mesh.position.x - camera.position.x, a.mesh.position.z - camera.position.z);
                 if (d <= a.radius) { a.collected = true; scene.remove(a.mesh); anomaliesCollectedCount++; }
             });
         }
@@ -1138,10 +1146,11 @@
         function init() {
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000);
-            
-            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true });
+            camera.position.set(0, 1.7, 0); 
+
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true, alpha: false });
             renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            renderer.setClearColor(0x020205, 1.0); // Solid permanent cyberspace backdrop color assignment verified
+            renderer.setClearColor(0x020205, 1.0);
             scene.add(mapStructuralMeshes);
 
             autoInitializeSensors(); 
@@ -1153,11 +1162,13 @@
             function frameLoopEngine() {
                 requestAnimationFrame(frameLoopEngine);
                 const t = Date.now();
-
-                // INJECT HIGH-FREQUENCY MICRO-JITTER ENGINE (Simulates sensor drift instabilities when standing still)
-                camera.position.copy(basePlayerPos);
-                camera.position.x += (Math.random() - 0.5) * 0.14;
-                camera.position.z += (Math.random() - 0.5) * 0.14;
+                
+                // Jitter reduction moving scalar logic block
+                if (hasLockedInitialAnchor) {
+                    const lerpFactor = 0.05; 
+                    camera.position.x += (targetPlayerX - camera.position.x) * lerpFactor;
+                    camera.position.z += (targetPlayerZ - camera.position.z) * lerpFactor;
+                }
 
                 spatialAnomaliesCollection.forEach(a => {
                     if (!a.collected) { a.mesh.rotation.x += 0.01; a.mesh.rotation.y += 0.02; }
