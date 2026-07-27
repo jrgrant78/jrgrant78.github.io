@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - Anti-Drift Simulation Matrix</title>
+    <title>Project A.R.I.S. - Decoupled Spatial Visor</title>
     <style>
         body, html {
             margin: 0;
@@ -92,7 +92,6 @@
             100% { transform: scale(0.96); opacity: 0.4; }
         }
 
-        /* CRITICAL CRASH TELEMETRY FONTS CLASS ARCHITECTURE */
         .matrix-overload-title {
             color: #ff0055;
             font-size: 36px;
@@ -292,7 +291,7 @@
         let hasLockedInitialAnchor = false;
         let mapLoadedForAnchor = false;
         let sensorsEngaged = false; 
-        let matrixOverloadActive = false; // System error layout flag
+        let matrixOverloadActive = false; 
         let osmFetchController = null;
         const R_EARTH = 6378137;
 
@@ -355,6 +354,7 @@
                 isDragging = true; previousPointerX = e.clientX; previousPointerY = e.clientY;
             });
             window.addEventListener('pointermove', (e) => {
+                // HARD DECOUPLING CUTOFF: Manual drag coordinates immediately drop when absolute sensor matrix triggers
                 if (!isDragging || sensorsEngaged) return; 
                 const deltaX = e.clientX - previousPointerX; const deltaY = e.clientY - previousPointerY;
                 previousPointerX = e.clientX; previousPointerY = e.clientY;
@@ -364,7 +364,6 @@
             });
             window.addEventListener('pointerup', () => isDragging = false);
 
-            // Universal Intercept Handler managing context initialization and failure reconstructions
             window.addEventListener('pointerdown', () => {
                 if (matrixOverloadActive) {
                     fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
@@ -413,6 +412,7 @@
             let gammaRad = THREE.MathUtils.degToRad(e.gamma);
             let orient = (window.orientation || window.screen.orientation?.angle || 0) * Math.PI / 180;
 
+            // EXCLUSIVE ATTITUDE UPDATE: Position coordinates have zero effect on this quaternion copy loop
             camera.quaternion.copy(getSensorQuaternion(alphaRad, betaRad, gammaRad, orient));
         }
 
@@ -420,7 +420,6 @@
             if (osmFetchController) osmFetchController.abort();
             osmFetchController = new AbortController();
 
-            // Clear old runtime errors and initialize loading sweeps
             matrixOverloadActive = false;
             mapLoadedForAnchor = false;
             updateVisorFeedbackHUD(Date.now());
@@ -449,7 +448,6 @@
             if (success && data) {
                 parseAndBuildOSMWorld(data, anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
-                // Execute requested Matrix Failure configuration sequence
                 triggerMatrixOverloadErrorState();
             }
         }
@@ -458,7 +456,6 @@
             matrixOverloadActive = true;
             mapLoadedForAnchor = false;
             
-            // Wipe standard simulation group entities cleanly to show true system crash state
             while(mapStructuralMeshes.children.length > 0) {
                 const m = mapStructuralMeshes.children[0];
                 if (m.geometry) m.geometry.dispose(); if (m.material) m.material.dispose();
@@ -765,7 +762,6 @@
             let spaceOverlay = document.getElementById('visor-screen-overlay');
             let droneDetectedFlag = false; 
 
-            // Skip world step ticks if system architecture is down inside Overload mode
             if (matrixOverloadActive) return;
 
             tacticalDronesCollection.forEach(drone => {
@@ -906,7 +902,7 @@
                 bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
             });
 
-            for (let i = activeLasersCollection.length - 1; i >= 0; i--) {
+            for (let i = 0; i < activeLasersCollection.length - 1; i++) {
                 const bolt = activeLasersCollection[i];
                 bolt.meshElement.position.addScaledVector(bolt.directionVector, bolt.velocitySpeed);
                 bolt.distanceTraveled += bolt.velocitySpeed;
@@ -931,7 +927,7 @@
             if (isCurrentlyDetected) spaceOverlay.classList.add('pulse-yellow-alert');
             else spaceOverlay.classList.remove('pulse-yellow-alert');
 
-            // HIGH-PERFORMANCE ANTI-DRIFT CLAMP (Sub-meter movement dead-zones cancel drift standing still)
+            // ANTI-DRIFT GEO ENGINE MUTATOR: Linear positioning logic acts independent of camera rotational systems
             if (mapLoadedForAnchor && !matrixOverloadActive) {
                 const distanceDeltaMetric = Math.hypot(gpsTargetPosition.x - camera.position.x, gpsTargetPosition.z - camera.position.z);
                 if (distanceDeltaMetric > 1.8) { 
@@ -951,7 +947,6 @@
             const reticle = document.getElementById('targeting-matrix');
             const ctx = cracksCanvas.getContext('2d');
 
-            // Render Text Layouts depending on operational status vectors
             if (matrixOverloadActive) {
                 statusLabel.innerHTML = `
                     <div class="matrix-overload-title">Matrix Overload!</div>
@@ -989,7 +984,7 @@
             if (ctx) {
                 ctx.clearRect(0, 0, cracksCanvas.width, cracksCanvas.height);
                 
-                if (matrixOverloadActive) return; // Hide standard health crack arrays if system is overloaded
+                if (matrixOverloadActive) return; 
 
                 let activeCrackPathsCount = 0;
                 if (playerHealth < 90) activeCrackPathsCount = 1;
@@ -1147,7 +1142,7 @@
         }
 
         function simulateGpsMovementUpdate() {
-            if (matrixOverloadActive) return; // Block strides if the interface has crashed
+            if (matrixOverloadActive) return; 
             const vec = new THREE.Vector3(); camera.getWorldDirection(vec); vec.y = 0; vec.normalize();
             const factor = 1.0 / R_EARTH * (180.0 / Math.PI);
             const simLat = currentCoordinates.lat - (vec.z * 8.0 * factor);
