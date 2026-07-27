@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - Core Simulation Matrix</title>
+    <title>Project A.R.I.S. - Stabilized True Core Matrix</title>
     <style>
         body, html {
             margin: 0;
@@ -86,43 +86,20 @@
             animation: loading-text-pulse 1.4s infinite ease-in-out;
         }
 
+        /* HIGH-VELOCITY CRITICAL FAULT FLASH ALARMS */
+        .flash-animation {
+            animation: error-text-flash 0.3s infinite alternate;
+        }
+
+        @keyframes error-text-flash {
+            0% { opacity: 0.2; text-shadow: 0 0 4px #ff0055; }
+            100% { opacity: 1; text-shadow: 0 0 20px #ff0055, 0 0 40px rgba(255, 0, 85, 0.8); }
+        }
+
         @keyframes loading-text-pulse {
             0% { transform: scale(0.96); opacity: 0.4; }
             50% { transform: scale(1.03); opacity: 1; }
             100% { transform: scale(0.96); opacity: 0.4; }
-        }
-
-        /* HIGH-CONTRAST CRITICAL DATA CRASH OVERLAYS */
-        .flash-error-banner {
-            animation: terminal-emergency-flash 0.4s infinite alternate;
-            color: #ff0055;
-            font-size: 34px;
-            font-weight: 900;
-            letter-spacing: 5px;
-            margin: 0;
-        }
-
-        @media (min-width: 768px) {
-            .flash-error-banner { font-size: 46px; letter-spacing: 8px; }
-        }
-
-        .pulse-reinit-subtext {
-            animation: loading-text-pulse 1.6s infinite ease-in-out;
-            color: #00ffcc;
-            font-size: 13px;
-            font-weight: bold;
-            letter-spacing: 2px;
-            margin-top: 20px;
-            text-transform: uppercase;
-        }
-
-        @media (min-width: 768px) {
-            .pulse-reinit-subtext { font-size: 16px; }
-        }
-
-        @keyframes terminal-emergency-flash {
-            from { opacity: 0.2; text-shadow: 0 0 4px #ff0055; }
-            to { opacity: 1; text-shadow: 0 0 20px #ff0055, 0 0 40px #ff0055; }
         }
 
         #threat-tracker-display {
@@ -270,6 +247,15 @@
 
         <div id="central-hud-alerts">
             <div id="main-hud-status" class="hud-banner-text pulse-animation">Loading Simulation...</div>
+            
+            <!-- Real-Time Error Threat UI Panels -->
+            <div id="matrix-overload-panel" style="display: none; pointer-events: auto;">
+                <div class="hud-banner-text flash-animation" style="color: #ff0055;">Matrix Overload!</div>
+                <div class="pulse-animation" style="font-size: 14px; color: #00ffcc; margin-top: 12px; letter-spacing: 2px; font-weight: bold;">
+                    Touch screen to re-initiate spatial upload sequence.
+                </div>
+            </div>
+
             <div id="threat-tracker-display">TARGET ACQUIRED</div>
         </div>
 
@@ -298,12 +284,14 @@
         let anchorCoordinates = { lat: 40.7580, lon: -73.9855 };
         let hasLockedInitialAnchor = false;
         let mapLoadedForAnchor = false;
-        let matrixOverloadState = false; // Core system failure state toggle flag
         let sensorsEngaged = false; 
+        let matrixOverloadActive = false; // State track hook for structural failures
         let osmFetchController = null;
         const R_EARTH = 6378137;
 
+        // Kinematic Position Filters (Erases standing still drift crawls)
         let gpsTargetPosition = new THREE.Vector3(0, 1.7, 0);
+        let lastStableRawPosition = new THREE.Vector3(0, 1.7, 0);
 
         let playerHealth = 100.0;
         let timeLastSeenByThreat = 0; 
@@ -371,18 +359,7 @@
             });
             window.addEventListener('pointerup', () => isDragging = false);
 
-            // Multi-Target Screen Touch Vector Interceptor
-            window.addEventListener('pointerdown', (e) => {
-                if (e.target.closest('#action-dashboard')) return;
-
-                // Reload Trigger Condition check
-                if (matrixOverloadState) {
-                    matrixOverloadState = false;
-                    mapLoadedForAnchor = false;
-                    fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
-                    return;
-                }
-
+            const requestHardwareSensors = () => {
                 if (!sensorsEngaged) {
                     sensorsEngaged = true; 
                     if (document.documentElement.requestFullscreen) {
@@ -400,8 +377,16 @@
                         bindAbsoluteCompassListeners();
                     }
                 }
-            });
 
+                // If matrix validation failed, tapping initiates manual core upload retry routines
+                if (matrixOverloadActive) {
+                    matrixOverloadActive = false;
+                    document.getElementById('matrix-overload-panel').style.display = 'none';
+                    document.getElementById('main-hud-status').style.display = 'block';
+                    fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
+                }
+            };
+            window.addEventListener('pointerdown', requestHardwareSensors);
             document.getElementById('stepSimBtn').addEventListener('click', simulateGpsMovementUpdate);
         }
 
@@ -430,8 +415,6 @@
         async function fetchLiveOpenStreetMapData(lat, lon) {
             if (osmFetchController) osmFetchController.abort();
             osmFetchController = new AbortController();
-            
-            matrixOverloadState = false;
 
             const overpassEndpoints = [
                 `https://overpass-api.de/api/interpreter`,
@@ -458,9 +441,10 @@
                 mapLoadedForAnchor = true;
                 parseAndBuildOSMWorld(data, anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
-                // FALLBACK MOCK CODES PURGED: Activate terminal overload failure configuration
-                matrixOverloadState = true;
-                mapLoadedForAnchor = false;
+                // FALLBACK DELETED: Activate error overlay panels directly
+                document.getElementById('main-hud-status').style.display = 'none';
+                document.getElementById('matrix-overload-panel').style.display = 'block';
+                matrixOverloadActive = true;
             }
         }
 
@@ -477,6 +461,7 @@
             grassGroundMesh.rotation.x = -Math.PI / 2;
             mapStructuralMeshes.add(grassGroundMesh);
 
+            if (!osmData || !osmData.elements) return;
             const nodesLookup = {};
             osmData.elements.forEach(el => {
                 if (el.type === 'node') nodesLookup[el.id] = latLonToLocalMeters(el.lat, el.lon, anchorLat, anchorLon);
@@ -505,6 +490,7 @@
                 }
             });
 
+            mapLoadedForAnchor = true;
             spawnQuantumAnomalies();
             deployTacticalDronePlatoon();
             deployHumanoidGarrison();
@@ -838,8 +824,8 @@
                     if (distanceToPlayer <= 25.0 && timestamp - bot.lastFireTimestamp > 1200) {
                         bot.lastFireTimestamp = timestamp;
                         playerHealth = Math.max(0, playerHealth - 8.0);
-                        spaceOverlay.style.background = 'rgba(255, 0, 85, 0.4)';
-                        setTimeout(() => spaceOverlay.style.background = 'rgba(255,255,255,0)', 150);
+                        spaceOverlay.classList.add('flash-red-harm');
+                        setTimeout(() => spaceOverlay.classList.remove('flash-red-harm'), 150);
 
                         const muzzleOffsetVector = new THREE.Vector3(0.9, 0.4, 1.6); 
                         muzzleOffsetVector.applyMatrix4(bot.meshElement.matrixWorld);
@@ -919,15 +905,12 @@
             if (isCurrentlyDetected) spaceOverlay.classList.add('pulse-yellow-alert');
             else spaceOverlay.classList.remove('pulse-yellow-alert');
 
-            // ANTI-JITTER POSITIONING GATE (Eliminates subtle drift while standing still)
-            if (mapLoadedForAnchor) {
-                const deltaX = gpsTargetPosition.x - camera.position.x;
-                const deltaZ = gpsTargetPosition.z - camera.position.z;
-                const distanceDelta = Math.hypot(deltaX, deltaZ);
-                
-                if (distanceDelta > 2.5) { // 2.5-meter deadzone cancels noise updates while stationary
-                    camera.position.x += deltaX * 0.04;
-                    camera.position.z += deltaZ * 0.04;
+            // MOTION STABILIZATION: Dampens telemetry noise out of look tracking completely
+            if (mapLoadedForAnchor && !matrixOverloadActive) {
+                let currentDriftDistance = Math.hypot(gpsTargetPosition.x - camera.position.x, gpsTargetPosition.z - camera.position.z);
+                if (currentDriftDistance > 0.4) { // Dampening crawl window thresholds
+                    camera.position.x += (gpsTargetPosition.x - camera.position.x) * 0.025; // Smoothed crawl step factors
+                    camera.position.z += (gpsTargetPosition.z - camera.position.z) * 0.025;
                 }
                 camera.position.y = 1.7; 
             }
@@ -942,17 +925,10 @@
             const reticle = document.getElementById('targeting-matrix');
             const ctx = cracksCanvas.getContext('2d');
 
-            // Terminal failure visual branching pipeline
-            if (matrixOverloadState) {
-                statusLabel.innerHTML = `
-                    <div class="flash-error-banner">Matrix Overload!</div>
-                    <div class="pulse-reinit-subtext">Touch screen to re-initiate spatial upload sequence.</div>
-                `;
-                statusLabel.classList.remove('pulse-animation');
-            } else if (!mapLoadedForAnchor) {
+            if (!mapLoadedForAnchor && !matrixOverloadActive) {
                 statusLabel.innerHTML = "Loading Simulation...";
                 statusLabel.classList.add('pulse-animation');
-            } else if (mapLoadedForAnchor && !sensorsEngaged) {
+            } else if (mapLoadedForAnchor && !sensorsEngaged && !matrixOverloadActive) {
                 statusLabel.innerHTML = "Touch screen to engage simulation";
                 statusLabel.classList.add('pulse-animation');
             } else {
@@ -960,16 +936,16 @@
                 statusLabel.classList.remove('pulse-animation');
             }
 
-            if (sensorsEngaged && !matrixOverloadState) {
+            if (sensorsEngaged && !matrixOverloadActive) {
                 reticle.style.display = 'block';
             } else {
                 reticle.style.display = 'none';
             }
 
-            if (isCurrentlyDetected && !matrixOverloadState) {
+            if (isCurrentlyDetected && !matrixOverloadActive) {
                 trackerContainer.style.display = 'block';
                 trackerContainer.innerHTML = "WARNING: POSITION EXPOSED";
-            } else if (alertStateActive && !matrixOverloadState) {
+            } else if (alertStateActive && !matrixOverloadActive) {
                 trackerContainer.style.display = 'block';
                 const secondsRemaining = Math.max(0, (ALERT_COOLDOWN_MS - (timestamp - timeLastSeenByThreat)) / 1000);
                 trackerContainer.innerHTML = `EVADING THREAT: ${secondsRemaining.toFixed(1)}s`;
@@ -979,8 +955,8 @@
 
             if (ctx) {
                 ctx.clearRect(0, 0, cracksCanvas.width, cracksCanvas.height);
-                if (matrixOverloadState) return; 
-
+                if (matrixOverloadActive) return; // Freeze cracks viewport elements during system fault states
+                
                 let activeCrackPathsCount = 0;
                 if (playerHealth < 90) activeCrackPathsCount = 1;
                 if (playerHealth < 70) activeCrackPathsCount = 2;
@@ -1009,7 +985,7 @@
 
         function update2DMinimapSystem() {
             const minimapCanvas = document.getElementById('minimapCanvas');
-            const minimapCtx = minimapCanvas.getContext('2d'); if (!minimapCtx || !mapLoadedForAnchor) return;
+            const minimapCtx = minimapCanvas.getContext('2d'); if (!minimapCtx || matrixOverloadActive) return;
 
             const directionVector = new THREE.Vector3(); camera.getWorldDirection(directionVector);
             const yaw = Math.atan2(directionVector.x, -directionVector.z);
@@ -1124,22 +1100,33 @@
                 const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
                 camera.position.set(local.x, 1.7, local.z);
                 gpsTargetPosition.set(local.x, 1.7, local.z);
+                lastStableRawPosition.set(local.x, 1.7, local.z);
                 
                 fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
                 const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
-                gpsTargetPosition.x = local.x;
-                gpsTargetPosition.z = local.z;
+                
+                // ANTI-DRIFT JITTER HARD FILTER DEAD-ZONE: Erases standing-still noise jumps
+                let deltaShiftFromStable = Math.hypot(local.x - lastStableRawPosition.x, local.z - lastStableRawPosition.z);
+                if (deltaShiftFromStable > 1.5) { // Any shift steps under 1.5m are clamped as noise variance
+                    gpsTargetPosition.set(local.x, 1.7, local.z);
+                    lastStableRawPosition.set(local.x, 1.7, local.z);
+                }
             }
         }
 
         function simulateGpsMovementUpdate() {
-            if (matrixOverloadState) return; 
+            if (matrixOverloadActive) return;
             const vec = new THREE.Vector3(); camera.getWorldDirection(vec); vec.y = 0; vec.normalize();
             const factor = 1.0 / R_EARTH * (180.0 / Math.PI);
             const simLat = currentCoordinates.lat - (vec.z * 8.0 * factor);
             const simLon = currentCoordinates.lon + (vec.x * 8.0 * factor / Math.cos(anchorCoordinates.lat * Math.PI / 180));
-            updatePlayerPositionFromGps(simLat, simLon, "SIMULATION MATRIX");
+            
+            // Bypass dead-zone filters entirely for intentional user simulation jumps
+            const local = latLonToLocalMeters(simLat, simLon, anchorCoordinates.lat, anchorCoordinates.lon);
+            gpsTargetPosition.set(local.x, 1.7, local.z);
+            lastStableRawPosition.set(local.x, 1.7, local.z);
+            currentCoordinates.lat = simLat; currentCoordinates.lon = simLon;
         }
 
         function spawnQuantumAnomalies() {
@@ -1155,7 +1142,7 @@
         }
 
         function evaluateGameplayState() {
-            if (matrixOverloadState) return;
+            if (matrixOverloadActive) return;
             spatialAnomaliesCollection.forEach(a => {
                 if (a.collected) return;
                 const d = Math.hypot(a.mesh.position.x - camera.position.x, a.mesh.position.z - camera.position.z);
@@ -1200,11 +1187,17 @@
             function frameLoopEngine() {
                 requestAnimationFrame(frameLoopEngine);
                 const t = Date.now();
-                spatialAnomaliesCollection.forEach(a => {
-                    if (!a.collected) { a.mesh.rotation.x += 0.01; a.mesh.rotation.y += 0.02; }
-                });
-                advanceDronePatrolSimulation(t); evaluateGameplayState();
-                renderer.render(scene, camera); update2DMinimapSystem();
+                
+                if (!matrixOverloadActive) {
+                    spatialAnomaliesCollection.forEach(a => {
+                        if (!a.collected) { a.mesh.rotation.x += 0.01; a.mesh.rotation.y += 0.02; }
+                    });
+                    advanceDronePatrolSimulation(t); 
+                    evaluateGameplayState();
+                }
+                
+                renderer.render(scene, camera); 
+                update2DMinimapSystem();
             }
             frameLoopEngine();
         }
