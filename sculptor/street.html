@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - Spatial Tactical Matrix</title>
+    <title>Project A.R.I.S. - Track-Up Tactical Visor</title>
     <style>
         body, html {
             margin: 0;
@@ -75,6 +75,52 @@
             text-align: right;
             min-width: 220px;
         }
+
+        /* 2D Track-Up Minimap & Integrated Compass Layout */
+        #minimap-container {
+            position: absolute;
+            bottom: 25px;
+            left: 25px;
+            width: 150px;
+            height: 150px;
+            z-index: 100;
+            pointer-events: none;
+        }
+
+        #minimapCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            display: block;
+        }
+
+        #compass-ring {
+            position: absolute;
+            top: -8px;
+            left: -8px;
+            width: 162px;
+            height: 162px;
+            border: 2px dashed rgba(0, 255, 204, 0.25);
+            border-radius: 50%;
+            transform-origin: center;
+            will-change: transform;
+        }
+
+        .compass-marker {
+            position: absolute;
+            font-family: monospace;
+            font-size: 11px;
+            font-weight: 900;
+            color: #00ffcc;
+        }
+
+        #marker-n { top: 2px; left: 50%; transform: translateX(-50%); color: #ff0055; text-shadow: 0 0 5px #ff0055; }
+        #marker-s { bottom: 2px; left: 50%; transform: translateX(-50%); }
+        #marker-e { right: 4px; top: 50%; transform: translateY(-50%); }
+        #marker-w { left: 4px; top: 50%; transform: translateY(-50%); }
 
         .hud-header {
             font-size: 11px;
@@ -152,7 +198,7 @@
         }
     </style>
 
-    <!-- Unified Package Dependency Repositories -->
+    <!-- Core WebGL Engine Import -->
     <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
 </head>
 <body>
@@ -180,6 +226,17 @@
                 PROXIMITY: SEARCHING
             </div>
         </div>
+
+        <!-- Repositioned Tactical Radar Base Context -->
+        <div id="minimap-container">
+            <canvas id="minimapCanvas" width="150" height="150"></canvas>
+            <div id="compass-ring">
+                <span id="marker-n" class="compass-marker">N</span>
+                <span id="marker-e" class="compass-marker">E</span>
+                <span id="marker-s" class="compass-marker">S</span>
+                <span id="marker-w" class="compass-marker">W</span>
+            </div>
+        </div>
     </div>
 
     <div id="action-dashboard">
@@ -192,7 +249,6 @@
         let cameraStream = null;
         let isARActive = false;
         
-        // Continuous Sensor Alignment Channels
         let isFirstGyroFrame = true;
         let gyroYawOffset = 0;
         let lookYaw = 0;
@@ -201,7 +257,6 @@
         let previousPointerX = 0;
         let previousPointerY = 0;
 
-        // Spatial Mapping Coordinates
         let currentCoordinates = { lat: 40.7580, lon: -73.9855 };
         let anchorCoordinates = { lat: 40.7580, lon: -73.9855 };
         let hasLockedInitialAnchor = false;
@@ -209,10 +264,12 @@
         let osmFetchController = null;
         const R_EARTH = 6378137;
 
-        // Telemetry Arrays
+        // Visual Layout Databases
         const spatialAnomaliesCollection = [];
         const mapStructuralMeshes = new THREE.Group();
         const globalTrafficNodes = [];
+        const renderedStreetsList = [];
+        const renderedBuildingsList = [];
         let anomaliesCollectedCount = 0;
 
         /* ==========================================================================
@@ -227,7 +284,6 @@
             return function (alpha, beta, gamma, orient) {
                 const q = new THREE.Quaternion();
                 euler.set(beta, alpha, -gamma, 'YXZ'); 
-                q.setFromEuler(euler); 
                 q.multiply(q1); 
                 q.multiply(q0.setFromAxisAngle(zee, -orient)); 
                 return q;
@@ -245,7 +301,7 @@
         }
 
         /* ==========================================================================
-           AUTOMATIC CORE INFRASTRUCTURE MOTION ENGAGEMENT
+           AUTOMATIC HARDWARE SENSOR ALIGNMENT LOOP
            ========================================================================= */
         function autoInitializeSensors() {
             const viewportCanvas = document.getElementById('canvas3d');
@@ -282,7 +338,7 @@
                         if (permissionState === 'granted') {
                             window.addEventListener('deviceorientation', handleVisorHardwareOrientation, true);
                         }
-                    }).catch(err => console.error("Sensor context binding failed:", err));
+                    }).catch(err => console.error("Hardware calibration blocked:", err));
                 } else {
                     window.addEventListener('deviceorientation', handleVisorHardwareOrientation, true);
                 }
@@ -317,7 +373,7 @@
         }
 
         /* ==========================================================================
-           REAL-WORLD DATA STREAMING ENGINE (3-MILE INGESTION LAYER)
+           REAL-WORLD MAP DOWNLOAD ENGINE (3-MILE STRATEGY)
            ========================================================================= */
         async function fetchLiveOpenStreetMapData(lat, lon) {
             if (osmFetchController) osmFetchController.abort();
@@ -331,7 +387,6 @@
                 `https://lz4.overpass-api.de/api/interpreter`
             ];
 
-            // 3-MILE SPATIAL FOOTPRINT BOUNDS
             const boundingBoxRange = 0.0435; 
             const minLat = lat - boundingBoxRange;
             const minLon = lon - boundingBoxRange;
@@ -370,7 +425,6 @@
                     clearTimeout(networkTimeoutId);
                     osmFetchController.signal.removeEventListener('abort', globalSignalListener);
                     if (osmFetchController.signal.aborted) return;
-                    console.warn(`Node mirror fail: ${err.message}`);
                 }
             }
 
@@ -391,6 +445,8 @@
                 mapStructuralMeshes.remove(mesh);
             }
             globalTrafficNodes.length = 0;
+            renderedStreetsList.length = 0;
+            renderedBuildingsList.length = 0;
 
             if (!osmData || !osmData.elements) return;
 
@@ -420,8 +476,7 @@
                     const cx = sumX / points.length;
                     const cz = sumZ / points.length;
                     
-                    // PERFORMANCE SHIELD: Retain 3-mile coordinates loop in database memory cache, 
-                    // but skip rendering elements further than 600m away to preserve WebGL context.
+                    // PERFORMANCE SHIELD: Filter out 3D rendering overhead beyond 600m
                     const distanceRadiusMetric = Math.hypot(cx, cz);
                     if (distanceRadiusMetric > 600) return;
 
@@ -438,13 +493,12 @@
         }
 
         /* ==========================================================================
-           HIGH-PERFORMANCE GEOMETRY COMPILERS
+           HIGH-PERFORMANCE MESH COMPILERS
            ========================================================================= */
         function buildNeonStructuralHulls(points, tags, cx, cz) {
             if (points.length < 3) return;
 
             const shapeOutline = new THREE.Shape();
-            // Restored true coordinates projection alignment calculation matrices
             shapeOutline.moveTo(points[0].x - cx, -(points[0].z - cz));
             for (let i = 1; i < points.length; i++) {
                 shapeOutline.lineTo(points[i].x - cx, -(points[i].z - cz));
@@ -467,6 +521,7 @@
             buildingWireframeMesh.position.set(cx, 0, cz);
             
             mapStructuralMeshes.add(buildingWireframeMesh);
+            renderedBuildingsList.push({ points: points, color: hullColor });
         }
 
         function buildNeonVectorPathways(points, tags) {
@@ -481,24 +536,26 @@
             const streetLineMesh = new THREE.Line(routeGeo, lineMaterial);
             
             mapStructuralMeshes.add(streetLineMesh);
+            renderedStreetsList.push(points);
         }
 
         function generateProceduralBackupInfrastructure() {
             const spacing = 80;
             const gridLimit = 4;
-            const laneMaterial = new THREE.LineBasicMaterial({ color: 0x00ffcc });
             
             for (let i = -gridLimit; i <= gridLimit; i++) {
-                const horizGeo = new THREE.BufferGeometry().setFromPoints([
-                    new THREE.Vector3(-300, 0.01, i * spacing), new THREE.Vector3(300, 0.01, i * spacing)
-                ]);
-                mapStructuralMeshes.add(new THREE.Line(horizGeo, laneMaterial));
-
-                const vertGeo = new THREE.BufferGeometry().setFromPoints([
-                    new THREE.Vector3(i * spacing, 0.01, -300), new THREE.Vector3(i * spacing, 0.01, 300)
-                ]);
-                mapStructuralMeshes.add(new THREE.Line(vertGeo, laneMaterial));
+                const streetPointsV = [{ x: i * spacing, z: -350 }, { x: i * spacing, z: 350 }];
+                renderedStreetsList.push(streetPointsV);
+                const streetPointsH = [{ x: -350, z: i * spacing }, { x: 350, z: i * spacing }];
+                renderedStreetsList.push(streetPointsH);
             }
+
+            const laneMaterial = new THREE.LineBasicMaterial({ color: 0x00ffcc });
+            renderedStreetsList.forEach(points => {
+                const pathPoints = [new THREE.Vector3(points[0].x, 0.05, points[0].z), new THREE.Vector3(points[1].x, 0.05, points[1].z)];
+                const routeGeo = new THREE.BufferGeometry().setFromPoints(pathPoints);
+                mapStructuralMeshes.add(new THREE.Line(routeGeo, laneMaterial));
+            });
 
             for (let x = -gridLimit; x < gridLimit; x++) {
                 for (let z = -gridLimit; z < gridLimit; z++) {
@@ -514,6 +571,109 @@
                 }
             }
             spawnQuantumAnomalies();
+        }
+
+        /* ==========================================================================
+           TRUE TRACK-UP RADAR COMPASS RENDER MATRIX
+           ========================================================================= */
+        function update2DMinimapSystem() {
+            const minimapCanvas = document.getElementById('minimapCanvas');
+            const minimapCtx = minimapCanvas.getContext('2d');
+            if (!minimapCtx) return;
+
+            // 1. Calculate the forward-look orientation angle of the viewport camera
+            const directionVector = new THREE.Vector3();
+            camera.getWorldDirection(directionVector);
+            const yawAngleRadians = Math.atan2(directionVector.x, -directionVector.z);
+
+            // 2. Drive the mechanical dash compass dial assembly
+            const compassRing = document.getElementById('compass-ring');
+            if (compassRing) {
+                compassRing.style.transform = `rotate(${THREE.MathUtils.radToDeg(-yawAngleRadians)}deg)`;
+            }
+
+            minimapCtx.clearRect(0, 0, 150, 150);
+            minimapCtx.save();
+            
+            // Mask to circular radar lens boundaries
+            minimapCtx.beginPath();
+            minimapCtx.arc(75, 75, 72, 0, Math.PI * 2);
+            minimapCtx.clip();
+
+            minimapCtx.fillStyle = 'rgba(4, 6, 15, 0.9)';
+            minimapCtx.fillRect(0, 0, 150, 150);
+
+            // 3. TRACK-UP TRANSLATION: Center space and counter-rotate opposite to view vector orientation
+            minimapCtx.translate(75, 75);
+            minimapCtx.rotate(-yawAngleRadians);
+
+            const RADAR_ZOOM_SCALE = 0.65;
+
+            // Draw Real Streets Lines Array
+            minimapCtx.strokeStyle = 'rgba(0, 255, 204, 0.4)';
+            minimapCtx.lineWidth = 2;
+            renderedStreetsList.forEach(street => {
+                minimapCtx.beginPath();
+                street.forEach((pt, idx) => {
+                    const dx = (pt.x - camera.position.x) * RADAR_ZOOM_SCALE;
+                    const dz = (pt.z - camera.position.z) * RADAR_ZOOM_SCALE;
+                    if (idx === 0) minimapCtx.moveTo(dx, dz);
+                    else minimapCtx.lineTo(dx, dz);
+                });
+                minimapCtx.stroke();
+            });
+
+            // Draw Real Buildings Footprints
+            renderedBuildingsList.forEach(b => {
+                minimapCtx.fillStyle = b.color === 0x00ffcc ? 'rgba(0, 255, 204, 0.08)' : 'rgba(255, 0, 85, 0.08)';
+                minimapCtx.strokeStyle = b.color === 0x00ffcc ? 'rgba(0, 255, 204, 0.3)' : 'rgba(255, 0, 85, 0.3)';
+                minimapCtx.lineWidth = 1;
+                minimapCtx.beginPath();
+                b.points.forEach((pt, idx) => {
+                    const dx = (pt.x - camera.position.x) * RADAR_ZOOM_SCALE;
+                    const dz = (pt.z - camera.position.z) * RADAR_ZOOM_SCALE;
+                    if (idx === 0) minimapCtx.moveTo(dx, dz);
+                    else minimapCtx.lineTo(dx, dz);
+                });
+                minimapCtx.closePath();
+                minimapCtx.fill(); minimapCtx.stroke();
+            });
+
+            // Project Yellow Target Anomalies Onto Radar Canvas
+            spatialAnomaliesCollection.forEach(anomaly => {
+                if (anomaly.collected) return;
+                const dx = (anomaly.mesh.position.x - camera.position.x) * RADAR_ZOOM_SCALE;
+                const dz = (anomaly.mesh.position.z - camera.position.z) * RADAR_ZOOM_SCALE;
+                
+                minimapCtx.fillStyle = '#ffff00';
+                minimapCtx.shadowBlur = 6; minimapCtx.shadowColor = '#ffff00';
+                minimapCtx.beginPath();
+                minimapCtx.arc(dx, dz, 3.5, 0, Math.PI * 2);
+                minimapCtx.fill();
+                minimapCtx.shadowBlur = 0; // Clean cache
+            });
+
+            minimapCtx.restore();
+
+            // 4. FIXED USER RETICLE: Draw central crosshair pointing straight UP (Device Heading)
+            minimapCtx.strokeStyle = '#00ffcc';
+            minimapCtx.lineWidth = 2;
+            minimapCtx.beginPath();
+            minimapCtx.arc(75, 75, 73, 0, Math.PI * 2);
+            minimapCtx.stroke();
+
+            // Tiny centered positioning dot
+            minimapCtx.fillStyle = '#ff0055';
+            minimapCtx.beginPath();
+            minimapCtx.arc(75, 75, 3.5, 0, Math.PI * 2);
+            minimapCtx.fill();
+
+            // Vision sweep vector pointer line pointing straight UP
+            minimapCtx.strokeStyle = '#ff0055';
+            minimapCtx.beginPath();
+            minimapCtx.moveTo(75, 75);
+            minimapCtx.lineTo(75, 58); 
+            minimapCtx.stroke();
         }
 
         /* ==========================================================================
@@ -578,7 +738,7 @@
         }
 
         /* ==========================================================================
-           WEBRTC MEDIA STREAMS VIDEO PASS-THROUGH
+           WEBRTC PASSTHROUGH AUDIO/VIDEO BACKDROP FEED
            ========================================================================= */
         async function toggleARCameraStream() {
             const arBtn = document.getElementById('arToggleBtn');
@@ -600,7 +760,7 @@
                     try {
                         cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                     } catch (fatalErr) {
-                        alert("AR video frame connection error."); return;
+                        alert("AR video channel initialization failed."); return;
                     }
                 }
                 videoNode.srcObject = cameraStream;
@@ -612,7 +772,7 @@
         }
 
         /* ==========================================================================
-           AR GAMEPLAY SYSTEM: RIFT INTERACTION PIPELINE
+           AR GAMEPLAY SYSTEMS: OBJECTIVE EXTRACTION MATRIX
            ========================================================================= */
         function spawnQuantumAnomalies() {
             spatialAnomaliesCollection.forEach(a => scene.remove(a.mesh));
@@ -623,7 +783,6 @@
             for (let i = 0; i < 5; i++) {
                 let spawnPos = new THREE.Vector3((Math.random() - 0.5) * 60, 1.7, (Math.random() - 0.5) * 60);
 
-                // Cluster anomalies near real local nodes inside your immediate 600m bubble
                 if (globalTrafficNodes.length > 0) {
                     const localTrafficNode = globalTrafficNodes[Math.floor(Math.random() * globalTrafficNodes.length)];
                     spawnPos.copy(localTrafficNode);
@@ -701,6 +860,7 @@
 
                 evaluateGameplayState();
                 renderer.render(scene, camera);
+                update2DMinimapSystem();
             }
             frameLoopEngine();
         }
