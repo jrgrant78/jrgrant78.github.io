@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - Track-Up Tactical Visor</title>
+    <title>Project A.R.I.S. - Occluded Spatial Matrix</title>
     <style>
         body, html {
             margin: 0;
@@ -55,7 +55,7 @@
 
         .hud-panel {
             position: absolute;
-            background: rgba(4, 6, 15, 0.85);
+            background: rgba(4, 6, 15, 0.9);
             border: 1px solid #00ffcc;
             box-shadow: 0 0 15px rgba(0, 255, 204, 0.2);
             padding: 12px;
@@ -284,6 +284,7 @@
             return function (alpha, beta, gamma, orient) {
                 const q = new THREE.Quaternion();
                 euler.set(beta, alpha, -gamma, 'YXZ'); 
+                q.setFromEuler(euler); 
                 q.multiply(q1); 
                 q.multiply(q0.setFromAxisAngle(zee, -orient)); 
                 return q;
@@ -476,7 +477,6 @@
                     const cx = sumX / points.length;
                     const cz = sumZ / points.length;
                     
-                    // PERFORMANCE SHIELD: Filter out 3D rendering overhead beyond 600m
                     const distanceRadiusMetric = Math.hypot(cx, cz);
                     if (distanceRadiusMetric > 600) return;
 
@@ -493,7 +493,7 @@
         }
 
         /* ==========================================================================
-           HIGH-PERFORMANCE MESH COMPILERS
+           HIGH-PERFORMANCE MESH COMPILERS (OCCLUSION & DIMENSIONED STREETS)
            ========================================================================= */
         function buildNeonStructuralHulls(points, tags, cx, cz) {
             if (points.length < 3) return;
@@ -511,31 +511,103 @@
 
             const extrusionSettings = { depth: buildingHeight, bevelEnabled: false };
             const geom = new THREE.ExtrudeGeometry(shapeOutline, extrusionSettings);
-            const edgesGeometry = new THREE.EdgesGeometry(geom);
             
+            // 1. SOLID BLACK WALL MATRICES (Occludes background AR camera canvas cleanly)
+            const blackWallMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0x000000, 
+                depthWrite: true 
+            });
+            const solidBlackMesh = new THREE.Mesh(geom, blackWallMaterial);
+
+            // 2. NEON WIREFRAME PROFILE OVERLAYS
+            const edgesGeometry = new THREE.EdgesGeometry(geom);
             const hullColor = Math.random() > 0.7 ? 0x00ffcc : 0xff0055;
             const lineMaterial = new THREE.LineBasicMaterial({ color: hullColor });
             const buildingWireframeMesh = new THREE.LineSegments(edgesGeometry, lineMaterial);
             
-            buildingWireframeMesh.rotation.x = -Math.PI / 2;
-            buildingWireframeMesh.position.set(cx, 0, cz);
+            // Unified container assembly translation
+            const buildingCompositeGroup = new THREE.Group();
+            buildingCompositeGroup.add(solidBlackMesh);
+            buildingCompositeGroup.add(buildingWireframeMesh);
             
-            mapStructuralMeshes.add(buildingWireframeMesh);
+            buildingCompositeGroup.rotation.x = -Math.PI / 2;
+            buildingCompositeGroup.position.set(cx, 0, cz);
+            
+            mapStructuralMeshes.add(buildingCompositeGroup);
             renderedBuildingsList.push({ points: points, color: hullColor });
         }
 
         function buildNeonVectorPathways(points, tags) {
-            const pathPoints = [];
-            points.forEach(pt => {
-                pathPoints.push(new THREE.Vector3(pt.x, 0.05, pt.z));
-                globalTrafficNodes.push(new THREE.Vector3(pt.x, 1.7, pt.z));
-            });
-
-            const routeGeo = new THREE.BufferGeometry().setFromPoints(pathPoints);
-            const lineMaterial = new THREE.LineBasicMaterial({ color: 0x00ffcc });
-            const streetLineMesh = new THREE.Line(routeGeo, lineMaterial);
+            const laneHalfWidth = 3.5; // Represents a realistic ~7m comprehensive road bed thickness
+            const vertices = [];
+            const indices = [];
             
-            mapStructuralMeshes.add(streetLineMesh);
+            const leftCurbyPoints = [];
+            const rightCurbyPoints = [];
+            const pointsCount = points.length;
+            const computedNormals = new Array(pointsCount);
+
+            // Generate localized perpendicular vectors along path coordinates nodes
+            for (let i = 0; i < pointsCount; i++) {
+                let dx, dz;
+                if (i === 0) {
+                    dx = points[1].x - points[0].x; dz = points[1].z - points[0].z;
+                } else if (i === pointsCount - 1) {
+                    dx = points[pointsCount - 1].x - points[pointsCount - 2].x; dz = points[pointsCount - 1].z - points[pointsCount - 2].z;
+                } else {
+                    const dx1 = points[i].x - points[i - 1].x; const dz1 = points[i].z - points[i - 1].z;
+                    const dx2 = points[i + 1].x - points[i].x; const dz2 = points[i + 1].z - points[i].z;
+                    dx = (dx1 + dx2) / 2; dz = (dz1 + dz2) / 2;
+                }
+                const length = Math.hypot(dx, dz) || 1;
+                computedNormals[i] = { x: -dz / length, z: dx / length };
+            }
+
+            // Construct 3D volumetric road panels and vector curbs boundary tracks
+            for (let i = 0; i < pointsCount; i++) {
+                const pt = points[i];
+                const norm = computedNormals[i];
+
+                const lx = pt.x + norm.x * laneHalfWidth;
+                const lz = pt.z + norm.z * laneHalfWidth;
+                const rx = pt.x - norm.x * laneHalfWidth;
+                const rz = pt.z - norm.z * laneHalfWidth;
+
+                // Set road deck slightly above absolute zero terrain layer to handle rendering depth layering cleanly
+                vertices.push(lx, 0.01, lz); 
+                vertices.push(rx, 0.01, rz); 
+
+                leftCurbyPoints.push(new THREE.Vector3(lx, 0.02, lz));
+                rightCurbyPoints.push(new THREE.Vector3(rx, 0.02, rz));
+
+                if (i < pointsCount - 1) {
+                    const cL = i * 2, cR = i * 2 + 1;
+                    const nL = (i + 1) * 2, nR = (i + 1) * 2 + 1;
+                    indices.push(cL, cR, nL);
+                    indices.push(cR, nR, nL);
+                }
+                globalTrafficNodes.push(new THREE.Vector3(pt.x, 1.7, pt.z));
+            }
+
+            // Compile Solid Black Road Deck Ribbon
+            const roadGeometry = new THREE.BufferGeometry();
+            roadGeometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            roadGeometry.setIndex(indices);
+            roadGeometry.computeVertexNormals();
+
+            const roadDeckMat = new THREE.MeshBasicMaterial({ color: 0x010103, side: THREE.DoubleSide });
+            const roadDeckMesh = new THREE.Mesh(roadGeometry, roadDeckMat);
+            mapStructuralMeshes.add(roadDeckMesh);
+
+            // Compile Dual Parallel Glowing Curbs
+            const curbNeonMat = new THREE.LineBasicMaterial({ color: 0x00ffcc });
+            
+            const leftCurbGeo = new THREE.BufferGeometry().setFromPoints(leftCurbyPoints);
+            mapStructuralMeshes.add(new THREE.Line(leftCurbGeo, curbNeonMat));
+
+            const rightCurbGeo = new THREE.BufferGeometry().setFromPoints(rightCurbyPoints);
+            mapStructuralMeshes.add(new THREE.Line(rightCurbGeo, curbNeonMat));
+
             renderedStreetsList.push(points);
         }
 
@@ -544,18 +616,11 @@
             const gridLimit = 4;
             
             for (let i = -gridLimit; i <= gridLimit; i++) {
-                const streetPointsV = [{ x: i * spacing, z: -350 }, { x: i * spacing, z: 350 }];
-                renderedStreetsList.push(streetPointsV);
-                const streetPointsH = [{ x: -350, z: i * spacing }, { x: 350, z: i * spacing }];
-                renderedStreetsList.push(streetPointsH);
+                renderedStreetsList.push([{ x: i * spacing, z: -350 }, { x: i * spacing, z: 350 }]);
+                renderedStreetsList.push([{ x: -350, z: i * spacing }, { x: 350, z: i * spacing }]);
             }
 
-            const laneMaterial = new THREE.LineBasicMaterial({ color: 0x00ffcc });
-            renderedStreetsList.forEach(points => {
-                const pathPoints = [new THREE.Vector3(points[0].x, 0.05, points[0].z), new THREE.Vector3(points[1].x, 0.05, points[1].z)];
-                const routeGeo = new THREE.BufferGeometry().setFromPoints(pathPoints);
-                mapStructuralMeshes.add(new THREE.Line(routeGeo, laneMaterial));
-            });
+            renderedStreetsList.forEach(pts => buildNeonVectorPathways(pts, null));
 
             for (let x = -gridLimit; x < gridLimit; x++) {
                 for (let z = -gridLimit; z < gridLimit; z++) {
@@ -567,7 +632,6 @@
                         { x: cx + size/2, z: cz + size/2 }, { x: cx - size/2, z: cz + size/2 }
                     ];
                     buildNeonStructuralHulls(points, null, cx, cz);
-                    globalTrafficNodes.push(new THREE.Vector3(cx, 1.7, cz));
                 }
             }
             spawnQuantumAnomalies();
@@ -581,12 +645,10 @@
             const minimapCtx = minimapCanvas.getContext('2d');
             if (!minimapCtx) return;
 
-            // 1. Calculate the forward-look orientation angle of the viewport camera
             const directionVector = new THREE.Vector3();
             camera.getWorldDirection(directionVector);
             const yawAngleRadians = Math.atan2(directionVector.x, -directionVector.z);
 
-            // 2. Drive the mechanical dash compass dial assembly
             const compassRing = document.getElementById('compass-ring');
             if (compassRing) {
                 compassRing.style.transform = `rotate(${THREE.MathUtils.radToDeg(-yawAngleRadians)}deg)`;
@@ -595,84 +657,82 @@
             minimapCtx.clearRect(0, 0, 150, 150);
             minimapCtx.save();
             
-            // Mask to circular radar lens boundaries
             minimapCtx.beginPath();
             minimapCtx.arc(75, 75, 72, 0, Math.PI * 2);
             minimapCtx.clip();
 
-            minimapCtx.fillStyle = 'rgba(4, 6, 15, 0.9)';
+            minimapCtx.fillStyle = 'rgba(4, 6, 15, 0.95)';
             minimapCtx.fillRect(0, 0, 150, 150);
 
-            // 3. TRACK-UP TRANSLATION: Center space and counter-rotate opposite to view vector orientation
             minimapCtx.translate(75, 75);
             minimapCtx.rotate(-yawAngleRadians);
 
             const RADAR_ZOOM_SCALE = 0.65;
 
-            // Draw Real Streets Lines Array
-            minimapCtx.strokeStyle = 'rgba(0, 255, 204, 0.4)';
-            minimapCtx.lineWidth = 2;
+            // Render Solid Highway Corridors onto Radar Layout
             renderedStreetsList.forEach(street => {
+                // First stroke: solid black thick corridor path deck
+                minimapCtx.strokeStyle = '#020205';
+                minimapCtx.lineWidth = 10;
                 minimapCtx.beginPath();
                 street.forEach((pt, idx) => {
                     const dx = (pt.x - camera.position.x) * RADAR_ZOOM_SCALE;
                     const dz = (pt.z - camera.position.z) * RADAR_ZOOM_SCALE;
-                    if (idx === 0) minimapCtx.moveTo(dx, dz);
-                    else minimapCtx.lineTo(dx, dz);
+                    if (idx === 0) minimapCtx.moveTo(dx, dz); else minimapCtx.lineTo(dx, dz);
                 });
+                minimapCtx.stroke();
+
+                // Second stroke: glowing structural outer casing vector conduit lines
+                minimapCtx.strokeStyle = 'rgba(0, 255, 204, 0.45)';
+                minimapCtx.lineWidth = 2;
                 minimapCtx.stroke();
             });
 
-            // Draw Real Buildings Footprints
+            // Render Volumetric Buildings Hulls onto Radar Layout
             renderedBuildingsList.forEach(b => {
-                minimapCtx.fillStyle = b.color === 0x00ffcc ? 'rgba(0, 255, 204, 0.08)' : 'rgba(255, 0, 85, 0.08)';
-                minimapCtx.strokeStyle = b.color === 0x00ffcc ? 'rgba(0, 255, 204, 0.3)' : 'rgba(255, 0, 85, 0.3)';
-                minimapCtx.lineWidth = 1;
+                minimapCtx.fillStyle = '#000000'; // Match viewport solid black walls profile look
+                minimapCtx.strokeStyle = b.color === 0x00ffcc ? 'rgba(0, 255, 204, 0.5)' : 'rgba(255, 0, 85, 0.5)';
+                minimapCtx.lineWidth = 1.5;
                 minimapCtx.beginPath();
                 b.points.forEach((pt, idx) => {
                     const dx = (pt.x - camera.position.x) * RADAR_ZOOM_SCALE;
                     const dz = (pt.z - camera.position.z) * RADAR_ZOOM_SCALE;
-                    if (idx === 0) minimapCtx.moveTo(dx, dz);
-                    else minimapCtx.lineTo(dx, dz);
+                    if (idx === 0) minimapCtx.moveTo(dx, dz); else minimapCtx.lineTo(dx, dz);
                 });
                 minimapCtx.closePath();
                 minimapCtx.fill(); minimapCtx.stroke();
             });
 
-            // Project Yellow Target Anomalies Onto Radar Canvas
+            // Draw Anomalies Matrix Units
             spatialAnomaliesCollection.forEach(anomaly => {
                 if (anomaly.collected) return;
                 const dx = (anomaly.mesh.position.x - camera.position.x) * RADAR_ZOOM_SCALE;
                 const dz = (anomaly.mesh.position.z - camera.position.z) * RADAR_ZOOM_SCALE;
-                
                 minimapCtx.fillStyle = '#ffff00';
-                minimapCtx.shadowBlur = 6; minimapCtx.shadowColor = '#ffff00';
                 minimapCtx.beginPath();
-                minimapCtx.arc(dx, dz, 3.5, 0, Math.PI * 2);
+                minimapCtx.arc(dx, dz, 4, 0, Math.PI * 2);
                 minimapCtx.fill();
-                minimapCtx.shadowBlur = 0; // Clean cache
             });
 
             minimapCtx.restore();
 
-            // 4. FIXED USER RETICLE: Draw central crosshair pointing straight UP (Device Heading)
+            // FIXED USER RETICLE INDEX (Always Points Upward Matching View Direction Vectors)
             minimapCtx.strokeStyle = '#00ffcc';
             minimapCtx.lineWidth = 2;
             minimapCtx.beginPath();
             minimapCtx.arc(75, 75, 73, 0, Math.PI * 2);
             minimapCtx.stroke();
 
-            // Tiny centered positioning dot
             minimapCtx.fillStyle = '#ff0055';
             minimapCtx.beginPath();
-            minimapCtx.arc(75, 75, 3.5, 0, Math.PI * 2);
+            minimapCtx.arc(75, 75, 4, 0, Math.PI * 2);
             minimapCtx.fill();
 
-            // Vision sweep vector pointer line pointing straight UP
             minimapCtx.strokeStyle = '#ff0055';
+            minimapCtx.lineWidth = 2;
             minimapCtx.beginPath();
             minimapCtx.moveTo(75, 75);
-            minimapCtx.lineTo(75, 58); 
+            minimapCtx.lineTo(75, 56); 
             minimapCtx.stroke();
         }
 
