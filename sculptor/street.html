@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - Projectile Engagement Matrix</title>
+    <title>Project A.R.I.S. - Stabilized Simulation Matrix</title>
     <style>
         body, html {
             margin: 0;
@@ -15,15 +15,6 @@
             background: #020205;
             color: #00ffcc;
             user-select: none;
-        }
-
-        #camera-feed {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100vw; height: 100vh;
-            object-fit: cover;
-            z-index: 1;
-            display: block;
         }
 
         #canvas3d {
@@ -238,14 +229,13 @@
     <div id="visor-screen-overlay"></div>
     <canvas id="cracks-canvas"></canvas>
 
-    <video id="camera-feed" autoplay playsinline muted></video>
     <canvas id="canvas3d"></canvas>
 
     <div id="hud-visor-container">
         <div id="targeting-matrix"></div>
 
         <div id="central-hud-alerts">
-            <div id="main-hud-status" class="hud-banner-text pulse-animation">LOADING VR MATRIX...</div>
+            <div id="main-hud-status" class="hud-banner-text pulse-animation">Loading Simulation...</div>
             <div id="threat-tracker-display">TARGET ACQUIRED</div>
         </div>
 
@@ -261,14 +251,11 @@
     </div>
 
     <div id="action-dashboard">
-        <button id="arToggleBtn" class="visor-btn">Activate Camera AR</button>
         <button id="stepSimBtn" class="visor-btn">Simulate GPS Move</button>
     </div>
 
     <script>
         let scene, camera, renderer;
-        let cameraStream = null;
-        let isARActive = false;
         
         let isFirstGyroFrame = true;
         let gyroYawOffset = 0;
@@ -284,6 +271,10 @@
         let osmFetchController = null;
         const R_EARTH = 6378137;
 
+        // Position Dampening Target Anchors
+        let targetPosX = 0;
+        let targetPosZ = 0;
+
         let playerHealth = 100.0;
         let timeLastSeenByThreat = 0; 
         let isCurrentlyDetected = false; 
@@ -298,7 +289,7 @@
         const renderedPedestrianList = []; 
         const tacticalDronesCollection = []; 
         const humanoidBotsCollection = []; 
-        const activeLasersCollection = []; // Real-time projectile storage arrays
+        const activeLasersCollection = []; 
         let anomaliesCollectedCount = 0;
 
         const CONE_RADIUS = 2.4; 
@@ -370,7 +361,6 @@
                 }
             };
             window.addEventListener('pointerdown', requestHardwareSensors, { once: true });
-            document.getElementById('arToggleBtn').addEventListener('click', toggleARCameraStream);
             document.getElementById('stepSimBtn').addEventListener('click', simulateGpsMovementUpdate);
         }
 
@@ -660,13 +650,11 @@
             torsoMesh.position.y = 0.65;
             botGroup.add(torsoMesh);
 
-            // Re-engineered Arm System to hang downward at rotation 0
             const leftArmGroup = new THREE.Group(); leftArmGroup.position.set(-0.45, 1.0, 0);
             const lLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: skinColor }));
             lLimbs.position.y = -0.4; leftArmGroup.add(lLimbs);
             botGroup.add(leftArmGroup);
 
-            // Right Blaster Arm Group matching shoulder structures
             const rightArmGroup = new THREE.Group(); rightArmGroup.position.set(0.45, 1.0, 0);
             const rLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: skinColor }));
             rLimbs.position.y = -0.4; rightArmGroup.add(rLimbs);
@@ -710,19 +698,22 @@
                     id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg,
                     armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData,
                     currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3,
-                    isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0 // Kinematic interpolation weights
+                    isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0 
                 });
             }
         }
 
-        /* ==========================================================================
-           TACTICAL PROCESSING LOGIC: INTERPOLATIONS, FLUID TURNS & MOVING LASERS
-           ========================================================================= */
         function advanceDronePatrolSimulation(timestamp) {
             let spaceOverlay = document.getElementById('visor-screen-overlay');
             let droneDetectedFlag = false; 
 
-            // 1. Process Airborne Threat Drones With Angular Ease Intercepts
+            // Player position filter loop (low-pass smoothing out static GPS micro-jumps)
+            if (mapLoadedForAnchor) {
+                camera.position.x += (targetPosX - camera.position.x) * 0.08;
+                camera.position.z += (targetPosZ - camera.position.z) * 0.08;
+                camera.position.y = 1.7;
+            }
+
             tacticalDronesCollection.forEach(drone => {
                 let pos = drone.meshElement.position;
                 let tx = 0, tz = 0;
@@ -752,7 +743,7 @@
                     }
                 }
 
-                // Smooth Wrap-Around Heading Easing
+                // Smooth Heading Angular Interpolations
                 let angleDiff = targetAngle - drone.meshElement.rotation.y;
                 while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
                 while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
@@ -775,7 +766,6 @@
                 }
             });
 
-            // 2. Process Ground Infantry Intercepts With Peripheral Vision & Reciprocal Sway
             let botDetectedFlag = false;
             humanoidBotsCollection.forEach(bot => {
                 let pos = bot.meshElement.position;
@@ -799,31 +789,27 @@
                     bot.isAlerted = false;
                 }
 
-                // Animate Aim Weight Fluid Transitions
                 if (bot.isAlerted) {
                     bot.aimProgress = Math.min(1.0, bot.aimProgress + 0.07);
                     const dx = camera.position.x - pos.x; const dz = camera.position.z - pos.z;
                     botTargetAngle = Math.atan2(dx, dz);
                     
-                    // Fire Cycle Spawning Real Visible Laser Projectiles
                     if (distanceToPlayer <= 25.0 && timestamp - bot.lastFireTimestamp > 1200) {
                         bot.lastFireTimestamp = timestamp;
                         playerHealth = Math.max(0, playerHealth - 8.0);
                         spaceOverlay.classList.add('flash-red-harm');
                         setTimeout(() => spaceOverlay.classList.remove('flash-red-harm'), 150);
 
-                        // Calculate Muzzle Global Position
-                        const muzzleOffsetVector = new THREE.Vector3(0.9, 0.4, 1.6); // Mapped to upscale dimensions
+                        const muzzleOffsetVector = new THREE.Vector3(0.9, 0.4, 1.6); 
                         muzzleOffsetVector.applyMatrix4(bot.meshElement.matrixWorld);
 
                         const targetHitPosition = new THREE.Vector3().copy(camera.position);
-
                         const laserGeom = new THREE.CylinderGeometry(0.05, 0.05, 2.5);
                         const laserMesh = new THREE.Mesh(laserGeom, new THREE.MeshBasicMaterial({ color: 0xff0055 }));
                         
                         laserMesh.position.copy(muzzleOffsetVector);
                         laserMesh.lookAt(targetHitPosition);
-                        laserMesh.rotation.x += Math.PI / 2; // Realign length alignment vectors
+                        laserMesh.rotation.x += Math.PI / 2; 
                         scene.add(laserMesh);
 
                         activeLasersCollection.push({
@@ -856,25 +842,17 @@
                     }
                 }
 
-                // Fluid Heading Rotations
                 let botAngleDiff = botTargetAngle - bot.meshElement.rotation.y;
                 while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2;
                 while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2;
                 bot.meshElement.rotation.y += botAngleDiff * 0.08;
 
-                // Arm Blending Engine (Reciprocal Sway vs Raised Aim Forward)
                 const alternateCycle = Math.sin(timestamp * 0.008 * bot.velocity);
-                const leftWalkSway = -alternateCycle * 0.3;
-                const rightWalkSway = alternateCycle * 0.3; // Mapped opposite to other arm
-
-                bot.armL.rotation.x = leftWalkSway;
-                
-                // Fluid blend right arm from walk sway to forward firing position (-Math.PI / 2)
-                bot.armR.rotation.x = THREE.MathUtils.lerp(rightWalkSway, -Math.PI / 2, bot.aimProgress);
+                bot.armL.rotation.x = -alternateCycle * 0.3;
+                bot.armR.rotation.x = THREE.MathUtils.lerp(alternateCycle * 0.3, -Math.PI / 2, bot.aimProgress);
                 bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
             });
 
-            // 3. Process Visible Laser Velocities Matrix
             for (let i = activeLasersCollection.length - 1; i >= 0; i--) {
                 const bolt = activeLasersCollection[i];
                 bolt.meshElement.position.addScaledVector(bolt.directionVector, bolt.velocitySpeed);
@@ -910,7 +888,7 @@
             const ctx = cracksCanvas.getContext('2d');
 
             if (!mapLoadedForAnchor) {
-                statusLabel.innerHTML = "LOADING VR MATRIX...";
+                statusLabel.innerHTML = "Loading Simulation...";
                 statusLabel.classList.add('pulse-animation');
             } else if (mapLoadedForAnchor && !sensorsEngaged) {
                 statusLabel.innerHTML = "Touch screen to engage VR";
@@ -982,15 +960,20 @@
             spawnQuantumAnomalies(); deployTacticalDronePlatoon(); deployHumanoidGarrison();
         }
 
+        /* ==========================================================================
+           RECTIFIED COMPASS & TRACK-UP RADAR ROTATION FORMULAS
+           ========================================================================= */
         function update2DMinimapSystem() {
             const minimapCanvas = document.getElementById('minimapCanvas');
             const minimapCtx = minimapCanvas.getContext('2d'); if (!minimapCtx) return;
 
             const directionVector = new THREE.Vector3(); camera.getWorldDirection(directionVector);
+            // Extracted raw camera heading angle
             const yaw = Math.atan2(directionVector.x, -directionVector.z);
 
             const ring = document.getElementById('compass-ring');
-            if (ring) ring.style.transform = `rotate(${THREE.MathUtils.radToDeg(-yaw)}deg)`;
+            // FIXED: Flipped rotation factor sign to align north metrics properly with environment vectors
+            if (ring) ring.style.transform = `rotate(${THREE.MathUtils.radToDeg(yaw)}deg)`;
 
             const centerMeters = minimapCanvas.width / 2;
             minimapCtx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
@@ -1004,7 +987,8 @@
             minimapCtx.fillRect(0, 0, minimapCanvas.width, minimapCanvas.height);
 
             minimapCtx.translate(centerMeters, centerMeters); 
-            minimapCtx.rotate(-yaw);
+            // FIXED: Inverted map rotation matrix coordinate projection
+            minimapCtx.rotate(yaw);
             
             const scale = (minimapCanvas.width / 150) * 0.65;
 
@@ -1091,13 +1075,25 @@
 
         function updatePlayerPositionFromGps(latitude, longitude, signalSource) {
             currentCoordinates.lat = latitude; currentCoordinates.lon = longitude;
+            const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
+            
             if (!hasLockedInitialAnchor) {
                 anchorCoordinates.lat = latitude; anchorCoordinates.lon = longitude;
                 hasLockedInitialAnchor = true;
+                
+                // Hard snap coordinate points precisely during core bootup initialization framework
+                const firstFix = latLonToLocalMeters(latitude, longitude, latitude, longitude);
+                camera.position.x = firstFix.x;
+                camera.position.z = firstFix.z;
+                targetPosX = firstFix.x;
+                targetPosZ = firstFix.z;
+                
                 fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
+            } else {
+                // Route telemetry configurations directly into dampening buffers
+                targetPosX = local.x;
+                targetPosZ = local.z;
             }
-            const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
-            camera.position.x = local.x; camera.position.z = local.z; camera.position.y = 1.7; 
         }
 
         function simulateGpsMovementUpdate() {
@@ -1106,23 +1102,6 @@
             const simLat = currentCoordinates.lat - (vec.z * 8.0 * factor);
             const simLon = currentCoordinates.lon + (vec.x * 8.0 * factor / Math.cos(anchorCoordinates.lat * Math.PI / 180));
             updatePlayerPositionFromGps(simLat, simLon, "SIMULATION MATRIX");
-        }
-
-        async function toggleARCameraStream() {
-            const btn = document.getElementById('arToggleBtn'); const node = document.getElementById('camera-feed');
-            if (isARActive) {
-                if (cameraStream) cameraStream.getTracks().forEach(t => t.stop());
-                node.srcObject = null; renderer.setClearColor(0x020205, 1.0); isARActive = false;
-                btn.classList.remove('active'); btn.innerText = "Activate Camera AR";
-            } else {
-                try {
-                    cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: "environment" } }, audio: false });
-                } catch (e) {
-                    try { cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }); } catch (f) { return; }
-                }
-                node.srcObject = cameraStream; renderer.setClearColor(0x000000, 0.0); isARActive = true;
-                btn.classList.add('active'); btn.innerText = "Disable Camera AR";
-            }
         }
 
         function spawnQuantumAnomalies() {
