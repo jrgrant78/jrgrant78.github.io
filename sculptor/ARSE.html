@@ -17,13 +17,14 @@
             user-select: none;
         }
 
+        /* HIDDEN TELEMETRY DATA STREAM SOURCE */
         #webcam-feed {
             position: absolute;
             top: 0; left: 0;
-            width: 100vw; height: 100vh;
-            object-fit: cover;
+            width: 1px; height: 1px;
+            opacity: 0;
+            pointer-events: none;
             z-index: 1;
-            display: block;
         }
 
         #canvas3d {
@@ -315,7 +316,6 @@
         }
         @media (orientation: portrait) { #portrait-warning { display: flex; } }
     </style>
-    <!-- CRITICAL DEPENDENCY LOAD SCRIPT ASSETS -->
     <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/vision_bundle.js" crossorigin="anonymous"></script>
 </head>
@@ -412,7 +412,6 @@
         const activeLasersCollection = []; 
         let anomaliesCollectedCount = 0;
 
-        // COMPUTER VISION TRACKING ARCHITECTURE
         let objectDetectorInstance = null;
         let detectionModelLoaded = false;
         const mappedVisualReticlesPool = [];
@@ -444,7 +443,6 @@
             };
         })();
 
-        // Global async asset initialization pipeline
         async function initializeMediaPipeDetector() {
             try {
                 const visionResolver = await FilesetResolver.forVisionTasks(
@@ -461,7 +459,7 @@
                 detectionModelLoaded = true;
                 console.log("// COMPUTER VISION SUBSYSTEM ENGAGED");
             } catch(e) {
-                console.warn("MediaPipe failed to spin up. Running basic spatial tracker.", e);
+                console.warn("MediaPipe initialization offline.", e);
                 detectionModelLoaded = false;
             }
         }
@@ -487,12 +485,10 @@
             }
         }
 
-        // DECOUPLED BOOT LAUNCH GATE INTERCEPTOR
         window.engageVisorSystemFromBootGate = function() {
             if (sensorsEngaged) return;
             sensorsEngaged = true;
 
-            // Instantly engage hardware fullscreen lock
             if (document.documentElement.requestFullscreen) {
                 document.documentElement.requestFullscreen().then(() => {
                     if (screen.orientation && screen.orientation.lock) {
@@ -501,16 +497,15 @@
                 }).catch(() => {});
             }
 
-            // Fire up active device camera hardware layers immediately
             const videoFeedStream = document.getElementById('webcam-feed');
             if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                // Video captures resolution attributes, but styling forces layout invisibility
                 navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: { exact: "environment" } }, 
+                    video: { facingMode: { exact: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, 
                     audio: false 
                 }).then((stream) => {
                     videoFeedStream.srcObject = stream;
                 }).catch(() => {
-                    // Desktop/Front-camera tracking fallback loop
                     navigator.mediaDevices.getUserMedia({ video: true, audio: false }).then((stream) => {
                         videoFeedStream.srcObject = stream;
                     });
@@ -525,7 +520,6 @@
                 bindAbsoluteCompassListeners();
             }
 
-            // Instantly transition out the boot window UI overlay
             const bootGate = document.getElementById('visor-boot-gate');
             bootGate.style.opacity = '0';
             setTimeout(() => { bootGate.style.display = 'none'; }, 400);
@@ -653,7 +647,8 @@
             globalTrafficNodes.length = 0; renderedStreetsList.length = 0;
             renderedBuildingsList.length = 0; renderedPedestrianList.length = 0;
 
-            const grassGroundMesh = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000), new THREE.MeshBasicMaterial({ color: 0x071e0e, depthWrite: true, transparent: true, opacity: 0.4 }));
+            // Restored solid grid elements matching dark tactical background
+            const grassGroundMesh = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000), new THREE.MeshBasicMaterial({ color: 0x071e0e, depthWrite: true }));
             grassGroundMesh.rotation.x = -Math.PI / 2;
             mapStructuralMeshes.add(grassGroundMesh);
 
@@ -703,7 +698,7 @@
             h = Math.min(h, 60);
 
             const geom = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false });
-            const solidMesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({ color: 0x000000, depthWrite: true, transparent: true, opacity: 0.2 }));
+            const solidMesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({ color: 0x000000, depthWrite: true }));
             const hullColor = Math.random() > 0.7 ? 0x00ffcc : 0xff0055;
             const wireframe = new THREE.LineSegments(new THREE.EdgesGeometry(geom), new THREE.LineBasicMaterial({ color: hullColor }));
             
@@ -733,7 +728,7 @@
                 globalTrafficNodes.push(new THREE.Vector3(pt.x, 0.01, pt.z));
             }
             const roadGeom = new THREE.BufferGeometry(); roadGeom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3)); roadGeom.setIndex(indices); roadGeom.computeVertexNormals();
-            mapStructuralMeshes.add(new THREE.Mesh(roadGeom, new THREE.MeshBasicMaterial({ color: 0x010804, side: THREE.DoubleSide, transparent: true, opacity: 0.5 })));
+            mapStructuralMeshes.add(new THREE.Mesh(roadGeom, new THREE.MeshBasicMaterial({ color: 0x010804, side: THREE.DoubleSide })));
             const yellowCurbMat = new THREE.LineBasicMaterial({ color: 0xffff00 });
             mapStructuralMeshes.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(leftCurbyPoints), yellowCurbMat)); mapStructuralMeshes.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(rightCurbyPoints), yellowCurbMat));
             if (isMain) {
@@ -759,7 +754,7 @@
                 vertices.push(lx, 0.02, lz, rx, 0.02, rz); if (i < count - 1) indices.push(i*2, i*2+1, (i+1)*2, i*2+1, (i+1)*2+1, (i+1)*2);
             }
             const swGeom = new THREE.BufferGeometry(); swGeom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3)); swGeom.setIndex(indices); swGeom.computeVertexNormals();
-            mapStructuralMeshes.add(new THREE.Mesh(swGeom, new THREE.MeshBasicMaterial({ color: 0x333333, side: THREE.DoubleSide, transparent: true, opacity: 0.5 }))); renderedPedestrianList.push({ points: points, isCrosswalk: false });
+            mapStructuralMeshes.add(new THREE.Mesh(swGeom, new THREE.MeshBasicMaterial({ color: 0x333333, side: THREE.DoubleSide }))); renderedPedestrianList.push({ points: points, isCrosswalk: false });
         }
 
         function compileTacticalPatrolDrone() {
@@ -1050,15 +1045,15 @@
             spatialAnomaliesCollection.forEach(a => { if (a.collected) return; const d = Math.hypot(a.mesh.position.x - camera.position.x, a.mesh.position.z - camera.position.z); if (d <= a.radius) { a.collected = true; scene.remove(a.mesh); anomaliesCollectedCount++; } });
         }
 
-        // REAL-TIME VISUAL TARGET RECOGNITION SCANNER
         function executeMediaPipeDetectionScanner() {
+            // Processing pulls frame metrics from hidden background element
             const videoElement = document.getElementById('webcam-feed');
             
+            // Checking readystate ensures video width/height headers are active
             if (!detectionModelLoaded || !objectDetectorInstance || videoElement.readyState < 2) return;
 
             const detectionResults = objectDetectorInstance.detectForVideo(videoElement, performance.now());
 
-            // Wipe out historical geometry reticles cleanly
             mappedVisualReticlesPool.forEach(box => scene.remove(box));
             mappedVisualReticlesPool.length = 0;
 
@@ -1069,6 +1064,7 @@
                     if (["person", "cat", "dog"].includes(matchedCategory)) {
                         const bbox = detection.boundingBox;
                         
+                        // Using real video track resolution bounds for high precision calculation mapping
                         const normCenterX = (bbox.originX + bbox.width / 2) / videoElement.videoWidth;
                         const normCenterY = (bbox.originY + bbox.height / 2) / videoElement.videoHeight;
                         
@@ -1117,16 +1113,16 @@
         function init() {
             scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000); camera.position.set(0, 1.7, 0);
             
-            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true, alpha: true }); 
+            // Restored opaque rendering profile to block browser viewport background visibility
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); 
             renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); 
-            renderer.setClearColor(0x000000, 0.0); 
+            renderer.setClearColor(0x020205, 1.0); 
             
             scene.add(mapStructuralMeshes); 
             autoInitializeSensors(); 
             onWindowResize(); 
             window.addEventListener('resize', onWindowResize);
             
-            // Asynchronously load the AI detector without locking up UI threads
             initializeMediaPipeDetector();
 
             function frameLoopEngine() {
