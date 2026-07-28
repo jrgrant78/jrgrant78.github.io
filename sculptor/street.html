@@ -131,7 +131,6 @@
             #threat-tracker-display { font-size: 18px; letter-spacing: 3px; margin-top: 60px; }
         }
 
-        /* DYNAMIC MINIMAP INTERACTION SUITE */
         #minimap-container {
             position: absolute;
             bottom: 25px;
@@ -146,7 +145,6 @@
             transition: width 0.3s ease, height 0.3s ease, max-width 0.3s ease, max-height 0.3s ease, top 0.3s ease, left 0.3s ease, transform 0.3s ease;
         }
 
-        /* TARGET VIEWPORT MATRIX: Maximizes geometric alignment inside viewport limits */
         #minimap-container.enlarged {
             bottom: auto;
             left: 50%;
@@ -212,15 +210,15 @@
             box-shadow: 0 0 8px #ff0055;
         }
 
-        #action-dashboard {
+        /* GEOSPATIAL DOCK INTERFACES IN BOTTOM RIGHT CORNER */
+        #fine-tune-dock {
             position: absolute;
-            bottom: 20px; left: 50%;
-            transform: translateX(-50%);
-            z-index: 10;
-            display: flex; 
-            flex-direction: column;
+            bottom: 25px;
+            right: 25px;
+            z-index: 110;
+            display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
         }
 
         .bias-control-panel {
@@ -230,7 +228,16 @@
             padding: 6px;
             border-radius: 6px;
             border: 1px solid #00ffcc;
+            pointer-events: none;
+            opacity: 0;
+            transform: translateX(40px);
+            transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.25s ease;
+        }
+
+        .bias-control-panel.open {
+            opacity: 1;
             pointer-events: auto;
+            transform: translateX(0);
         }
 
         .nudge-btn {
@@ -252,6 +259,30 @@
         .nudge-btn:active {
             background: #00ffcc;
             color: #020205;
+        }
+
+        .offset-menu-trigger {
+            background: rgba(6, 10, 25, 0.85);
+            color: #00ffcc;
+            border: 1px solid #00ffcc;
+            width: 44px;
+            height: 44px;
+            font-size: 22px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 0 12px rgba(0, 255, 204, 0.25);
+            transition: all 0.2s ease;
+            pointer-events: auto;
+        }
+
+        .offset-menu-trigger:active {
+            background: #00ffcc;
+            color: #020205;
+            box-shadow: 0 0 20px #00ffcc;
         }
 
         #portrait-warning {
@@ -300,13 +331,14 @@
         </div>
     </div>
 
-    <div id="action-dashboard">
-        <div class="bias-control-panel">
+    <div id="fine-tune-dock">
+        <div id="biasPanel" class="bias-control-panel">
             <button class="nudge-btn" onclick="applyGeospatialNudge(0.00004, 0)" title="Nudge North">+N</button>
             <button class="nudge-btn" onclick="applyGeospatialNudge(-0.00004, 0)" title="Nudge South">-S</button>
             <button class="nudge-btn" onclick="applyGeospatialNudge(0, -0.00005)" title="Nudge West">-W</button>
             <button class="nudge-btn" onclick="applyGeospatialNudge(0, 0.00005)" title="Nudge East">+E</button>
         </div>
+        <button id="offsetMenuTriggerBtn" class="offset-menu-trigger" title="Positional Offset Calibration">⌖</button>
     </div>
 
     <script>
@@ -327,7 +359,6 @@
         let osmFetchController = null;
         const R_EARTH = 6378137;
 
-        // VISOR ZOOM EXTRACTION STATE FLAG
         let isMinimapEnlarged = false;
 
         let geoTelemetryOffset = { lat: 0.0, lon: 0.0 };
@@ -415,7 +446,7 @@
                 camera.quaternion.setFromEuler(new THREE.Euler(lookPitch, lookYaw, 0, 'YXZ'));
             });
             window.addEventListener('pointerdown', (e) => {
-                if (e.target.closest('#action-dashboard') || e.target.closest('#minimap-container')) return;
+                if (e.target.closest('#fine-tune-dock') || e.target.closest('#minimap-container')) return;
                 if (matrixOverloadActive) {
                     fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
                     return;
@@ -423,15 +454,20 @@
                 if (!sensorsEngaged) engageHardwareSensors();
             });
 
-            // EXTRACTABLE MINIMAP INTERFACES EVENT PIPELINE
+            // TACTICAL OFFSET MENU TRIGGER MECHANICS
+            document.getElementById('offsetMenuTriggerBtn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                const biasPanel = document.getElementById('biasPanel');
+                biasPanel.classList.toggle('open');
+            });
+
             window.addEventListener('click', (e) => {
+                if (e.target.closest('#fine-tune-dock')) return; 
                 const mapContainer = document.getElementById('minimap-container');
                 if (isMinimapEnlarged) {
-                    // Touching anywhere closes the screen-height map view mode
                     isMinimapEnlarged = false;
                     mapContainer.classList.remove('enlarged');
                 } else {
-                    // Touching the peripheral map container scales it up to full center display bounds
                     if (e.target.closest('#minimap-container')) {
                         isMinimapEnlarged = true;
                         mapContainer.classList.add('enlarged');
@@ -828,7 +864,6 @@
             const directionVector = new THREE.Vector3(); camera.getWorldDirection(directionVector); const yaw = Math.atan2(directionVector.x, -directionVector.z);
             const ring = document.getElementById('compass-ring'); if (ring) ring.style.transform = `rotate(${THREE.MathUtils.radToDeg(-yaw)}deg)`;
             
-            // ADJUSTIVE GRAPHICS BUFFER UPDATER: Matches canvas memory allocations cleanly to absolute layout element limits
             const currentContainerElement = document.getElementById('minimap-container');
             const targetContainerWidth = currentContainerElement.offsetWidth;
             if (minimapCanvas.width !== targetContainerWidth && targetContainerWidth > 0) {
