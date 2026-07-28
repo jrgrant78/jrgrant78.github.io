@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - Concurrency-Locked Visor Engine</title>
+    <title>Project A.R.I.S. - High-Fidelity Telemetry Visor</title>
     <style>
         body, html {
             margin: 0;
@@ -275,7 +275,7 @@
         <div id="targeting-matrix"></div>
 
         <div id="central-hud-alerts">
-            <div id="main-hud-status" class="hud-banner-text pulse-animation">Loading Simulation...</div>
+            <div id="main-hud-status" class="hud-banner-text pulse-animation">Calibrating Satellites...</div>
             <div id="threat-tracker-display">TARGET ACQUIRED</div>
         </div>
 
@@ -309,7 +309,7 @@
         let mapLoadedForAnchor = false;
         let sensorsEngaged = false; 
         let matrixOverloadActive = false; 
-        let isFetchingMap = false; // Thread concurrency latch flag
+        let isFetchingMap = false; 
         let osmFetchController = null;
         const R_EARTH = 6378137;
 
@@ -437,7 +437,7 @@
             matrixOverloadActive = false;
             mapLoadedForAnchor = false;
             initialSnapCompleted = false; 
-            isFetchingMap = true; // Lock stream lines against thrashed ticks
+            isFetchingMap = true; 
             updateVisorFeedbackHUD(Date.now());
 
             const overpassEndpoints = [
@@ -461,7 +461,7 @@
                 } catch (e) { clearTimeout(timeoutId); }
             }
 
-            isFetchingMap = false; // Release lock vector safely
+            isFetchingMap = false; 
 
             if (success && data) {
                 parseAndBuildOSMWorld(data, anchorCoordinates.lat, anchorCoordinates.lon);
@@ -735,12 +735,15 @@
             if (isCurrentlyDetected) { timeLastSeenByThreat = timestamp; alertStateActive = true; } else if (alertStateActive && (timestamp - timeLastSeenByThreat >= ALERT_COOLDOWN_MS)) { alertStateActive = false; tacticalDronesCollection.forEach(d => d.isChasingPlayer = false); }
             if (isCurrentlyDetected) spaceOverlay.classList.add('pulse-yellow-alert'); else spaceOverlay.classList.remove('pulse-yellow-alert');
 
+            // CONTINUOUS RESPONSIVE INTERPOLATION MATRIX: Removes deadzones and double-damping factors
             if (mapLoadedForAnchor && !matrixOverloadActive) {
                 if (!initialSnapCompleted) {
-                    camera.position.x = gpsTargetPosition.x; camera.position.z = gpsTargetPosition.z; initialSnapCompleted = true;
+                    camera.position.x = gpsTargetPosition.x; 
+                    camera.position.z = gpsTargetPosition.z; 
+                    initialSnapCompleted = true;
                 } else {
-                    const distanceDeltaMetric = Math.hypot(gpsTargetPosition.x - camera.position.x, gpsTargetPosition.z - camera.position.z);
-                    if (distanceDeltaMetric > 2.0) { camera.position.x += (gpsTargetPosition.x - camera.position.x) * 0.05; camera.position.z += (gpsTargetPosition.z - camera.position.z) * 0.05; }
+                    camera.position.x += (gpsTargetPosition.x - camera.position.x) * 0.12;
+                    camera.position.z += (gpsTargetPosition.z - camera.position.z) * 0.12;
                 }
                 camera.position.y = 1.7;
             }
@@ -750,7 +753,7 @@
         function updateVisorFeedbackHUD(timestamp) {
             const statusLabel = document.getElementById('main-hud-status'); const trackerContainer = document.getElementById('threat-tracker-display'); const cracksCanvas = document.getElementById('cracks-canvas'); const reticle = document.getElementById('targeting-matrix'); const ctx = cracksCanvas.getContext('2d');
             if (matrixOverloadActive) { statusLabel.innerHTML = `<div class="matrix-overload-title">Matrix Overload!</div><div class="matrix-overload-sub">Touch screen to re-initiate spatial reconstruction sequence.</div>`; statusLabel.classList.remove('pulse-animation'); }
-            else if (!mapLoadedForAnchor) { statusLabel.innerHTML = "Loading Simulation..."; statusLabel.classList.add('pulse-animation'); }
+            else if (!mapLoadedForAnchor) { statusLabel.innerHTML = "Calibrating Satellites..."; statusLabel.classList.add('pulse-animation'); }
             else if (mapLoadedForAnchor && !sensorsEngaged) { statusLabel.innerHTML = "Touch screen to engage simulation"; statusLabel.classList.add('pulse-animation'); }
             else { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
             if (sensorsEngaged && !matrixOverloadActive) reticle.style.display = 'block'; else reticle.style.display = 'none';
@@ -822,19 +825,33 @@
             );
         }
 
+        // HIGH-FIDELITY TELEMETRY UPGRADE ENGINE: Re-anchors structural coordinates on satellite lock
         function updatePlayerPositionFromGps(latitude, longitude, accuracy) {
-            currentCoordinates.lat = latitude; currentCoordinates.lon = longitude; const currentAccuracy = accuracy || 0;
-            const geoOverlay = document.getElementById('geo-coordinates-overlay'); if (geoOverlay) geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} &nbsp; LON: ${currentCoordinates.lon.toFixed(6)}`;
-            const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
+            currentCoordinates.lat = latitude; 
+            currentCoordinates.lon = longitude; 
+            const currentAccuracy = accuracy || 999;
             
-            // CONCURRENCY GATING MATRIX: Prevents overlapping fetches if a request thread is active
-            if (!hasLockedInitialAnchor || (!initialSnapCompleted && !isFetchingMap && currentAccuracy < initialBestAccuracy)) {
-                anchorCoordinates.lat = latitude; anchorCoordinates.lon = longitude; initialBestAccuracy = currentAccuracy; hasLockedInitialAnchor = true;
-                camera.position.set(0, 1.7, 0); gpsTargetPosition.set(0, 1.7, 0);
+            const geoOverlay = document.getElementById('geo-coordinates-overlay'); 
+            if (geoOverlay) geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} &nbsp; LON: ${currentCoordinates.lon.toFixed(6)}`;
+            
+            // Evaluates if tracking quality shifts from inaccurate cellular lock (>25m) to a sharp satellite lock (<=25m)
+            const isHighFidelityUpgrade = !hasLockedInitialAnchor || (currentAccuracy <= 25 && initialBestAccuracy > 25);
+            
+            if (isHighFidelityUpgrade || (currentAccuracy < initialBestAccuracy && !initialSnapCompleted && !isFetchingMap)) {
+                anchorCoordinates.lat = latitude; 
+                anchorCoordinates.lon = longitude; 
+                initialBestAccuracy = currentAccuracy; 
+                hasLockedInitialAnchor = true;
+                initialSnapCompleted = false; 
+                
+                // Flush tracking nodes to force immediate relocation to new origin
+                gpsTargetPosition.set(0, 1.7, 0);
+                camera.position.set(0, 1.7, 0);
+                
                 fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
-                if (!initialSnapCompleted) { gpsTargetPosition.set(local.x, 1.7, local.z); }
-                else { gpsTargetPosition.x += (local.x - gpsTargetPosition.x) * 0.15; gpsTargetPosition.z += (local.z - gpsTargetPosition.z) * 0.15; }
+                const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
+                gpsTargetPosition.set(local.x, 1.7, local.z);
             }
         }
 
