@@ -150,16 +150,16 @@
             font-size: 10px;
             font-weight: bold;
             letter-spacing: 1.5px;
-            color: rgba(0, 255, 204, 0.85);
+            color: #00ffcc;
             text-shadow: 0 0 6px rgba(0, 255, 204, 0.6);
             z-index: 110;
             pointer-events: auto;
             cursor: pointer;
             white-space: nowrap;
-            background: rgba(2, 2, 5, 0.75);
-            padding: 4px 8px;
+            background: rgba(2, 2, 5, 0.85);
+            padding: 6px 10px;
             border-radius: 4px;
-            border: 1px solid rgba(0, 255, 204, 0.35);
+            border: 1px solid rgba(0, 255, 204, 0.4);
         }
 
         #minimapCanvas {
@@ -227,20 +227,21 @@
 
         .bias-control-panel {
             display: flex;
-            gap: 4px;
-            background: rgba(6, 10, 25, 0.75);
-            padding: 4px;
+            gap: 6px;
+            background: rgba(6, 10, 25, 0.85);
+            padding: 6px;
             border-radius: 6px;
-            border: 1px solid rgba(0, 255, 204, 0.3);
+            border: 1px solid #00ffcc;
         }
 
         .nudge-btn {
             background: rgba(2, 2, 5, 0.9);
             color: #00ffcc;
             border: 1px solid #00ffcc;
-            width: 32px; height: 32px;
-            font-size: 14px;
+            width: 36px; height: 32px;
+            font-size: 13px;
             font-weight: bold;
+            font-family: monospace;
             cursor: pointer;
             border-radius: 4px;
             display: flex;
@@ -314,10 +315,10 @@
 
     <div id="action-dashboard">
         <div class="bias-control-panel">
-            <button class="nudge-btn" onclick="applyVisorBias(0, -3)" title="Nudge North">↑</button>
-            <button class="nudge-btn" onclick="applyVisorBias(0, 3)" title="Nudge South">↓</button>
-            <button class="nudge-btn" onclick="applyVisorBias(-3, 0)" title="Nudge West">←</button>
-            <button class="nudge-btn" onclick="applyVisorBias(3, 0)" title="Nudge East">→</button>
+            <button class="nudge-btn" onclick="applyGeospatialNudge(0.0001, 0)" title="Nudge North">+N</button>
+            <button class="nudge-btn" onclick="applyGeospatialNudge(-0.0001, 0)" title="Nudge South">-S</button>
+            <button class="nudge-btn" onclick="applyGeospatialNudge(0, -0.0001)" title="Nudge West">-W</button>
+            <button class="nudge-btn" onclick="applyGeospatialNudge(0, 0.0001)" title="Nudge East">+E</button>
         </div>
         <button id="stepSimBtn" class="visor-btn">Simulate GPS Move</button>
     </div>
@@ -339,7 +340,9 @@
         let osmFetchController = null;
         const R_EARTH = 6378137;
 
-        let telemetryBiasOffset = { x: 0, z: 0 };
+        // UPSTREAM GEOSPATIAL BIAS MATRIX (Corrects raw hardware tracking telemetry directly)
+        let geoTelemetryOffset = { lat: 0.0, lon: 0.0 };
+
         let gpsTargetPosition = new THREE.Vector3(0, 1.7, 0);
         let initialSnapCompleted = false; 
 
@@ -394,11 +397,22 @@
             return { x: x, z: z };
         }
 
-        function applyVisorBias(deltaX, deltaZ) {
-            telemetryBiasOffset.x += deltaX;
-            telemetryBiasOffset.z += deltaZ;
-            const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
-            gpsTargetPosition.set(local.x + telemetryBiasOffset.x, 1.7, local.z + telemetryBiasOffset.z);
+        // GEOSPATIAL BIAS CORRECTION CONTROL: Shifts raw planetary positioning inputs in degree deltas
+        function applyGeospatialNudge(deltaLat, deltaLon) {
+            geoTelemetryOffset.lat += deltaLat;
+            geoTelemetryOffset.lon += deltaLon;
+            
+            // Force anchor release to clear out cache and rebuild map around corrected boundary footprint
+            hasLockedInitialAnchor = false;
+            initialSnapCompleted = false;
+            
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => updatePlayerPositionFromGps(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
+                    (err) => console.warn(err.message),
+                    { enableHighAccuracy: true, timeout: 4000, maximumAge: 0 }
+                );
+            }
         }
 
         function forceRecalibrateAnchor() {
@@ -872,46 +886,46 @@
             );
         }
 
-        // RE-ENGINEERED TELEMETRY FILTER PIPELINE: Filters noise and shifts based on hardware metrics
+        // UPSTREAM TELEMETRY SHIFT FILTER: Integrates manual degree offsets directly into incoming raw GPS buffers
         function updatePlayerPositionFromGps(latitude, longitude, accuracy) {
-            currentCoordinates.lat = latitude; 
-            currentCoordinates.lon = longitude; 
+            // Apply the global planetary degree calibration offsets upstream before mapping geometry builds
+            let calibratedLat = latitude + geoTelemetryOffset.lat;
+            let calibratedLon = longitude + geoTelemetryOffset.lon;
+
+            currentCoordinates.lat = calibratedLat; 
+            currentCoordinates.lon = calibratedLon; 
             const currentAccuracy = accuracy || 999;
             
             const geoOverlay = document.getElementById('geo-coordinates-overlay'); 
             if (geoOverlay) {
-                geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} &nbsp; LON: ${currentCoordinates.lon.toFixed(6)} [ACC: ${Math.round(currentAccuracy)}m]`;
+                let offsetMarker = (geoTelemetryOffset.lat !== 0 || geoTelemetryOffset.lon !== 0) ? ` *CALIBRATED*` : ``;
+                geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} &nbsp; LON: ${currentCoordinates.lon.toFixed(6)} [ACC: ${Math.round(currentAccuracy)}m]${offsetMarker}`;
             }
 
-            // SIFTING LOCK LAYER: If accuracy is low, enforce damping filters to reject jumping metrics
-            let precisionWeightFactor = 0.15; // standard target response
+            let precisionWeightFactor = 0.15; 
             if (currentAccuracy > 15) {
-                // Throttle position updates if data is coarse cellular noise
                 precisionWeightFactor = 0.03; 
             } else if (currentAccuracy <= 8) {
-                // High-precision satellite lock achieved; increase system weight response
                 precisionWeightFactor = 0.45;
             }
             
             const isHighFidelityUpgrade = !hasLockedInitialAnchor || (currentAccuracy <= 20 && initialBestAccuracy > 20);
             
             if (isHighFidelityUpgrade || (currentAccuracy < initialBestAccuracy && !initialSnapCompleted && !isFetchingMap)) {
-                anchorCoordinates.lat = latitude; 
-                anchorCoordinates.lon = longitude; 
+                anchorCoordinates.lat = calibratedLat; 
+                anchorCoordinates.lon = calibratedLon; 
                 initialBestAccuracy = currentAccuracy; 
                 hasLockedInitialAnchor = true;
                 initialSnapCompleted = false; 
                 
-                gpsTargetPosition.set(telemetryBiasOffset.x, 1.7, telemetryBiasOffset.z);
-                camera.position.set(telemetryBiasOffset.x, 1.7, telemetryBiasOffset.z);
+                gpsTargetPosition.set(0, 1.7, 0);
+                camera.position.set(0, 1.7, 0);
                 
                 fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
                 const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
-                
-                // Adaptive weight sifting prevents sudden 50m jumps due to multi-path interference near buildings
-                gpsTargetPosition.x += ((local.x + telemetryBiasOffset.x) - gpsTargetPosition.x) * precisionWeightFactor;
-                gpsTargetPosition.z += ((local.z + telemetryBiasOffset.z) - gpsTargetPosition.z) * precisionWeightFactor;
+                gpsTargetPosition.x += (local.x - gpsTargetPosition.x) * precisionWeightFactor;
+                gpsTargetPosition.z += (local.z - gpsTargetPosition.z) * precisionWeightFactor;
             }
         }
 
@@ -920,7 +934,7 @@
             const simLat = currentCoordinates.lat - (vec.z * 8.0 * factor); const simLon = currentCoordinates.lon + (vec.x * 8.0 * factor / Math.cos(anchorCoordinates.lat * Math.PI / 180));
             currentCoordinates.lat = simLat; currentCoordinates.lon = simLon;
             const geoOverlay = document.getElementById('geo-coordinates-overlay'); if (geoOverlay) geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} &nbsp; LON: ${currentCoordinates.lon.toFixed(6)} [RE-CAL]`;
-            const local = latLonToLocalMeters(simLat, simLon, anchorCoordinates.lat, anchorCoordinates.lon); gpsTargetPosition.set(local.x + telemetryBiasOffset.x, 1.7, local.z + telemetryBiasOffset.z);
+            const local = latLonToLocalMeters(simLat, simLon, anchorCoordinates.lat, anchorCoordinates.lon); gpsTargetPosition.set(local.x, 1.7, local.z);
         }
 
         function spawnQuantumAnomalies() {
