@@ -17,7 +17,6 @@
             user-select: none;
         }
 
-        /* LIVE CAMERA BACKGROUND PASSTHROUGH LAYER */
         #webcam-feed {
             position: absolute;
             top: 0; left: 0;
@@ -316,14 +315,15 @@
         }
         @media (orientation: portrait) { #portrait-warning { display: flex; } }
     </style>
+    <!-- CRITICAL DEPENDENCY LOAD SCRIPT ASSETS -->
     <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/vision_bundle.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
-    <!-- VIDEO AR PASSTHROUGH STREAM ELEMENT -->
     <video id="webcam-feed" autoplay playsinline muted></video>
 
-    <div id="visor-boot-gate" onclick="window.engageVisorSystemFromBootGate()">
+    <div id="visor-boot-gate" onclick="engageVisorSystemFromBootGate()">
         <div style="font-size: 18px; font-weight: 900; letter-spacing: 5px; color: #ff0055; margin-bottom: 10px; text-shadow: 0 0 10px #ff0055;">
             // TERMINAL INITIALIZATION REQUEST
         </div>
@@ -364,18 +364,15 @@
 
     <div id="fine-tune-dock">
         <div id="biasPanel" class="bias-control-panel">
-            <button class="nudge-btn" onclick="window.applyGeospatialNudge(0.00004, 0)" title="Nudge North">+N</button>
-            <button class="nudge-btn" onclick="window.applyGeospatialNudge(-0.00004, 0)" title="Nudge South">-S</button>
-            <button class="nudge-btn" onclick="window.applyGeospatialNudge(0, -0.00005)" title="Nudge West">-W</button>
-            <button class="nudge-btn" onclick="window.applyGeospatialNudge(0, 0.00005)" title="Nudge East">+E</button>
+            <button class="nudge-btn" onclick="applyGeospatialNudge(0.00004, 0)" title="Nudge North">+N</button>
+            <button class="nudge-btn" onclick="applyGeospatialNudge(-0.00004, 0)" title="Nudge South">-S</button>
+            <button class="nudge-btn" onclick="applyGeospatialNudge(0, -0.00005)" title="Nudge West">-W</button>
+            <button class="nudge-btn" onclick="applyGeospatialNudge(0, 0.00005)" title="Nudge East">+E</button>
         </div>
         <button id="offsetMenuTriggerBtn" class="offset-menu-trigger" title="Positional Offset Calibration">⌖</button>
     </div>
 
-    <!-- MEDIAPIPE OBJECT DETECTOR MODULE ENGINE -->
-    <script type="module">
-        import { ObjectDetector, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/vision_bundle.js";
-
+    <script>
         let scene, camera, renderer;
         let lookYaw = 0; let lookPitch = 0;
         let isDragging = false;
@@ -415,7 +412,7 @@
         const activeLasersCollection = []; 
         let anomaliesCollectedCount = 0;
 
-        // MEDIAPIPE TASKS CONFIGURATION AND TRACKING POOL
+        // COMPUTER VISION TRACKING ARCHITECTURE
         let objectDetectorInstance = null;
         let detectionModelLoaded = false;
         const mappedVisualReticlesPool = [];
@@ -447,11 +444,9 @@
             };
         })();
 
-        // Async task loading matrix
+        // Global async asset initialization pipeline
         async function initializeMediaPipeDetector() {
             try {
-                const subLabel = document.getElementById('boot-sub-status');
-                if(subLabel) subLabel.innerHTML = "DOWNLOADING COMPUTER VISION MODELS...";
                 const visionResolver = await FilesetResolver.forVisionTasks(
                     "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm"
                 );
@@ -460,14 +455,14 @@
                         modelAssetPath: "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite",
                         delegate: "GPU"
                     },
-                    scoreThreshold: 0.35,
+                    scoreThreshold: 0.38,
                     runningMode: "VIDEO"
                 });
                 detectionModelLoaded = true;
-                if(subLabel) subLabel.innerHTML = "SYSTEM READY. TAP TO ENGAGE VISOR.";
+                console.log("// COMPUTER VISION SUBSYSTEM ENGAGED");
             } catch(e) {
-                console.error("MediaPipe failed initialization: ", e);
-                detectionModelLoaded = true; // Bypasses on error to allow standard AR load
+                console.warn("MediaPipe failed to spin up. Running basic spatial tracker.", e);
+                detectionModelLoaded = false;
             }
         }
 
@@ -492,10 +487,12 @@
             }
         }
 
+        // DECOUPLED BOOT LAUNCH GATE INTERCEPTOR
         window.engageVisorSystemFromBootGate = function() {
-            if (!detectionModelLoaded || sensorsEngaged) return;
+            if (sensorsEngaged) return;
             sensorsEngaged = true;
 
+            // Instantly engage hardware fullscreen lock
             if (document.documentElement.requestFullscreen) {
                 document.documentElement.requestFullscreen().then(() => {
                     if (screen.orientation && screen.orientation.lock) {
@@ -504,7 +501,7 @@
                 }).catch(() => {});
             }
 
-            // Launch localized hardware camera array stream
+            // Fire up active device camera hardware layers immediately
             const videoFeedStream = document.getElementById('webcam-feed');
             if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
                 navigator.mediaDevices.getUserMedia({ 
@@ -513,7 +510,7 @@
                 }).then((stream) => {
                     videoFeedStream.srcObject = stream;
                 }).catch(() => {
-                    // Fallback to standard tracking array camera layer if environmental match fails
+                    // Desktop/Front-camera tracking fallback loop
                     navigator.mediaDevices.getUserMedia({ video: true, audio: false }).then((stream) => {
                         videoFeedStream.srcObject = stream;
                     });
@@ -528,6 +525,7 @@
                 bindAbsoluteCompassListeners();
             }
 
+            // Instantly transition out the boot window UI overlay
             const bootGate = document.getElementById('visor-boot-gate');
             bootGate.style.opacity = '0';
             setTimeout(() => { bootGate.style.display = 'none'; }, 400);
@@ -1052,16 +1050,15 @@
             spatialAnomaliesCollection.forEach(a => { if (a.collected) return; const d = Math.hypot(a.mesh.position.x - camera.position.x, a.mesh.position.z - camera.position.z); if (d <= a.radius) { a.collected = true; scene.remove(a.mesh); anomaliesCollectedCount++; } });
         }
 
-        // REAL-TIME COMPUTER VISION FRAME PROCESSING PIPELINE
+        // REAL-TIME VISUAL TARGET RECOGNITION SCANNER
         function executeMediaPipeDetectionScanner() {
             const videoElement = document.getElementById('webcam-feed');
             
-            // Confirm streaming video dimensions are verified and ready
-            if (!objectDetectorInstance || videoElement.readyState < 2) return;
+            if (!detectionModelLoaded || !objectDetectorInstance || videoElement.readyState < 2) return;
 
             const detectionResults = objectDetectorInstance.detectForVideo(videoElement, performance.now());
 
-            // Clear previous reticle lines cleanly before drawing new updates
+            // Wipe out historical geometry reticles cleanly
             mappedVisualReticlesPool.forEach(box => scene.remove(box));
             mappedVisualReticlesPool.length = 0;
 
@@ -1069,26 +1066,21 @@
                 detectionResults.detections.forEach(detection => {
                     const matchedCategory = detection.categories[0].categoryName;
                     
-                    // Filter targets: restrict to people and specified animal tracking domains
                     if (["person", "cat", "dog"].includes(matchedCategory)) {
                         const bbox = detection.boundingBox;
                         
-                        // Convert MediaPipe normalized box coordinates to WebGL screen coordinates
                         const normCenterX = (bbox.originX + bbox.width / 2) / videoElement.videoWidth;
                         const normCenterY = (bbox.originY + bbox.height / 2) / videoElement.videoHeight;
                         
                         const ndcX = (normCenterX * 2) - 1;
                         const ndcY = -(normCenterY * 2) + 1;
 
-                        // Calculate spatial trajectory vectors out into 3D space
                         const trajectoryVector = new THREE.Vector3(ndcX, ndcY, 0.5).unproject(camera);
                         trajectoryVector.sub(camera.position).normalize();
                         
-                        // Anchor the tracking reticle 6 meters in front of the active camera viewpoint
                         const distanceAnchor = 6.0;
                         const final3DTargetPos = new THREE.Vector3().copy(camera.position).addScaledVector(trajectoryVector, distanceAnchor);
 
-                        // Generate neon espionage tracker geometries
                         const boxW = (bbox.width / videoElement.videoWidth) * 5.5;
                         const boxH = (bbox.height / videoElement.videoHeight) * 5.5;
                         
@@ -1125,16 +1117,16 @@
         function init() {
             scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000); camera.position.set(0, 1.7, 0);
             
-            // Reconfigured WebGL layer to support alpha pass-through channels
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true, alpha: true }); 
             renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); 
-            renderer.setClearColor(0x000000, 0.0); // Transparent canvas background
+            renderer.setClearColor(0x000000, 0.0); 
             
             scene.add(mapStructuralMeshes); 
             autoInitializeSensors(); 
             onWindowResize(); 
             window.addEventListener('resize', onWindowResize);
             
+            // Asynchronously load the AI detector without locking up UI threads
             initializeMediaPipeDetector();
 
             function frameLoopEngine() {
