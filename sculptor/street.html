@@ -131,6 +131,7 @@
             #threat-tracker-display { font-size: 18px; letter-spacing: 3px; margin-top: 60px; }
         }
 
+        /* DYNAMIC MINIMAP INTERACTION SUITE */
         #minimap-container {
             position: absolute;
             bottom: 25px;
@@ -142,25 +143,21 @@
             z-index: 100;
             pointer-events: auto;
             cursor: pointer;
-            transition: width 0.25s cubic-bezier(0.2, 1, 0.2, 1), 
-                        height 0.25s cubic-bezier(0.2, 1, 0.2, 1), 
-                        bottom 0.25s cubic-bezier(0.2, 1, 0.2, 1), 
-                        left 0.25s cubic-bezier(0.2, 1, 0.2, 1),
-                        top 0.25s cubic-bezier(0.2, 1, 0.2, 1);
+            transition: width 0.3s ease, height 0.3s ease, max-width 0.3s ease, max-height 0.3s ease, top 0.3s ease, left 0.3s ease, transform 0.3s ease;
         }
 
-        /* TACTICAL ENLARGED VIEW OVERLAY WINDOW */
+        /* TARGET VIEWPORT MATRIX: Maximizes geometric alignment inside viewport limits */
         #minimap-container.enlarged {
             bottom: auto;
-            left: auto;
-            top: 50%;
             left: 50%;
+            top: 50%;
             transform: translate(-50%, -50%);
-            width: 72vw;
-            height: 72vw;
-            max-width: 520px;
-            max-height: 520px;
-            box-shadow: 0 0 40px rgba(0, 255, 204, 0.35);
+            width: 94vh;
+            height: 94vh;
+            max-width: 94vw;
+            max-height: 94vh;
+            min-width: 0;
+            min-height: 0;
         }
 
         #minimapCanvas {
@@ -330,7 +327,8 @@
         let osmFetchController = null;
         const R_EARTH = 6378137;
 
-        let isMinimapEnlarged = false; // System track variable for viewport states
+        // VISOR ZOOM EXTRACTION STATE FLAG
+        let isMinimapEnlarged = false;
 
         let geoTelemetryOffset = { lat: 0.0, lon: 0.0 };
         let gpsTargetPosition = new THREE.Vector3(0, 1.7, 0);
@@ -416,8 +414,6 @@
                 lookPitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, lookPitch));
                 camera.quaternion.setFromEuler(new THREE.Euler(lookPitch, lookYaw, 0, 'YXZ'));
             });
-            
-            // Sensor activation handler boundaries
             window.addEventListener('pointerdown', (e) => {
                 if (e.target.closest('#action-dashboard') || e.target.closest('#minimap-container')) return;
                 if (matrixOverloadActive) {
@@ -427,24 +423,21 @@
                 if (!sensorsEngaged) engageHardwareSensors();
             });
 
-            // INTERACTIVE HUD EXPANSION MANAGER MATRIX
-            const mapContainer = document.getElementById('minimap-container');
-            mapContainer.addEventListener('pointerdown', (e) => {
-                if (!isMinimapEnlarged) {
-                    isMinimapEnlarged = true;
-                    mapContainer.classList.add('enlarged');
-                    e.stopPropagation(); // Avoid instant trigger drops across standard loop layers
-                }
-            });
-
-            // Global interception layer collapses view window instantly
-            window.addEventListener('pointerdown', (e) => {
+            // EXTRACTABLE MINIMAP INTERFACES EVENT PIPELINE
+            window.addEventListener('click', (e) => {
+                const mapContainer = document.getElementById('minimap-container');
                 if (isMinimapEnlarged) {
+                    // Touching anywhere closes the screen-height map view mode
                     isMinimapEnlarged = false;
                     mapContainer.classList.remove('enlarged');
-                    e.stopPropagation();
+                } else {
+                    // Touching the peripheral map container scales it up to full center display bounds
+                    if (e.target.closest('#minimap-container')) {
+                        isMinimapEnlarged = true;
+                        mapContainer.classList.add('enlarged');
+                    }
                 }
-            }, true); // Enforced Capture Phase pipeline prevents residual dashboard command leaks
+            });
         }
 
         function engageHardwareSensors() {
@@ -810,7 +803,7 @@
             const statusLabel = document.getElementById('main-hud-status'); const trackerContainer = document.getElementById('threat-tracker-display'); const cracksCanvas = document.getElementById('cracks-canvas'); const reticle = document.getElementById('targeting-matrix'); const ctx = cracksCanvas.getContext('2d');
             if (matrixOverloadActive) { statusLabel.innerHTML = `<div class="matrix-overload-title">Matrix Overload!</div><div class="matrix-overload-sub">Touch screen to re-initiate spatial reconstruction sequence.</div>`; statusLabel.classList.remove('pulse-animation'); }
             else if (!mapLoadedForAnchor) { statusLabel.innerHTML = "Calibrating Satellites..."; statusLabel.classList.add('pulse-animation'); }
-            else if (mapLoadedForAnchor && !sensorsEngaged) { statusLabel.innerHTML = "Touch screen to engage visor metrics"; statusLabel.classList.add('pulse-animation'); }
+            else if (mapLoadedForAnchor && !sensorsEngaged) { statusLabel.innerHTML = "Touch screen to engage simulation"; statusLabel.classList.add('pulse-animation'); }
             else { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
             if (sensorsEngaged && !matrixOverloadActive) reticle.style.display = 'block'; else reticle.style.display = 'none';
             if (isCurrentlyDetected && !matrixOverloadActive) { trackerContainer.style.display = 'block'; trackerContainer.innerHTML = "WARNING: POSITION EXPOSED"; }
@@ -832,25 +825,23 @@
 
         function update2DMinimapSystem() {
             const minimapCanvas = document.getElementById('minimapCanvas'); const minimapCtx = minimapCanvas.getContext('2d'); if (!minimapCtx || matrixOverloadActive) { if(minimapCtx) minimapCtx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height); return; }
-            
-            // Dynamic canvas allocation checks container bounds every render loop frame step
-            const containerElement = document.getElementById('minimap-container');
-            const targetRenderWidth = containerElement.offsetWidth;
-            if (minimapCanvas.width !== targetRenderWidth) {
-                minimapCanvas.width = targetRenderWidth;
-                minimapCanvas.height = targetRenderWidth;
-            }
-
             const directionVector = new THREE.Vector3(); camera.getWorldDirection(directionVector); const yaw = Math.atan2(directionVector.x, -directionVector.z);
             const ring = document.getElementById('compass-ring'); if (ring) ring.style.transform = `rotate(${THREE.MathUtils.radToDeg(-yaw)}deg)`;
             
+            // ADJUSTIVE GRAPHICS BUFFER UPDATER: Matches canvas memory allocations cleanly to absolute layout element limits
+            const currentContainerElement = document.getElementById('minimap-container');
+            const targetContainerWidth = currentContainerElement.offsetWidth;
+            if (minimapCanvas.width !== targetContainerWidth && targetContainerWidth > 0) {
+                minimapCanvas.width = targetContainerWidth;
+                minimapCanvas.height = targetContainerWidth;
+            }
+
             const centerMeters = minimapCanvas.width / 2; 
             minimapCtx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height); minimapCtx.save();
             minimapCtx.beginPath(); minimapCtx.arc(centerMeters, centerMeters, centerMeters - 2, 0, Math.PI * 2); minimapCtx.clip();
             minimapCtx.fillStyle = '#071e0e'; minimapCtx.fillRect(0, 0, minimapCanvas.width, minimapCanvas.height);
             minimapCtx.translate(centerMeters, centerMeters); minimapCtx.rotate(-yaw); 
             
-            // Locked 200m spatial coverage window metric
             const VISIBLE_MAP_RADIUS = 200; 
             const scale = centerMeters / VISIBLE_MAP_RADIUS;
 
@@ -951,6 +942,13 @@
         function onWindowResize() {
             const width = window.innerWidth; const height = window.innerHeight; camera.aspect = width / height; camera.updateProjectionMatrix(); renderer.setSize(width, height);
             const cracksCanvas = document.getElementById('cracks-canvas'); cracksCanvas.width = width; cracksCanvas.height = height;
+            
+            const currentContainerElement = document.getElementById('minimap-container');
+            const targetWidth = currentContainerElement.offsetWidth;
+            if (targetWidth > 0) {
+                const minimapCanvas = document.getElementById('minimapCanvas');
+                minimapCanvas.width = targetWidth; minimapCanvas.height = targetWidth;
+            }
         }
 
         function init() {
