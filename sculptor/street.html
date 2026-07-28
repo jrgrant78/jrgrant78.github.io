@@ -70,7 +70,7 @@
         }
 
         .hud-banner-text {
-            font-size: 24px;
+            font-size: 28px;
             font-weight: 900;
             letter-spacing: 4px;
             color: #00ffcc;
@@ -79,7 +79,7 @@
         }
 
         @media (min-width: 768px) {
-            .hud-banner-text { font-size: 34px; letter-spacing: 6px; }
+            .hud-banner-text { font-size: 38px; letter-spacing: 6px; }
         }
 
         .pulse-animation {
@@ -125,6 +125,10 @@
             text-shadow: 0 0 10px #ff0055;
             margin-top: 40px;
             display: none;
+        }
+
+        @media (min-width: 768px) {
+            #threat-tracker-display { font-size: 18px; letter-spacing: 3px; margin-top: 60px; }
         }
 
         #minimap-container {
@@ -305,15 +309,15 @@
             </div>
         </div>
 
-        <div id="geo-coordinates-overlay" onclick="forceRecalibrateAnchor()">LAT: 0.000000 &nbsp; LON: 0.000000 ACC: -- [RESET]</div>
+        <div id="geo-coordinates-overlay" onclick="forceRecalibrateAnchor()">LAT: 0.000000 &nbsp; LON: 0.000000 [ACC: --]</div>
     </div>
 
     <div id="action-dashboard">
         <div class="bias-control-panel">
-            <button class="nudge-btn" onclick="applyVisorBias(0, -2)" title="Nudge North">↑</button>
-            <button class="nudge-btn" onclick="applyVisorBias(0, 2)" title="Nudge South">↓</button>
-            <button class="nudge-btn" onclick="applyVisorBias(-2, 0)" title="Nudge West">←</button>
-            <button class="nudge-btn" onclick="applyVisorBias(2, 0)" title="Nudge East">→</button>
+            <button class="nudge-btn" onclick="applyVisorBias(0, -3)" title="Nudge North">↑</button>
+            <button class="nudge-btn" onclick="applyVisorBias(0, 3)" title="Nudge South">↓</button>
+            <button class="nudge-btn" onclick="applyVisorBias(-3, 0)" title="Nudge West">←</button>
+            <button class="nudge-btn" onclick="applyVisorBias(3, 0)" title="Nudge East">→</button>
         </div>
         <button id="stepSimBtn" class="visor-btn">Simulate GPS Move</button>
     </div>
@@ -327,18 +331,13 @@
         let currentCoordinates = { lat: 40.7580, lon: -73.9855 };
         let anchorCoordinates = { lat: 40.7580, lon: -73.9855 };
         let hasLockedInitialAnchor = false;
+        let initialBestAccuracy = 999999; 
         let mapLoadedForAnchor = false;
         let sensorsEngaged = false; 
         let matrixOverloadActive = false; 
         let isFetchingMap = false; 
         let osmFetchController = null;
         const R_EARTH = 6378137;
-
-        // HARDWARE PRECISION TUNING PARAMS
-        const TARGET_ACCURACY_THRESHOLD_METERS = 20.0; // Restricts locking until accurate lock is built
-        let rollingTelemetryBuffer = [];
-        const MATURING_WINDOW_SIZE = 6; // Requires consecutive streaming confirmations before lock
-        let currentHardwareAccuracy = 9999;
 
         let telemetryBiasOffset = { x: 0, z: 0 };
         let gpsTargetPosition = new THREE.Vector3(0, 1.7, 0);
@@ -404,9 +403,8 @@
 
         function forceRecalibrateAnchor() {
             hasLockedInitialAnchor = false;
+            initialBestAccuracy = 999999;
             initialSnapCompleted = false;
-            rollingTelemetryBuffer = [];
-            document.getElementById('main-hud-status').innerHTML = "Resetting Anchor System...";
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
                     (pos) => updatePlayerPositionFromGps(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
@@ -802,8 +800,7 @@
         function updateVisorFeedbackHUD(timestamp) {
             const statusLabel = document.getElementById('main-hud-status'); const trackerContainer = document.getElementById('threat-tracker-display'); const cracksCanvas = document.getElementById('cracks-canvas'); const reticle = document.getElementById('targeting-matrix'); const ctx = cracksCanvas.getContext('2d');
             if (matrixOverloadActive) { statusLabel.innerHTML = `<div class="matrix-overload-title">Matrix Overload!</div><div class="matrix-overload-sub">Touch screen to re-initiate spatial reconstruction sequence.</div>`; statusLabel.classList.remove('pulse-animation'); }
-            else if (!hasLockedInitialAnchor) { statusLabel.innerHTML = `Acquiring Satellite Array... Accuracy: ${currentHardwareAccuracy}m / Gate: ${TARGET_ACCURACY_THRESHOLD_METERS}m`; statusLabel.classList.add('pulse-animation'); }
-            else if (!mapLoadedForAnchor) { statusLabel.innerHTML = "Downloading Map Stream..."; statusLabel.classList.add('pulse-animation'); }
+            else if (!mapLoadedForAnchor) { statusLabel.innerHTML = "Calibrating Satellites..."; statusLabel.classList.add('pulse-animation'); }
             else if (mapLoadedForAnchor && !sensorsEngaged) { statusLabel.innerHTML = "Touch screen to engage simulation"; statusLabel.classList.add('pulse-animation'); }
             else { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
             if (sensorsEngaged && !matrixOverloadActive) reticle.style.display = 'block'; else reticle.style.display = 'none';
@@ -871,55 +868,59 @@
             if (!navigator.geolocation) return;
             navigator.geolocation.watchPosition(
                 (pos) => updatePlayerPositionFromGps(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
-                (err) => console.warn(err.message), { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                (err) => console.warn(err.message), { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
             );
         }
 
-        // ACCURACY FILTER & GEOMETRIC CONVERGENCE ENGINE
+        // RE-ENGINEERED TELEMETRY FILTER PIPELINE: Filters noise and shifts based on hardware metrics
         function updatePlayerPositionFromGps(latitude, longitude, accuracy) {
             currentCoordinates.lat = latitude; 
             currentCoordinates.lon = longitude; 
-            currentHardwareAccuracy = Math.round(accuracy || 999);
+            const currentAccuracy = accuracy || 999;
             
             const geoOverlay = document.getElementById('geo-coordinates-overlay'); 
-            if (geoOverlay) geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} | LON: ${currentCoordinates.lon.toFixed(6)} | ACC: ${currentHardwareAccuracy}m`;
+            if (geoOverlay) {
+                geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} &nbsp; LON: ${currentCoordinates.lon.toFixed(6)} [ACC: ${Math.round(currentAccuracy)}m]`;
+            }
+
+            // SIFTING LOCK LAYER: If accuracy is low, enforce damping filters to reject jumping metrics
+            let precisionWeightFactor = 0.15; // standard target response
+            if (currentAccuracy > 15) {
+                // Throttle position updates if data is coarse cellular noise
+                precisionWeightFactor = 0.03; 
+            } else if (currentAccuracy <= 8) {
+                // High-precision satellite lock achieved; increase system weight response
+                precisionWeightFactor = 0.45;
+            }
             
-            if (!hasLockedInitialAnchor) {
-                // Buffer incoming items until mobile GPS drops to clean levels
-                rollingTelemetryBuffer.push({lat: latitude, lon: longitude, acc: currentHardwareAccuracy});
+            const isHighFidelityUpgrade = !hasLockedInitialAnchor || (currentAccuracy <= 20 && initialBestAccuracy > 20);
+            
+            if (isHighFidelityUpgrade || (currentAccuracy < initialBestAccuracy && !initialSnapCompleted && !isFetchingMap)) {
+                anchorCoordinates.lat = latitude; 
+                anchorCoordinates.lon = longitude; 
+                initialBestAccuracy = currentAccuracy; 
+                hasLockedInitialAnchor = true;
+                initialSnapCompleted = false; 
                 
-                // If we hit threshold OR collected enough telemetry vectors to generate a solid average
-                const validLock = (currentHardwareAccuracy <= TARGET_ACCURACY_THRESHOLD_METERS);
-                const bufferMatured = (rollingTelemetryBuffer.length >= MATURING_WINDOW_SIZE);
+                gpsTargetPosition.set(telemetryBiasOffset.x, 1.7, telemetryBiasOffset.z);
+                camera.position.set(telemetryBiasOffset.x, 1.7, telemetryBiasOffset.z);
                 
-                if (validLock || bufferMatured) {
-                    // Sort items by accuracy to secure the absolute cleanest data packet
-                    rollingTelemetryBuffer.sort((a, b) => a.acc - b.acc);
-                    const bestVector = rollingTelemetryBuffer[0];
-                    
-                    anchorCoordinates.lat = bestVector.lat; 
-                    anchorCoordinates.lon = bestVector.lon; 
-                    hasLockedInitialAnchor = true;
-                    
-                    gpsTargetPosition.set(telemetryBiasOffset.x, 1.7, telemetryBiasOffset.z);
-                    camera.position.set(telemetryBiasOffset.x, 1.7, telemetryBiasOffset.z);
-                    
-                    fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
-                }
+                fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
                 const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
-                gpsTargetPosition.set(local.x + telemetryBiasOffset.x, 1.7, local.z + telemetryBiasOffset.z);
+                
+                // Adaptive weight sifting prevents sudden 50m jumps due to multi-path interference near buildings
+                gpsTargetPosition.x += ((local.x + telemetryBiasOffset.x) - gpsTargetPosition.x) * precisionWeightFactor;
+                gpsTargetPosition.z += ((local.z + telemetryBiasOffset.z) - gpsTargetPosition.z) * precisionWeightFactor;
             }
         }
 
         function simulateGpsMovementUpdate() {
-            if (matrixOverloadActive || isFetchingMap || !hasLockedInitialAnchor) return; 
-            const vec = new THREE.Vector3(); camera.getWorldDirection(vec); vec.y = 0; vec.normalize(); const factor = 1.0 / R_EARTH * (180.0 / Math.PI);
+            if (matrixOverloadActive || isFetchingMap) return; const vec = new THREE.Vector3(); camera.getWorldDirection(vec); vec.y = 0; vec.normalize(); const factor = 1.0 / R_EARTH * (180.0 / Math.PI);
             const simLat = currentCoordinates.lat - (vec.z * 8.0 * factor); const simLon = currentCoordinates.lon + (vec.x * 8.0 * factor / Math.cos(anchorCoordinates.lat * Math.PI / 180));
             currentCoordinates.lat = simLat; currentCoordinates.lon = simLon;
-            
-            const local = latLonToLocalMeters(simLat, simLon, anchorCoordinates.lat, anchorCoordinates.lon); 
-            gpsTargetPosition.set(local.x + telemetryBiasOffset.x, 1.7, local.z + telemetryBiasOffset.z);
+            const geoOverlay = document.getElementById('geo-coordinates-overlay'); if (geoOverlay) geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} &nbsp; LON: ${currentCoordinates.lon.toFixed(6)} [RE-CAL]`;
+            const local = latLonToLocalMeters(simLat, simLon, anchorCoordinates.lat, anchorCoordinates.lon); gpsTargetPosition.set(local.x + telemetryBiasOffset.x, 1.7, local.z + telemetryBiasOffset.z);
         }
 
         function spawnQuantumAnomalies() {
