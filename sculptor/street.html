@@ -143,16 +143,6 @@
             pointer-events: none;
         }
 
-        @media (max-height: 480px) {
-            #minimap-container {
-                bottom: 38px;
-                left: 25px;
-                width: 28vh;
-                height: 28vh;
-                max-width: 105px; max-height: 105px; 
-            }
-        }
-
         #geo-coordinates-overlay {
             position: absolute;
             bottom: 16px;
@@ -163,8 +153,13 @@
             color: rgba(0, 255, 204, 0.85);
             text-shadow: 0 0 6px rgba(0, 255, 204, 0.6);
             z-index: 110;
-            pointer-events: none;
+            pointer-events: auto;
+            cursor: pointer;
             white-space: nowrap;
+            background: rgba(2, 2, 5, 0.6);
+            padding: 2px 6px;
+            border-radius: 4px;
+            border: 1px solid rgba(0, 255, 204, 0.2);
         }
 
         #minimapCanvas {
@@ -190,7 +185,6 @@
             font-size: 9px; font-weight: 900;
             color: #00ffcc;
         }
-        @media (min-width: 768px) { .compass-marker { font-size: 11px; } }
 
         #marker-n { top: 2px; left: 50%; transform: translateX(-50%); color: #ff0055; text-shadow: 0 0 5px #ff0055; }
         #marker-s { bottom: 2px; left: 50%; transform: translateX(-50%); }
@@ -208,7 +202,6 @@
             z-index: 1000; 
             display: none; 
         }
-        @media (min-width: 768px) { #targeting-matrix { width: 80px; height: 80px; } }
         
         #targeting-matrix::before {
             content: '';
@@ -226,7 +219,39 @@
             bottom: 20px; left: 50%;
             transform: translateX(-50%);
             z-index: 10;
-            display: flex; gap: 10px;
+            display: flex; 
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .bias-control-panel {
+            display: flex;
+            gap: 4px;
+            background: rgba(6, 10, 25, 0.75);
+            padding: 4px;
+            border-radius: 6px;
+            border: 1px solid rgba(0, 255, 204, 0.3);
+        }
+
+        .nudge-btn {
+            background: rgba(2, 2, 5, 0.9);
+            color: #00ffcc;
+            border: 1px solid #00ffcc;
+            width: 32px; height: 32px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 4px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.1s ease;
+        }
+
+        .nudge-btn:active {
+            background: #00ffcc;
+            color: #020205;
         }
 
         .visor-btn {
@@ -237,10 +262,6 @@
             box-shadow: 0 0 10px rgba(0, 255, 204, 0.15); transition: all 0.2s ease;
             pointer-events: auto;
             white-space: nowrap;
-        }
-        @media (min-width: 768px) {
-            .visor-btn { padding: 12px 24px; font-size: 12px; gap: 15px; }
-            #action-dashboard { bottom: 30px; }
         }
 
         #portrait-warning {
@@ -268,7 +289,6 @@
 
     <div id="visor-screen-overlay"></div>
     <canvas id="cracks-canvas"></canvas>
-
     <canvas id="canvas3d"></canvas>
 
     <div id="hud-visor-container">
@@ -289,10 +309,16 @@
             </div>
         </div>
 
-        <div id="geo-coordinates-overlay">LAT: 0.000000 &nbsp; LON: 0.000000</div>
+        <div id="geo-coordinates-overlay" onclick="forceRecalibrateAnchor()">LAT: 0.000000 &nbsp; LON: 0.000000 [RESET]</div>
     </div>
 
     <div id="action-dashboard">
+        <div class="bias-control-panel">
+            <button class="nudge-btn" onclick="applyVisorBias(0, -2)" title="Nudge North">↑</button>
+            <button class="nudge-btn" onclick="applyVisorBias(0, 2)" title="Nudge South">↓</button>
+            <button class="nudge-btn" onclick="applyVisorBias(-2, 0)" title="Nudge West">←</button>
+            <button class="nudge-btn" onclick="applyVisorBias(2, 0)" title="Nudge East">→</button>
+        </div>
         <button id="stepSimBtn" class="visor-btn">Simulate GPS Move</button>
     </div>
 
@@ -312,6 +338,9 @@
         let isFetchingMap = false; 
         let osmFetchController = null;
         const R_EARTH = 6378137;
+
+        // VISOR HARDWARE BIAS CALIBRATION MATRIX (Corrects external telemetry errors)
+        let telemetryBiasOffset = { x: 0, z: 0 };
 
         let gpsTargetPosition = new THREE.Vector3(0, 1.7, 0);
         let initialSnapCompleted = false; 
@@ -367,6 +396,28 @@
             return { x: x, z: z };
         }
 
+        function applyVisorBias(deltaX, deltaZ) {
+            telemetryBiasOffset.x += deltaX;
+            telemetryBiasOffset.z += deltaZ;
+            
+            // Instantly force tracking updates to align components
+            const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
+            gpsTargetPosition.set(local.x + telemetryBiasOffset.x, 1.7, local.z + telemetryBiasOffset.z);
+        }
+
+        function forceRecalibrateAnchor() {
+            hasLockedInitialAnchor = false;
+            initialBestAccuracy = 999999;
+            initialSnapCompleted = false;
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => updatePlayerPositionFromGps(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
+                    (err) => console.warn(err.message),
+                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+                );
+            }
+        }
+
         function autoInitializeSensors() {
             const viewportCanvas = document.getElementById('canvas3d');
             viewportCanvas.addEventListener('pointerdown', (e) => {
@@ -380,7 +431,8 @@
                 lookPitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, lookPitch));
                 camera.quaternion.setFromEuler(new THREE.Euler(lookPitch, lookYaw, 0, 'YXZ'));
             });
-            window.addEventListener('pointerdown', () => {
+            window.addEventListener('pointerdown', (e) => {
+                if (e.target.closest('#action-dashboard') || e.target.closest('#geo-coordinates-overlay')) return;
                 if (matrixOverloadActive) {
                     fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
                     return;
@@ -830,7 +882,7 @@
             const currentAccuracy = accuracy || 999;
             
             const geoOverlay = document.getElementById('geo-coordinates-overlay'); 
-            if (geoOverlay) geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} &nbsp; LON: ${currentCoordinates.lon.toFixed(6)}`;
+            if (geoOverlay) geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} &nbsp; LON: ${currentCoordinates.lon.toFixed(6)} [RE-CAL]`;
             
             const isHighFidelityUpgrade = !hasLockedInitialAnchor || (currentAccuracy <= 25 && initialBestAccuracy > 25);
             
@@ -841,13 +893,14 @@
                 hasLockedInitialAnchor = true;
                 initialSnapCompleted = false; 
                 
-                gpsTargetPosition.set(0, 1.7, 0);
-                camera.position.set(0, 1.7, 0);
+                // Account for user-defined bias adjustments when shifting anchor origins
+                gpsTargetPosition.set(telemetryBiasOffset.x, 1.7, telemetryBiasOffset.z);
+                camera.position.set(telemetryBiasOffset.x, 1.7, telemetryBiasOffset.z);
                 
                 fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
                 const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
-                gpsTargetPosition.set(local.x, 1.7, local.z);
+                gpsTargetPosition.set(local.x + telemetryBiasOffset.x, 1.7, local.z + telemetryBiasOffset.z);
             }
         }
 
@@ -855,8 +908,8 @@
             if (matrixOverloadActive || isFetchingMap) return; const vec = new THREE.Vector3(); camera.getWorldDirection(vec); vec.y = 0; vec.normalize(); const factor = 1.0 / R_EARTH * (180.0 / Math.PI);
             const simLat = currentCoordinates.lat - (vec.z * 8.0 * factor); const simLon = currentCoordinates.lon + (vec.x * 8.0 * factor / Math.cos(anchorCoordinates.lat * Math.PI / 180));
             currentCoordinates.lat = simLat; currentCoordinates.lon = simLon;
-            const geoOverlay = document.getElementById('geo-coordinates-overlay'); if (geoOverlay) geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} &nbsp; LON: ${currentCoordinates.lon.toFixed(6)}`;
-            const local = latLonToLocalMeters(simLat, simLon, anchorCoordinates.lat, anchorCoordinates.lon); gpsTargetPosition.set(local.x, 1.7, local.z);
+            const geoOverlay = document.getElementById('geo-coordinates-overlay'); if (geoOverlay) geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} &nbsp; LON: ${currentCoordinates.lon.toFixed(6)} [RE-CAL]`;
+            const local = latLonToLocalMeters(simLat, simLon, anchorCoordinates.lat, anchorCoordinates.lon); gpsTargetPosition.set(local.x + telemetryBiasOffset.x, 1.7, local.z + telemetryBiasOffset.z);
         }
 
         function spawnQuantumAnomalies() {
