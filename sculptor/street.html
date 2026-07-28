@@ -285,10 +285,10 @@
 
     <div id="action-dashboard">
         <div class="bias-control-panel">
-            <button class="nudge-btn" onclick="applyGeospatialNudge(0.0001, 0)" title="Nudge North">+N</button>
-            <button class="nudge-btn" onclick="applyGeospatialNudge(-0.0001, 0)" title="Nudge South">-S</button>
-            <button class="nudge-btn" onclick="applyGeospatialNudge(0, -0.0001)" title="Nudge West">-W</button>
-            <button class="nudge-btn" onclick="applyGeospatialNudge(0, 0.0001)" title="Nudge East">+E</button>
+            <button class="nudge-btn" onclick="applyGeospatialNudge(0.00004, 0)" title="Nudge North">+N</button>
+            <button class="nudge-btn" onclick="applyGeospatialNudge(-0.00004, 0)" title="Nudge South">-S</button>
+            <button class="nudge-btn" onclick="applyGeospatialNudge(0, -0.00005)" title="Nudge West">-W</button>
+            <button class="nudge-btn" onclick="applyGeospatialNudge(0, 0.00005)" title="Nudge East">+E</button>
         </div>
     </div>
 
@@ -300,6 +300,7 @@
 
         let currentCoordinates = { lat: 40.7580, lon: -73.9855 };
         let anchorCoordinates = { lat: 40.7580, lon: -73.9855 };
+        let lastRawCoords = { lat: 40.7580, lon: -73.9855 }; // Upstream telemetry cache buffer
         let hasLockedInitialAnchor = false;
         let initialBestAccuracy = 999999; 
         let mapLoadedForAnchor = false;
@@ -364,18 +365,21 @@
             return { x: x, z: z };
         }
 
+        // DECOUPLED POSITION ADJUSTMENT matrix: Shifts rendering matrices instantly without resetting anchor download scopes
         function applyGeospatialNudge(deltaLat, deltaLon) {
             geoTelemetryOffset.lat += deltaLat;
             geoTelemetryOffset.lon += deltaLon;
-            hasLockedInitialAnchor = false;
-            initialSnapCompleted = false;
             
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => updatePlayerPositionFromGps(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
-                    (err) => console.warn(err.message),
-                    { enableHighAccuracy: true, timeout: 4000, maximumAge: 0 }
-                );
+            if (hasLockedInitialAnchor) {
+                let calibratedLat = lastRawCoords.lat + geoTelemetryOffset.lat;
+                let calibratedLon = lastRawCoords.lon + geoTelemetryOffset.lon;
+                
+                currentCoordinates.lat = calibratedLat;
+                currentCoordinates.lon = calibratedLon;
+                
+                // Maps new position space matching currently compiled coordinates
+                const local = latLonToLocalMeters(calibratedLat, calibratedLon, anchorCoordinates.lat, anchorCoordinates.lon);
+                gpsTargetPosition.set(local.x, 1.7, local.z);
             }
         }
 
@@ -785,7 +789,6 @@
             }
         }
 
-        // CONSTANT VIEWPORT ZOOM SYSTEM: Locks spatial coverage layout scales relative to container element dimensions
         function update2DMinimapSystem() {
             const minimapCanvas = document.getElementById('minimapCanvas'); const minimapCtx = minimapCanvas.getContext('2d'); if (!minimapCtx || matrixOverloadActive) { if(minimapCtx) minimapCtx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height); return; }
             const directionVector = new THREE.Vector3(); camera.getWorldDirection(directionVector); const yaw = Math.atan2(directionVector.x, -directionVector.z);
@@ -797,7 +800,6 @@
             minimapCtx.fillStyle = '#071e0e'; minimapCtx.fillRect(0, 0, minimapCanvas.width, minimapCanvas.height);
             minimapCtx.translate(centerMeters, centerMeters); minimapCtx.rotate(-yaw); 
             
-            // Explicitly ties the zoom conversion metric to an absolute 120-meter outer clipping boundary
             const VISIBLE_MAP_RADIUS = 120; 
             const scale = centerMeters / VISIBLE_MAP_RADIUS;
 
@@ -844,6 +846,10 @@
         }
 
         function updatePlayerPositionFromGps(latitude, longitude, accuracy) {
+            // Write coordinates into cache tracking array
+            lastRawCoords.lat = latitude;
+            lastRawCoords.lon = longitude;
+
             let calibratedLat = latitude + geoTelemetryOffset.lat;
             let calibratedLon = longitude + geoTelemetryOffset.lon;
 
