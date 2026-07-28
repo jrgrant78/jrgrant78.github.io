@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - Stabilized Spatial Matrix</title>
+    <title>Project A.R.I.S. - Zero-Lag Telemetry Visor</title>
     <style>
         body, html {
             margin: 0;
@@ -131,10 +131,11 @@
             #threat-tracker-display { font-size: 18px; letter-spacing: 3px; margin-top: 60px; }
         }
 
+        /* ALIGNED VISOR INTERFACE COMPONENT HIERARCHIES */
         #minimap-container {
             position: absolute;
-            bottom: 5vh;
-            left: 5vh;
+            bottom: 45px;
+            left: 25px;
             width: 26vh; 
             height: 26vh;
             min-width: 90px; min-height: 90px; 
@@ -145,12 +146,26 @@
 
         @media (max-height: 480px) {
             #minimap-container {
-                bottom: 4vh;
-                left: 4vh;
+                bottom: 38px;
+                left: 25px;
                 width: 28vh;
                 height: 28vh;
                 max-width: 105px; max-height: 105px; 
             }
+        }
+
+        #geo-coordinates-overlay {
+            position: absolute;
+            bottom: 16px;
+            left: 25px;
+            font-size: 10px;
+            font-weight: bold;
+            letter-spacing: 1.5px;
+            color: rgba(0, 255, 204, 0.85);
+            text-shadow: 0 0 6px rgba(0, 255, 204, 0.6);
+            z-index: 110;
+            pointer-events: none;
+            white-space: nowrap;
         }
 
         #minimapCanvas {
@@ -274,6 +289,9 @@
                 <span id="marker-w" class="compass-marker">W</span>
             </div>
         </div>
+
+        <!-- HORIZONTAL GEOSPATIAL COORDINATES DATA OVERLAY -->
+        <div id="geo-coordinates-overlay">LAT: 0.000000 &nbsp; LON: 0.000000</div>
     </div>
 
     <div id="action-dashboard">
@@ -296,6 +314,7 @@
         const R_EARTH = 6378137;
 
         let gpsTargetPosition = new THREE.Vector3(0, 1.7, 0);
+        let initialSnapCompleted = false; // Initialization optimization latch flag
 
         let playerHealth = 100.0;
         let timeLastSeenByThreat = 0; 
@@ -412,8 +431,6 @@
             let orient = (window.orientation || window.screen.orientation?.angle || 0) * Math.PI / 180;
 
             let qSensor = getSensorQuaternion(alphaRad, betaRad, gammaRad, orient);
-            
-            // STABILIZATION MATRIX - SLERP INTERPOLATION: Filters high-frequency magnetometer sensor noise
             camera.quaternion.slerp(qSensor, 0.12);
         }
 
@@ -423,6 +440,7 @@
 
             matrixOverloadActive = false;
             mapLoadedForAnchor = false;
+            initialSnapCompleted = false; // Reset lock vector logic to catch manual initialization updates
             updateVisorFeedbackHUD(Date.now());
 
             const overpassEndpoints = [
@@ -928,12 +946,19 @@
             if (isCurrentlyDetected) spaceOverlay.classList.add('pulse-yellow-alert');
             else spaceOverlay.classList.remove('pulse-yellow-alert');
 
-            // TRANSLATION ENGINE STABILIZATION: Hysteresis dead-zone prevents position interpolation drift
+            // POSITION TRANSFORMATION PIPELINE - DYNAMIC DAMPENING MATRIX
             if (mapLoadedForAnchor && !matrixOverloadActive) {
-                const distanceDeltaMetric = Math.hypot(gpsTargetPosition.x - camera.position.x, gpsTargetPosition.z - camera.position.z);
-                if (distanceDeltaMetric > 2.0) { 
-                    camera.position.x += (gpsTargetPosition.x - camera.position.x) * 0.05;
-                    camera.position.z += (gpsTargetPosition.z - camera.position.z) * 0.05;
+                if (!initialSnapCompleted) {
+                    // BYPASS DAMPENING ENGINE: Forces absolute coordinate snapping upon startup loads
+                    camera.position.x = gpsTargetPosition.x;
+                    camera.position.z = gpsTargetPosition.z;
+                    initialSnapCompleted = true; // Teleport complete, lock in spatial interpolation channels
+                } else {
+                    const distanceDeltaMetric = Math.hypot(gpsTargetPosition.x - camera.position.x, gpsTargetPosition.z - camera.position.z);
+                    if (distanceDeltaMetric > 2.0) { 
+                        camera.position.x += (gpsTargetPosition.x - camera.position.x) * 0.05;
+                        camera.position.z += (gpsTargetPosition.z - camera.position.z) * 0.05;
+                    }
                 }
                 camera.position.y = 1.7; 
             }
@@ -1126,6 +1151,12 @@
         function updatePlayerPositionFromGps(latitude, longitude, signalSource) {
             currentCoordinates.lat = latitude; currentCoordinates.lon = longitude;
             
+            // Telemetry injector hook for the bottom-left layout string
+            const geoOverlay = document.getElementById('geo-coordinates-overlay');
+            if (geoOverlay) {
+                geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} &nbsp; LON: ${currentCoordinates.lon.toFixed(6)}`;
+            }
+
             const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
             
             if (!hasLockedInitialAnchor) {
@@ -1137,9 +1168,13 @@
                 
                 fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
-                // INPUT RECEPTION FILTER: Smooth out sub-meter noise at telemetry collection stage
-                gpsTargetPosition.x += (local.x - gpsTargetPosition.x) * 0.15;
-                gpsTargetPosition.z += (local.z - gpsTargetPosition.z) * 0.15;
+                if (!initialSnapCompleted) {
+                    // Bypass tracking dampeners completely until target coordinate system locks
+                    gpsTargetPosition.set(local.x, 1.7, local.z);
+                } else {
+                    gpsTargetPosition.x += (local.x - gpsTargetPosition.x) * 0.15;
+                    gpsTargetPosition.z += (local.z - gpsTargetPosition.z) * 0.15;
+                }
             }
         }
 
@@ -1150,9 +1185,14 @@
             const simLat = currentCoordinates.lat - (vec.z * 8.0 * factor);
             const simLon = currentCoordinates.lon + (vec.x * 8.0 * factor / Math.cos(anchorCoordinates.lat * Math.PI / 180));
             
-            // Bypass filter on manual user command strides for direct response feedback
             const local = latLonToLocalMeters(simLat, simLon, anchorCoordinates.lat, anchorCoordinates.lon);
             currentCoordinates.lat = simLat; currentCoordinates.lon = simLon;
+            
+            const geoOverlay = document.getElementById('geo-coordinates-overlay');
+            if (geoOverlay) {
+                geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} &nbsp; LON: ${currentCoordinates.lon.toFixed(6)}`;
+            }
+
             gpsTargetPosition.set(local.x, 1.7, local.z);
         }
 
@@ -1177,7 +1217,6 @@
             });
         }
 
-        bin = onWindowResize;
         function onWindowResize() {
             const width = window.innerWidth;
             const height = window.innerHeight;
