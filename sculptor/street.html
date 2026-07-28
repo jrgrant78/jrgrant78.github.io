@@ -26,6 +26,23 @@
             pointer-events: auto;
         }
 
+        /* INITIALIZATION VISOR BOOT INTERCEPT GATE */
+        #visor-boot-gate {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: 9999;
+            background: #020205;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            cursor: pointer;
+            pointer-events: auto;
+            transition: opacity 0.4s ease, transform 0.4s ease;
+        }
+
         #visor-screen-overlay {
             position: absolute;
             top: 0; left: 0;
@@ -210,7 +227,6 @@
             box-shadow: 0 0 8px #ff0055;
         }
 
-        /* GEOSPATIAL DOCK INTERFACES IN BOTTOM RIGHT CORNER */
         #fine-tune-dock {
             position: absolute;
             bottom: 25px;
@@ -301,6 +317,16 @@
 </head>
 <body>
 
+    <!-- BOOT OVERLAY TO CAPTURE INITIAL USER GESTURE SECURITY PASS -->
+    <div id="visor-boot-gate" onclick="engageVisorSystemFromBoot Gate()">
+        <div style="font-size: 18px; font-weight: 900; letter-spacing: 5px; color: #ff0055; margin-bottom: 10px; text-shadow: 0 0 10px #ff0055;">
+            // TERMINAL INITIALIZATION REQUEST
+        </div>
+        <div class="pulse-animation" style="font-size: 13px; font-weight: bold; letter-spacing: 2px;">
+            TAP SCREEN TO INITIALIZE VISOR PROTOCOLS
+        </div>
+    </div>
+
     <div id="portrait-warning">
         <div>
             <div style="font-size: 20px; font-weight: bold; color: #ff0055; margin-bottom: 12px;">// CRITICAL ALIGNMENT ALERT</div>
@@ -377,7 +403,7 @@
         const renderedStreetsList = [];
         const renderedBuildingsList = [];
         const renderedPedestrianList = []; 
-        const tacticalDronesCollection = []; 
+        const tactical DronesCollection = []; 
         const humanoidBotsCollection = []; 
         const activeLasersCollection = []; 
         let anomaliesCollectedCount = 0;
@@ -432,29 +458,54 @@
             }
         }
 
+        // CONTROL EXECUTION TRIGGER: Fired immediately on valid hardware splash screen tap
+        function engageVisorSystemFromBootGate() {
+            if (sensorsEngaged) return;
+            sensorsEngaged = true;
+
+            // Trigger immersive device fullscreen locking immediately from gesture payload
+            if (document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().then(() => {
+                    if (screen.orientation && screen.orientation.lock) {
+                        screen.orientation.lock('landscape').catch(() => {});
+                    }
+                }).catch(() => {});
+            }
+
+            // Bind hardware motion detection hooks
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission().then(state => {
+                    if (state === 'granted') bindAbsoluteCompassListeners();
+                });
+            } else {
+                bindAbsoluteCompassListeners();
+            }
+
+            // Dismiss the intercept gate cleanly
+            const bootGate = document.getElementById('visor-boot-gate');
+            bootGate.style.opacity = '0';
+            setTimeout(() => {
+                bootGate.style.display = 'none';
+            }, 400);
+
+            // Connect GPS tracking loop arrays
+            initializeHighPrecisionGpsTracking();
+        }
+
         function autoInitializeSensors() {
             const viewportCanvas = document.getElementById('canvas3d');
             viewportCanvas.addEventListener('pointerdown', (e) => {
                 isDragging = true; previousPointerX = e.clientX; previousPointerY = e.clientY;
             });
             window.addEventListener('pointermove', (e) => {
-                if (!isDragging || sensorsEngaged) return; 
+                if (!isDragging) return; 
                 const deltaX = e.clientX - previousPointerX; const deltaY = e.clientY - previousPointerY;
                 previousPointerX = e.clientX; previousPointerY = e.clientY;
                 lookYaw -= deltaX * 0.003; lookPitch -= deltaY * 0.003;
                 lookPitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, lookPitch));
                 camera.quaternion.setFromEuler(new THREE.Euler(lookPitch, lookYaw, 0, 'YXZ'));
             });
-            window.addEventListener('pointerdown', (e) => {
-                if (e.target.closest('#fine-tune-dock') || e.target.closest('#minimap-container')) return;
-                if (matrixOverloadActive) {
-                    fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
-                    return;
-                }
-                if (!sensorsEngaged) engageHardwareSensors();
-            });
 
-            // TACTICAL OFFSET MENU TRIGGER MECHANICS
             document.getElementById('offsetMenuTriggerBtn').addEventListener('click', (e) => {
                 e.stopPropagation();
                 const biasPanel = document.getElementById('biasPanel');
@@ -462,7 +513,7 @@
             });
 
             window.addEventListener('click', (e) => {
-                if (e.target.closest('#fine-tune-dock')) return; 
+                if (!sensorsEngaged || e.target.closest('#fine-tune-dock')) return; 
                 const mapContainer = document.getElementById('minimap-container');
                 if (isMinimapEnlarged) {
                     isMinimapEnlarged = false;
@@ -474,24 +525,6 @@
                     }
                 }
             });
-        }
-
-        function engageHardwareSensors() {
-            sensorsEngaged = true; 
-            if (document.documentElement.requestFullscreen) {
-                document.documentElement.requestFullscreen().then(() => {
-                    if (screen.orientation && screen.orientation.lock) {
-                        screen.orientation.lock('landscape').catch(() => {});
-                    }
-                }).catch(() => {});
-            }
-            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission().then(state => {
-                    if (state === 'granted') bindAbsoluteCompassListeners();
-                });
-            } else {
-                bindAbsoluteCompassListeners();
-            }
         }
 
         function bindAbsoluteCompassListeners() {
@@ -837,11 +870,14 @@
 
         function updateVisorFeedbackHUD(timestamp) {
             const statusLabel = document.getElementById('main-hud-status'); const trackerContainer = document.getElementById('threat-tracker-display'); const cracksCanvas = document.getElementById('cracks-canvas'); const reticle = document.getElementById('targeting-matrix'); const ctx = cracksCanvas.getContext('2d');
-            if (matrixOverloadActive) { statusLabel.innerHTML = `<div class="matrix-overload-title">Matrix Overload!</div><div class="matrix-overload-sub">Touch screen to re-initiate spatial reconstruction sequence.</div>`; statusLabel.classList.remove('pulse-animation'); }
+            
+            if (!sensorsEngaged) return; // Freeze notifications until intercept gate is cleared
+
+            if (matrixOverloadActive) { statusLabel.innerHTML = `<div class="matrix-overload-title">Matrix Overload!</div><div class="matrix-overload-sub">Touch screen to re-initiate reconstruction sequence.</div>`; statusLabel.classList.remove('pulse-animation'); }
             else if (!mapLoadedForAnchor) { statusLabel.innerHTML = "Calibrating Satellites..."; statusLabel.classList.add('pulse-animation'); }
-            else if (mapLoadedForAnchor && !sensorsEngaged) { statusLabel.innerHTML = "Touch screen to engage simulation"; statusLabel.classList.add('pulse-animation'); }
             else { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
-            if (sensorsEngaged && !matrixOverloadActive) reticle.style.display = 'block'; else reticle.style.display = 'none';
+            
+            if (!matrixOverloadActive) reticle.style.display = 'block'; else reticle.style.display = 'none';
             if (isCurrentlyDetected && !matrixOverloadActive) { trackerContainer.style.display = 'block'; trackerContainer.innerHTML = "WARNING: POSITION EXPOSED"; }
             else if (alertStateActive && !matrixOverloadActive) { trackerContainer.style.display = 'block'; const secondsRemaining = Math.max(0, (ALERT_COOLDOWN_MS - (timestamp - timeLastSeenByThreat)) / 1000); trackerContainer.innerHTML = `EVADING THREAT: ${secondsRemaining.toFixed(1)}s`; }
             else trackerContainer.style.display = 'none';
@@ -989,11 +1025,12 @@
         function init() {
             scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000); camera.position.set(0, 1.7, 0);
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); renderer.setClearColor(0x020205, 1.0);
-            scene.add(mapStructuralMeshes); autoInitializeSensors(); initializeHighPrecisionGpsTracking(); onWindowResize(); window.addEventListener('resize', onWindowResize);
+            scene.add(mapStructuralMeshes); autoInitializeSensors(); onWindowResize(); window.addEventListener('resize', onWindowResize);
             function frameLoopEngine() {
                 requestAnimationFrame(frameLoopEngine); const t = Date.now();
                 spatialAnomaliesCollection.forEach(a => { if (!a.collected) { a.mesh.rotation.x += 0.01; a.mesh.rotation.y += 0.02; } });
-                advanceDronePatrolSimulation(t); evaluateGameplayState(); renderer.render(scene, camera); update2DMinimapSystem();
+                if (sensorsEngaged) { advanceDronePatrolSimulation(t); evaluateGameplayState(); }
+                renderer.render(scene, camera); update2DMinimapSystem();
             }
             frameLoopEngine();
         }
