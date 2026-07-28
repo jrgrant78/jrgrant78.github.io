@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - Zero-Lag Telemetry Visor</title>
+    <title>Project A.R.I.S. - Conformal Geospatial Visor</title>
     <style>
         body, html {
             margin: 0;
@@ -131,7 +131,6 @@
             #threat-tracker-display { font-size: 18px; letter-spacing: 3px; margin-top: 60px; }
         }
 
-        /* ALIGNED VISOR INTERFACE COMPONENT HIERARCHIES */
         #minimap-container {
             position: absolute;
             bottom: 45px;
@@ -290,7 +289,6 @@
             </div>
         </div>
 
-        <!-- HORIZONTAL GEOSPATIAL COORDINATES DATA OVERLAY -->
         <div id="geo-coordinates-overlay">LAT: 0.000000 &nbsp; LON: 0.000000</div>
     </div>
 
@@ -307,6 +305,7 @@
         let currentCoordinates = { lat: 40.7580, lon: -73.9855 };
         let anchorCoordinates = { lat: 40.7580, lon: -73.9855 };
         let hasLockedInitialAnchor = false;
+        let initialBestAccuracy = 999999; // Latch vector filtering threshold tracking variable
         let mapLoadedForAnchor = false;
         let sensorsEngaged = false; 
         let matrixOverloadActive = false; 
@@ -314,7 +313,7 @@
         const R_EARTH = 6378137;
 
         let gpsTargetPosition = new THREE.Vector3(0, 1.7, 0);
-        let initialSnapCompleted = false; // Initialization optimization latch flag
+        let initialSnapCompleted = false; 
 
         let playerHealth = 100.0;
         let timeLastSeenByThreat = 0; 
@@ -360,10 +359,17 @@
             };
         })();
 
+        // CONFORMAL PROJECTION BALANCING ENGINE: True logarithmic Web Mercator (EPSG:3857) local projections
+        function lonToX(lon) {
+            return lon * (Math.PI / 180) * R_EARTH;
+        }
+        function latToZ(lat) {
+            return Math.log(Math.tan((90 + lat) * Math.PI / 360)) * R_EARTH;
+        }
+
         function latLonToLocalMeters(lat, lon, anchorLat, anchorLon) {
-            const radLat = anchorLat * Math.PI / 180;
-            const x = (lon - anchorLon) * (Math.PI / 180) * R_EARTH * Math.cos(radLat);
-            const z = -(lat - anchorLat) * (Math.PI / 180) * R_EARTH;
+            const x = lonToX(lon) - lonToX(anchorLon);
+            const z = -(latToZ(lat) - latToZ(anchorLon)); // Invert since WebGL negative Z extends North forward
             return { x: x, z: z };
         }
 
@@ -440,7 +446,7 @@
 
             matrixOverloadActive = false;
             mapLoadedForAnchor = false;
-            initialSnapCompleted = false; // Reset lock vector logic to catch manual initialization updates
+            initialSnapCompleted = false; 
             updateVisorFeedbackHUD(Date.now());
 
             const overpassEndpoints = [
@@ -946,13 +952,12 @@
             if (isCurrentlyDetected) spaceOverlay.classList.add('pulse-yellow-alert');
             else spaceOverlay.classList.remove('pulse-yellow-alert');
 
-            // POSITION TRANSFORMATION PIPELINE - DYNAMIC DAMPENING MATRIX
+            // PIPELINE UPDATE ENGINES: The player tracking node locks coordinates cleanly without tracking delays
             if (mapLoadedForAnchor && !matrixOverloadActive) {
                 if (!initialSnapCompleted) {
-                    // BYPASS DAMPENING ENGINE: Forces absolute coordinate snapping upon startup loads
                     camera.position.x = gpsTargetPosition.x;
                     camera.position.z = gpsTargetPosition.z;
-                    initialSnapCompleted = true; // Teleport complete, lock in spatial interpolation channels
+                    initialSnapCompleted = true; 
                 } else {
                     const distanceDeltaMetric = Math.hypot(gpsTargetPosition.x - camera.position.x, gpsTargetPosition.z - camera.position.z);
                     if (distanceDeltaMetric > 2.0) { 
@@ -1142,34 +1147,37 @@
         function initializeHighPrecisionGpsTracking() {
             if (!navigator.geolocation) return;
             navigator.geolocation.watchPosition(
-                (pos) => updatePlayerPositionFromGps(pos.coords.latitude, pos.coords.longitude, "LIVE GEOCAST"),
+                (pos) => updatePlayerPositionFromGps(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
                 (err) => console.warn(err.message),
                 { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
             );
         }
 
-        function updatePlayerPositionFromGps(latitude, longitude, signalSource) {
+        function updatePlayerPositionFromGps(latitude, longitude, accuracy) {
             currentCoordinates.lat = latitude; currentCoordinates.lon = longitude;
+            const currentAccuracy = accuracy || 0;
             
-            // Telemetry injector hook for the bottom-left layout string
             const geoOverlay = document.getElementById('geo-coordinates-overlay');
             if (geoOverlay) {
                 geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} &nbsp; LON: ${currentCoordinates.lon.toFixed(6)}`;
             }
 
-            const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
-            
-            if (!hasLockedInitialAnchor) {
-                anchorCoordinates.lat = latitude; anchorCoordinates.lon = longitude;
+            // DYNAMIC BASELINE ACCURACY TUNING GATE: Recalibrates anchor map arrays if precision improves during initial locks
+            if (!hasLockedInitialAnchor || (!initialSnapCompleted && currentAccuracy < initialBestAccuracy)) {
+                anchorCoordinates.lat = latitude; 
+                anchorCoordinates.lon = longitude;
+                initialBestAccuracy = currentAccuracy;
                 hasLockedInitialAnchor = true;
                 
+                const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
                 camera.position.set(local.x, 1.7, local.z);
                 gpsTargetPosition.set(local.x, 1.7, local.z);
                 
+                // Fire download thread targeting structural arrays
                 fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
+                const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
                 if (!initialSnapCompleted) {
-                    // Bypass tracking dampeners completely until target coordinate system locks
                     gpsTargetPosition.set(local.x, 1.7, local.z);
                 } else {
                     gpsTargetPosition.x += (local.x - gpsTargetPosition.x) * 0.15;
@@ -1185,7 +1193,6 @@
             const simLat = currentCoordinates.lat - (vec.z * 8.0 * factor);
             const simLon = currentCoordinates.lon + (vec.x * 8.0 * factor / Math.cos(anchorCoordinates.lat * Math.PI / 180));
             
-            const local = latLonToLocalMeters(simLat, simLon, anchorCoordinates.lat, anchorCoordinates.lon);
             currentCoordinates.lat = simLat; currentCoordinates.lon = simLon;
             
             const geoOverlay = document.getElementById('geo-coordinates-overlay');
@@ -1193,6 +1200,7 @@
                 geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} &nbsp; LON: ${currentCoordinates.lon.toFixed(6)}`;
             }
 
+            const local = latLonToLocalMeters(simLat, simLon, anchorCoordinates.lat, anchorCoordinates.lon);
             gpsTargetPosition.set(local.x, 1.7, local.z);
         }
 
