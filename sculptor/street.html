@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Project A.R.I.S. - Conformal Geospatial Visor</title>
+    <title>Project A.R.I.S. - Rectified Spatial Simulation</title>
     <style>
         body, html {
             margin: 0;
@@ -305,7 +305,7 @@
         let currentCoordinates = { lat: 40.7580, lon: -73.9855 };
         let anchorCoordinates = { lat: 40.7580, lon: -73.9855 };
         let hasLockedInitialAnchor = false;
-        let initialBestAccuracy = 999999; // Latch vector filtering threshold tracking variable
+        let initialBestAccuracy = 999999; 
         let mapLoadedForAnchor = false;
         let sensorsEngaged = false; 
         let matrixOverloadActive = false; 
@@ -359,17 +359,11 @@
             };
         })();
 
-        // CONFORMAL PROJECTION BALANCING ENGINE: True logarithmic Web Mercator (EPSG:3857) local projections
-        function lonToX(lon) {
-            return lon * (Math.PI / 180) * R_EARTH;
-        }
-        function latToZ(lat) {
-            return Math.log(Math.tan((90 + lat) * Math.PI / 360)) * R_EARTH;
-        }
-
+        // RECTIFIED PROJECTION ENGINE: Clean, zero-distortion local translation mapping
         function latLonToLocalMeters(lat, lon, anchorLat, anchorLon) {
-            const x = lonToX(lon) - lonToX(anchorLon);
-            const z = -(latToZ(lat) - latToZ(anchorLon)); // Invert since WebGL negative Z extends North forward
+            const radLat = anchorLat * Math.PI / 180;
+            const x = (lon - anchorLon) * (Math.PI / 180) * R_EARTH * Math.cos(radLat);
+            const z = -(lat - anchorLat) * (Math.PI / 180) * R_EARTH;
             return { x: x, z: z };
         }
 
@@ -952,7 +946,6 @@
             if (isCurrentlyDetected) spaceOverlay.classList.add('pulse-yellow-alert');
             else spaceOverlay.classList.remove('pulse-yellow-alert');
 
-            // PIPELINE UPDATE ENGINES: The player tracking node locks coordinates cleanly without tracking delays
             if (mapLoadedForAnchor && !matrixOverloadActive) {
                 if (!initialSnapCompleted) {
                     camera.position.x = gpsTargetPosition.x;
@@ -1162,21 +1155,19 @@
                 geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} &nbsp; LON: ${currentCoordinates.lon.toFixed(6)}`;
             }
 
-            // DYNAMIC BASELINE ACCURACY TUNING GATE: Recalibrates anchor map arrays if precision improves during initial locks
+            const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
+            
             if (!hasLockedInitialAnchor || (!initialSnapCompleted && currentAccuracy < initialBestAccuracy)) {
                 anchorCoordinates.lat = latitude; 
                 anchorCoordinates.lon = longitude;
                 initialBestAccuracy = currentAccuracy;
                 hasLockedInitialAnchor = true;
                 
-                const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
-                camera.position.set(local.x, 1.7, local.z);
-                gpsTargetPosition.set(local.x, 1.7, local.z);
+                camera.position.set(0, 1.7, 0);
+                gpsTargetPosition.set(0, 1.7, 0);
                 
-                // Fire download thread targeting structural arrays
                 fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
-                const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
                 if (!initialSnapCompleted) {
                     gpsTargetPosition.set(local.x, 1.7, local.z);
                 } else {
