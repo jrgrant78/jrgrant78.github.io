@@ -133,7 +133,7 @@
 
         #minimap-container {
             position: absolute;
-            bottom: 45px;
+            bottom: 25px;
             left: 25px;
             width: 26vh; 
             height: 26vh;
@@ -141,25 +141,6 @@
             max-width: 180px; max-height: 180px; 
             z-index: 100;
             pointer-events: none;
-        }
-
-        #geo-coordinates-overlay {
-            position: absolute;
-            bottom: 16px;
-            left: 25px;
-            font-size: 10px;
-            font-weight: bold;
-            letter-spacing: 1.5px;
-            color: #00ffcc;
-            text-shadow: 0 0 6px rgba(0, 255, 204, 0.6);
-            z-index: 110;
-            pointer-events: auto;
-            cursor: pointer;
-            white-space: nowrap;
-            background: rgba(2, 2, 5, 0.85);
-            padding: 6px 10px;
-            border-radius: 4px;
-            border: 1px solid rgba(0, 255, 204, 0.4);
         }
 
         #minimapCanvas {
@@ -232,6 +213,7 @@
             padding: 6px;
             border-radius: 6px;
             border: 1px solid #00ffcc;
+            pointer-events: auto;
         }
 
         .nudge-btn {
@@ -253,16 +235,6 @@
         .nudge-btn:active {
             background: #00ffcc;
             color: #020205;
-        }
-
-        .visor-btn {
-            background: rgba(6, 10, 25, 0.85); color: #00ffcc;
-            border: 1px solid #00ffcc; padding: 10px 18px; border-radius: 20px;
-            font-family: inherit; font-size: 11px; font-weight: bold;
-            text-transform: uppercase; letter-spacing: 1px; cursor: pointer;
-            box-shadow: 0 0 10px rgba(0, 255, 204, 0.15); transition: all 0.2s ease;
-            pointer-events: auto;
-            white-space: nowrap;
         }
 
         #portrait-warning {
@@ -309,8 +281,6 @@
                 <span id="marker-w" class="compass-marker">W</span>
             </div>
         </div>
-
-        <div id="geo-coordinates-overlay" onclick="forceRecalibrateAnchor()">LAT: 0.000000 &nbsp; LON: 0.000000 [ACC: --]</div>
     </div>
 
     <div id="action-dashboard">
@@ -320,7 +290,6 @@
             <button class="nudge-btn" onclick="applyGeospatialNudge(0, -0.0001)" title="Nudge West">-W</button>
             <button class="nudge-btn" onclick="applyGeospatialNudge(0, 0.0001)" title="Nudge East">+E</button>
         </div>
-        <button id="stepSimBtn" class="visor-btn">Simulate GPS Move</button>
     </div>
 
     <script>
@@ -340,9 +309,7 @@
         let osmFetchController = null;
         const R_EARTH = 6378137;
 
-        // UPSTREAM GEOSPATIAL BIAS MATRIX (Corrects raw hardware tracking telemetry directly)
         let geoTelemetryOffset = { lat: 0.0, lon: 0.0 };
-
         let gpsTargetPosition = new THREE.Vector3(0, 1.7, 0);
         let initialSnapCompleted = false; 
 
@@ -397,12 +364,9 @@
             return { x: x, z: z };
         }
 
-        // GEOSPATIAL BIAS CORRECTION CONTROL: Shifts raw planetary positioning inputs in degree deltas
         function applyGeospatialNudge(deltaLat, deltaLon) {
             geoTelemetryOffset.lat += deltaLat;
             geoTelemetryOffset.lon += deltaLon;
-            
-            // Force anchor release to clear out cache and rebuild map around corrected boundary footprint
             hasLockedInitialAnchor = false;
             initialSnapCompleted = false;
             
@@ -411,19 +375,6 @@
                     (pos) => updatePlayerPositionFromGps(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
                     (err) => console.warn(err.message),
                     { enableHighAccuracy: true, timeout: 4000, maximumAge: 0 }
-                );
-            }
-        }
-
-        function forceRecalibrateAnchor() {
-            hasLockedInitialAnchor = false;
-            initialBestAccuracy = 999999;
-            initialSnapCompleted = false;
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => updatePlayerPositionFromGps(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
-                    (err) => console.warn(err.message),
-                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
                 );
             }
         }
@@ -442,14 +393,13 @@
                 camera.quaternion.setFromEuler(new THREE.Euler(lookPitch, lookYaw, 0, 'YXZ'));
             });
             window.addEventListener('pointerdown', (e) => {
-                if (e.target.closest('#action-dashboard') || e.target.closest('#geo-coordinates-overlay')) return;
+                if (e.target.closest('#action-dashboard')) return;
                 if (matrixOverloadActive) {
                     fetchLiveOpenStreetMapData(currentCoordinates.lat, currentCoordinates.lon);
                     return;
                 }
                 if (!sensorsEngaged) engageHardwareSensors();
             });
-            document.getElementById('stepSimBtn').addEventListener('click', simulateGpsMovementUpdate);
         }
 
         function engageHardwareSensors() {
@@ -835,14 +785,21 @@
             }
         }
 
+        // CONSTANT VIEWPORT ZOOM SYSTEM: Locks spatial coverage layout scales relative to container element dimensions
         function update2DMinimapSystem() {
             const minimapCanvas = document.getElementById('minimapCanvas'); const minimapCtx = minimapCanvas.getContext('2d'); if (!minimapCtx || matrixOverloadActive) { if(minimapCtx) minimapCtx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height); return; }
             const directionVector = new THREE.Vector3(); camera.getWorldDirection(directionVector); const yaw = Math.atan2(directionVector.x, -directionVector.z);
             const ring = document.getElementById('compass-ring'); if (ring) ring.style.transform = `rotate(${THREE.MathUtils.radToDeg(-yaw)}deg)`;
-            const centerMeters = minimapCanvas.width / 2; minimapCtx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height); minimapCtx.save();
+            
+            const centerMeters = minimapCanvas.width / 2; 
+            minimapCtx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height); minimapCtx.save();
             minimapCtx.beginPath(); minimapCtx.arc(centerMeters, centerMeters, centerMeters - 2, 0, Math.PI * 2); minimapCtx.clip();
             minimapCtx.fillStyle = '#071e0e'; minimapCtx.fillRect(0, 0, minimapCanvas.width, minimapCanvas.height);
-            minimapCtx.translate(centerMeters, centerMeters); minimapCtx.rotate(-yaw); const scale = (minimapCanvas.width / 150) * 0.65;
+            minimapCtx.translate(centerMeters, centerMeters); minimapCtx.rotate(-yaw); 
+            
+            // Explicitly ties the zoom conversion metric to an absolute 120-meter outer clipping boundary
+            const VISIBLE_MAP_RADIUS = 120; 
+            const scale = centerMeters / VISIBLE_MAP_RADIUS;
 
             renderedStreetsList.forEach(s => {
                 minimapCtx.strokeStyle = '#000000'; minimapCtx.lineWidth = 10 * scale; minimapCtx.beginPath();
@@ -886,9 +843,7 @@
             );
         }
 
-        // UPSTREAM TELEMETRY SHIFT FILTER: Integrates manual degree offsets directly into incoming raw GPS buffers
         function updatePlayerPositionFromGps(latitude, longitude, accuracy) {
-            // Apply the global planetary degree calibration offsets upstream before mapping geometry builds
             let calibratedLat = latitude + geoTelemetryOffset.lat;
             let calibratedLon = longitude + geoTelemetryOffset.lon;
 
@@ -896,12 +851,6 @@
             currentCoordinates.lon = calibratedLon; 
             const currentAccuracy = accuracy || 999;
             
-            const geoOverlay = document.getElementById('geo-coordinates-overlay'); 
-            if (geoOverlay) {
-                let offsetMarker = (geoTelemetryOffset.lat !== 0 || geoTelemetryOffset.lon !== 0) ? ` *CALIBRATED*` : ``;
-                geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} &nbsp; LON: ${currentCoordinates.lon.toFixed(6)} [ACC: ${Math.round(currentAccuracy)}m]${offsetMarker}`;
-            }
-
             let precisionWeightFactor = 0.15; 
             if (currentAccuracy > 15) {
                 precisionWeightFactor = 0.03; 
@@ -927,14 +876,6 @@
                 gpsTargetPosition.x += (local.x - gpsTargetPosition.x) * precisionWeightFactor;
                 gpsTargetPosition.z += (local.z - gpsTargetPosition.z) * precisionWeightFactor;
             }
-        }
-
-        function simulateGpsMovementUpdate() {
-            if (matrixOverloadActive || isFetchingMap) return; const vec = new THREE.Vector3(); camera.getWorldDirection(vec); vec.y = 0; vec.normalize(); const factor = 1.0 / R_EARTH * (180.0 / Math.PI);
-            const simLat = currentCoordinates.lat - (vec.z * 8.0 * factor); const simLon = currentCoordinates.lon + (vec.x * 8.0 * factor / Math.cos(anchorCoordinates.lat * Math.PI / 180));
-            currentCoordinates.lat = simLat; currentCoordinates.lon = simLon;
-            const geoOverlay = document.getElementById('geo-coordinates-overlay'); if (geoOverlay) geoOverlay.innerHTML = `LAT: ${currentCoordinates.lat.toFixed(6)} &nbsp; LON: ${currentCoordinates.lon.toFixed(6)} [RE-CAL]`;
-            const local = latLonToLocalMeters(simLat, simLon, anchorCoordinates.lat, anchorCoordinates.lon); gpsTargetPosition.set(local.x, 1.7, local.z);
         }
 
         function spawnQuantumAnomalies() {
