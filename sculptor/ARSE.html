@@ -313,6 +313,8 @@
         @media (orientation: portrait) { #portrait-warning { display: flex; } }
     </style>
     <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+    <!-- GLOBAL MULTIPLAYER TELEMETRY SCRIPT ROUTER -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 </head>
 <body>
 
@@ -406,6 +408,12 @@
         const activeLasersCollection = []; 
         let anomaliesCollectedCount = 0;
 
+        // MULTIPLAYER LIVE TELEMETRY STORAGE POOLS
+        let mqttClientInstance = null;
+        const connectedAgentsMap = {};
+        const localSessionAgentSignature = "AGENT_" + Math.random().toString(36).substring(2, 9);
+        const FIELD_TELEMETRY_TOPIC = "project_arse/sat_telemetry/v1";
+
         const CONE_RADIUS = 2.4; 
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
@@ -456,6 +464,167 @@
             }
         }
 
+        // HIERARCHICAL HUMANOID AGENT ASSEMBLY COMPILER
+        function compileHumanoidAgentModel() {
+            const masterRigContainer = new THREE.Group();
+            const wireframeMat = new THREE.LineBasicMaterial({ color: 0xbd00ff, linewidth: 2 });
+            const extractEdges = (geo) => new THREE.EdgesGeometry(geo);
+
+            // Torso Base Structure
+            const torsoBox = new THREE.LineSegments(extractEdges(new THREE.BoxGeometry(0.7, 1.1, 0.35)), wireframeMat);
+            torsoBox.position.y = 1.25; 
+            masterRigContainer.add(torsoBox);
+
+            // Head Rig Link
+            const headBox = new THREE.LineSegments(extractEdges(new THREE.BoxGeometry(0.4, 0.4, 0.4)), wireframeMat);
+            headBox.position.y = 0.8;
+            torsoBox.add(headBox);
+
+            // Left Arm Structural Articulation Hierarchy
+            const leftShoulderPivot = new THREE.Group(); leftShoulderPivot.position.set(-0.45, 0.45, 0);
+            const leftUpperArmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.07, 0.55)), wireframeMat);
+            leftUpperArmSeg.position.y = -0.25; leftShoulderPivot.add(leftUpperArmSeg);
+            const leftElbowPivot = new THREE.Group(); leftElbowPivot.position.set(0, -0.275, 0);
+            const leftForearmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.05, 0.05, 0.5)), wireframeMat);
+            leftForearmSeg.position.y = -0.25; leftElbowPivot.add(leftForearmSeg);
+            leftUpperArmSeg.add(leftElbowPivot); torsoBox.add(leftShoulderPivot);
+
+            // Right Arm Structural Articulation Hierarchy
+            const rightShoulderPivot = new THREE.Group(); rightShoulderPivot.position.set(0.45, 0.45, 0);
+            const rightUpperArmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.07, 0.55)), wireframeMat);
+            rightUpperArmSeg.position.y = -0.25; rightShoulderPivot.add(rightUpperArmSeg);
+            const rightElbowPivot = new THREE.Group(); rightElbowPivot.position.set(0, -0.275, 0);
+            const rightForearmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.05, 0.05, 0.5)), wireframeMat);
+            rightForearmSeg.position.y = -0.25; rightElbowPivot.add(rightForearmSeg);
+            rightUpperArmSeg.add(rightElbowPivot); torsoBox.add(rightShoulderPivot);
+
+            // Left Leg Structural Articulation Hierarchy
+            const leftHipPivot = new THREE.Group(); leftHipPivot.position.set(-0.22, -0.6, 0);
+            const leftThighSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.09, 0.07, 0.65)), wireframeMat);
+            leftThighSeg.position.y = -0.325; leftHipPivot.add(leftThighSeg);
+            const leftKneePivot = new THREE.Group(); leftKneePivot.position.set(0, -0.325, 0);
+            const leftShinSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.05, 0.6)), wireframeMat);
+            leftShinSeg.position.y = -0.3; leftKneePivot.add(leftShinSeg);
+            leftThighSeg.add(leftKneePivot); torsoBox.add(leftHipPivot);
+
+            // Right Leg Structural Articulation Hierarchy
+            const rightHipPivot = new THREE.Group(); rightHipPivot.position.set(0.22, -0.6, 0);
+            const rightThighSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.09, 0.07, 0.65)), wireframeMat);
+            rightThighSeg.position.y = -0.325; rightHipPivot.add(rightThighSeg);
+            const rightKneePivot = new THREE.Group(); rightKneePivot.position.set(0, -0.325, 0);
+            const rightShinSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.05, 0.6)), wireframeMat);
+            rightShinSeg.position.y = -0.3; rightKneePivot.add(rightShinSeg);
+            rightThighSeg.add(rightKneePivot); torsoBox.add(rightHipPivot);
+
+            return {
+                rootMesh: masterRigContainer,
+                leftShoulder: leftShoulderPivot, leftElbow: leftElbowPivot,
+                rightShoulder: rightShoulderPivot, rightElbow: rightElbowPivot,
+                leftHip: leftHipPivot, leftKnee: leftKneePivot,
+                rightHip: rightHipPivot, rightKnee: rightKneePivot
+            };
+        }
+
+        // PROCEDURAL INVERSE HARMONIC RIG KINEMATICS ENGINE
+        function executeAgentLimbAnimations(agentRef, currentTimestamp) {
+            const movementVelocity = agentRef.smoothedSpeed || 0;
+            
+            if (movementVelocity > 0.02) {
+                const dynamicFrequency = Math.min(12, movementVelocity * 4.5);
+                const rotationSwingPhase = Math.sin(currentTimestamp * 0.008 * dynamicFrequency);
+                
+                // Articulate limb groups symmetrically across alternate coordinates
+                agentRef.joints.leftShoulder.rotation.x = rotationSwingPhase * 0.6;
+                agentRef.joints.leftElbow.rotation.x = (Math.sin(currentTimestamp * 0.008 * dynamicFrequency + Math.PI/2) * 0.2) - 0.2;
+                
+                agentRef.joints.rightShoulder.rotation.x = -rotationSwingPhase * 0.6;
+                agentRef.joints.rightElbow.rotation.x = (Math.sin(currentTimestamp * 0.008 * dynamicFrequency - Math.PI/2) * 0.2) - 0.2;
+
+                agentRef.joints.leftHip.rotation.x = -rotationSwingPhase * 0.5;
+                agentRef.joints.leftKnee.rotation.x = rotationSwingPhase > 0 ? rotationSwingPhase * 0.4 : 0;
+
+                agentRef.joints.rightHip.rotation.x = rotationSwingPhase * 0.5;
+                agentRef.joints.rightKnee.rotation.x = rotationSwingPhase < 0 ? -rotationSwingPhase * 0.4 : 0;
+            } else {
+                // Damp and ease system limbs gracefully back to defensive rest profile
+                const returnEaseFactor = 0.15;
+                agentRef.joints.leftShoulder.rotation.x += (0 - agentRef.joints.leftShoulder.rotation.x) * returnEaseFactor;
+                agentRef.joints.leftElbow.rotation.x += (0 - agentRef.joints.leftElbow.rotation.x) * returnEaseFactor;
+                agentRef.joints.rightShoulder.rotation.x += (0 - agentRef.joints.rightShoulder.rotation.x) * returnEaseFactor;
+                agentRef.joints.rightElbow.rotation.x += (0 - agentRef.joints.rightElbow.rotation.x) * returnEaseFactor;
+                agentRef.joints.leftHip.rotation.x += (0 - agentRef.joints.leftHip.rotation.x) * returnEaseFactor;
+                agentRef.joints.leftKnee.rotation.x += (0 - agentRef.joints.leftKnee.rotation.x) * returnEaseFactor;
+                agentRef.joints.rightHip.rotation.x += (0 - agentRef.joints.rightHip.rotation.x) * returnEaseFactor;
+                agentRef.joints.rightKnee.rotation.x += (0 - agentRef.joints.rightKnee.rotation.x) * returnEaseFactor;
+            }
+        }
+
+        // OVER-THE-AIR AGENT NETWORK INITIALIZER
+        function initializeSatelliteMultiplayerTelemetry() {
+            try {
+                // Attach streaming pipelines to public high-availability HiveMQ servers over SSL channels
+                mqttClientInstance = mqtt.connect("wss://broker.hivemq.com:8884/mqtt");
+
+                mqttClientInstance.on("connect", () => {
+                    console.log("// PROTOCOL LINK DEPLOYED: MATCHING RADAR FREQUENCIES");
+                    mqttClientInstance.subscribe(FIELD_TELEMETRY_TOPIC);
+                });
+
+                mqttClientInstance.on("message", (topic, dataPacket) => {
+                    try {
+                        const parsedData = JSON.parse(dataPacket.toString());
+                        if (!parsedData.id || parsedData.id === localSessionAgentSignature) return;
+
+                        // Capture packet coordinates dynamically
+                        if (!connectedAgentsMap[parsedData.id]) {
+                            const newAgentStructure = compileHumanoidAgentModel();
+                            scene.add(newAgentStructure.rootMesh);
+                            
+                            connectedAgentsMap[parsedData.id] = {
+                                id: parsedData.id,
+                                joints: newAgentStructure,
+                                currentPos: new THREE.Vector3(0, 0, 0),
+                                targetPos: new THREE.Vector3(0, 0, 0),
+                                currentYaw: 0,
+                                targetYaw: 0,
+                                smoothedSpeed: 0,
+                                lastTransmissionPacketTime: Date.now()
+                            };
+                        }
+
+                        const agentRecord = connectedAgentsMap[parsedData.id];
+                        agentRecord.lastTransmissionPacketTime = Date.now();
+                        agentRecord.targetYaw = parsedData.yaw || 0;
+
+                        // Align coordinate offsets directly with host anchor system mapping projections
+                        if (hasLockedInitialAnchor) {
+                            const projectionLocalCoordinates = latLonToLocalMeters(
+                                parsedData.lat, parsedData.lon, anchorCoordinates.lat, anchorCoordinates.lon
+                            );
+                            agentRecord.targetPos.set(projectionLocalCoordinates.x, 0, projectionLocalCoordinates.z);
+                        }
+                    } catch (err) {}
+                });
+
+                // Establish high precision execution reporting loops
+                setInterval(() => {
+                    if (sensorsEngaged && hasLockedInitialAnchor && mqttClientInstance && mqttClientInstance.connected) {
+                        const rawUploadPayload = {
+                            id: localSessionAgentSignature,
+                            lat: currentCoordinates.lat,
+                            lon: currentCoordinates.lon,
+                            yaw: lookYaw,
+                            timestamp: Date.now()
+                        };
+                        mqttClientInstance.publish(FIELD_TELEMETRY_TOPIC, JSON.stringify(rawUploadPayload));
+                    }
+                }, 300);
+
+            } catch (networkBlockError) {
+                console.warn("Satellite encryption pipeline dropped out.", networkBlockError);
+            }
+        }
+
         function engageVisorSystemFromBootGate() {
             if (sensorsEngaged) return;
             sensorsEngaged = true;
@@ -483,6 +652,9 @@
             }, 400);
 
             initializeHighPrecisionGpsTracking();
+            
+            // Connect and bind the live global multiplayer pipeline assets
+            initializeSatelliteMultiplayerTelemetry();
         }
 
         function autoInitializeSensors() {
@@ -847,6 +1019,41 @@
             if (isCurrentlyDetected) { timeLastSeenByThreat = timestamp; alertStateActive = true; } else if (alertStateActive && (timestamp - timeLastSeenByThreat >= ALERT_COOLDOWN_MS)) { alertStateActive = false; tacticalDronesCollection.forEach(d => d.isChasingPlayer = false); }
             if (isCurrentlyDetected) spaceOverlay.classList.add('pulse-yellow-alert'); else spaceOverlay.classList.remove('pulse-yellow-alert');
 
+            // MULTIPLAYER LIVE INTERPOLATION TICK LOOP
+            const currentSystemTime = Date.now();
+            for (const key in connectedAgentsMap) {
+                const activeAgent = connectedAgentsMap[key];
+                
+                // Connection Timeout Garbage Collector: drop frames if peer silent for 7 seconds
+                if (currentSystemTime - activeAgent.lastTransmissionPacketTime > 7000) {
+                    scene.remove(activeAgent.joints.rootMesh);
+                    delete connectedAgentsMap[key];
+                    continue;
+                }
+
+                // Smooth position translation vectors via linear interpolation loops
+                const previousX = activeAgent.joints.rootMesh.position.x;
+                const previousZ = activeAgent.joints.rootMesh.position.z;
+
+                activeAgent.joints.rootMesh.position.lerp(activeAgent.targetPos, 0.1);
+                
+                // Interpolate heading tracking angles cleanly
+                let rawRotationDiff = activeAgent.targetYaw - activeAgent.joints.rootMesh.rotation.y;
+                while (rawRotationDiff < -Math.PI) rawRotationDiff += Math.PI * 2;
+                while (rawRotationDiff > Math.PI) rawRotationDiff -= Math.PI * 2;
+                activeAgent.joints.rootMesh.rotation.y += rawRotationDiff * 0.12;
+
+                // Determine precise speed values to feed articulation engines
+                const currentDeltaSpeed = Math.hypot(
+                    activeAgent.joints.rootMesh.position.x - previousX,
+                    activeAgent.joints.rootMesh.position.z - previousZ
+                );
+                activeAgent.smoothedSpeed = THREE.MathUtils.lerp(activeAgent.smoothedSpeed, currentDeltaSpeed, 0.2);
+
+                // Articulate limb rigs via kinematic loop algorithms
+                executeAgentLimbAnimations(activeAgent, timestamp);
+            }
+
             if (mapLoadedForAnchor && !matrixOverloadActive) {
                 if (!initialSnapCompleted) {
                     camera.position.x = gpsTargetPosition.x; 
@@ -928,6 +1135,22 @@
                 if (a.collected) return; const dx = (a.mesh.position.x - camera.position.x) * scale; const dz = (a.mesh.position.z - camera.position.z) * scale;
                 minimapCtx.fillStyle = '#bd00ff'; minimapCtx.beginPath(); minimapCtx.arc(dx, dz, 4.5 * scale, 0, Math.PI * 2); minimapCtx.fill();
             });
+
+            // PLOT LIVE NETWORK AGENTS TO THE MINIMAP OVERLAY LAYERS
+            for (const key in connectedAgentsMap) {
+                const liveAgentObj = connectedAgentsMap[key];
+                const dx = (liveAgentObj.joints.rootMesh.position.x - camera.position.x) * scale;
+                const dz = (liveAgentObj.joints.rootMesh.position.z - camera.position.z) * scale;
+                minimapCtx.save();
+                minimapCtx.fillStyle = '#bd00ff'; minimapCtx.strokeStyle = '#ffffff'; minimapCtx.lineWidth = 1.5;
+                minimapCtx.translate(dx, dz);
+                minimapCtx.rotate(liveAgentObj.joints.rootMesh.rotation.y);
+                minimapCtx.beginPath();
+                minimapCtx.arc(0, 0, 5 * scale, 0, Math.PI * 2);
+                minimapCtx.fill(); minimapCtx.stroke();
+                minimapCtx.restore();
+            }
+
             tacticalDronesCollection.forEach(d => {
                 const dx = (d.meshElement.position.x - camera.position.x) * scale; const dz = (d.meshElement.position.z - camera.position.z) * scale;
                 minimapCtx.save(); minimapCtx.fillStyle = alertStateActive ? '#ff0055' : '#ffaa00'; minimapCtx.strokeStyle = '#00ffcc'; minimapCtx.lineWidth = 1; minimapCtx.translate(dx, dz); minimapCtx.rotate(d.meshElement.rotation.y);
