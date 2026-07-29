@@ -401,7 +401,6 @@
         let osmFetchController = null;
         const R_EARTH = 6378137;
 
-        // FIXED OPERATIONAL RADIUS PARAMETER: Locked securely to 1 mile (1,609 meters)
         const MAP_RADIUS_METERS = 1609;
 
         let isMinimapEnlarged = false;
@@ -742,7 +741,6 @@
                 `https://lz4.overpass-api.de/api/interpreter`
             ];
             
-            // BOUNDING WINDOW FIX: Tuned exactly to 0.0145 to query a crisp 1-mile spatial sector chunk safely
             const range = 0.0145;
             const query = `[out:json][timeout:35];(way["building"](${lat-range},${lon-range},${lat+range},${lon+range});way["highway"](${lat-range},${lon-range},${lat+range},${lon+range}););out body;>;out skel qt;`;
             let data = null; let success = false;
@@ -810,7 +808,6 @@
                     const cx = pts.reduce((sum, p) => sum + p.x, 0) / pts.length;
                     const cz = pts.reduce((sum, p) => sum + p.z, 0) / pts.length;
                     
-                    // SECTOR RADIUS ENFORCEMENT: Absolute cull validation utilizing the locked MAP_RADIUS_METERS constraint
                     if (Math.hypot(cx, cz) > MAP_RADIUS_METERS) return;
 
                     if (el.tags && el.tags.building) {
@@ -927,9 +924,14 @@
 
         function deployTacticalDronePlatoon() {
             tacticalDronesCollection.forEach(d => scene.remove(d.meshElement)); tacticalDronesCollection.length = 0;
-            if (renderedStreetsList.length === 0) return; const count = Math.min(12, renderedStreetsList.length);
-            for (let i = 0; i < count; i++) {
-                const street = renderedStreetsList[i]; if (street.points.length < 2) continue;
+            if (renderedStreetsList.length === 0) return; 
+            
+            // DRONE DENSITY UPGRADE: Increased to 36 scouts, dispersed evenly across the full 1-mile perimeter array
+            const targetCount = 36;
+            const actualCount = Math.min(targetCount, renderedStreetsList.length);
+            for (let i = 0; i < actualCount; i++) {
+                const stepDistributedIndex = Math.floor(i * (renderedStreetsList.length / actualCount));
+                const street = renderedStreetsList[stepDistributedIndex]; if (street.points.length < 2) continue;
                 const d = compileTacticalPatrolDrone(); d.coreAsset.position.set(street.points[0].x, 25.0, street.points[0].z); scene.add(d.coreAsset);
                 tacticalDronesCollection.push({
                     id: i, meshElement: d.coreAsset, scannerBeamGroup: d.dynamicScannerBeam, leftArmAsset: d.leftArm, rightArmAsset: d.rightArm, routeCoordinates: street.points, currentNodeIndex: 0, patrolDirectionFactor: 1, movementVelocityFactor: 0.09 + Math.random() * 0.04, isChasingPlayer: false
@@ -954,9 +956,13 @@
         function deployHumanoidGarrison() {
             humanoidBotsCollection.forEach(b => scene.remove(b.meshElement)); humanoidBotsCollection.length = 0;
             const validSidewalkTracks = renderedPedestrianList.filter(p => !p.isCrosswalk); if (validSidewalkTracks.length === 0) return;
-            const botsTotalCount = Math.min(16, validSidewalkTracks.length);
+            
+            // SENTRY BOT UPGRADE: Expanded forces matrix to 48 ground sentries, distributed across all sidewalks mapping the 1-mile sector
+            const targetCount = 48;
+            const botsTotalCount = Math.min(targetCount, validSidewalkTracks.length);
             for(let i = 0; i < botsTotalCount; i++) {
-                const pathData = validSidewalkTracks[i].points; if (pathData.length < 2) continue;
+                const stepDistributedPathIndex = Math.floor(i * (validSidewalkTracks.length / botsTotalCount));
+                const pathData = validSidewalkTracks[stepDistributedPathIndex].points; if (pathData.length < 2) continue;
                 const botRef = compileHumanoidCombatBot(); botRef.model.position.set(pathData[0].x, 0.02, pathData[0].z); scene.add(botRef.model);
                 humanoidBotsCollection.push({
                     id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0
@@ -1169,7 +1175,6 @@
             minimapCtx.fillStyle = '#071e0e'; minimapCtx.fillRect(0, 0, minimapCanvas.width, minimapCanvas.height);
             minimapCtx.translate(centerMeters, centerMeters); minimapCtx.rotate(-yaw); 
             
-            // RADAR RANGE INTERFACE: Tight 100-meter local perimeter expands dynamically to the full MAP_RADIUS_METERS (1609m) payload when fullscreened
             const VISIBLE_MAP_RADIUS = isMinimapEnlarged ? MAP_RADIUS_METERS : 100; 
             const scale = centerMeters / VISIBLE_MAP_RADIUS;
 
