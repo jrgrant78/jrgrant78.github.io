@@ -656,26 +656,45 @@
             initializeSatelliteMultiplayerTelemetry();
         }
 
+        let gyroSignalDetected = false;
+        
         function autoInitializeSensors() {
             const viewportCanvas = document.getElementById('canvas3d');
+            
             viewportCanvas.addEventListener('pointerdown', (e) => {
-                isDragging = true; previousPointerX = e.clientX; previousPointerY = e.clientY;
+                isDragging = true; 
+                previousPointerX = e.clientX; 
+                previousPointerY = e.clientY;
             });
+        
             window.addEventListener('pointermove', (e) => {
                 if (!isDragging) return; 
-                const deltaX = e.clientX - previousPointerX; const deltaY = e.clientY - previousPointerY;
-                previousPointerX = e.clientX; previousPointerY = e.clientY;
-                lookYaw -= deltaX * 0.003; lookPitch -= deltaY * 0.003;
+                const deltaX = e.clientX - previousPointerX; 
+                const deltaY = e.clientY - previousPointerY;
+                previousPointerX = e.clientX; 
+                previousPointerY = e.clientY;
+                
+                // Accumulate rotation offsets smoothly
+                lookYaw -= deltaX * 0.003; 
+                lookPitch -= deltaY * 0.003;
                 lookPitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, lookPitch));
-                camera.quaternion.setFromEuler(new THREE.Euler(lookPitch, lookYaw, 0, 'YXZ'));
+                
+                // FALLBACK: Only force absolute camera overwrites if the gyro hardware is dormant/missing
+                if (!gyroSignalDetected) {
+                    camera.quaternion.setFromEuler(new THREE.Euler(lookPitch, lookYaw, 0, 'YXZ'));
+                }
             });
-
+        
+            // CRITICAL FIX: Gracefully unlatch drag state when tracking touches lift or fail
+            window.addEventListener('pointerup', () => { isDragging = false; });
+            window.addEventListener('pointercancel', () => { isDragging = false; });
+        
             document.getElementById('offsetMenuTriggerBtn').addEventListener('click', (e) => {
                 e.stopPropagation();
                 const biasPanel = document.getElementById('biasPanel');
                 biasPanel.classList.toggle('open');
             });
-
+        
             window.addEventListener('click', (e) => {
                 if (!sensorsEngaged || e.target.closest('#fine-tune-dock')) return; 
                 const mapContainer = document.getElementById('minimap-container');
@@ -703,14 +722,24 @@
             let alpha = e.alpha;
             if (e.webkitCompassHeading) alpha = 360 - e.webkitCompassHeading;
             if (alpha === null) return;
-
+        
+            gyroSignalDetected = true; // Confirms hardware telemetry loop is active
+        
             let alphaRad = THREE.MathUtils.degToRad(alpha);
             let betaRad = THREE.MathUtils.degToRad(e.beta);
             let gammaRad = THREE.MathUtils.degToRad(e.gamma);
             let orient = (window.orientation || window.screen.orientation?.angle || 0) * Math.PI / 180;
-
+        
+            // Get base absolute tracking rotation from hardware
             let qSensor = getSensorQuaternion(alphaRad, betaRad, gammaRad, orient);
-            camera.quaternion.slerp(qSensor, 0.12);
+            
+            // Convert manual touch panning adjustments into a local offsets quaternion
+            let qManualAdjustment = new THREE.Quaternion().setFromEuler(new THREE.Euler(lookPitch, lookYaw, 0, 'YXZ'));
+            
+            // INTEGRATION FIX: Multiply the matrices together so touch pans smoothly ON TOP of the gyro tracking
+            let qCombinedTarget = qSensor.clone().multiply(qManualAdjustment);
+            
+            camera.quaternion.slerp(qCombinedTarget, 0.12);
         }
 
         async function fetchLiveOpenStreetMapData(lat, lon) {
