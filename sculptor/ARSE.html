@@ -389,9 +389,9 @@
         let previousPointerX = 0; let previousPointerY = 0;
         let gyroSignalDetected = false;
 
-        let currentCoordinates = { lat: 40.7580, lon: -73.9855 };
-        let anchorCoordinates = { lat: 40.7580, lon: -73.9855 };
-        let lastRawCoords = { lat: 40.7580, lon: -73.9855 }; 
+        let currentCoordinates = { lat: 40.7484, lon: -73.9857 }; // Defaults to Empire State
+        let anchorCoordinates = { lat: 40.7484, lon: -73.9857 };
+        let lastRawCoords = { lat: 40.7484, lon: -73.9857 }; 
         let hasLockedInitialAnchor = false;
         let initialBestAccuracy = 999999; 
         let mapLoadedForAnchor = false;
@@ -559,7 +559,7 @@
                 agentRef.joints.leftElbow.rotation.x += (0 - agentRef.joints.leftElbow.rotation.x) * returnEaseFactor;
                 agentRef.joints.rightShoulder.rotation.x += (0 - agentRef.joints.rightShoulder.rotation.x) * returnEaseFactor;
                 agentRef.joints.rightElbow.rotation.x += (0 - agentRef.joints.rightElbow.rotation.x) * returnEaseFactor;
-                agentRef.joints.leftHip.rotation.x += (0 - agentRef.joints.leftHip.rotation.x) * returnEaseFactor;
+                agentRef.joints.leftHip.rotation.x += (0 - activeAgent.joints.leftHip.rotation.x) * returnEaseFactor;
                 agentRef.joints.leftKnee.rotation.x += (0 - agentRef.joints.leftKnee.rotation.x) * returnEaseFactor;
                 agentRef.joints.rightHip.rotation.x += (0 - agentRef.joints.rightHip.rotation.x) * returnEaseFactor;
                 agentRef.joints.rightKnee.rotation.x += (0 - agentRef.joints.rightKnee.rotation.x) * returnEaseFactor;
@@ -739,8 +739,8 @@
                 `https://lz4.overpass-api.de/api/interpreter`
             ];
             
-            // MAP RADIUS UPGRADE: Increased coordinate bounding window (0.055 delta maps out 2+ mile sector chunks safely)
-            const range = 0.055;
+            // BOUNDING BOX CAP: Bounded exactly at ~0.029 coordinate spread (~2 miles tracking matrix width)
+            const range = 0.029;
             const query = `[out:json][timeout:35];(way["building"](${lat-range},${lon-range},${lat+range},${lon+range});way["highway"](${lat-range},${lon-range},${lat+range},${lon+range}););out body;>;out skel qt;`;
             let data = null; let success = false;
 
@@ -807,8 +807,8 @@
                     const cx = pts.reduce((sum, p) => sum + p.x, 0) / pts.length;
                     const cz = pts.reduce((sum, p) => sum + p.z, 0) / pts.length;
                     
-                    // GENERATION FILTER FIX: Raised target radius from 600m to 3500m (~2.17 miles) to allow full world generation
-                    if (Math.hypot(cx, cz) > 3500) return;
+                    // STRUCTURAL RADIUS CAP: Rigid culling cut-off at exactly 2 miles (3218 meters)
+                    if (Math.hypot(cx, cz) > 3218) return;
 
                     if (el.tags && el.tags.building) {
                         buildNeonStructuralHulls(pts, el.tags);
@@ -922,7 +922,6 @@
             return { coreAsset: droneGroup, dynamicScannerBeam: scanningRigGroup, leftArm: leftArmPivot, rightArm: rightArmPivot };
         }
 
-        // AI DENSITY UPGRADE: Spawns up to 12 drones across sector streets
         function deployTacticalDronePlatoon() {
             tacticalDronesCollection.forEach(d => scene.remove(d.meshElement)); tacticalDronesCollection.length = 0;
             if (renderedStreetsList.length === 0) return; const count = Math.min(12, renderedStreetsList.length);
@@ -949,7 +948,6 @@
             return { model: botGroup, leftLeg: leftLegPivot, rightLeg: rightLegPivot, leftArm: leftArmGroup, rightArm: rightArmGroup };
         }
 
-        // AI DENSITY UPGRADE: Spawns up to 16 combat bots across sidewalks
         function deployHumanoidGarrison() {
             humanoidBotsCollection.forEach(b => scene.remove(b.meshElement)); humanoidBotsCollection.length = 0;
             const validSidewalkTracks = renderedPedestrianList.filter(p => !p.isCrosswalk); if (validSidewalkTracks.length === 0) return;
@@ -974,7 +972,6 @@
                 const beamDir = new THREE.Vector3(0, -1, 0).applyQuaternion(drone.scannerBeamGroup.quaternion).applyQuaternion(drone.meshElement.quaternion).normalize(); vToP.normalize();
                 const isDirectlySpottingPlayer = (Math.acos(beamDir.dot(vToP)) <= CONE_SEMI_ANGLE && dToP <= CONE_HEIGHT);
 
-                // INTEGRATED HIVE-MIND: Logging positions across unit lines
                 if (isDirectlySpottingPlayer) {
                     droneDetectedFlag = true;
                     drone.isChasingPlayer = true;
@@ -1018,7 +1015,7 @@
                     if (forwardVisionCosineDot >= 0.5) canBotSeePlayerRightNow = true;
                 }
                 
-                if (canBotSeePlayerRightNow) { 
+                if (canBotSeePlayerRightNow) {
                     botDetectedFlag = true; 
                     bot.isAlerted = true; 
                     lastSeenPlayerPosition.copy(camera.position);
@@ -1108,7 +1105,6 @@
             const totalActiveAgentsInSector = Object.keys(connectedAgentsMap).length + 1;
             document.getElementById('live-agent-counter').innerText = totalActiveAgentsInSector;
 
-            // TRACKING LAG REMOVAL PIPELINE: Dynamic snap-lerp checks distance deltas
             if (mapLoadedForAnchor && !matrixOverloadActive) {
                 if (!initialSnapCompleted) {
                     camera.position.x = gpsTargetPosition.x; 
@@ -1116,7 +1112,6 @@
                     initialSnapCompleted = true;
                 } else {
                     const trackingDeltaDistance = Math.hypot(gpsTargetPosition.x - camera.position.x, gpsTargetPosition.z - camera.position.z);
-                    // Snaps instantly if gap is extreme (>4m), otherwise track securely via snappy alpha step
                     const responsiveAlphaFactor = trackingDeltaDistance > 4.0 ? 1.0 : 0.45;
                     camera.position.x += (gpsTargetPosition.x - camera.position.x) * responsiveAlphaFactor;
                     camera.position.z += (gpsTargetPosition.z - camera.position.z) * responsiveAlphaFactor;
@@ -1171,8 +1166,8 @@
             minimapCtx.fillStyle = '#071e0e'; minimapCtx.fillRect(0, 0, minimapCanvas.width, minimapCanvas.height);
             minimapCtx.translate(centerMeters, centerMeters); minimapCtx.rotate(-yaw); 
             
-            // RADAR SCALE FIX: Minimap zoom expands dynamically when fullscreened to display the entire 2-mile tracking area
-            const VISIBLE_MAP_RADIUS = isMinimapEnlarged ? 1800 : 350; 
+            // DYNAMIC RADAR RANGE: Shows a tight 300m localized perimeter, or expands to the full 2-mile (3218m) operations zone
+            const VISIBLE_MAP_RADIUS = isMinimapEnlarged ? 3218 : 300; 
             const scale = centerMeters / VISIBLE_MAP_RADIUS;
 
             renderedStreetsList.forEach(s => {
