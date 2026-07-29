@@ -318,6 +318,8 @@
         @media (orientation: portrait) { #portrait-warning { display: flex; } }
     </style>
     <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+    <!-- PERFORMANCE UPGRADE: Added BufferGeometryUtils pipeline for direct geometry merging -->
+    <script src="https://unpkg.com/three@0.128.0/examples/js/utils/BufferGeometryUtils.js"></script>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 </head>
 <body>
@@ -436,6 +438,27 @@
         const CONE_RADIUS = 2.4; 
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
+
+        // PERFORMANCE UPGRADE: Fixed global cache matrix for shared materials (prevents continuous GPU reallocation overhead)
+        const sharedMaterials = {
+            grass: new THREE.MeshBasicMaterial({ color: 0x071e0e, depthWrite: true }),
+            buildingSolid: new THREE.MeshBasicMaterial({ color: 0x000000, depthWrite: true }),
+            buildingWire: new THREE.LineBasicMaterial({ color: 0x00ffff }),
+            roadSolid: new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide }),
+            roadCurb: new THREE.LineBasicMaterial({ color: 0xffff00 }),
+            roadCenter: new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 3, gapSize: 3 }),
+            sidewalkSolid: new THREE.MeshBasicMaterial({ color: 0x555555, side: THREE.DoubleSide }),
+            crosswalk: new THREE.LineDashedMaterial({ color: 0xfffa9e, dashSize: 1.5, gapSize: 1.5 })
+        };
+
+        // Temporary arrays to hold static geometries for batch merging
+        let buildingSolidGeoms = [];
+        let buildingWireGeoms = [];
+        let roadSolidGeoms = [];
+        let roadCurbGeoms = [];
+        let roadCenterGeoms = [];
+        let sidewalkSolidGeoms = [];
+        let crosswalkGeoms = [];
 
         const crackSegmentsData = [
             [{x:0,y:0},{x:15,y:20},{x:22,y:18},{x:35,y:40},{x:40,y:38}],
@@ -772,7 +795,7 @@
             isFetchingMap = false;
             while(mapStructuralMeshes.children.length > 0) {
                 const m = mapStructuralMeshes.children[0];
-                if (m.geometry) m.geometry.dispose(); if (m.material) m.material.dispose();
+                if (m.geometry) m.geometry.dispose();
                 mapStructuralMeshes.remove(m);
             }
             tacticalDronesCollection.forEach(d => scene.remove(d.meshElement)); tacticalDronesCollection.length = 0;
@@ -784,13 +807,18 @@
         function parseAndBuildOSMWorld(osmData, anchorLat, anchorLon) {
             while(mapStructuralMeshes.children.length > 0) {
                 const m = mapStructuralMeshes.children[0];
-                if (m.geometry) m.geometry.dispose(); if (m.material) m.material.dispose();
+                if (m.geometry) m.geometry.dispose();
                 mapStructuralMeshes.remove(m);
             }
             globalTrafficNodes.length = 0; renderedStreetsList.length = 0;
             renderedBuildingsList.length = 0; renderedPedestrianList.length = 0;
 
-            const grassGroundMesh = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.MeshBasicMaterial({ color: 0x071e0e, depthWrite: true }));
+            // PERFORMANCE UPGRADE: Reset batch architecture collectors
+            buildingSolidGeoms = []; buildingWireGeoms = [];
+            roadSolidGeoms = []; roadCurbGeoms = []; roadCenterGeoms = [];
+            sidewalkSolidGeoms = []; crosswalkGeoms = [];
+
+            const grassGroundMesh = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), sharedMaterials.grass);
             grassGroundMesh.rotation.x = -Math.PI / 2;
             mapStructuralMeshes.add(grassGroundMesh);
 
@@ -822,6 +850,40 @@
                 }
             });
 
+            // PERFORMANCE UPGRADE: Batch process and merge geometry arrays into singular WebGL draw items
+            if (buildingSolidGeoms.length > 0) {
+                const mergedSolid = THREE.BufferGeometryUtils.mergeBufferGeometries(buildingSolidGeoms);
+                mapStructuralMeshes.add(new THREE.Mesh(mergedSolid, sharedMaterials.buildingSolid));
+            }
+            if (buildingWireGeoms.length > 0) {
+                const mergedWire = THREE.BufferGeometryUtils.mergeBufferGeometries(buildingWireGeoms);
+                mapStructuralMeshes.add(new THREE.LineSegments(mergedWire, sharedMaterials.buildingWire));
+            }
+            if (roadSolidGeoms.length > 0) {
+                const mergedRoads = THREE.BufferGeometryUtils.mergeBufferGeometries(roadSolidGeoms);
+                mapStructuralMeshes.add(new THREE.Mesh(mergedRoads, sharedMaterials.roadSolid));
+            }
+            if (roadCurbGeoms.length > 0) {
+                const mergedCurbs = THREE.BufferGeometryUtils.mergeBufferGeometries(roadCurbGeoms);
+                mapStructuralMeshes.add(new THREE.LineSegments(mergedCurbs, sharedMaterials.roadCurb));
+            }
+            if (roadCenterGeoms.length > 0) {
+                const mergedCenters = THREE.BufferGeometryUtils.mergeBufferGeometries(roadCenterGeoms);
+                const mainLine = new THREE.LineSegments(mergedCenters, sharedMaterials.roadCenter);
+                mainLine.computeLineDistances();
+                mapStructuralMeshes.add(mainLine);
+            }
+            if (sidewalkSolidGeoms.length > 0) {
+                const mergedSidewalks = THREE.BufferGeometryUtils.mergeBufferGeometries(sidewalkSolidGeoms);
+                mapStructuralMeshes.add(new THREE.Mesh(mergedSidewalks, sharedMaterials.sidewalkSolid));
+            }
+            if (crosswalkGeoms.length > 0) {
+                const mergedCross = THREE.BufferGeometryUtils.mergeBufferGeometries(crosswalkGeoms);
+                const crossLine = new THREE.LineSegments(mergedCross, sharedMaterials.crosswalk);
+                crossLine.computeLineDistances();
+                mapStructuralMeshes.add(crossLine);
+            }
+
             mapLoadedForAnchor = true;
             spawnQuantumAnomalies();
             deployTacticalDronePlatoon();
@@ -841,16 +903,12 @@
             h = Math.min(h, 60);
 
             const geom = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false });
-            const solidMesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({ color: 0x000000, depthWrite: true }));
-            const hullColor = 0x00ffff; 
-            const wireframe = new THREE.LineSegments(new THREE.EdgesGeometry(geom), new THREE.LineBasicMaterial({ color: hullColor }));
+            geom.rotateX(-Math.PI / 2); // Apply space transform internally to avoid hierarchy group tracking overhead
             
-            const group = new THREE.Group();
-            group.add(solidMesh, wireframe);
-            group.rotation.x = -Math.PI / 2;
-            group.position.set(0, 0, 0); 
-            mapStructuralMeshes.add(group);
-            renderedBuildingsList.push({ points: points, color: hullColor });
+            buildingSolidGeoms.push(geom);
+            buildingWireGeoms.push(new THREE.EdgesGeometry(geom));
+
+            renderedBuildingsList.push({ points: points });
         }
 
         function buildNeonVectorPathways(points, tags) {
@@ -866,26 +924,40 @@
             }
             for (let i = 0; i < count; i++) {
                 const pt = points[i]; const norm = normals[i]; const lx = pt.x + norm.x * laneHalfWidth; const lz = pt.z + norm.z * laneHalfWidth; const rx = pt.x - norm.x * laneHalfWidth; const rz = pt.z - norm.z * laneHalfWidth;
-                vertices.push(lx, 0.01, lz, rx, 0.01, rz); leftCurbyPoints.push(new THREE.Vector3(lx, 0.012, lz)); rightCurbyPoints.push(new THREE.Vector3(rx, 0.012, rz)); centerLinePoints.push(new THREE.Vector3(pt.x, 0.015, pt.z));
+                vertices.push(lx, 0.01, lz, rx, 0.01, rz); 
+                
+                if (i < count - 1) {
+                    const nextPt = points[i+1];
+                    const nextNorm = normals[i+1];
+                    const nlx = nextPt.x + nextNorm.x * laneHalfWidth; const nlz = nextPt.z + nextNorm.z * laneHalfWidth;
+                    const nrx = nextPt.x - nextNorm.x * laneHalfWidth; const nrz = nextPt.z - nextNorm.z * laneHalfWidth;
+                    
+                    roadCurbGeoms.push(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(lx, 0.012, lz), new THREE.Vector3(nlx, 0.012, nlz)]));
+                    roadCurbGeoms.push(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(rx, 0.012, rz), new THREE.Vector3(nrx, 0.012, nrz)]));
+                    
+                    if (isMain) {
+                        roadCenterGeoms.push(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(pt.x, 0.015, pt.z), new THREE.Vector3(nextPt.x, 0.015, nextPt.z)]));
+                    }
+                }
                 if (i < count - 1) indices.push(i*2, i*2+1, (i+1)*2, i*2+1, (i+1)*2+1, (i+1)*2);
                 globalTrafficNodes.push(new THREE.Vector3(pt.x, 0.01, pt.z));
             }
             const roadGeom = new THREE.BufferGeometry(); roadGeom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3)); roadGeom.setIndex(indices); roadGeom.computeVertexNormals();
-            mapStructuralMeshes.add(new THREE.Mesh(roadGeom, new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide })));
-            const yellowCurbMat = new THREE.LineBasicMaterial({ color: 0xffff00 });
-            mapStructuralMeshes.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(leftCurbyPoints), yellowCurbMat)); mapStructuralMeshes.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(rightCurbyPoints), yellowCurbMat));
-            if (isMain) {
-                const dashedCenterMat = new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 3, gapSize: 3 }); const mainLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(centerLinePoints), dashedCenterMat);
-                mainLine.computeLineDistances(); mapStructuralMeshes.add(mainLine);
-            }
+            roadSolidGeoms.push(roadGeom);
+
             renderedStreetsList.push({ points: points, isMain: isMain });
         }
 
         function buildPedestrianConduits(points, tags) {
             const count = points.length; const isCrosswalk = tags && (tags.footway === 'crosswalk' || tags.highway === 'crossing');
             if (isCrosswalk) {
-                const pathPoints = []; points.forEach(pt => pathPoints.push(new THREE.Vector3(pt.x, 0.018, pt.z))); const crosswalkGeo = new THREE.BufferGeometry().setFromPoints(pathPoints); const crosswalkLine = new THREE.Line(crosswalkGeo, new THREE.LineDashedMaterial({ color: 0xfffa9e, dashSize: 1.5, gapSize: 1.5, linewidth: 3 }));
-                crosswalkLine.computeLineDistances(); mapStructuralMeshes.add(crosswalkLine); renderedPedestrianList.push({ points: points, isCrosswalk: true }); return;
+                for(let i=0; i < count - 1; i++) {
+                    crosswalkGeoms.push(new THREE.BufferGeometry().setFromPoints([
+                        new THREE.Vector3(points[i].x, 0.018, points[i].z), 
+                        new THREE.Vector3(points[i+1].x, 0.018, points[i+1].z)
+                    ]));
+                }
+                renderedPedestrianList.push({ points: points, isCrosswalk: true }); return;
             }
             const sidewalkHalfWidth = 1.2; const vertices = []; const indices = []; const normals = new Array(count);
             for (let i = 0; i < count; i++) {
@@ -897,7 +969,8 @@
                 vertices.push(lx, 0.02, lz, rx, 0.02, rz); if (i < count - 1) indices.push(i*2, i*2+1, (i+1)*2, i*2+1, (i+1)*2+1, (i+1)*2);
             }
             const swGeom = new THREE.BufferGeometry(); swGeom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3)); swGeom.setIndex(indices); swGeom.computeVertexNormals();
-            mapStructuralMeshes.add(new THREE.Mesh(swGeom, new THREE.MeshBasicMaterial({ color: 0x555555, side: THREE.DoubleSide }))); renderedPedestrianList.push({ points: points, isCrosswalk: false });
+            sidewalkSolidGeoms.push(swGeom);
+            renderedPedestrianList.push({ points: points, isCrosswalk: false });
         }
 
         function compileTacticalPatrolDrone() {
@@ -926,7 +999,6 @@
             tacticalDronesCollection.forEach(d => scene.remove(d.meshElement)); tacticalDronesCollection.length = 0;
             if (renderedStreetsList.length === 0) return; 
             
-            // DRONE DENSITY UPGRADE: Increased to 36 scouts, dispersed evenly across the full 1-mile perimeter array
             const targetCount = 36;
             const actualCount = Math.min(targetCount, renderedStreetsList.length);
             for (let i = 0; i < actualCount; i++) {
@@ -957,7 +1029,6 @@
             humanoidBotsCollection.forEach(b => scene.remove(b.meshElement)); humanoidBotsCollection.length = 0;
             const validSidewalkTracks = renderedPedestrianList.filter(p => !p.isCrosswalk); if (validSidewalkTracks.length === 0) return;
             
-            // SENTRY BOT UPGRADE: Expanded forces matrix to 48 ground sentries, distributed across all sidewalks mapping the 1-mile sector
             const targetCount = 48;
             const botsTotalCount = Math.min(targetCount, validSidewalkTracks.length);
             for(let i = 0; i < botsTotalCount; i++) {
@@ -1181,18 +1252,29 @@
             const streetLineWeight = isMinimapEnlarged ? Math.max(1, 4 * scale) : 12;
             const blueprintHullWeight = Math.max(1.0, 1.5 * scale);
 
+            // PERFORMANCE UPGRADE: Added dynamic radial pruning (culls out off-screen coordinates instantly before drawing)
             renderedStreetsList.forEach(s => {
+                const firstPt = s.points[0];
+                if (!isMinimapEnlarged && Math.hypot(firstPt.x - camera.position.x, firstPt.z - camera.position.z) > VISIBLE_MAP_RADIUS * 1.5) return;
+                
                 minimapCtx.strokeStyle = '#000000'; minimapCtx.lineWidth = streetLineWeight * 1.8; minimapCtx.beginPath();
                 s.points.forEach((pt, idx) => { const dx = (pt.x - camera.position.x) * scale; const dz = (pt.z - camera.position.z) * scale; if (idx === 0) minimapCtx.moveTo(dx, dz); else minimapCtx.lineTo(dx, dz); });
                 minimapCtx.stroke(); minimapCtx.strokeStyle = '#ffff00'; minimapCtx.lineWidth = Math.max(1.0, 1.2 * scale); minimapCtx.stroke();
             });
+            
             renderedPedestrianList.forEach(p => {
+                const firstPt = p.points[0];
+                if (!isMinimapEnlarged && Math.hypot(firstPt.x - camera.position.x, firstPt.z - camera.position.z) > VISIBLE_MAP_RADIUS * 1.5) return;
+
                 minimapCtx.save(); if (p.isCrosswalk) { minimapCtx.strokeStyle = '#fffa9e'; minimapCtx.lineWidth = Math.max(0.8, 1.0 * scale); minimapCtx.setLineDash([2, 3]); } else { minimapCtx.strokeStyle = '#555555'; minimapCtx.lineWidth = streetLineWeight * 0.4; }
                 minimapCtx.beginPath(); p.points.forEach((pt, idx) => { const dx = (pt.x - camera.position.x) * scale; const dz = (pt.z - camera.position.z) * scale; if (idx === 0) minimapCtx.moveTo(dx, dz); else minimapCtx.lineTo(dx, dz); });
                 minimapCtx.stroke(); minimapCtx.restore();
             });
 
             renderedBuildingsList.forEach(b => {
+                const firstPt = b.points[0];
+                if (!isMinimapEnlarged && Math.hypot(firstPt.x - camera.position.x, firstPt.z - camera.position.z) > VISIBLE_MAP_RADIUS * 1.5) return;
+
                 minimapCtx.fillStyle = '#000000'; minimapCtx.strokeStyle = 'rgba(0, 255, 255, 0.6)'; minimapCtx.lineWidth = blueprintHullWeight; minimapCtx.beginPath();
                 b.points.forEach((pt, idx) => { const dx = (pt.x - camera.position.x) * scale; const dz = (pt.z - camera.position.z) * scale; if (idx === 0) minimapCtx.moveTo(dx, dz); else minimapCtx.lineTo(dx, dz); });
                 minimapCtx.closePath(); minimapCtx.fill(); minimapCtx.stroke();
@@ -1231,7 +1313,7 @@
             minimapCtx.restore();
             minimapCtx.strokeStyle = '#00ffcc'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.arc(centerMeters, centerMeters, centerMeters - 2, 0, Math.PI * 2); minimapCtx.stroke();
             minimapCtx.fillStyle = '#ff7700'; 
-            minimapCtx.beginPath(); minimapCtx.arc(centerMeters, centerMeters, 4, 0, Math.PI * 2); minimapCtx.fill();
+            minimapCtx.beginPath(); minimapCtx.arc(centerMeters, centerMeters, 4, 0, Math.PI * 2); fill();
             minimapCtx.strokeStyle = '#ff7700'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.moveTo(centerMeters, centerMeters); minimapCtx.lineTo(centerMeters, centerMeters - 14); minimapCtx.stroke();
         }
 
