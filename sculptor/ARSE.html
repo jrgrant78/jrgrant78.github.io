@@ -17,7 +17,6 @@
             user-select: none;
         }
 
-        /* FULL SIZE LIVE FEED HIDDEN SAFELY BEHIND OPAQUE WEBGL LAYER */
         #webcam-feed {
             position: absolute;
             top: 0; left: 0;
@@ -379,7 +378,6 @@
         const activeLasersCollection = []; 
         let anomaliesCollectedCount = 0;
 
-        // FIXED VISUAL EXTENSION MAP HOOKS
         let objectDetectorInstance = null;
         let detectionModelLoaded = false;
         const mappedVisualReticlesPool = [];
@@ -411,11 +409,9 @@
             };
         })();
 
-        // Map global resolver properties cleanly from the CDN window injection
         async function initializeMediaPipeDetector() {
             try {
                 if (!window.vision) {
-                    console.warn("Vision binaries delayed. Retrying tracking deployment...");
                     setTimeout(initializeMediaPipeDetector, 1000);
                     return;
                 }
@@ -478,9 +474,11 @@
                     audio: false 
                 }).then((stream) => {
                     videoFeedStream.srcObject = stream;
+                    videoFeedStream.play().catch(e => console.warn("Video play interrupted", e));
                 }).catch(() => {
                     navigator.mediaDevices.getUserMedia({ video: true, audio: false }).then((stream) => {
                         videoFeedStream.srcObject = stream;
+                        videoFeedStream.play().catch(e => console.warn("Fallback video play interrupted", e));
                     });
                 });
             }
@@ -1017,16 +1015,14 @@
             spatialAnomaliesCollection.forEach(a => { if (a.collected) return; const d = Math.hypot(a.mesh.position.x - camera.position.x, a.mesh.position.z - camera.position.z); if (d <= a.radius) { a.collected = true; scene.remove(a.mesh); anomaliesCollectedCount++; } });
         }
 
-        // RE-ENGINEERED COMPUTER VISION PROJECTION ENGINE
+        // TACTICAL X-RAY PROJECTION PIPELINE
         function executeMediaPipeDetectionScanner() {
             const videoElement = document.getElementById('webcam-feed');
             
             if (!detectionModelLoaded || !objectDetectorInstance || videoElement.readyState < 2) return;
 
-            // MediaPipe requires updated timestamps per frame tick
             const detectionResults = objectDetectorInstance.detectForVideo(videoElement, performance.now());
 
-            // Clear standard pools out cleanly
             mappedVisualReticlesPool.forEach(box => scene.remove(box));
             mappedVisualReticlesPool.length = 0;
 
@@ -1037,36 +1033,44 @@
                     if (["person", "cat", "dog"].includes(matchedCategory)) {
                         const bbox = detection.boundingBox;
                         
-                        // Map the box coordinate space relative to camera track boundaries
                         const normCenterX = (bbox.originX + bbox.width / 2) / videoElement.videoWidth;
                         const normCenterY = (bbox.originY + bbox.height / 2) / videoElement.videoHeight;
                         
                         const ndcX = (normCenterX * 2) - 1;
                         const ndcY = -(normCenterY * 2) + 1;
 
-                        // Ensure projection matrix matrices are calculated properly before unproject mapping
                         camera.updateMatrixWorld();
                         const trajectoryVector = new THREE.Vector3(ndcX, ndcY, 0.5).unproject(camera);
                         trajectoryVector.sub(camera.position).normalize();
                         
-                        // Project target out cleanly along the look trajectory vectors
-                        const distanceAnchor = 8.0; 
+                        // Push reticles slightly closer to prevent frustum clipping issues
+                        const distanceAnchor = 5.0; 
                         const final3DTargetPos = new THREE.Vector3().copy(camera.position).addScaledVector(trajectoryVector, distanceAnchor);
 
-                        // Scale wireframe geometries proportionally
-                        const boxW = (bbox.width / videoElement.videoWidth) * 7.5;
-                        const boxH = (bbox.height / videoElement.videoHeight) * 7.5;
+                        const boxW = (bbox.width / videoElement.videoWidth) * 4.5;
+                        const boxH = (bbox.height / videoElement.videoHeight) * 4.5;
                         
-                        const reticleGeom = new THREE.BoxGeometry(boxW, boxH, 0.5);
+                        const reticleGeom = new THREE.BoxGeometry(boxW, boxH, 0.2);
                         const frameColor = matchedCategory === "person" ? 0xff0055 : 0x00ffcc;
+                        
+                        // FORCE RETICLE HIGHEST LAYER LAYER PRIORITY VIA WEBGL PASS
+                        const reticleMaterial = new THREE.LineBasicMaterial({ 
+                            color: frameColor, 
+                            linewidth: 3,
+                            depthTest: false,   // Bypasses distance logic relative to buildings
+                            depthWrite: false   // Prevents box structure from masking other engine geometries
+                        });
                         
                         const reticleMesh = new THREE.LineSegments(
                             new THREE.EdgesGeometry(reticleGeom),
-                            new THREE.LineBasicMaterial({ color: frameColor, linewidth: 2 })
+                            reticleMaterial
                         );
                         
                         reticleMesh.position.copy(final3DTargetPos);
                         reticleMesh.lookAt(camera.position);
+                        
+                        // Draw last inside the loop rendering hierarchy
+                        reticleMesh.renderOrder = 9999; 
                         
                         scene.add(reticleMesh);
                         mappedVisualReticlesPool.push(reticleMesh);
@@ -1092,7 +1096,7 @@
             
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); 
             renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); 
-            renderer.setClearColor(0x020205, 1.0); // Completely opaque solid black tactical environment layer
+            renderer.setClearColor(0x020205, 1.0); 
             
             scene.add(mapStructuralMeshes); 
             autoInitializeSensors(); 
