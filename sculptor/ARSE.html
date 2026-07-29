@@ -412,6 +412,9 @@
         let alertStateActive = false;
         const ALERT_COOLDOWN_MS = 10000; 
 
+        // COORDINATE REGISTER FOR HIVE-MIND HULL TARGETING
+        const lastSeenPlayerPosition = new THREE.Vector3(0, 1.7, 0);
+
         const spatialAnomaliesCollection = [];
         const mapStructuralMeshes = new THREE.Group();
         const globalTrafficNodes = [];
@@ -478,7 +481,6 @@
             }
         }
 
-        // AGENT COLOR MODIFICATION: ORANGE (0xff7700)
         function compileHumanoidAgentModel() {
             const masterRigContainer = new THREE.Group();
             const wireframeMat = new THREE.LineBasicMaterial({ color: 0xff7700, linewidth: 2 });
@@ -813,7 +815,6 @@
             onWindowResize(); 
         }
 
-        // BUILDING COLOR MODIFICATION: UNIFORM NEON BLUE (0x00ffff)
         function buildNeonStructuralHulls(points, tags) {
             if (points.length < 3) return;
             const shape = new THREE.Shape();
@@ -885,14 +886,14 @@
             mapStructuralMeshes.add(new THREE.Mesh(swGeom, new THREE.MeshBasicMaterial({ color: 0x555555, side: THREE.DoubleSide }))); renderedPedestrianList.push({ points: points, isCrosswalk: false });
         }
 
-        // ENEMY NPC DRONE COLOR MODIFICATION: RED (0xff0000)
+        // INITIAL CONE RENDER DEFAULT PROFILE: GREEN (0x00ff00)
         function compileTacticalPatrolDrone() {
-            const droneGroup = new THREE.Group(); const chassisColor = 0xff0000; const mechanicalAccentColor = 0xff3333;
+            const droneGroup = new THREE.Group(); const chassisColor = 0xff0000; const initialBeamColor = 0x00ff00;
             const bodyMesh = new THREE.Mesh(new THREE.SphereGeometry(1.3, 10, 10), new THREE.MeshBasicMaterial({ color: 0x000000, depthWrite: true })); const bodyWireframeMesh = new THREE.LineSegments(new THREE.EdgesGeometry(bodyMesh.geometry), new THREE.LineBasicMaterial({ color: chassisColor })); droneGroup.add(bodyMesh, bodyWireframeMesh);
             let leftArmPivot = new THREE.Group(); let rightArmPivot = new THREE.Group();
 
             function compileBentClawLimb(isLeft, targetGroup) {
-                const mult = isLeft ? -1 : 1; const mat = new THREE.MeshBasicMaterial({ color: chassisColor }); const jMat = new THREE.MeshBasicMaterial({ color: mechanicalAccentColor });
+                const mult = isLeft ? -1 : 1; const mat = new THREE.MeshBasicMaterial({ color: chassisColor }); const jMat = new THREE.MeshBasicMaterial({ color: chassisColor });
                 const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.2), mat); upper.position.set(0.5 * mult, -0.3, 0); upper.rotation.z = (Math.PI / 3.5) * mult;
                 const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.18, 6, 6), jMat); elbow.position.set(1.0 * mult, -0.7, 0);
                 const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.1), mat); forearm.position.set(0.85 * mult, -1.2, 0); forearm.rotation.z = (-Math.PI / 4) * mult;
@@ -903,7 +904,7 @@
             }
             droneGroup.add(compileBentClawLimb(true, leftArmPivot), compileBentClawLimb(false, rightArmPivot));
             const beamConicGeo = new THREE.ConeGeometry(CONE_RADIUS, CONE_HEIGHT, 16, 1, true); beamConicGeo.translate(0, -CONE_HEIGHT / 2, 0);
-            const beamMesh = new THREE.Mesh(beamConicGeo, new THREE.MeshBasicMaterial({ color: chassisColor, transparent: true, opacity: 0.15, side: THREE.DoubleSide, depthWrite: false }));
+            const beamMesh = new THREE.Mesh(beamConicGeo, new THREE.MeshBasicMaterial({ color: initialBeamColor, transparent: true, opacity: 0.15, side: THREE.DoubleSide, depthWrite: false }));
             const scanningRigGroup = new THREE.Group(); scanningRigGroup.add(beamMesh); droneGroup.add(scanningRigGroup);
             return { coreAsset: droneGroup, dynamicScannerBeam: scanningRigGroup, leftArm: leftArmPivot, rightArm: rightArmPivot };
         }
@@ -920,7 +921,6 @@
             }
         }
 
-        // ENEMY NPC BOT COLOR MODIFICATION: RED (0xff0000)
         function compileHumanoidCombatBot() {
             const botGroup = new THREE.Group(); const skinColor = 0xff0000; const accentColor = 0xff3333;
             const headMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.4), new THREE.MeshBasicMaterial({ color: 0x000000 })); headMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(headMesh.geometry), new THREE.LineBasicMaterial({ color: skinColor }))); headMesh.position.y = 1.3;
@@ -948,14 +948,30 @@
             }
         }
 
+        // UNIFIED HIVE-MIND Patrolling and Articulation Loops
         function advanceDronePatrolSimulation(timestamp) {
             let spaceOverlay = document.getElementById('visor-screen-overlay');
             let droneDetectedFlag = false; if (matrixOverloadActive) return;
 
             tacticalDronesCollection.forEach(drone => {
                 let pos = drone.meshElement.position; let tx = 0, tz = 0; let targetAngle = drone.meshElement.rotation.y;
+                
+                // Track dynamic detection states
+                const vToP = new THREE.Vector3().copy(camera.position).sub(pos); const dToP = vToP.length();
+                const beamDir = new THREE.Vector3(0, -1, 0).applyQuaternion(drone.scannerBeamGroup.quaternion).applyQuaternion(drone.meshElement.quaternion).normalize(); vToP.normalize();
+                const isDirectlySpottingPlayer = (Math.acos(beamDir.dot(vToP)) <= CONE_SEMI_ANGLE && dToP <= CONE_HEIGHT);
+
+                if (isDirectlySpottingPlayer) {
+                    droneDetectedFlag = true;
+                    drone.isChasingPlayer = true;
+                    // Transmission payload: log exact location into shared hive matrix
+                    lastSeenPlayerPosition.copy(camera.position);
+                }
+
+                // Path tracking calculations targeting your last seen signature
                 if (drone.isChasingPlayer || alertStateActive) {
-                    tx = camera.position.x; tz = camera.position.z; const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
+                    tx = lastSeenPlayerPosition.x; tz = lastSeenPlayerPosition.z; 
+                    const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
                     if (dist > 1.0) { targetAngle = Math.atan2(dx, dz); pos.x += (dx / dist) * drone.movementVelocityFactor * 1.4; pos.z += (dz / dist) * drone.movementVelocityFactor * 1.4; }
                 } else {
                     const node = drone.routeCoordinates[drone.currentNodeIndex]; const dx = node.x - pos.x; const dz = node.z - pos.z; const dist = Math.hypot(dx, dz);
@@ -967,26 +983,52 @@
                         }
                     } else { pos.x += (dx / dist) * drone.movementVelocityFactor; pos.z += (dz / dist) * drone.movementVelocityFactor; }
                 }
+
+                // DYNAMIC CONE SHIFT: RED IF ALERTED/CHASING, GREEN IF CLEAR
+                const currentConeColor = (drone.isChasingPlayer || alertStateActive) ? 0xff0000 : 0x00ff00;
+                drone.scannerBeamGroup.children[0].material.color.setHex(currentConeColor);
+
                 let angleDiff = targetAngle - drone.meshElement.rotation.y;
                 while (angleDiff < -Math.PI) angleDiff += Math.PI * 2; while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
                 drone.meshElement.rotation.y += angleDiff * 0.08;
                 pos.y = 25.0 + Math.sin(timestamp * 0.0012 + drone.id) * 0.4; drone.leftArmAsset.rotation.x = Math.sin(timestamp * 0.0018 + drone.id) * 0.18; drone.rightArmAsset.rotation.x = Math.cos(timestamp * 0.0022 + drone.id) * 0.15; drone.scannerBeamGroup.rotation.z = Math.sin(timestamp * 0.0008 + drone.id * 1.5) * 0.35;
-                const vToP = new THREE.Vector3().copy(camera.position).sub(pos); const dToP = vToP.length();
-                const beamDir = new THREE.Vector3(0, -1, 0).applyQuaternion(drone.scannerBeamGroup.quaternion).applyQuaternion(drone.meshElement.quaternion).normalize(); vToP.normalize();
-                if (Math.acos(beamDir.dot(vToP)) <= CONE_SEMI_ANGLE && dToP <= CONE_HEIGHT) { droneDetectedFlag = true; drone.isChasingPlayer = true; } else if (!alertStateActive) { drone.isChasingPlayer = false; }
             });
 
             let botDetectedFlag = false;
             humanoidBotsCollection.forEach(bot => {
-                let pos = bot.meshElement.position; let headingVectorToPlayer = new THREE.Vector3(camera.position.x - pos.x, 0, camera.position.z - pos.z); const distanceToPlayer = headingVectorToPlayer.length(); let canBotSeePlayerRightNow = false; let botTargetAngle = bot.meshElement.rotation.y;
+                let pos = bot.meshElement.position; 
+                let headingVectorToPlayer = new THREE.Vector3(camera.position.x - pos.x, 0, camera.position.z - pos.z); 
+                const distanceToPlayer = headingVectorToPlayer.length(); 
+                let canBotSeePlayerRightNow = false; 
+                let botTargetAngle = bot.meshElement.rotation.y;
+
                 if (distanceToPlayer <= 30.0) {
                     headingVectorToPlayer.normalize(); let botDirectionFacingVector = new THREE.Vector3(Math.sin(bot.meshElement.rotation.y), 0, Math.cos(bot.meshElement.rotation.y)).normalize(); let forwardVisionCosineDot = botDirectionFacingVector.dot(headingVectorToPlayer);
                     if (forwardVisionCosineDot >= 0.5) canBotSeePlayerRightNow = true;
                 }
-                if (canBotSeePlayerRightNow) { botDetectedFlag = true; bot.isAlerted = true; } else { bot.isAlerted = false; }
-                if (bot.isAlerted) {
-                    bot.aimProgress = Math.min(1.0, bot.aimProgress + 0.07); const dx = camera.position.x - pos.x; const dz = camera.position.z - pos.z; botTargetAngle = Math.atan2(dx, dz);
-                    if (distanceToPlayer <= 25.0 && timestamp - bot.lastFireTimestamp > 1200) {
+                
+                if (canBotSeePlayerRightNow) { 
+                    botDetectedFlag = true; 
+                    bot.isAlerted = true; 
+                    lastSeenPlayerPosition.copy(camera.position);
+                } else { 
+                    bot.isAlerted = false; 
+                }
+
+                // INTEGRATED COMBAT BOTS RESPOND TO HIVE ALERT TARGET SIGNALS
+                if (bot.isAlerted || alertStateActive) {
+                    bot.aimProgress = Math.min(1.0, bot.aimProgress + 0.07); 
+                    const dx = lastSeenPlayerPosition.x - pos.x; const dz = lastSeenPlayerPosition.z - pos.z; 
+                    const distToLastSeen = Math.hypot(dx, dz);
+                    botTargetAngle = Math.atan2(dx, dz);
+                    
+                    // Converge vector coordinates directly to location player was last seen
+                    if (distToLastSeen > 2.0) {
+                        const frameVelocityStride = Math.min(distToLastSeen, bot.velocity * 0.12 * 1.5);
+                        pos.x += (dx / distToLastSeen) * frameVelocityStride; pos.z += (dz / distToLastSeen) * frameVelocityStride;
+                    }
+
+                    if (canBotSeePlayerRightNow && distanceToPlayer <= 25.0 && timestamp - bot.lastFireTimestamp > 1200) {
                         bot.lastFireTimestamp = timestamp; playerHealth = Math.max(0, playerHealth - 8.0); spaceOverlay.classList.add('flash-red-harm'); setTimeout(() => spaceOverlay.classList.remove('flash-red-harm'), 150);
                         const muzzleOffsetVector = new THREE.Vector3(0.9, 0.4, 1.6); muzzleOffsetVector.applyMatrix4(bot.meshElement.matrixWorld);
                         const targetHitPosition = new THREE.Vector3().copy(camera.position); const laserGeom = new THREE.CylinderGeometry(0.05, 0.05, 2.5); const laserMesh = new THREE.Mesh(laserGeom, new THREE.MeshBasicMaterial({ color: 0xff0055 }));
@@ -1015,8 +1057,14 @@
                 const bolt = activeLasersCollection[i]; bolt.meshElement.position.addScaledVector(bolt.directionVector, bolt.velocitySpeed); bolt.distanceTraveled += bolt.velocitySpeed;
                 if (bolt.distanceTraveled >= bolt.maxDistanceLimit || bolt.distanceTraveled > 250) { scene.remove(bolt.meshElement); bolt.meshElement.geometry.dispose(); bolt.meshElement.material.dispose(); activeLasersCollection.splice(i, 1); }
             }
+            
             isCurrentlyDetected = (droneDetectedFlag || botDetectedFlag);
-            if (isCurrentlyDetected) { timeLastSeenByThreat = timestamp; alertStateActive = true; } else if (alertStateActive && (timestamp - timeLastSeenByThreat >= ALERT_COOLDOWN_MS)) { alertStateActive = false; tacticalDronesCollection.forEach(d => d.isChasingPlayer = false); }
+            if (isCurrentlyDetected) { 
+                timeLastSeenByThreat = timestamp; alertStateActive = true; 
+            } else if (alertStateActive && (timestamp - timeLastSeenByThreat >= ALERT_COOLDOWN_MS)) { 
+                alertStateActive = false; 
+                tacticalDronesCollection.forEach(d => d.isChasingPlayer = false); 
+            }
             if (isCurrentlyDetected) spaceOverlay.classList.add('pulse-yellow-alert'); else spaceOverlay.classList.remove('pulse-yellow-alert');
 
             const currentSystemTime = Date.now();
@@ -1092,7 +1140,6 @@
             }
         }
 
-        // MINIMAP PATETTE CONFIGURATIONS FOR CONSISTENCY
         function update2DMinimapSystem() {
             const minimapCanvas = document.getElementById('minimapCanvas'); const minimapCtx = minimapCanvas.getContext('2d'); if (!minimapCtx || matrixOverloadActive) { if(minimapCtx) minimapCtx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height); return; }
             const directionVector = new THREE.Vector3(); camera.getWorldDirection(directionVector); const yaw = Math.atan2(directionVector.x, -directionVector.z);
@@ -1124,20 +1171,16 @@
                 minimapCtx.beginPath(); p.points.forEach((pt, idx) => { const dx = (pt.x - camera.position.x) * scale; const dz = (pt.z - camera.position.z) * scale; if (idx === 0) minimapCtx.moveTo(dx, dz); else minimapCtx.lineTo(dx, dz); });
                 minimapCtx.stroke(); minimapCtx.restore();
             });
-
-            // Minimap Building Modification: Neon Blue (rgba(0, 255, 255))
             renderedBuildingsList.forEach(b => {
                 minimapCtx.fillStyle = '#000000'; minimapCtx.strokeStyle = 'rgba(0, 255, 255, 0.6)'; minimapCtx.lineWidth = 1.5 * scale; minimapCtx.beginPath();
                 b.points.forEach((pt, idx) => { const dx = (pt.x - camera.position.x) * scale; const dz = (pt.z - camera.position.z) * scale; if (idx === 0) minimapCtx.moveTo(dx, dz); else minimapCtx.lineTo(dx, dz); });
                 minimapCtx.closePath(); minimapCtx.fill(); minimapCtx.stroke();
             });
-
             spatialAnomaliesCollection.forEach(a => {
                 if (a.collected) return; const dx = (a.mesh.position.x - camera.position.x) * scale; const dz = (a.mesh.position.z - camera.position.z) * scale;
                 minimapCtx.fillStyle = '#bd00ff'; minimapCtx.beginPath(); minimapCtx.arc(dx, dz, 4.5 * scale, 0, Math.PI * 2); minimapCtx.fill();
             });
 
-            // Minimap Multiplayer Agent Modification: Orange (#ff7700)
             for (const key in connectedAgentsMap) {
                 const liveAgentObj = connectedAgentsMap[key];
                 const dx = (liveAgentObj.joints.rootMesh.position.x - camera.position.x) * scale;
@@ -1152,14 +1195,11 @@
                 minimapCtx.restore();
             }
 
-            // Minimap Enemy Drone Modification: Red (#ff0000)
             tacticalDronesCollection.forEach(d => {
                 const dx = (d.meshElement.position.x - camera.position.x) * scale; const dz = (d.meshElement.position.z - camera.position.z) * scale;
                 minimapCtx.save(); minimapCtx.fillStyle = '#ff0000'; minimapCtx.strokeStyle = '#ff3333'; minimapCtx.lineWidth = 1; minimapCtx.translate(dx, dz); minimapCtx.rotate(d.meshElement.rotation.y);
                 minimapCtx.beginPath(); minimapCtx.moveTo(0, -6 * scale); minimapCtx.lineTo(-4 * scale, 4 * scale); minimapCtx.lineTo(4 * scale, 4 * scale); minimapCtx.closePath(); minimapCtx.fill(); minimapCtx.stroke(); minimapCtx.restore();
             });
-
-            // Minimap Enemy Bot Modification: Red (#ff0000)
             humanoidBotsCollection.forEach(b => {
                 const dx = (b.meshElement.position.x - camera.position.x) * scale; const dz = (b.meshElement.position.z - camera.position.z) * scale;
                 minimapCtx.save(); minimapCtx.fillStyle = '#ff0000'; minimapCtx.strokeStyle = '#ffffff'; minimapCtx.lineWidth = 1; minimapCtx.translate(dx, dz); const boxMetric = 8 * scale; minimapCtx.fillRect(-boxMetric/2, -boxMetric/2, boxMetric, boxMetric); minimapCtx.strokeRect(-boxMetric/2, -boxMetric/2, boxMetric, boxMetric); minimapCtx.restore();
@@ -1167,7 +1207,7 @@
 
             minimapCtx.restore();
             minimapCtx.strokeStyle = '#00ffcc'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.arc(centerMeters, centerMeters, centerMeters - 2, 0, Math.PI * 2); minimapCtx.stroke();
-            minimapCtx.fillStyle = '#ff7700'; // Set local tracker icon to match your Orange Agent profile
+            minimapCtx.fillStyle = '#ff7700'; 
             minimapCtx.beginPath(); minimapCtx.arc(centerMeters, centerMeters, 4, 0, Math.PI * 2); minimapCtx.fill();
             minimapCtx.strokeStyle = '#ff7700'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.moveTo(centerMeters, centerMeters); minimapCtx.lineTo(centerMeters, centerMeters - (14 * scale)); minimapCtx.stroke();
         }
