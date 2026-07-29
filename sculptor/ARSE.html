@@ -17,17 +17,6 @@
             user-select: none;
         }
 
-        /* WEBCAM ACTIVE FRAME KEEPALIVE LOOPHOLE LINK */
-        #webcam-feed {
-            position: absolute;
-            top: 10px; right: 10px;
-            width: 16px; height: 16px;
-            opacity: 0.1;
-            z-index: 5;
-            pointer-events: none;
-            border: 1px solid #00ffcc;
-        }
-
         #canvas3d {
             position: absolute;
             top: 0; left: 0;
@@ -96,22 +85,6 @@
             width: 80%;
         }
 
-        /* ESPIONAGE TELEMETRY DIAGNOSTIC DISPLAY */
-        #tactical-diagnostic-hud {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            z-index: 1000;
-            font-size: 11px;
-            line-height: 16px;
-            background: rgba(2, 2, 5, 0.75);
-            padding: 8px 12px;
-            border-left: 2px solid #00ffcc;
-            pointer-events: none;
-            font-weight: bold;
-            letter-spacing: 1px;
-        }
-
         .hud-banner-text {
             font-size: 28px;
             font-weight: 900;
@@ -135,6 +108,31 @@
             100% { transform: scale(0.96); opacity: 0.4; }
         }
 
+        .matrix-overload-title {
+            color: #ff0055;
+            font-size: 36px;
+            font-weight: 900;
+            letter-spacing: 5px;
+            text-shadow: 0 0 20px #ff0055;
+            animation: critical-visor-flash 0.4s infinite;
+            text-transform: uppercase;
+        }
+
+        .matrix-overload-sub {
+            color: #00ffcc;
+            font-size: 15px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            margin-top: 18px;
+            text-shadow: 0 0 10px #00ffcc;
+            animation: loading-text-pulse 1.2s infinite ease-in-out;
+        }
+
+        @keyframes critical-visor-flash {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.2; }
+        }
+
         #threat-tracker-display {
             font-size: 14px;
             font-weight: bold;
@@ -143,6 +141,10 @@
             text-shadow: 0 0 10px #ff0055;
             margin-top: 40px;
             display: none;
+        }
+
+        @media (min-width: 768px) {
+            #threat-tracker-display { font-size: 18px; letter-spacing: 3px; margin-top: 60px; }
         }
 
         #minimap-container {
@@ -269,6 +271,11 @@
             transition: all 0.1s ease;
         }
 
+        .nudge-btn:active {
+            background: #00ffcc;
+            color: #020205;
+        }
+
         .offset-menu-trigger {
             background: rgba(6, 10, 25, 0.85);
             color: #00ffcc;
@@ -287,6 +294,12 @@
             pointer-events: auto;
         }
 
+        .offset-menu-trigger:active {
+            background: #00ffcc;
+            color: #020205;
+            box-shadow: 0 0 20px #00ffcc;
+        }
+
         #portrait-warning {
             display: none;
             position: absolute;
@@ -300,17 +313,14 @@
         @media (orientation: portrait) { #portrait-warning { display: flex; } }
     </style>
     <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/vision_bundle.js" crossorigin="anonymous"></script>
 </head>
 <body>
-
-    <video id="webcam-feed" autoplay playsinline muted></video>
 
     <div id="visor-boot-gate" onclick="engageVisorSystemFromBootGate()">
         <div style="font-size: 18px; font-weight: 900; letter-spacing: 5px; color: #ff0055; margin-bottom: 10px; text-shadow: 0 0 10px #ff0055;">
             // TERMINAL INITIALIZATION REQUEST
         </div>
-        <div id="boot-sub-status" class="pulse-animation" style="font-size: 13px; font-weight: bold; letter-spacing: 2px;">
+        <div class="pulse-animation" style="font-size: 13px; font-weight: bold; letter-spacing: 2px;">
             TAP SCREEN TO INITIALIZE VISOR PROTOCOLS
         </div>
     </div>
@@ -320,13 +330,6 @@
             <div style="font-size: 20px; font-weight: bold; color: #ff0055; margin-bottom: 12px;">// CRITICAL ALIGNMENT ALERT</div>
             VISOR ENGAGEMENT BLOCKED. PLEASE ROTATE YOUR DEVICE TO LANDSCAPE VIEW MODE.
         </div>
-    </div>
-
-    <!-- TACTICAL DIAGNOSTIC RADAR OVERLAY PANEL -->
-    <div id="tactical-diagnostic-hud">
-        SYS_CAM: <span id="diag-cam" style="color: #ff0055;">OFFLINE</span><br>
-        AI_CORE: <span id="diag-model" style="color: #ffaa00;">INITIALIZING...</span><br>
-        SUBJECTS: <span id="diag-count">0 ACTIVE</span>
     </div>
 
     <div id="visor-screen-overlay"></div>
@@ -381,6 +384,7 @@
         const R_EARTH = 6378137;
 
         let isMinimapEnlarged = false;
+
         let geoTelemetryOffset = { lat: 0.0, lon: 0.0 };
         let gpsTargetPosition = new THREE.Vector3(0, 1.7, 0);
         let initialSnapCompleted = false; 
@@ -401,11 +405,6 @@
         const humanoidBotsCollection = []; 
         const activeLasersCollection = []; 
         let anomaliesCollectedCount = 0;
-
-        // COMPUTER VISION ARCHITECTURE FIX
-        let objectDetectorInstance = null;
-        let detectionModelLoaded = false;
-        const mappedVisualReticlesPool = [];
 
         const CONE_RADIUS = 2.4; 
         const CONE_HEIGHT = 38.0; 
@@ -434,36 +433,6 @@
             };
         })();
 
-        // Fixed Global Object Mapping Configuration
-        async function initializeMediaPipeDetector() {
-            try {
-                const visionNamespace = window.tasksVision || window.vision;
-                if (!visionNamespace) {
-                    setTimeout(initializeMediaPipeDetector, 500);
-                    return;
-                }
-                const { ObjectDetector, FilesetResolver } = visionNamespace;
-                const visionResolver = await FilesetResolver.forVisionTasks(
-                    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm"
-                );
-                objectDetectorInstance = await ObjectDetector.createFromOptions(visionResolver, {
-                    baseOptions: {
-                        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite",
-                        delegate: "GPU"
-                    },
-                    scoreThreshold: 0.35,
-                    runningMode: "VIDEO"
-                });
-                detectionModelLoaded = true;
-                document.getElementById('diag-model').innerText = "ONLINE";
-                document.getElementById('diag-model').style.color = "#00ffcc";
-            } catch(e) {
-                console.error("MediaPipe initialization error: ", e);
-                document.getElementById('diag-model').innerText = "ERROR";
-                document.getElementById('diag-model').style.color = "#ff0055";
-            }
-        }
-
         function latLonToLocalMeters(lat, lon, anchorLat, anchorLon) {
             const radLat = anchorLat * Math.PI / 180;
             const x = (lon - anchorLon) * (Math.PI / 180) * R_EARTH * Math.cos(radLat);
@@ -471,21 +440,23 @@
             return { x: x, z: z };
         }
 
-        window.applyGeospatialNudge = function(deltaLat, deltaLon) {
+        function applyGeospatialNudge(deltaLat, deltaLon) {
             geoTelemetryOffset.lat += deltaLat;
             geoTelemetryOffset.lon += deltaLon;
             
             if (hasLockedInitialAnchor) {
                 let calibratedLat = lastRawCoords.lat + geoTelemetryOffset.lat;
                 let calibratedLon = lastRawCoords.lon + geoTelemetryOffset.lon;
+                
                 currentCoordinates.lat = calibratedLat;
                 currentCoordinates.lon = calibratedLon;
+                
                 const local = latLonToLocalMeters(calibratedLat, calibratedLon, anchorCoordinates.lat, anchorCoordinates.lon);
                 gpsTargetPosition.set(local.x, 1.7, local.z);
             }
         }
 
-        window.engageVisorSystemFromBootGate = function() {
+        function engageVisorSystemFromBootGate() {
             if (sensorsEngaged) return;
             sensorsEngaged = true;
 
@@ -495,28 +466,6 @@
                         screen.orientation.lock('landscape').catch(() => {});
                     }
                 }).catch(() => {});
-            }
-
-            const videoFeedStream = document.getElementById('webcam-feed');
-            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: { exact: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, 
-                    audio: false 
-                }).then((stream) => {
-                    videoFeedStream.srcObject = stream;
-                    videoFeedStream.play().then(() => {
-                        document.getElementById('diag-cam').innerText = "ACTIVE";
-                        document.getElementById('diag-cam').style.color = "#00ffcc";
-                    }).catch(e => console.warn(e));
-                }).catch(() => {
-                    navigator.mediaDevices.getUserMedia({ video: true, audio: false }).then((stream) => {
-                        videoFeedStream.srcObject = stream;
-                        videoFeedStream.play().then(() => {
-                            document.getElementById('diag-cam').innerText = "ACTIVE (FALLBACK)";
-                            document.getElementById('diag-cam').style.color = "#ffaa00";
-                        });
-                    });
-                });
             }
 
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -529,7 +478,9 @@
 
             const bootGate = document.getElementById('visor-boot-gate');
             bootGate.style.opacity = '0';
-            setTimeout(() => { bootGate.style.display = 'none'; }, 400);
+            setTimeout(() => {
+                bootGate.style.display = 'none';
+            }, 400);
 
             initializeHighPrecisionGpsTracking();
         }
@@ -550,7 +501,8 @@
 
             document.getElementById('offsetMenuTriggerBtn').addEventListener('click', (e) => {
                 e.stopPropagation();
-                document.getElementById('biasPanel').classList.toggle('open');
+                const biasPanel = document.getElementById('biasPanel');
+                biasPanel.classList.toggle('open');
             });
 
             window.addEventListener('click', (e) => {
@@ -734,7 +686,7 @@
                 globalTrafficNodes.push(new THREE.Vector3(pt.x, 0.01, pt.z));
             }
             const roadGeom = new THREE.BufferGeometry(); roadGeom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3)); roadGeom.setIndex(indices); roadGeom.computeVertexNormals();
-            mapStructuralMeshes.add(new THREE.Mesh(roadGeom, new THREE.MeshBasicMaterial({ color: 0x010804, side: THREE.DoubleSide })));
+            mapStructuralMeshes.add(new THREE.Mesh(roadGeom, new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide })));
             const yellowCurbMat = new THREE.LineBasicMaterial({ color: 0xffff00 });
             mapStructuralMeshes.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(leftCurbyPoints), yellowCurbMat)); mapStructuralMeshes.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(rightCurbyPoints), yellowCurbMat));
             if (isMain) {
@@ -760,7 +712,7 @@
                 vertices.push(lx, 0.02, lz, rx, 0.02, rz); if (i < count - 1) indices.push(i*2, i*2+1, (i+1)*2, i*2+1, (i+1)*2+1, (i+1)*2);
             }
             const swGeom = new THREE.BufferGeometry(); swGeom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3)); swGeom.setIndex(indices); swGeom.computeVertexNormals();
-            mapStructuralMeshes.add(new THREE.Mesh(swGeom, new THREE.MeshBasicMaterial({ color: 0x333333, side: THREE.DoubleSide }))); renderedPedestrianList.push({ points: points, isCrosswalk: false });
+            mapStructuralMeshes.add(new THREE.Mesh(swGeom, new THREE.MeshBasicMaterial({ color: 0x555555, side: THREE.DoubleSide }))); renderedPedestrianList.push({ points: points, isCrosswalk: false });
         }
 
         function compileTacticalPatrolDrone() {
@@ -1051,74 +1003,6 @@
             spatialAnomaliesCollection.forEach(a => { if (a.collected) return; const d = Math.hypot(a.mesh.position.x - camera.position.x, a.mesh.position.z - camera.position.z); if (d <= a.radius) { a.collected = true; scene.remove(a.mesh); anomaliesCollectedCount++; } });
         }
 
-        // RE-ARCHITECTED HIGH-PRIORITY SCANNER PIPELINE
-        function executeMediaPipeDetectionScanner() {
-            const videoElement = document.getElementById('webcam-feed');
-            
-            if (!detectionModelLoaded || !objectDetectorInstance || videoElement.readyState < 2) {
-                return;
-            }
-
-            const detectionResults = objectDetectorInstance.detectForVideo(videoElement, performance.now());
-
-            mappedVisualReticlesPool.forEach(box => scene.remove(box));
-            mappedVisualReticlesPool.length = 0;
-
-            let validDetectionsCount = 0;
-
-            if (detectionResults && detectionResults.detections) {
-                detectionResults.detections.forEach(detection => {
-                    const matchedCategory = detection.categories[0].categoryName;
-                    
-                    if (["person", "cat", "dog"].includes(matchedCategory)) {
-                        validDetectionsCount++;
-                        const bbox = detection.boundingBox;
-                        
-                        // Map coordinates relative to the actual webcam stream resolution properties
-                        const normCenterX = (bbox.originX + bbox.width / 2) / videoElement.videoWidth;
-                        const normCenterY = (bbox.originY + bbox.height / 2) / videoElement.videoHeight;
-                        
-                        const ndcX = (normCenterX * 2) - 1;
-                        const ndcY = -(normCenterY * 2) + 1;
-
-                        camera.updateMatrixWorld();
-                        const trajectoryVector = new THREE.Vector3(ndcX, ndcY, 0.5).unproject(camera);
-                        trajectoryVector.sub(camera.position).normalize();
-                        
-                        const distanceAnchor = 5.0; 
-                        const final3DTargetPos = new THREE.Vector3().copy(camera.position).addScaledVector(trajectoryVector, distanceAnchor);
-
-                        // Uniform real-world target bounds (1.4m width x 2.0m height) to stay highly visible
-                        const reticleGeom = new THREE.BoxGeometry(1.4, 2.0, 0.2);
-                        const frameColor = matchedCategory === "person" ? 0xff0055 : 0x00ffcc;
-                        
-                        const reticleMaterial = new THREE.LineBasicMaterial({ 
-                            color: frameColor, 
-                            linewidth: 3,
-                            depthTest: false,   
-                            depthWrite: false   
-                        });
-                        
-                        const reticleMesh = new THREE.LineSegments(
-                            new THREE.EdgesGeometry(reticleGeom),
-                            reticleMaterial
-                        );
-                        
-                        reticleMesh.position.copy(final3DTargetPos);
-                        reticleMesh.lookAt(camera.position);
-                        reticleMesh.renderOrder = 9999; 
-                        
-                        scene.add(reticleMesh);
-                        mappedVisualReticlesPool.push(reticleMesh);
-                    }
-                });
-            }
-
-            // Real-time update to diagnostic UI terminal logs
-            document.getElementById('diag-count').innerText = `${validDetectionsCount} ACTIVE`;
-            document.getElementById('diag-count').style.color = validDetectionsCount > 0 ? "#ff0055" : "#00ffcc";
-        }
-
         function onWindowResize() {
             const width = window.innerWidth; const height = window.innerHeight; camera.aspect = width / height; camera.updateProjectionMatrix(); renderer.setSize(width, height);
             const cracksCanvas = document.getElementById('cracks-canvas'); cracksCanvas.width = width; cracksCanvas.height = height;
@@ -1133,26 +1017,12 @@
 
         function init() {
             scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000); camera.position.set(0, 1.7, 0);
-            
-            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); 
-            renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); 
-            renderer.setClearColor(0x020205, 1.0); 
-            
-            scene.add(mapStructuralMeshes); 
-            autoInitializeSensors(); 
-            onWindowResize(); 
-            window.addEventListener('resize', onWindowResize);
-            
-            initializeMediaPipeDetector();
-
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); renderer.setClearColor(0x020205, 1.0);
+            scene.add(mapStructuralMeshes); autoInitializeSensors(); onWindowResize(); window.addEventListener('resize', onWindowResize);
             function frameLoopEngine() {
                 requestAnimationFrame(frameLoopEngine); const t = Date.now();
                 spatialAnomaliesCollection.forEach(a => { if (!a.collected) { a.mesh.rotation.x += 0.01; a.mesh.rotation.y += 0.02; } });
-                if (sensorsEngaged) { 
-                    advanceDronePatrolSimulation(t); 
-                    evaluateGameplayState(); 
-                    executeMediaPipeDetectionScanner();
-                }
+                if (sensorsEngaged) { advanceDronePatrolSimulation(t); evaluateGameplayState(); }
                 renderer.render(scene, camera); update2DMinimapSystem();
             }
             frameLoopEngine();
