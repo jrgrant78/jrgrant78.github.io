@@ -331,6 +331,15 @@
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
+        // GLOBAL HARDWARE PERFORMANCE OPTIMIZATION SCRATCH REGISTERS
+        const _scratchVToP = new THREE.Vector3();
+        const _scratchBeamDir = new THREE.Vector3();
+        const _scratchBotHeading = new THREE.Vector3();
+        const _scratchBotFacing = new THREE.Vector3();
+        const _scratchMuzzleOffset = new THREE.Vector3();
+        const _scratchLaserTarget = new THREE.Vector3();
+        let biometricInferenceLock = false;
+
         // VOLUMETRIC CYBERNETIC BIOMETRIC MATRIX DEFINITIONS
         let handVisualizerGroup;
         const structuralJointMeshes = [];
@@ -343,7 +352,6 @@
             [13,17], [17,18], [18,19], [19,20], [0,17]
         ];
 
-        // REUSABLE LOCAL INTERMEDIATE TRANSFORMATION BUFFERS
         const _boneDirectionVec = new THREE.Vector3();
         const _boneDefaultUpAxis = new THREE.Vector3(0, 1, 0);
 
@@ -565,15 +573,21 @@
 
             let lastHandProcessTime = 0;
             async function executeThrottledFramePump() {
-                if (sensorsEngaged && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
+                // PERFORMANCE FILTER: Force thread drops to drop async stack builds completely
+                if (sensorsEngaged && !biometricInferenceLock && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
                     const now = Date.now();
-                    if (now - lastHandProcessTime > 55) { 
+                    if (now - lastHandProcessTime > 60) { 
+                        biometricInferenceLock = true; 
                         if (bufferCanvas.width !== videoElement.videoWidth) {
                             bufferCanvas.width = videoElement.videoWidth;
                             bufferCanvas.height = videoElement.videoHeight;
                         }
                         bufferCtx.drawImage(videoElement, 0, 0, bufferCanvas.width, bufferCanvas.height);
-                        await handsTrackingInstance.send({ image: bufferCanvas });
+                        
+                        // Fire calculation thread asynchronously, updating the lock natively via callback returns
+                        handsTrackingInstance.send({ image: bufferCanvas }).catch(() => {
+                            biometricInferenceLock = false;
+                        });
                         lastHandProcessTime = now;
                     }
                 }
@@ -581,7 +595,6 @@
             }
         }
 
-        // VOLUMETRIC VECTOR ORIENTATION MATH CAPTURE
         function orientVolumetricBoneCylinder(mesh, pStart, pEnd) {
             mesh.position.copy(pStart).add(pEnd).multiplyScalar(0.5);
             const distance = pStart.distanceTo(pEnd);
@@ -591,6 +604,9 @@
         }
 
         function handleBiometricLandmarkResults(results) {
+            // Free hardware gate lock safely matching computation callbacks
+            biometricInferenceLock = false;
+
             if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
                 handVisualizerGroup.visible = false;
                 return;
@@ -612,7 +628,6 @@
                 structuralJointMeshes[i].position.set(localX, localY, localZ);
             }
 
-            // ITERATIVELY SNAP VOLUMETRIC CYLINDER NODES Programmatically
             for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
                 const connection = BIOMETRIC_BONES_MAP[i];
                 const vStart = structuralJointMeshes[connection[0]].position;
@@ -1252,9 +1267,14 @@
                 }
 
                 let tx = 0, tz = 0; let targetAngle = drone.meshElement.rotation.y;
-                const vToP = new THREE.Vector3().copy(camera.position).sub(pos); const dToP = vToP.length();
-                const beamDir = new THREE.Vector3(0, -1, 0).applyQuaternion(drone.scannerBeamGroup.quaternion).applyQuaternion(drone.meshElement.quaternion).normalize(); vToP.normalize();
-                const isDirectlySpottingPlayer = (Math.acos(beamDir.dot(vToP)) <= CONE_SEMI_ANGLE && dToP <= CONE_HEIGHT);
+                
+                // RECYCLED REGISTER CONSTRAINTS: Erase active per-frame allocations completely
+                _scratchVToP.copy(camera.position).sub(pos); 
+                const dToP = _scratchVToP.length();
+                _scratchBeamDir.set(0, -1, 0).applyQuaternion(drone.scannerBeamGroup.quaternion).applyQuaternion(drone.meshElement.quaternion).normalize(); 
+                _scratchVToP.normalize();
+                
+                const isDirectlySpottingPlayer = (Math.acos(_scratchBeamDir.dot(_scratchVToP)) <= CONE_SEMI_ANGLE && dToP <= CONE_HEIGHT);
 
                 if (isDirectlySpottingPlayer) { droneDetectedFlag = true; drone.isChasingPlayer = true; lastSeenPlayerPosition.copy(camera.position); }
 
@@ -1283,18 +1303,40 @@
 
             let botDetectedFlag = false;
             humanoidBotsCollection.forEach(bot => {
-                let pos = bot.meshElement.position; let headingVectorToPlayer = new THREE.Vector3(camera.position.x - pos.x, 0, camera.position.z - pos.z); const distanceToPlayer = headingVectorToPlayer.length(); let canBotSeePlayerRightNow = false; let botTargetAngle = bot.meshElement.rotation.y;
-                if (distanceToPlayer <= 30.0) { headingVectorToPlayer.normalize(); let botDirectionFacingVector = new THREE.Vector3(Math.sin(bot.meshElement.rotation.y), 0, Math.cos(bot.meshElement.rotation.y)).normalize(); let forwardVisionCosineDot = botDirectionFacingVector.dot(headingVectorToPlayer); if (forwardVisionCosineDot >= 0.5) canBotSeePlayerRightNow = true; }
+                let pos = bot.meshElement.position; 
+                let canBotSeePlayerRightNow = false; 
+                let botTargetAngle = bot.meshElement.rotation.y;
+                
+                // POOLED VECTOR CACHE RECYCLING
+                _scratchBotHeading.copy(camera.position).sub(pos);
+                _scratchBotHeading.y = 0;
+                const distanceToPlayer = _scratchBotHeading.length();
+                
+                if (distanceToPlayer <= 30.0) { 
+                    _scratchBotHeading.normalize(); 
+                    _scratchBotFacing.set(Math.sin(bot.meshElement.rotation.y), 0, Math.cos(bot.meshElement.rotation.y)).normalize(); 
+                    let forwardVisionCosineDot = _scratchBotFacing.dot(_scratchBotHeading); 
+                    if (forwardVisionCosineDot >= 0.5) canBotSeePlayerRightNow = true; 
+                }
+                
                 if (canBotSeePlayerRightNow) { botDetectedFlag = true; bot.isAlerted = true; lastSeenPlayerPosition.copy(camera.position); } else { bot.isAlerted = false; }
                 if (bot.isAlerted || alertStateActive) {
                     bot.aimProgress = Math.min(1.0, bot.aimProgress + 0.07); const dx = lastSeenPlayerPosition.x - pos.x; const dz = lastSeenPlayerPosition.z - pos.z; const distToLastSeen = Math.hypot(dx, dz); botTargetAngle = Math.atan2(dx, dz);
                     if (distToLastSeen > 2.0) { const frameVelocityStride = Math.min(distToLastSeen, bot.velocity * 0.12 * 1.5); pos.x += (dx / distToLastSeen) * frameVelocityStride; pos.z += (dz / distToLastSeen) * frameVelocityStride; }
                     if (canBotSeePlayerRightNow && distanceToPlayer <= 25.0 && timestamp - bot.lastFireTimestamp > 1200) {
                         bot.lastFireTimestamp = timestamp; playerHealth = Math.max(0, playerHealth - 8.0); spaceOverlay.classList.add('flash-red-harm'); setTimeout(() => spaceOverlay.classList.remove('flash-red-harm'), 150);
-                        const muzzleOffsetVector = new THREE.Vector3(0.9, 0.4, 1.6); muzzleOffsetVector.applyMatrix4(bot.meshElement.matrixWorld);
-                        const targetHitPosition = new THREE.Vector3().copy(camera.position); const laserGeom = new THREE.CylinderGeometry(0.05, 0.05, 2.5); const laserMesh = new THREE.Mesh(laserGeom, new THREE.MeshBasicMaterial({ color: 0xff0055 }));
-                        laserMesh.position.copy(muzzleOffsetVector); laserMesh.lookAt(targetHitPosition); laserMesh.rotation.x += Math.PI / 2; scene.add(laserMesh);
-                        activeLasersCollection.push({ meshElement: laserMesh, directionVector: new THREE.Vector3().subVectors(targetHitPosition, muzzleOffsetVector).normalize(), velocitySpeed: 5.5, distanceTraveled: 0, maxDistanceLimit: muzzleOffsetVector.distanceTo(targetHitPosition) });
+                        
+                        _scratchMuzzleOffset.set(0.9, 0.4, 1.6).applyMatrix4(bot.meshElement.matrixWorld);
+                        _scratchLaserTarget.copy(camera.position); 
+                        
+                        const laserGeom = new THREE.CylinderGeometry(0.05, 0.05, 2.5); 
+                        const laserMesh = new THREE.Mesh(laserGeom, new THREE.MeshBasicMaterial({ color: 0xff0055 }));
+                        laserMesh.position.copy(_scratchMuzzleOffset); 
+                        laserMesh.lookAt(_scratchLaserTarget); 
+                        laserMesh.rotation.x += Math.PI / 2; 
+                        scene.add(laserMesh);
+                        
+                        activeLasersCollection.push({ meshElement: laserMesh, directionVector: new THREE.Vector3().subVectors(_scratchLaserTarget, _scratchMuzzleOffset).normalize(), velocitySpeed: 5.5, distanceTraveled: 0, maxDistanceLimit: _scratchMuzzleOffset.distanceTo(_scratchLaserTarget) });
                     }
                 } else {
                     bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07); const targetNode = bot.routeCoordinates[bot.currentNodeIndex]; const ndx = targetNode.x - pos.x; const ndz = targetNode.z - pos.z; const ndist = Math.hypot(ndx, ndz);
@@ -1452,7 +1494,7 @@
             }
             tacticalDronesCollection.forEach(d => {
                 const coords = transformWorldToMapCoords(d.meshElement.position.x, d.meshElement.position.z);
-                minimapCtx.save(); minimapCtx.fillStyle = globalShutdownShutdownTriggered ? '#555555' : '#ff0000'; minimapCtx.strokeStyle = '#ff3333'; minimapCtx.lineWidth = 1; minimapCtx.translate(coords.x, coords.y); minimapCtx.rotate(d.meshElement.rotation.y);
+                minimapCtx.save(); minimapCtx.fillStyle = globalShutdownTriggered ? '#555555' : '#ff0000'; minimapCtx.strokeStyle = '#ff3333'; minimapCtx.lineWidth = 1; minimapCtx.translate(coords.x, coords.y); minimapCtx.rotate(d.meshElement.rotation.y);
                 const itemSize = Math.max(4.0, 6.0 * scale); minimapCtx.beginPath(); minimapCtx.moveTo(0, -itemSize); minimapCtx.lineTo(-itemSize * 0.7, itemSize * 0.7); minimapCtx.lineTo(itemSize * 0.7, itemSize * 0.7); minimapCtx.closePath(); minimapCtx.fill(); minimapCtx.stroke(); minimapCtx.restore();
             });
             humanoidBotsCollection.forEach(b => {
@@ -1561,7 +1603,6 @@
             handVisualizerGroup = new THREE.Group();
             handVisualizerGroup.renderOrder = 9999; 
             
-            // Upgraded sphere geometries to a shrunken tactical footprint profile
             const jointGeometry = new THREE.SphereGeometry(0.0035, 8, 8);
             const biometricOrangeMaterial = new THREE.MeshBasicMaterial({ 
                 color: 0xff5500, 
@@ -1577,7 +1618,6 @@
                 structuralJointMeshes.push(jMesh);
             }
 
-            // CONSTRUCT PROGRAMMATIC CYLINDER BONE POOL STAPLES
             const baseBoneUnitGeometry = new THREE.CylinderGeometry(0.0014, 0.0014, 1.0, 5);
             
             for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
