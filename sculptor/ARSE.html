@@ -70,7 +70,7 @@
             position: absolute; bottom: 25px; left: 25px; width: 26vh; height: 26vh;
             min-width: 90px; min-height: 90px; max-width: 180px; max-height: 180px;
             z-index: 100; pointer-events: auto; cursor: pointer;
-            touch-action: none; /* Block browser native pan/zoom behavior */
+            touch-action: none; 
             transition: width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), bottom 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), left 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), top 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
 
@@ -280,11 +280,8 @@
         let atmosphericSunLight, globalAmbientLight, stellarDomeSystem;
         let calculatedVisorTimeline = 12.0; 
 
-        // HUD INTERACTION MATRIX: Tracks active screen-space pointers, pan matrices, and magnification constraints
         let activeMapPointers = [];
         let previousPinchDist = 0;
-        let totalMapDragDist = 0;
-        let blockMinimapCloseOnce = false;
         let minimapZoomScale = 1.0;
         let minimapPanOffset = new THREE.Vector3(0, 0, 0);
 
@@ -603,7 +600,6 @@
                 e.stopPropagation(); document.getElementById('biasPanel').classList.toggle('open');
             });
 
-            // GESTURE INITIALIZATION: Intercepts pointer arrays mapping directly across the enlarged HUD vector window
             const mapContainer = document.getElementById('minimap-container');
             
             mapContainer.addEventListener('pointerdown', (e) => {
@@ -616,7 +612,6 @@
                         activeMapPointers[0].clientY - activeMapPointers[1].clientY
                     );
                 }
-                totalMapDragDist = 0;
             });
 
             mapContainer.addEventListener('pointermove', (e) => {
@@ -629,16 +624,10 @@
                 let legacyPointer = activeMapPointers[ptrIndex];
                 let deltaX = e.clientX - legacyPointer.clientX;
                 let deltaY = e.clientY - legacyPointer.clientY;
-                totalMapDragDist += Math.hypot(deltaX, deltaY);
                 
                 activeMapPointers[ptrIndex] = e;
 
-                if (totalMapDragDist > 6) {
-                    blockMinimapCloseOnce = true;
-                }
-
                 if (activeMapPointers.length === 1) {
-                    // Pan Engine Configuration: Rotate the client drag vectors around look yaw angle parameters
                     const headingVector = new THREE.Vector3(); 
                     camera.getWorldDirection(headingVector); 
                     const currentYawAngle = Math.atan2(headingVector.x, -headingVector.z);
@@ -659,7 +648,6 @@
                     minimapPanOffset.z -= translatedWorldZ;
                 } 
                 else if (activeMapPointers.length === 2) {
-                    // Pinch Zoom Configuration: Update scale ratio based on active pointer spread variance
                     let activeDistance = Math.hypot(
                         activeMapPointers[0].clientX - activeMapPointers[1].clientX,
                         activeMapPointers[0].clientY - activeMapPointers[1].clientY
@@ -667,7 +655,13 @@
                     if (previousPinchDist > 0) {
                         let zoomRatio = activeDistance / previousPinchDist;
                         minimapZoomScale *= zoomRatio;
-                        minimapZoomScale = Math.max(0.2, Math.min(12.0, minimapZoomScale)); // Security boundary limits
+                        
+                        // LIMIT PROTOCOL UPGRADE: Auto-center and lock if user attempts to breach the 1.0 minimum zoom boundary
+                        if (minimapZoomScale < 1.0) {
+                            minimapZoomScale = 1.0;
+                            minimapPanOffset.set(0, 0, 0); 
+                        }
+                        minimapZoomScale = Math.min(12.0, minimapZoomScale); 
                     }
                     previousPinchDist = activeDistance;
                 }
@@ -683,25 +677,23 @@
             mapContainer.addEventListener('pointercancel', flushActiveMapPointers);
             mapContainer.addEventListener('pointerleave', flushActiveMapPointers);
 
+            // OUTSIDE OVERLAY TRIGGER UPGRADE: Intercept window framework coordinates directly
             window.addEventListener('click', (e) => {
                 if (!sensorsEngaged || e.target.closest('#fine-tune-dock') || e.target.closest('#hacking-modal')) return; 
+                
                 if (isMinimapEnlarged) {
-                    if (e.target.closest('#minimap-container')) {
-                        if (blockMinimapCloseOnce) {
-                            blockMinimapCloseOnce = false; 
-                            return;
-                        }
+                    // Tap anywhere OUTSIDE the enlarged container element to close the tactical visualization view
+                    if (!e.target.closest('#minimap-container')) {
                         isMinimapEnlarged = false;
                         mapContainer.classList.remove('enlarged');
-                        // Clean matrix configuration on structural collapse
                         minimapZoomScale = 1.0;
                         minimapPanOffset.set(0, 0, 0);
                     }
                 } else {
+                    // Tap INSIDE the bounds of the running miniature compass overlay to trigger full screen rendering
                     if (e.target.closest('#minimap-container')) {
                         isMinimapEnlarged = true;
                         mapContainer.classList.add('enlarged');
-                        blockMinimapCloseOnce = false;
                     }
                 }
             });
@@ -1170,7 +1162,6 @@
             }
         }
 
-        // 2D MATRIX PIPELINE ENGINE: Computes and slides assets based on internal panning offsets and custom scaling parameters
         function update2DMinimapSystem() {
             const minimapCanvas = document.getElementById('minimapCanvas'); const minimapCtx = minimapCanvas.getContext('2d'); if (!minimapCtx || matrixOverloadActive) { if(minimapCtx) minimapCtx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height); return; }
             const lookDirectionVector = new THREE.Vector3(); camera.getWorldDirection(lookDirectionVector); const yaw = Math.atan2(lookDirectionVector.x, -lookDirectionVector.z);
@@ -1183,11 +1174,11 @@
             minimapCtx.fillStyle = '#071e0e'; minimapCtx.fillRect(0, 0, minimapCanvas.width, minimapCanvas.height);
             minimapCtx.translate(centerMeters, centerMeters); minimapCtx.rotate(-yaw); 
             
-            // Scaled Zoom Calculation Matrix
             const baseRadius = isMinimapEnlarged ? MAP_RADIUS_METERS : 100; 
             const VISIBLE_MAP_RADIUS = baseRadius / minimapZoomScale;
             const scale = centerMeters / VISIBLE_MAP_RADIUS;
 
+            // Map origin focus incorporates real time screen drag vector translations
             const mapCenterX = camera.position.x + minimapPanOffset.x;
             const mapCenterZ = camera.position.z + minimapPanOffset.z;
 
@@ -1238,15 +1229,13 @@
                 minimapCtx.save(); minimapCtx.fillStyle = '#ff0000'; minimapCtx.strokeStyle = '#ffffff'; minimapCtx.lineWidth = 1; minimapCtx.translate(dx, dz); const boxMetric = Math.max(6.0, 8.0 * scale); minimapCtx.fillRect(-boxMetric/2, -boxMetric/2, boxMetric, boxMetric); minimapCtx.strokeRect(-boxMetric/2, -boxMetric/2, boxMetric, boxMetric); minimapCtx.restore();
             });
 
-            // Player Matrix Renderer: Render tracking nodes relative to custom panning offsets
+            // FIXED WORLD LOCK UPGRADE: Computes position relative to map focus, keeping the pin anchored to its spatial coordinate under click panning
             const playerDx = (camera.position.x - mapCenterX) * scale;
             const playerDz = (camera.position.z - mapCenterZ) * scale;
 
             minimapCtx.restore(); minimapCtx.strokeStyle = '#00ffcc'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.arc(centerMeters, centerMeters, centerMeters - 2, 0, Math.PI * 2); minimapCtx.stroke();
             minimapCtx.fillStyle = '#ff7700'; minimapCtx.beginPath(); minimapCtx.arc(centerMeters + playerDx, centerMeters + playerDz, 4, 0, Math.PI * 2); minimapCtx.fill();
             minimapCtx.strokeStyle = '#ff7700'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.moveTo(centerMeters + playerDx, centerMeters + playerDz); 
-            
-            // Cast player sightline vector directly upwards inside the pre-rotated compass array
             minimapCtx.lineTo(centerMeters + playerDx, centerMeters + playerDz - 14); minimapCtx.stroke();
         }
 
@@ -1293,41 +1282,6 @@
             const cracksCanvas = document.getElementById('cracks-canvas'); cracksCanvas.width = width; cracksCanvas.height = height;
             const currentContainerElement = document.getElementById('minimap-container'); const targetWidth = currentContainerElement.offsetWidth;
             if (targetWidth > 0) { const minimapCanvas = document.getElementById('minimapCanvas'); minimapCanvas.width = targetWidth; minimapCanvas.height = targetWidth; }
-        }
-
-        function compileTacticalPatrolDrone() {
-            const droneGroup = new THREE.Group(); const chassisColor = 0xff0000; const initialBeamColor = 0x00ff00;
-            const bodyMesh = new THREE.Mesh(new THREE.SphereGeometry(1.3, 10, 10), new THREE.MeshBasicMaterial({ color: 0x000000, depthWrite: true })); const bodyWireframeMesh = new THREE.LineSegments(new THREE.EdgesGeometry(bodyMesh.geometry), new THREE.LineBasicMaterial({ color: chassisColor })); droneGroup.add(bodyMesh, bodyWireframeMesh);
-            let leftArmPivot = new THREE.Group(); let rightArmPivot = new THREE.Group();
-            function compileBentClawLimb(isLeft, targetGroup) {
-                const mult = isLeft ? -1 : 1; const mat = new THREE.MeshBasicMaterial({ color: chassisColor }); const jMat = new THREE.MeshBasicMaterial({ color: chassisColor });
-                const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.2), mat); upper.position.set(0.5 * mult, -0.3, 0); upper.rotation.z = (Math.PI / 3.5) * mult;
-                const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.18, 6, 6), jMat); elbow.position.set(1.0 * mult, -0.7, 0);
-                const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.1), mat); forearm.position.set(0.85 * mult, -1.2, 0); forearm.rotation.z = (-Math.PI / 4) * mult;
-                const wrist = new THREE.Group(); wrist.position.set(0.5 * mult, -1.6, 0); wrist.add(new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.15, 0.2), jMat));
-                const clawL = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, 0.08), mat); clawL.position.set(-0.08, -0.15, 0); clawL.rotation.z = 0.2;
-                const clawR = clawL.clone(); clawR.position.x = 0.08; clawR.rotation.z = -0.2; wrist.add(clawL, clawR);
-                targetGroup.add(upper, elbow, forearm, wrist); targetGroup.position.x = 1.2 * mult; return targetGroup;
-            }
-            droneGroup.add(compileBentClawLimb(true, leftArmPivot), compileBentClawLimb(false, rightArmPivot));
-            const beamConicGeo = new THREE.ConeGeometry(CONE_RADIUS, CONE_HEIGHT, 16, 1, true); beamConicGeo.translate(0, -CONE_HEIGHT / 2, 0);
-            const beamMesh = new THREE.Mesh(beamConicGeo, new THREE.MeshBasicMaterial({ color: initialBeamColor, transparent: true, opacity: 0.15, side: THREE.DoubleSide, depthWrite: false }));
-            const scanningRigGroup = new THREE.Group(); scanningRigGroup.add(beamMesh); droneGroup.add(scanningRigGroup);
-            return { coreAsset: droneGroup, dynamicScannerBeam: scanningRigGroup, leftArm: leftArmPivot, rightArm: rightArmPivot };
-        }
-
-        function compileHumanoidCombatBot() {
-            const botGroup = new THREE.Group(); const skinColor = 0xff0000; const accentColor = 0xff3333;
-            const headMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.4), new THREE.MeshBasicMaterial({ color: 0x000000 })); headMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(headMesh.geometry), new THREE.LineBasicMaterial({ color: skinColor }))); headMesh.position.y = 1.3;
-            const eyeVisor = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.05), new THREE.MeshBasicMaterial({ color: accentColor })); eyeVisor.position.set(0, 0.05, 0.2); headMesh.add(eyeVisor); botGroup.add(headMesh);
-            const torsoMesh = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.4), new THREE.MeshBasicMaterial({ color: 0x000000 })); torsoMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(torsoMesh.geometry), new THREE.LineBasicMaterial({ color: skinColor }))); torsoMesh.position.y = 0.65; botGroup.add(torsoMesh);
-            const leftArmGroup = new THREE.Group(); leftArmGroup.position.set(-0.45, 1.0, 0); const lLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: skinColor })); lLimbs.position.y = -0.4; leftArmGroup.add(lLimbs); botGroup.add(leftArmGroup);
-            const rightArmGroup = new THREE.Group(); rightArmGroup.position.set(0.45, 1.0, 0); const rLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: skinColor })); rLimbs.position.y = -0.4; rightArmGroup.add(rLimbs);
-            const pistolBlaster = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.07, 0.3), new THREE.MeshBasicMaterial({ color: accentColor })); pistolBlaster.position.set(0, -0.9, 0); rightArmGroup.add(pistolBlaster); botGroup.add(rightArmGroup);
-            const leftLegPivot = new THREE.Group(); leftLegPivot.position.set(-0.22, 0.2, 0); const lLegSegment = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.05, 0.7), new THREE.MeshBasicMaterial({ color: skinColor })); lLegSegment.position.y = -0.35; leftLegPivot.add(lLegSegment);
-            const rightLegPivot = new THREE.Group(); rightLegPivot.position.set(0.22, 0.2, 0); const rLegSegment = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.05, 0.7), new THREE.MeshBasicMaterial({ color: skinColor })); rLegSegment.position.y = -0.35; rightLegPivot.add(rLegSegment);
-            botGroup.add(leftLegPivot, rightLegPivot); botGroup.scale.set(2.0, 2.0, 2.0);
-            return { model: botGroup, leftLeg: leftLegPivot, rightLeg: rightLegPivot, leftArm: leftArmGroup, rightArm: rightArmGroup };
         }
 
         function init() {
