@@ -188,8 +188,15 @@
     <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
     <script src="https://unpkg.com/three@0.128.0/examples/js/utils/BufferGeometryUtils.js"></script>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    
+    <!-- MEDIAPIPE CORE SPATIAL TRACKING LIBRARIES -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 </head>
 <body>
+
+    <!-- SILENT FEED EXTRACTION NODE -->
+    <video id="webcam-hardware-feed" autoplay playsinline style="display:none;"></video>
 
     <div id="visor-boot-gate" onclick="engageVisorSystemFromBootGate()">
         <div style="font-size: 36px; font-weight: 900; letter-spacing: 8px; color: #00ffcc; margin-bottom: 2px; text-shadow: 0 0 15px #00ffcc;">
@@ -324,6 +331,18 @@
         const CONE_RADIUS = 2.4; 
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
+
+        // ARTICULATED BIOMETRIC MATRIX DEFINITIONS
+        let handVisualizerGroup;
+        const structuralJointMeshes = [];
+        let skeletalBonesMesh;
+        const BIOMETRIC_BONES_MAP = [
+            [0,1], [1,2], [2,3], [3,4],
+            [0,5], [5,6], [6,7], [7,8],
+            [5,9], [9,10], [10,11], [11,12],
+            [9,13], [13,14], [14,15], [15,16],
+            [13,17], [17,18], [18,19], [19,20], [0,17]
+        ];
 
         const sharedMaterials = {
             grass: new THREE.MeshLambertMaterial({ color: 0x071e0e, depthWrite: true }),
@@ -478,6 +497,74 @@
             document.getElementById('agent-count-display').style.display = 'block';
             document.getElementById('terminal-status-overlay').style.display = 'block';
             initializeHighPrecisionGpsTracking(); initializeSatelliteMultiplayerTelemetry();
+            
+            // LINK CAPTURE STREAM PIPELINE TO KINEMATIC MATRIX ENGINE
+            initializeHardwareBiometricTracking();
+        }
+
+        // BIOMETRIC DECRYPTION AND COORDINATE PROJECTION ENGINE
+        function initializeHardwareBiometricTracking() {
+            const videoElement = document.getElementById('webcam-hardware-feed');
+            const handsTrackingInstance = new window.Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+
+            handsTrackingInstance.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.6,
+                minTrackingConfidence: 0.6
+            });
+
+            handsTrackingInstance.onResults(handleBiometricLandmarkResults);
+
+            navigator.mediaDevices.getUserMedia({
+                video: { facingMode: "environment", width: 640, height: 480 }
+            }).then(stream => {
+                videoElement.srcObject = stream;
+                const mediapipeCameraInstance = new window.Camera(videoElement, {
+                    onFrame: async () => {
+                        if (sensorsEngaged) await handsTrackingInstance.send({ image: videoElement });
+                    },
+                    width: 640, height: 480
+                });
+                mediapipeCameraInstance.start();
+            }).catch(() => {});
+        }
+
+        function handleBiometricLandmarkResults(results) {
+            if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+                handVisualizerGroup.visible = false;
+                return;
+            }
+
+            handVisualizerGroup.visible = true;
+            const landmarks = results.multiHandLandmarks[0];
+            const fovRad = (camera.fov * Math.PI) / 180;
+            const projectDistance = 0.38; 
+            const viewHeightMax = Math.tan(fovRad / 2) * projectDistance;
+            const viewWidthMax = viewHeightMax * camera.aspect;
+
+            // Project normalized values uniformly inside camera frustum coordinates
+            for (let i = 0; i < 21; i++) {
+                const lm = landmarks[i];
+                const localX = (lm.x - 0.5) * 2 * viewWidthMax;
+                const localY = (0.5 - lm.y) * 2 * viewHeightMax;
+                const localZ = -projectDistance - (lm.z * 0.4); 
+
+                structuralJointMeshes[i].position.set(localX, localY, localZ);
+            }
+
+            // Sync dynamic vector line segment buffer elements
+            const dynamicBonesBuffer = [];
+            BIOMETRIC_BONES_MAP.forEach(connection => {
+                const vStart = structuralJointMeshes[connection[0]].position;
+                const vEnd = structuralJointMeshes[connection[1]].position;
+                dynamicBonesBuffer.push(vStart.x, vStart.y, vStart.z, vEnd.x, vEnd.y, vEnd.z);
+            });
+
+            skeletalBonesMesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(dynamicBonesBuffer, 3));
+            skeletalBonesMesh.geometry.attributes.position.needsUpdate = true;
         }
 
         document.addEventListener('visibilitychange', async () => {
@@ -927,7 +1014,6 @@
             hackingTerminalsCollection.push({ id: indexId, mesh: terminalMeshInstance, pos: positionVector, hacked: false });
         }
 
-        // DRONE PATROL ENGINE: Constrains trajectories to open street segments and distributes assets uniformly
         function deployTacticalDronePlatoon() {
             tacticalDronesCollection.forEach(d => scene.remove(d.meshElement)); tacticalDronesCollection.length = 0;
             if (renderedStreetsList.length === 0) return; 
@@ -944,7 +1030,6 @@
             }
         }
 
-        // BOT GARRISON ENGINE: Restricts tracks exclusively to sidewalks and strings chains together to avoid close-quarter trap errors
         function deployHumanoidGarrison() {
             humanoidBotsCollection.forEach(b => scene.remove(b.meshElement)); humanoidBotsCollection.length = 0;
             const validSidewalkTracks = renderedPedestrianList.filter(p => !p.isCrosswalk && p.points.length >= 2);
@@ -956,7 +1041,6 @@
                 let currentEnd = pathData[pathData.length - 1];
                 let visitedTracks = new Set([track]);
                 
-                // Iterative proximity connector builds extensive sidewalk paths
                 for (let k = 0; k < 4; k++) {
                     let nextTrack = null;
                     let closeDist = 25.0;
@@ -1418,6 +1502,27 @@
             scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 4000); camera.position.set(0, 1.7, 0);
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); renderer.setClearColor(0x020205, 1.0);
             scene.add(mapStructuralMeshes); autoInitializeSensors(); setupVisorEnvironmentLighting(); onWindowResize(); window.addEventListener('resize', onWindowResize);
+            
+            // BUILD KINEMATIC VECTOR HAND HULL SETUP
+            handVisualizerGroup = new THREE.Group();
+            const jointGeometry = new THREE.IcosahedronGeometry(0.007, 1);
+            const jointMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true });
+            
+            for (let i = 0; i < 21; i++) {
+                const jMesh = new THREE.Mesh(jointGeometry, jointMaterial);
+                jMesh.visible = false;
+                handVisualizerGroup.add(jMesh);
+                structuralJointMeshes.push(jMesh);
+            }
+
+            const skeletonGeo = new THREE.BufferGeometry();
+            skeletalBonesMesh = new THREE.LineSegments(skeletonGeo, new THREE.LineBasicMaterial({ color: 0xff0055, linewidth: 2 }));
+            handVisualizerGroup.add(skeletalBonesMesh);
+            
+            // Mount structural geometry directly inside screen space context to mirror look transformations
+            camera.add(handVisualizerGroup);
+            scene.add(camera);
+
             function frameLoopEngine() {
                 requestAnimationFrame(frameLoopEngine); const t = Date.now();
                 spatialAnomaliesCollection.forEach(a => { if (!a.collected) { a.mesh.rotation.x += 0.01; a.mesh.rotation.y += 0.02; } });
