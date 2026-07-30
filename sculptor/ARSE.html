@@ -357,7 +357,7 @@
 
         // HYSTERESIS SMOOTHING TIMERS
         let handStabilityCounter = 0;
-        const HYSTERESIS_VISIBLE_STRIKE = 3; // Minimum frames required to show hand (avoids phantom flickers)
+        const HYSTERESIS_VISIBLE_STRIKE = 3; 
 
         // VOLUMETRIC BIOMETRIC REGISTERS
         let handVisualizerGroup;
@@ -537,11 +537,6 @@
 
         function initializeHardwareBiometricTracking() {
             const videoElement = document.getElementById('webcam-hardware-feed');
-            const bufferCanvas = document.getElementById('biometric-pixel-buffer');
-            const bufferCtx = bufferCanvas.getContext('2d');
-
-            bufferCanvas.width = 256;
-            bufferCanvas.height = 192;
 
             const handsTrackingInstance = new window.Hands({
                 locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
@@ -603,14 +598,20 @@
                     const now = Date.now();
                     if (now - lastHandProcessTime > 65) { 
                         biometricInferenceLock = true; 
-                        bufferCtx.drawImage(videoElement, 0, 0, 256, 192);
-                        handsTrackingInstance.send({ image: bufferCanvas }).catch(() => {
+                        // ZERO-COPY UPGRADE: Push video element directly to bypass intermediate canvas readbacks
+                        handsTrackingInstance.send({ image: videoElement }).catch(() => {
                             biometricInferenceLock = false;
                         });
                         lastHandProcessTime = now;
                     }
                 }
-                requestAnimationFrame(executeThrottledFramePump);
+                
+                // HARDWARE SYNC UPGRADE: Use requestVideoFrameCallback if available to match camera refreshing natively
+                if ('requestVideoFrameCallback' in videoElement) {
+                    videoElement.requestVideoFrameCallback(executeThrottledFramePump);
+                } else {
+                    requestAnimationFrame(executeThrottledFramePump);
+                }
             }
         }
 
@@ -696,7 +697,6 @@
                 0
             );
 
-            // OPTIMIZED ZERO-ALLOCATION LERP LAYER
             if (calculatedVisorTimeline >= 0 && calculatedVisorTimeline < 4.5) { 
                 _colorSkyBuffer.copy(_colorMidnightSky); _colorLightBuffer.copy(_colorMidnightLight);
                 ambientIlluminationIntensity = 0.25; solarBeamIntensity = 0.2; stellarOpacityValue = 1.0;
@@ -1014,6 +1014,7 @@
             onWindowResize(); 
         }
 
+        // DECOUPLED MATRIX GENERATION: Disables engine automatic sweeps on building nodes entirely
         function buildNeonStructuralHulls(points, tags) {
             if (points.length < 3) return; const shape = new THREE.Shape(); shape.moveTo(points[0].x, -points[0].z);
             for (let i = 1; i < points.length; i++) shape.lineTo(points[i].x, -points[i].z); shape.closePath();
@@ -1343,7 +1344,6 @@
                         _scratchMuzzleOffset.set(0.9, 0.4, 1.6).applyMatrix4(bot.meshElement.matrixWorld);
                         _scratchLaserTarget.copy(camera.position); 
                         
-                        // ZERO ALLOCATION PRE-BUILT HARDWARE MESH POOL LIFT
                         const laserMesh = new THREE.Mesh(sharedLaserGeometry, sharedLaserMaterial);
                         laserMesh.position.copy(_scratchMuzzleOffset); 
                         laserMesh.lookAt(_scratchLaserTarget); 
@@ -1444,7 +1444,6 @@
             }
         }
 
-        // ZERO ALLOCATION MAP CONVERSION TRANSFORMS
         function inlineTransformWorldToMapCoords(wx, wz, mapCenterX, mapCenterZ, scale) {
             _scratchMapTransform.x = (wx - mapCenterX) * scale;
             _scratchMapTransform.y = (wz - mapCenterZ) * scale;
@@ -1612,7 +1611,6 @@
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); renderer.setClearColor(0x020205, 1.0);
             scene.add(mapStructuralMeshes); autoInitializeSensors(); setupVisorEnvironmentLighting(); onWindowResize(); window.addEventListener('resize', onWindowResize);
             
-            // PROGRAMMATICALLY BIND FIRE POOL HARDWARE MESH STAPLES
             sharedLaserGeometry = new THREE.CylinderGeometry(0.05, 0.05, 2.5);
             sharedLaserMaterial = new THREE.MeshBasicMaterial({ color: 0xff0055 });
 
@@ -1629,8 +1627,10 @@
                 transparent: true
             });
             
+            // BIOMETRIC MATRIX BREAKOUT: Set matrixAutoUpdate to false to save thousands of recursive calculations per frame
             for (let i = 0; i < 21; i++) {
                 const jMesh = new THREE.Mesh(jointGeometry, biometricOrangeMaterial);
+                jMesh.matrixAutoUpdate = false; 
                 handVisualizerGroup.add(jMesh);
                 structuralJointMeshes.push(jMesh);
             }
@@ -1639,6 +1639,7 @@
             
             for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
                 const boneMeshInstance = new THREE.Mesh(baseBoneUnitGeometry, biometricOrangeMaterial);
+                boneMeshInstance.matrixAutoUpdate = false; 
                 handVisualizerGroup.add(boneMeshInstance);
                 volumetricBoneMeshes.push(boneMeshInstance);
             }
@@ -1655,14 +1656,16 @@
                     advanceDronePatrolSimulation(t); 
                     evaluateGameplayState(); 
 
-                    // SMOOTH KINEMATIC INTEGRATION AND LERP INTERPOLATION PUMP
+                    // KINEMATIC MANUAL MATRIX INJECTOR LAYER
                     if (handVisualizerGroup.visible) {
                         for (let i = 0; i < 21; i++) {
                             structuralJointMeshes[i].position.lerp(kinematicTargetCoordinates[i], 0.35);
+                            structuralJointMeshes[i].updateMatrix(); 
                         }
                         for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
                             const connection = BIOMETRIC_BONES_MAP[i];
                             orientVolumetricBoneCylinder(volumetricBoneMeshes[i], structuralJointMeshes[connection[0]].position, structuralJointMeshes[connection[1]].position);
+                            volumetricBoneMeshes[i].updateMatrix(); 
                         }
                     }
                 }
