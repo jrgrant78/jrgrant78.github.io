@@ -318,7 +318,6 @@
         @media (orientation: portrait) { #portrait-warning { display: flex; } }
     </style>
     <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
-    <!-- PERFORMANCE UPGRADE: Added BufferGeometryUtils pipeline for direct geometry merging -->
     <script src="https://unpkg.com/three@0.128.0/examples/js/utils/BufferGeometryUtils.js"></script>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 </head>
@@ -439,7 +438,6 @@
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
-        // PERFORMANCE UPGRADE: Fixed global cache matrix for shared materials (prevents continuous GPU reallocation overhead)
         const sharedMaterials = {
             grass: new THREE.MeshBasicMaterial({ color: 0x071e0e, depthWrite: true }),
             buildingSolid: new THREE.MeshBasicMaterial({ color: 0x000000, depthWrite: true }),
@@ -451,7 +449,6 @@
             crosswalk: new THREE.LineDashedMaterial({ color: 0xfffa9e, dashSize: 1.5, gapSize: 1.5 })
         };
 
-        // Temporary arrays to hold static geometries for batch merging
         let buildingSolidGeoms = [];
         let buildingWireGeoms = [];
         let roadSolidGeoms = [];
@@ -813,7 +810,6 @@
             globalTrafficNodes.length = 0; renderedStreetsList.length = 0;
             renderedBuildingsList.length = 0; renderedPedestrianList.length = 0;
 
-            // PERFORMANCE UPGRADE: Reset batch architecture collectors
             buildingSolidGeoms = []; buildingWireGeoms = [];
             roadSolidGeoms = []; roadCurbGeoms = []; roadCenterGeoms = [];
             sidewalkSolidGeoms = []; crosswalkGeoms = [];
@@ -850,7 +846,6 @@
                 }
             });
 
-            // PERFORMANCE UPGRADE: Batch process and merge geometry arrays into singular WebGL draw items
             if (buildingSolidGeoms.length > 0) {
                 const mergedSolid = THREE.BufferGeometryUtils.mergeBufferGeometries(buildingSolidGeoms);
                 mapStructuralMeshes.add(new THREE.Mesh(mergedSolid, sharedMaterials.buildingSolid));
@@ -903,7 +898,7 @@
             h = Math.min(h, 60);
 
             const geom = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false });
-            geom.rotateX(-Math.PI / 2); // Apply space transform internally to avoid hierarchy group tracking overhead
+            geom.rotateX(-Math.PI / 2); 
             
             buildingSolidGeoms.push(geom);
             buildingWireGeoms.push(new THREE.EdgesGeometry(geom));
@@ -912,7 +907,7 @@
         }
 
         function buildNeonVectorPathways(points, tags) {
-            const laneHalfWidth = 4.0; const vertices = []; const indices = []; const leftCurbyPoints = []; const rightCurbyPoints = []; const centerLinePoints = []; const count = points.length; const normals = new Array(count);
+            const laneHalfWidth = 4.0; const vertices = []; const indices = []; const count = points.length; const normals = new Array(count);
             const isMain = tags && tags.highway && ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'].includes(tags.highway);
 
             for (let i = 0; i < count; i++) {
@@ -1252,7 +1247,6 @@
             const streetLineWeight = isMinimapEnlarged ? Math.max(1, 4 * scale) : 12;
             const blueprintHullWeight = Math.max(1.0, 1.5 * scale);
 
-            // PERFORMANCE UPGRADE: Added dynamic radial pruning (culls out off-screen coordinates instantly before drawing)
             renderedStreetsList.forEach(s => {
                 const firstPt = s.points[0];
                 if (!isMinimapEnlarged && Math.hypot(firstPt.x - camera.position.x, firstPt.z - camera.position.z) > VISIBLE_MAP_RADIUS * 1.5) return;
@@ -1312,8 +1306,10 @@
 
             minimapCtx.restore();
             minimapCtx.strokeStyle = '#00ffcc'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.arc(centerMeters, centerMeters, centerMeters - 2, 0, Math.PI * 2); minimapCtx.stroke();
+            
+            // SYNTAX FIX: Bound the rendering canvas context property call correctly to resolve the rendering crash
             minimapCtx.fillStyle = '#ff7700'; 
-            minimapCtx.beginPath(); minimapCtx.arc(centerMeters, centerMeters, 4, 0, Math.PI * 2); fill();
+            minimapCtx.beginPath(); minimapCtx.arc(centerMeters, centerMeters, 4, 0, Math.PI * 2); minimapCtx.fill();
             minimapCtx.strokeStyle = '#ff7700'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.moveTo(centerMeters, centerMeters); minimapCtx.lineTo(centerMeters, centerMeters - 14); minimapCtx.stroke();
         }
 
