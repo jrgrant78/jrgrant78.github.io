@@ -355,9 +355,10 @@
         let biometricInferenceLock = false;
         let lastMinimapUpdateTime = 0;
 
-        // HYSTERESIS SMOOTHING TIMERS
+        // HYSTERESIS SMOOTHING TIMERS (TUNED TO ARREST FLICKERING VALIDATION TRAILING COOLDOWN)
         let handStabilityCounter = 0;
-        const HYSTERESIS_VISIBLE_STRIKE = 3; 
+        const HYSTERESIS_VISIBLE_STRIKE = 4; // Higher baseline filters single-frame ghosts out completely
+        let timeOfLastValidHandPacket = 0;
 
         // VOLUMETRIC BIOMETRIC REGISTERS
         let handVisualizerGroup;
@@ -537,6 +538,14 @@
 
         function initializeHardwareBiometricTracking() {
             const videoElement = document.getElementById('webcam-hardware-feed');
+            const bufferCanvas = document.getElementById('biometric-pixel-buffer');
+            const bufferCtx = bufferCanvas.getContext('2d');
+
+            bufferCanvas.width = 256;
+            bufferCanvas.height = 192;
+            
+            // ELIMINATE RESIZING ALGORITHM SMOOTHING OVERHEAD (DIRECT VALUE COPY)
+            bufferCtx.imageSmoothingEnabled = false;
 
             const handsTrackingInstance = new window.Hands({
                 locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
@@ -545,7 +554,7 @@
             handsTrackingInstance.setOptions({
                 maxNumHands: 1,
                 modelComplexity: 0, 
-                minDetectionConfidence: 0.65, // TUNED: Cuts ghost profiles instantly
+                minDetectionConfidence: 0.65, // SHARP LOCKOUT: Discards weak spatial artifacts immediately
                 minTrackingConfidence: 0.65,
                 selfieMode: false 
             });
@@ -596,22 +605,17 @@
             async function executeThrottledFramePump() {
                 if (sensorsEngaged && !biometricInferenceLock && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
                     const now = Date.now();
-                    if (now - lastHandProcessTime > 65) { 
+                    if (now - lastHandProcessTime > 75) { 
                         biometricInferenceLock = true; 
-                        // ZERO-COPY UPGRADE: Push video element directly to bypass intermediate canvas readbacks
-                        handsTrackingInstance.send({ image: videoElement }).catch(() => {
+                        bufferCtx.drawImage(videoElement, 0, 0, 256, 192);
+                        handsTrackingInstance.send({ image: bufferCanvas }).catch(() => {
                             biometricInferenceLock = false;
                         });
                         lastHandProcessTime = now;
                     }
                 }
-                
-                // HARDWARE SYNC UPGRADE: Use requestVideoFrameCallback if available to match camera refreshing natively
-                if ('requestVideoFrameCallback' in videoElement) {
-                    videoElement.requestVideoFrameCallback(executeThrottledFramePump);
-                } else {
-                    requestAnimationFrame(executeThrottledFramePump);
-                }
+                // DECOUPLED CLOCK: Decouples rendering paint bounds from pipeline processing checks
+                setTimeout(executeThrottledFramePump, 16);
             }
         }
 
@@ -627,15 +631,19 @@
             biometricInferenceLock = false;
 
             if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-                // HYSTERESIS FILTER: Decay confidence index rather than applying split-second dropouts
-                handStabilityCounter = Math.max(0, handStabilityCounter - 1);
-                if (handStabilityCounter === 0) handVisualizerGroup.visible = false;
+                // HYSTERESIS SMOOTHING TIMERS: Decays tracking memory gently to survive drops without instantaneous visibility blinks
+                if (Date.now() - timeOfLastValidHandPacket > 220) {
+                    handStabilityCounter = Math.max(0, handStabilityCounter - 1);
+                    if (handStabilityCounter === 0) handVisualizerGroup.visible = false;
+                }
                 return;
             }
 
-            handStabilityCounter = Math.min(10, handStabilityCounter + 1);
+            // FILTER APPLIED: Hand must prove continuous presence before display to terminate flickering
+            handStabilityCounter = Math.min(12, handStabilityCounter + 1);
             if (handStabilityCounter >= HYSTERESIS_VISIBLE_STRIKE) {
                 handVisualizerGroup.visible = true;
+                timeOfLastValidHandPacket = Date.now();
             }
             
             const landmarks = results.multiHandLandmarks[0];
@@ -1014,7 +1022,6 @@
             onWindowResize(); 
         }
 
-        // DECOUPLED MATRIX GENERATION: Disables engine automatic sweeps on building nodes entirely
         function buildNeonStructuralHulls(points, tags) {
             if (points.length < 3) return; const shape = new THREE.Shape(); shape.moveTo(points[0].x, -points[0].z);
             for (let i = 1; i < points.length; i++) shape.lineTo(points[i].x, -points[i].z); shape.closePath();
@@ -1627,10 +1634,10 @@
                 transparent: true
             });
             
-            // BIOMETRIC MATRIX BREAKOUT: Set matrixAutoUpdate to false to save thousands of recursive calculations per frame
             for (let i = 0; i < 21; i++) {
                 const jMesh = new THREE.Mesh(jointGeometry, biometricOrangeMaterial);
-                jMesh.matrixAutoUpdate = false; 
+                // OVERHEAD BYPASS: Shuts down internal matrix loops completely across the frame architecture
+                jMesh.matrixAutoUpdate = false;
                 handVisualizerGroup.add(jMesh);
                 structuralJointMeshes.push(jMesh);
             }
@@ -1639,7 +1646,7 @@
             
             for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
                 const boneMeshInstance = new THREE.Mesh(baseBoneUnitGeometry, biometricOrangeMaterial);
-                boneMeshInstance.matrixAutoUpdate = false; 
+                boneMeshInstance.matrixAutoUpdate = false;
                 handVisualizerGroup.add(boneMeshInstance);
                 volumetricBoneMeshes.push(boneMeshInstance);
             }
@@ -1656,16 +1663,17 @@
                     advanceDronePatrolSimulation(t); 
                     evaluateGameplayState(); 
 
-                    // KINEMATIC MANUAL MATRIX INJECTOR LAYER
                     if (handVisualizerGroup.visible) {
                         for (let i = 0; i < 21; i++) {
                             structuralJointMeshes[i].position.lerp(kinematicTargetCoordinates[i], 0.35);
-                            structuralJointMeshes[i].updateMatrix(); 
+                            // MANUAL INJECTION: Safely pushes the shrunken joint transform updates directly
+                            structuralJointMeshes[i].updateMatrix();
                         }
                         for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
                             const connection = BIOMETRIC_BONES_MAP[i];
                             orientVolumetricBoneCylinder(volumetricBoneMeshes[i], structuralJointMeshes[connection[0]].position, structuralJointMeshes[connection[1]].position);
-                            volumetricBoneMeshes[i].updateMatrix(); 
+                            // MANUAL INJECTION: Safely pushes bone spatial length mapping transformations
+                            volumetricBoneMeshes[i].updateMatrix();
                         }
                     }
                 }
