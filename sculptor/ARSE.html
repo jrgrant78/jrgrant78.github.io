@@ -331,7 +331,7 @@
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
-        // GLOBAL ALLOCATION SCRATCH CORES
+        // ALLOCATION POOL REGISTERS
         const _scratchVToP = new THREE.Vector3();
         const _scratchBeamDir = new THREE.Vector3();
         const _scratchBotHeading = new THREE.Vector3();
@@ -354,13 +354,14 @@
         let biometricInferenceLock = false;
         let lastMinimapUpdateTime = 0;
 
+        // BIOMETRIC STREAM TRACKING CONFIGURATION
         let handStabilityCounter = 0;
         const HYSTERESIS_VISIBLE_STRIKE = 3; 
         let biometricDynamicThrottle = 200; 
 
-        // BIOMETRIC VECTOR STRUCTURES
+        // VOLUMETRIC BIOMETRIC REGISTERS
         let handVisualizerGroup;
-        let handHullGeometry, handHullMesh;
+        let palmMesh, palmGeometry;
         const structuralJointMeshes = [];
         const volumetricBoneMeshes = [];
         const kinematicTargetCoordinates = Array.from({ length: 21 }, () => new THREE.Vector3(0, 0, -0.35));
@@ -370,15 +371,6 @@
             [5,9], [9,10], [10,11], [11,12],
             [9,13], [13,14], [14,15], [15,16],
             [13,17], [17,18], [18,19], [19,20], [0,17]
-        ];
-
-        // SCI-FI HULL GEOMETRY TOPOLOGY MAPPING INDICES
-        const BIOMETRIC_HULL_INDEX_MAP = [
-            0, 1, 5,   0, 5, 9,   0, 9, 13,  0, 13, 17,
-            1, 6, 5,   1, 2, 6,   2, 7, 6,   2, 3, 7,   3, 4, 8,   3, 8, 7,
-            5, 10, 9,  5, 6, 10,  6, 11, 10, 6, 7, 11,  7, 12, 11, 7, 8, 12,
-            9, 14, 13, 9, 10, 14, 10, 15, 14, 10, 11, 15, 11, 16, 15, 11, 12, 16,
-            13, 18, 17, 13, 14, 18, 14, 19, 18, 14, 15, 19, 15, 20, 19, 15, 16, 20
         ];
 
         const _boneDirectionVec = new THREE.Vector3();
@@ -870,7 +862,7 @@
                                 candidateCenterX *= clampRatio;
                                 candidateCenterZ *= clampRatio;
                                 minimapPanOffset.x = candidateCenterX - camera.position.x;
-                                minimapPanOffset.z = candidateCenterZ - camera.position.z;
+                                minimapPanOffset.z = dynamicMaxPanDist;
                             }
                         }
                     }
@@ -1621,7 +1613,8 @@
             handVisualizerGroup.renderOrder = 9999; 
             handVisualizerGroup.visible = false;
             
-            const jointGeometry = new THREE.SphereGeometry(0.0028, 6, 6);
+            // CONSTRUCT DEFINED knuckles SITTING PERFECTLY WITHIN THE ENLARGED FINGERS
+            const jointGeometry = new THREE.SphereGeometry(0.0036, 6, 6);
             const biometricOrangeMaterial = new THREE.MeshBasicMaterial({ 
                 color: 0xff5500, 
                 wireframe: true,
@@ -1637,7 +1630,8 @@
                 structuralJointMeshes.push(jMesh);
             }
 
-            const baseBoneUnitGeometry = new THREE.CylinderGeometry(0.0011, 0.0011, 1.0, 4);
+            // UPGRADED FINGER ASSETS: Robust cylinders creating physical definition instead of wire skeletons
+            const baseBoneUnitGeometry = new THREE.CylinderGeometry(0.0035, 0.0024, 1.0, 5);
             
             for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
                 const boneMeshInstance = new THREE.Mesh(baseBoneUnitGeometry, biometricOrangeMaterial);
@@ -1646,25 +1640,31 @@
                 volumetricBoneMeshes.push(boneMeshInstance);
             }
 
-            // INITIALIZE HOLOGRAPHIC HULL BUFFER FOR HAND DEFINITION
-            handHullGeometry = new THREE.BufferGeometry();
-            const hullPositionsArray = new Float32Array(21 * 3);
-            handHullGeometry.setAttribute('position', new THREE.BufferAttribute(hullPositionsArray, 3));
-            handHullGeometry.setIndex(BIOMETRIC_HULL_INDEX_MAP);
+            // ZERO ALLOCATION TRIANGULATED PALM CONSTRUCTION (5 Boundary Points forming a clean center membrane)
+            palmGeometry = new THREE.BufferGeometry();
+            const palmPositionsArray = new Float32Array(5 * 3); // 5 points (Joints 0, 5, 9, 13, 17)
+            palmGeometry.setAttribute('position', new THREE.BufferAttribute(palmPositionsArray, 3));
+            
+            // Index paths tracing triangular fan routes matching the wrist center outwards to root knuckles
+            const palmIndices = [
+                0, 1, 2,  // Wrist -> Index Root -> Middle Root
+                0, 2, 3,  // Wrist -> Middle Root -> Ring Root
+                0, 3, 4   // Wrist -> Ring Root -> Pinky Root
+            ];
+            palmGeometry.setIndex(palmIndices);
 
-            const handHullMaterial = new THREE.MeshBasicMaterial({
+            const palmMaterial = new THREE.MeshBasicMaterial({
                 color: 0xff5500,
-                wireframe: false,
-                transparent: true,
-                opacity: 0.2, // Clean tactical translucency
                 side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.28,
                 depthTest: false,
                 depthWrite: false
             });
 
-            handHullMesh = new THREE.Mesh(handHullGeometry, handHullMaterial);
-            handHullMesh.matrixAutoUpdate = false;
-            handVisualizerGroup.add(handHullMesh);
+            palmMesh = new THREE.Mesh(palmGeometry, palmMaterial);
+            palmMesh.matrixAutoUpdate = false;
+            handVisualizerGroup.add(palmMesh);
             
             camera.add(handVisualizerGroup);
             scene.add(camera);
@@ -1679,28 +1679,28 @@
                     evaluateGameplayState(); 
 
                     if (handVisualizerGroup.visible) {
-                        const hullPositions = handHullGeometry.attributes.position.array;
-
                         for (let i = 0; i < 21; i++) {
                             structuralJointMeshes[i].position.lerp(kinematicTargetCoordinates[i], 0.35);
                             structuralJointMeshes[i].updateMatrix();
-
-                            // Programmatically feed positions into the contiguous hull array in-place
-                            const i3 = i * 3;
-                            hullPositions[i3] = structuralJointMeshes[i].position.x;
-                            hullPositions[i3 + 1] = structuralJointMeshes[i].position.y;
-                            hullPositions[i3 + 2] = structuralJointMeshes[i].position.z;
                         }
-
-                        // Single batch update flags the whole cybernetic hull layer instantly
-                        handHullGeometry.attributes.position.needsUpdate = true;
-                        handHullMesh.updateMatrix();
-
                         for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
                             const connection = BIOMETRIC_BONES_MAP[i];
                             orientVolumetricBoneCylinder(volumetricBoneMeshes[i], structuralJointMeshes[connection[0]].position, structuralJointMeshes[connection[1]].position);
                             volumetricBoneMeshes[i].updateMatrix();
                         }
+
+                        // HIGH FREQUENCY DIRECT MEMORY WRITE: Maps the palm plate dynamic vertex stretches inline
+                        const palmVertices = palmGeometry.attributes.position.array;
+                        const boundNodes = [0, 5, 9, 13, 17];
+                        for (let idx = 0; idx < 5; idx++) {
+                            const currentJointPos = structuralJointMeshes[boundNodes[idx]].position;
+                            const stride = idx * 3;
+                            palmVertices[stride] = currentJointPos.x;
+                            palmVertices[stride + 1] = currentJointPos.y;
+                            palmVertices[stride + 2] = currentJointPos.z;
+                        }
+                        palmGeometry.attributes.position.needsUpdate = true;
+                        palmMesh.updateMatrix();
                     }
                 }
                 
