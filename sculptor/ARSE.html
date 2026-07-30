@@ -355,8 +355,9 @@
         let biometricInferenceLock = false;
         let lastMinimapUpdateTime = 0;
 
-        // HYSTERESIS SMOOTHING TIMERS (HYBRID TRACKING INDEX BUFFER)
-        let handConfidenceScore = 0.0;
+        // HYSTERESIS SMOOTHING & ANTI-FLICKER REGISTERS
+        let handStabilityCounter = 0;
+        const HYSTERESIS_VISIBLE_STRIKE = 3; 
 
         // VOLUMETRIC BIOMETRIC REGISTERS
         let handVisualizerGroup;
@@ -374,7 +375,6 @@
         const _boneDirectionVec = new THREE.Vector3();
         const _boneDefaultUpAxis = new THREE.Vector3(0, 1, 0);
 
-        // SHARED SYSTEM HARDWARE ASSETS
         let sharedLaserGeometry, sharedLaserMaterial;
 
         const sharedMaterials = {
@@ -536,11 +536,6 @@
 
         function initializeHardwareBiometricTracking() {
             const videoElement = document.getElementById('webcam-hardware-feed');
-            const bufferCanvas = document.getElementById('biometric-pixel-buffer');
-            const bufferCtx = bufferCanvas.getContext('2d');
-
-            bufferCanvas.width = 256;
-            bufferCanvas.height = 192;
 
             const handsTrackingInstance = new window.Hands({
                 locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
@@ -549,7 +544,7 @@
             handsTrackingInstance.setOptions({
                 maxNumHands: 1,
                 modelComplexity: 0, 
-                minDetectionConfidence: 0.65, // SHARP FILTER: Eliminates ghost profiles
+                minDetectionConfidence: 0.65, 
                 minTrackingConfidence: 0.65,
                 selfieMode: false 
             });
@@ -600,21 +595,17 @@
             async function executeThrottledFramePump() {
                 if (sensorsEngaged && !biometricInferenceLock && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
                     const now = Date.now();
-                    if (now - lastHandProcessTime > 70) { 
+                    if (now - lastHandProcessTime > 66) { 
                         biometricInferenceLock = true; 
-                        bufferCtx.drawImage(videoElement, 0, 0, 256, 192);
-                        
-                        // EVENT LOOP DECOUPLING: Offloads heavy WASM script executing to macro-task stack
-                        setTimeout(() => {
-                            handsTrackingInstance.send({ image: bufferCanvas }).catch(() => {
-                                biometricInferenceLock = false;
-                            });
-                        }, 0);
-                        
+                        // PERFORMANCE VISOR UPGRADE: Inject video asset directly to bypass canvas pipeline allocation math
+                        handsTrackingInstance.send({ image: videoElement }).catch(() => {
+                            biometricInferenceLock = false;
+                        });
                         lastHandProcessTime = now;
                     }
                 }
-                requestAnimationFrame(executeThrottledFramePump);
+                // DECOUPLED INDEPENDENT SCHEDULER: Moves calculation execution outside requestAnimationFrame frames
+                setTimeout(executeThrottledFramePump, 16);
             }
         }
 
@@ -630,15 +621,14 @@
             biometricInferenceLock = false;
 
             if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-                // ASYMMETRIC CONFIDENCE DECAY: Reduces momentary drops, stops immediate frame loss
-                handConfidenceScore = Math.max(0.0, handConfidenceScore - 0.12);
-                if (handConfidenceScore <= 0.1) handVisualizerGroup.visible = false;
+                // HYSTERESIS CONTROLLER FILTER: Prevents rapid hand dropping stutters
+                handStabilityCounter = Math.max(0, handStabilityCounter - 1);
+                if (handStabilityCounter === 0) handVisualizerGroup.visible = false;
                 return;
             }
 
-            // SMOOTH HYSTERESIS FILTER: Prevents short visual noise frames from flickering the mesh
-            handConfidenceScore = Math.min(1.0, handConfidenceScore + 0.28);
-            if (handConfidenceScore >= 0.45) {
+            handStabilityCounter = Math.min(6, handStabilityCounter + 1);
+            if (handStabilityCounter >= HYSTERESIS_VISIBLE_STRIKE) {
                 handVisualizerGroup.visible = true;
             }
             
@@ -965,7 +955,7 @@
         function triggerMatrixOverloadErrorState() {
             matrixOverloadActive = true; mapLoadedForAnchor = false; isFetchingMap = false;
             while(mapStructuralMeshes.children.length > 0) { const m = mapStructuralMeshes.children[0]; if (m.geometry) m.geometry.dispose(); mapStructuralMeshes.remove(m); }
-            tacticalDronesCollection.forEach(d => scene.remove(d.meshElement)); tacticalDronesCollection.length = 0;
+            tactical DronesCollection.forEach(d => scene.remove(d.meshElement)); tacticalDronesCollection.length = 0;
             humanoidBotsCollection.forEach(b => scene.remove(b.meshElement)); humanoidBotsCollection.length = 0;
             spatialAnomaliesCollection.forEach(a => scene.remove(a.mesh)); spatialAnomaliesCollection.length = 0;
             hackingTerminalsCollection.forEach(t => scene.remove(t.mesh)); hackingTerminalsCollection.length = 0;
@@ -1557,7 +1547,7 @@
             spatialAnomaliesCollection.forEach(a => scene.remove(a.mesh)); spatialAnomaliesCollection.length = 0; const geo = new THREE.IcosahedronGeometry(1.5, 1);
             for (let i = 0; i < 5; i++) {
                 let p = new THREE.Vector3((Math.random()-0.5)*60, 1.7, (Math.random()-0.5)*60); if (globalTrafficNodes.length > 0) p.copy(globalTrafficNodes[Math.floor(Math.random()*globalTrafficNodes.length)]).y = 1.7;
-                const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xxbd00ff, wireframe: true })); mesh.position.copy(p); scene.add(mesh);
+                const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xbd00ff, wireframe: true })); mesh.position.copy(p); scene.add(mesh);
                 spatialAnomaliesCollection.push({ mesh: mesh, collected: false, radius: 6.0 });
             }
         }
@@ -1611,12 +1601,7 @@
 
         function init() {
             scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 4000); camera.position.set(0, 1.7, 0);
-            
-            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); 
-            // GPU PIPELINE FIX: Lowering fill-rate saturation allows MediaPipe's WebGL context to accelerate instantly
-            renderer.setPixelRatio(1.0); 
-            renderer.setClearColor(0x020205, 1.0);
-            
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); renderer.setClearColor(0x020205, 1.0);
             scene.add(mapStructuralMeshes); autoInitializeSensors(); setupVisorEnvironmentLighting(); onWindowResize(); window.addEventListener('resize', onWindowResize);
             
             sharedLaserGeometry = new THREE.CylinderGeometry(0.05, 0.05, 2.5);
@@ -1663,7 +1648,8 @@
 
                     if (handVisualizerGroup.visible) {
                         for (let i = 0; i < 21; i++) {
-                            structuralJointMeshes[i].position.lerp(kinematicTargetCoordinates[i], 0.35);
+                            // SMOOTH EMA TRACKING VECTOR LERP
+                            structuralJointMeshes[i].position.lerp(kinematicTargetCoordinates[i], 0.3);
                         }
                         for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
                             const connection = BIOMETRIC_BONES_MAP[i];
