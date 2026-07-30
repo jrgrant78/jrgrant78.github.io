@@ -671,7 +671,6 @@
                     );
                     if (previousPinchDist > 0) {
                         let rawZoomRatio = activeDistance / previousPinchDist;
-                        // ADJUSTMENT MATRIX: Changed dampening multiplier to 0.5 for optimal fluid zoom response
                         let dampenedZoomRatio = 1 + (rawZoomRatio - 1) * 0.5;
                         minimapZoomScale *= dampenedZoomRatio;
                         
@@ -686,7 +685,6 @@
                         let centerDistFromOrigin = Math.hypot(candidateCenterX, candidateCenterZ);
                         let dynamicMaxPanDist = Math.max(0, MAP_RADIUS_METERS - (baseRadius / minimapZoomScale));
 
-                        // TYPO FIX: Resolved analytical declaration parameter verification crash bug
                         if (dynamicMaxPanDist === 0 || centerDistFromOrigin > dynamicMaxPanDist) {
                             if (dynamicMaxPanDist === 0) {
                                 minimapPanOffset.set(0, 0, 0);
@@ -1195,6 +1193,7 @@
             }
         }
 
+        // UNIFIED 2D PIXEL CALCULATOR MODULE
         function update2DMinimapSystem() {
             const minimapCanvas = document.getElementById('minimapCanvas'); const minimapCtx = minimapCanvas.getContext('2d'); if (!minimapCtx || matrixOverloadActive) { if(minimapCtx) minimapCtx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height); return; }
             const lookDirectionVector = new THREE.Vector3(); camera.getWorldDirection(lookDirectionVector); const yawAngle = Math.atan2(lookDirectionVector.x, -lookDirectionVector.z);
@@ -1214,6 +1213,7 @@
             const mapCenterZ = camera.position.z + minimapPanOffset.z;
             const theta = -yawAngle;
 
+            // ABSOLUTE TRANSLATION ENGINE: Renders everything cleanly to prevent canvas context double-rotation glitches
             function transformWorldToMapCoords(wx, wz) {
                 let dx = wx - mapCenterX; let dz = wz - mapCenterZ;
                 let sx = dx * scale; let sz = dz * scale;
@@ -1271,52 +1271,45 @@
             });
 
             const playerCoords = transformWorldToMapCoords(camera.position.x, camera.position.z);
-            minimapCtx.save();
-            minimapCtx.translate(playerCoords.x, playerCoords.y);
-            minimapCtx.fillStyle = '#ff7700'; 
-            minimapCtx.beginPath(); minimapCtx.arc(0, 0, 4, 0, Math.PI * 2); minimapCtx.fill();
-            minimapCtx.strokeStyle = '#ff7700'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.moveTo(0, 0); minimapCtx.lineTo(0, -14); minimapCtx.stroke();
-            minimapCtx.restore();
+            minimapCtx.save(); minimapCtx.translate(playerCoords.x, playerCoords.y);
+            minimapCtx.fillStyle = '#ff7700'; minimapCtx.beginPath(); minimapCtx.arc(0, 0, 4, 0, Math.PI * 2); minimapCtx.fill();
+            minimapCtx.strokeStyle = '#ff7700'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.moveTo(0, 0); minimapCtx.lineTo(0, -14); minimapCtx.stroke(); minimapCtx.restore();
 
             minimapCtx.restore(); minimapCtx.strokeStyle = '#00ffcc'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.arc(centerMeters, centerMeters, centerMeters - 2, 0, Math.PI * 2); minimapCtx.stroke();
         }
 
-        function initializeHighPrecisionGpsTracking() {
-            if (!navigator.geolocation) return;
-            navigator.geolocation.watchPosition(
-                (pos) => updatePlayerPositionFromGps(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
-                (err) => console.warn(err.message), { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
-            );
-        }
-
-        function updatePlayerPositionFromGps(latitude, longitude, accuracy) {
-            lastRawCoords.lat = latitude; lastRawCoords.lon = longitude;
-            let calibratedLat = latitude + geoTelemetryOffset.lat; let calibratedLon = longitude + geoTelemetryOffset.lon;
-            currentCoordinates.lat = calibratedLat; currentCoordinates.lon = calibratedLon; const currentAccuracy = accuracy || 999;
-            let precisionWeightFactor = 0.15; if (currentAccuracy > 15) { precisionWeightFactor = 0.03; } else if (currentAccuracy <= 8) { precisionWeightFactor = 0.45; }
-            const isHighFidelityUpgrade = !hasLockedInitialAnchor || (currentAccuracy <= 20 && initialBestAccuracy > 20);
-            if (isHighFidelityUpgrade || (currentAccuracy < initialBestAccuracy && !initialSnapCompleted && !isFetchingMap)) {
-                anchorCoordinates.lat = calibratedLat; anchorCoordinates.lon = calibratedLon; initialBestAccuracy = currentAccuracy; hasLockedInitialAnchor = true; initialSnapCompleted = false; 
-                gpsTargetPosition.set(0, 1.7, 0); camera.position.set(0, 1.7, 0);
-                fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
-            } else {
-                const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
-                gpsTargetPosition.x += (local.x - gpsTargetPosition.x) * precisionWeightFactor; gpsTargetPosition.z += (local.z - gpsTargetPosition.z) * precisionWeightFactor;
+        function compileTacticalPatrolDrone() {
+            const droneGroup = new THREE.Group(); const chassisColor = 0xff0000; const initialBeamColor = 0x00ff00;
+            const bodyMesh = new THREE.Mesh(new THREE.SphereGeometry(1.3, 10, 10), new THREE.MeshBasicMaterial({ color: 0x000000, depthWrite: true })); const bodyWireframeMesh = new THREE.LineSegments(new THREE.EdgesGeometry(bodyMesh.geometry), new THREE.LineBasicMaterial({ color: chassisColor })); droneGroup.add(bodyMesh, bodyWireframeMesh);
+            let leftArmPivot = new THREE.Group(); let rightArmPivot = new THREE.Group();
+            function compileBentClawLimb(isLeft, targetGroup) {
+                const mult = isLeft ? -1 : 1; const mat = new THREE.MeshBasicMaterial({ color: chassisColor }); const jMat = new THREE.MeshBasicMaterial({ color: chassisColor });
+                const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.2), mat); upper.position.set(0.5 * mult, -0.3, 0); upper.rotation.z = (Math.PI / 3.5) * mult;
+                const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.18, 6, 6), jMat); elbow.position.set(1.0 * mult, -0.7, 0);
+                const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.1), mat); forearm.position.set(0.85 * mult, -1.2, 0); forearm.rotation.z = (-Math.PI / 4) * mult;
+                const wrist = new THREE.Group(); wrist.position.set(0.5 * mult, -1.6, 0); wrist.add(new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.15, 0.2), jMat));
+                const clawL = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, 0.08), mat); clawL.position.set(-0.08, -0.15, 0); clawL.rotation.z = 0.2;
+                const clawR = clawL.clone(); clawR.position.x = 0.08; clawR.rotation.z = -0.2; wrist.add(clawL, clawR);
+                targetGroup.add(upper, elbow, forearm, wrist); targetGroup.position.x = 1.2 * mult; return targetGroup;
             }
+            droneGroup.add(compileBentClawLimb(true, leftArmPivot), compileBentClawLimb(false, rightArmPivot));
+            const beamConicGeo = new THREE.ConeGeometry(CONE_RADIUS, CONE_HEIGHT, 16, 1, true); beamConicGeo.translate(0, -CONE_HEIGHT / 2, 0);
+            const beamMesh = new THREE.Mesh(beamConicGeo, new THREE.MeshBasicMaterial({ color: initialBeamColor, transparent: true, opacity: 0.15, side: THREE.DoubleSide, depthWrite: false }));
+            const scanningRigGroup = new THREE.Group(); scanningRigGroup.add(beamMesh); droneGroup.add(scanningRigGroup);
+            return { coreAsset: droneGroup, dynamicScannerBeam: scanningRigGroup, leftArm: leftArmPivot, rightArm: rightArmPivot };
         }
 
-        function spawnQuantumAnomalies() {
-            spatialAnomaliesCollection.forEach(a => scene.remove(a.mesh)); spatialAnomaliesCollection.length = 0; const geo = new THREE.IcosahedronGeometry(1.5, 1);
-            for (let i = 0; i < 5; i++) {
-                let p = new THREE.Vector3((Math.random()-0.5)*60, 1.7, (Math.random()-0.5)*60); if (globalTrafficNodes.length > 0) p.copy(globalTrafficNodes[Math.floor(Math.random()*globalTrafficNodes.length)]).y = 1.7;
-                const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xbd00ff, wireframe: true })); mesh.position.copy(p); scene.add(mesh);
-                spatialAnomaliesCollection.push({ mesh: mesh, collected: false, radius: 6.0 });
-            }
-        }
-
-        function evaluateGameplayState() {
-            if (matrixOverloadActive) return;
-            spatialAnomaliesCollection.forEach(a => { if (a.collected) return; const d = Math.hypot(a.mesh.position.x - camera.position.x, a.mesh.position.z - camera.position.z); if (d <= a.radius) { a.collected = true; scene.remove(a.mesh); anomaliesCollectedCount++; } });
+        function compileHumanoidCombatBot() {
+            const botGroup = new THREE.Group(); const skinColor = 0xff0000; const accentColor = 0xff3333;
+            const headMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.4), new THREE.MeshBasicMaterial({ color: 0x000000 })); headMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(headMesh.geometry), new THREE.LineBasicMaterial({ color: skinColor }))); headMesh.position.y = 1.3;
+            const eyeVisor = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.05), new THREE.MeshBasicMaterial({ color: accentColor })); eyeVisor.position.set(0, 0.05, 0.2); headMesh.add(eyeVisor); botGroup.add(headMesh);
+            const torsoMesh = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.4), new THREE.MeshBasicMaterial({ color: 0x000000 })); torsoMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(torsoMesh.geometry), new THREE.LineBasicMaterial({ color: skinColor }))); torsoMesh.position.y = 0.65; botGroup.add(torsoMesh);
+            const leftArmGroup = new THREE.Group(); leftArmGroup.position.set(-0.45, 1.0, 0); const lLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: skinColor })); lLimbs.position.y = -0.4; leftArmGroup.add(lLimbs); botGroup.add(leftArmGroup);
+            const rightArmGroup = new THREE.Group(); rightArmGroup.position.set(0.45, 1.0, 0); const rLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: skinColor })); rLegSegment = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.05, 0.7), new THREE.MeshBasicMaterial({ color: skinColor })); rLegSegment.position.y = -0.35; rightLegPivot = new THREE.Group(); rightLegPivot.position.set(0.22, 0.2, 0); rightLegPivot.add(rLegSegment);
+            const pistolBlaster = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.07, 0.3), new THREE.MeshBasicMaterial({ color: accentColor })); pistolBlaster.position.set(0, -0.9, 0); rightArmGroup.add(pistolBlaster); botGroup.add(rightArmGroup);
+            const leftLegPivot = new THREE.Group(); leftLegPivot.position.set(-0.22, 0.2, 0); const lLegSegment = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.05, 0.7), new THREE.MeshBasicMaterial({ color: skinColor })); lLegSegment.position.y = -0.35; leftLegPivot.add(lLegSegment);
+            botGroup.add(leftLegPivot, rightLegPivot); botGroup.scale.set(2.0, 2.0, 2.0);
+            return { model: botGroup, leftLeg: leftLegPivot, rightLeg: rightLegPivot, leftArm: leftArmGroup, rightArm: rightArmGroup };
         }
 
         function onWindowResize() {
