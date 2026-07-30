@@ -310,7 +310,7 @@
         const renderedStreetsList = [];
         const renderedBuildingsList = [];
         const renderedPedestrianList = []; 
-        const tacticalDronesCollection = []; 
+        const tactical DronesCollection = []; 
         const humanoidBotsCollection = []; 
         const activeLasersCollection = []; 
         let anomaliesCollectedCount = 0;
@@ -331,7 +331,7 @@
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
-        // POOLED VECTOR scratch REGISTERS
+        // POOLED VECTOR REGISTERS
         const _scratchVToP = new THREE.Vector3();
         const _scratchBeamDir = new THREE.Vector3();
         const _scratchBotHeading = new THREE.Vector3();
@@ -354,21 +354,21 @@
         let biometricInferenceLock = false;
         let lastMinimapUpdateTime = 0;
 
-        // ADAPTIVE BIOMETRIC FREQUENCY CONFIGURATION
+        // ADAPTIVE DUTY FRAME CALIBRATION
         let handStabilityCounter = 0;
+        let handLostFrames = 0; // Tracks successive drop logs
         const HYSTERESIS_VISIBLE_STRIKE = 3; 
         let biometricDynamicThrottle = 200; 
 
-        // VOLUMETRIC SOLID BIOMETRIC HAND ARRAYS
+        // VOLUMETRIC SOLID BIOMETRIC HAND REGISTERS
         let handVisualizerGroup;
         let palmMesh, palmGeometry;
         const structuralJointMeshes = [];
         const volumetricBoneMeshes = [];
         const kinematicTargetCoordinates = Array.from({ length: 21 }, () => new THREE.Vector3(0, 0, -0.35));
         
-        // REFACTORED BONE CONNECTIONS: Metacarpals hidden inside the palm have been culled completely
         const BIOMETRIC_BONES_MAP = [
-            [1,2], [2,3], [3,4],       // Thumb Phalanges
+            [1,2], [2,3], [3,4],       // Thumb Pieces
             [5,6], [6,7], [7,8],       // Index Finger
             [9,10], [10,11], [11,12],  // Middle Finger
             [13,14], [14,15], [15,16], // Ring Finger
@@ -622,14 +622,18 @@
             biometricInferenceLock = false;
 
             if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-                handStabilityCounter = Math.max(0, handStabilityCounter - 1);
-                if (handStabilityCounter === 0) {
+                // TEMPORAL PERSISTENCE WINDOW: Bypasses immediate drops to prevent vanishing
+                handLostFrames++;
+                if (handLostFrames > 12) { // Allow roughly 250ms of tracking noise before dropping element visibility
+                    handStabilityCounter = 0;
                     handVisualizerGroup.visible = false;
                     biometricDynamicThrottle = 200; 
                 }
                 return;
             }
 
+            // Hand verified in frame, immediately flush persistence window dropping frames counters
+            handLostFrames = 0;
             handStabilityCounter = Math.min(10, handStabilityCounter + 1);
             if (handStabilityCounter >= HYSTERESIS_VISIBLE_STRIKE) {
                 handVisualizerGroup.visible = true;
@@ -1615,13 +1619,11 @@
             handVisualizerGroup.renderOrder = 9999; 
             handVisualizerGroup.visible = false;
             
-            // CONSTRUCT CHUNKY KNUCKLES MESH CAPSULES
             const jointGeometry = new THREE.SphereGeometry(0.0048, 8, 8);
             
-            // SYSTEM OVERCLOCK: Solid unlit flat tactical matrix shading profiles
             const biometricOrangeMaterial = new THREE.MeshBasicMaterial({ 
                 color: 0xff5500, 
-                wireframe: false, // REMOVED WIREFRAME LAYER
+                wireframe: false, 
                 depthTest: false,
                 depthWrite: false,
                 transparent: true
@@ -1634,7 +1636,6 @@
                 structuralJointMeshes.push(jMesh);
             }
 
-            // UPGRADED FINGER GEOMETRY: Thick cylinders give the fingers realistic physical definition
             const baseBoneUnitGeometry = new THREE.CylinderGeometry(0.0045, 0.0035, 1.0, 6);
             
             for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
@@ -1644,15 +1645,18 @@
                 volumetricBoneMeshes.push(boneMeshInstance);
             }
 
-            // DYNAMIC DETACHED PALM MEMBRANEPLATE
+            // EXPANDED ZERO-ALLOCATION PALM GEOMETRY (7 Tracking points mapping a rounded thenar muscle profile)
             palmGeometry = new THREE.BufferGeometry();
-            const palmPositionsArray = new Float32Array(5 * 3); 
+            const palmPositionsArray = new Float32Array(7 * 3); // Allocated to capture: 0, 1, 2, 5, 9, 13, 17
             palmGeometry.setAttribute('position', new THREE.BufferAttribute(palmPositionsArray, 3));
             
+            // Re-triangulated mapping sequence containing explicit web space enclosures
             const palmIndices = [
-                0, 1, 2,  
-                0, 2, 3,  
-                0, 3, 4   
+                0, 1, 2,  // Wrist -> Thumb Base (CMC) -> Thumb MCP
+                0, 2, 3,  // Wrist -> Thumb MCP -> Index Root (Closes/Fills the interior thumb gap naturally)
+                0, 3, 4,  // Wrist -> Index Root -> Middle Root
+                0, 4, 5,  // Wrist -> Middle Root -> Ring Root
+                0, 5, 6   // Wrist -> Ring Root -> Pinky Root
             ];
             palmGeometry.setIndex(palmIndices);
 
@@ -1660,7 +1664,7 @@
                 color: 0xff5500,
                 side: THREE.DoubleSide,
                 transparent: true,
-                opacity: 0.85, // INCREASED OPACITY: Forms a solid shield blocking out interior lines completely
+                opacity: 0.85, 
                 depthTest: false,
                 depthWrite: false
             });
@@ -1692,10 +1696,10 @@
                             volumetricBoneMeshes[i].updateMatrix();
                         }
 
-                        // HIGH-SPEED MEMORY REFLECTION: Dynamically stretches the opaque palm boundary plate
+                        // HIGH-SPEED MEMORY RE-ALIGNMENT: Streams the updated 7-point rounded muscle array directly to vertex buffers
                         const palmVertices = palmGeometry.attributes.position.array;
-                        const boundNodes = [0, 5, 9, 13, 17];
-                        for (let idx = 0; idx < 5; idx++) {
+                        const boundNodes = [0, 1, 2, 5, 9, 13, 17]; // Expanded node array maps tracking base boundaries completely
+                        for (let idx = 0; idx < 7; idx++) {
                             const currentJointPos = structuralJointMeshes[boundNodes[idx]].position;
                             const stride = idx * 3;
                             palmVertices[stride] = currentJointPos.x;
