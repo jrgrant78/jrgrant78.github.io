@@ -647,7 +647,6 @@
                     minimapPanOffset.x -= translatedWorldX;
                     minimapPanOffset.z -= translatedWorldZ;
 
-                    // BOUNDARY CLAMP ENGINE REBOND: Strictly clamps candidate world centers from escaping the 1.6km threshold layout
                     let candidateCenterX = camera.position.x + minimapPanOffset.x;
                     let candidateCenterZ = camera.position.z + minimapPanOffset.z;
                     let centerDistFromOrigin = Math.hypot(candidateCenterX, candidateCenterZ);
@@ -672,8 +671,9 @@
                     );
                     if (previousPinchDist > 0) {
                         let rawZoomRatio = activeDistance / previousPinchDist;
-                        // PRECISION UPGRADE: Dampen pinch delta adjustments to completely strip out hypersensitivity bugs
-                        let dampenedZoomRatio = 1 + (rawZoomRatio - 1) * 0.25;
+                        
+                        // SENSITIVITY CALIBRATION: Increased smoothing weight factor from 0.25 to 0.55 to raise scaling velocity
+                        let dampenedZoomRatio = 1 + (rawZoomRatio - 1) * 0.55;
                         minimapZoomScale *= dampenedZoomRatio;
                         
                         if (minimapZoomScale < 1.0) {
@@ -1195,7 +1195,6 @@
             }
         }
 
-        // RADAR VISUALIZATION MATRIX ENGINE
         function update2DMinimapSystem() {
             const minimapCanvas = document.getElementById('minimapCanvas'); const minimapCtx = minimapCanvas.getContext('2d'); if (!minimapCtx || matrixOverloadActive) { if(minimapCtx) minimapCtx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height); return; }
             const lookDirectionVector = new THREE.Vector3(); camera.getWorldDirection(lookDirectionVector); const yawAngle = Math.atan2(lookDirectionVector.x, -lookDirectionVector.z);
@@ -1215,7 +1214,6 @@
             const mapCenterZ = camera.position.z + minimapPanOffset.z;
             const theta = -yawAngle;
 
-            // UNIFIED SPATIAL TRANSLATION MATRIX: Converts world vectors uniformly to prevent asset culling or object sliding bugs
             function transformWorldToMapCoords(wx, wz) {
                 let dx = wx - mapCenterX; let dz = wz - mapCenterZ;
                 let sx = dx * scale; let sz = dz * scale;
@@ -1272,7 +1270,6 @@
                 minimapCtx.save(); minimapCtx.fillStyle = '#ff0000'; minimapCtx.strokeStyle = '#ffffff'; minimapCtx.lineWidth = 1; minimapCtx.translate(coords.x, coords.y); const boxMetric = Math.max(6.0, 8.0 * scale); minimapCtx.fillRect(-boxMetric/2, -boxMetric/2, boxMetric, boxMetric); minimapCtx.strokeRect(-boxMetric/2, -boxMetric/2, boxMetric, boxMetric); minimapCtx.restore();
             });
 
-            // FIXED PIN RE-BIND: Locks the pin directly into the manual calculation step before context restoration happens
             const playerCoords = transformWorldToMapCoords(camera.position.x, camera.position.z);
             minimapCtx.save();
             minimapCtx.translate(playerCoords.x, playerCoords.y);
@@ -1282,51 +1279,6 @@
             minimapCtx.restore();
 
             minimapCtx.restore(); minimapCtx.strokeStyle = '#00ffcc'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.arc(centerMeters, centerMeters, centerMeters - 2, 0, Math.PI * 2); minimapCtx.stroke();
-        }
-
-        function initializeHighPrecisionGpsTracking() {
-            if (!navigator.geolocation) return;
-            navigator.geolocation.watchPosition(
-                (pos) => updatePlayerPositionFromGps(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
-                (err) => console.warn(err.message), { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
-            );
-        }
-
-        function updatePlayerPositionFromGps(latitude, longitude, accuracy) {
-            lastRawCoords.lat = latitude; lastRawCoords.lon = longitude;
-            let calibratedLat = latitude + geoTelemetryOffset.lat; let calibratedLon = longitude + geoTelemetryOffset.lon;
-            currentCoordinates.lat = calibratedLat; currentCoordinates.lon = calibratedLon; const currentAccuracy = accuracy || 999;
-            let precisionWeightFactor = 0.15; if (currentAccuracy > 15) { precisionWeightFactor = 0.03; } else if (currentAccuracy <= 8) { precisionWeightFactor = 0.45; }
-            const isHighFidelityUpgrade = !hasLockedInitialAnchor || (currentAccuracy <= 20 && initialBestAccuracy > 20);
-            if (isHighFidelityUpgrade || (currentAccuracy < initialBestAccuracy && !initialSnapCompleted && !isFetchingMap)) {
-                anchorCoordinates.lat = calibratedLat; anchorCoordinates.lon = calibratedLon; initialBestAccuracy = currentAccuracy; hasLockedInitialAnchor = true; initialSnapCompleted = false; 
-                gpsTargetPosition.set(0, 1.7, 0); camera.position.set(0, 1.7, 0);
-                fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
-            } else {
-                const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
-                gpsTargetPosition.x += (local.x - gpsTargetPosition.x) * precisionWeightFactor; gpsTargetPosition.z += (local.z - gpsTargetPosition.z) * precisionWeightFactor;
-            }
-        }
-
-        function spawnQuantumAnomalies() {
-            spatialAnomaliesCollection.forEach(a => scene.remove(a.mesh)); spatialAnomaliesCollection.length = 0; const geo = new THREE.IcosahedronGeometry(1.5, 1);
-            for (let i = 0; i < 5; i++) {
-                let p = new THREE.Vector3((Math.random()-0.5)*60, 1.7, (Math.random()-0.5)*60); if (globalTrafficNodes.length > 0) p.copy(globalTrafficNodes[Math.floor(Math.random()*globalTrafficNodes.length)]).y = 1.7;
-                const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xbd00ff, wireframe: true })); mesh.position.copy(p); scene.add(mesh);
-                spatialAnomaliesCollection.push({ mesh: mesh, collected: false, radius: 6.0 });
-            }
-        }
-
-        function evaluateGameplayState() {
-            if (matrixOverloadActive) return;
-            spatialAnomaliesCollection.forEach(a => { if (a.collected) return; const d = Math.hypot(a.mesh.position.x - camera.position.x, a.mesh.position.z - camera.position.z); if (d <= a.radius) { a.collected = true; scene.remove(a.mesh); anomaliesCollectedCount++; } });
-        }
-
-        function onWindowResize() {
-            const width = window.innerWidth; const height = window.innerHeight; camera.aspect = width / height; camera.updateProjectionMatrix(); renderer.setSize(width, height);
-            const cracksCanvas = document.getElementById('cracks-canvas'); cracksCanvas.width = width; cracksCanvas.height = height;
-            const currentContainerElement = document.getElementById('minimap-container'); const targetWidth = currentContainerElement.offsetWidth;
-            if (targetWidth > 0) { const minimapCanvas = document.getElementById('minimapCanvas'); minimapCanvas.width = targetWidth; minimapCanvas.height = targetWidth; }
         }
 
         function compileTacticalPatrolDrone() {
