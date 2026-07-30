@@ -194,8 +194,7 @@
 </head>
 <body>
 
-    <!-- SILENT FEED EXTRACTION NODE - MOUNTED ABSOLUTE TO ENSURE STEADY SAMPLING PROCESSES -->
-    <video id="webcam-hardware-feed" autoplay playsinline style="position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none;"></video>
+    <video id="webcam-hardware-feed" autoplay playsinline width="640" height="480" style="display:none;"></video>
 
     <div id="visor-boot-gate" onclick="engageVisorSystemFromBootGate()">
         <div style="font-size: 36px; font-weight: 900; letter-spacing: 8px; color: #00ffcc; margin-bottom: 2px; text-shadow: 0 0 15px #00ffcc;">
@@ -331,7 +330,7 @@
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
-        // ARTICULATED BIOMETRIC PASSIVE STRUCTURE ARCHITECTURE
+        // ARTICULATED BIOMETRIC MATRIX DEFINITIONS
         let handVisualizerGroup;
         const structuralJointMeshes = [];
         let skeletalBonesMesh;
@@ -496,9 +495,11 @@
             document.getElementById('agent-count-display').style.display = 'block';
             document.getElementById('terminal-status-overlay').style.display = 'block';
             initializeHighPrecisionGpsTracking(); initializeSatelliteMultiplayerTelemetry();
+            
             initializeHardwareBiometricTracking();
         }
 
+        // OPTIMIZED REAR CAMERA BIOMETRIC ENGINE WITH HARDWARE FOCUS INTERCEPT
         function initializeHardwareBiometricTracking() {
             const videoElement = document.getElementById('webcam-hardware-feed');
             const handsTrackingInstance = new window.Hands({
@@ -514,16 +515,49 @@
 
             handsTrackingInstance.onResults(handleBiometricLandmarkResults);
 
-            // ENV TARGET CALIBRATION: Requests rear camera strictly to prevent portrait translation drops
+            // STRICTOR HARDWARE REAR-CAMERA INTERCEPT CONSTRAINTS
             navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { ideal: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } }
+                video: { facingMode: { exact: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } }
             }).then(stream => {
                 videoElement.srcObject = stream;
                 videoElement.addEventListener('loadedmetadata', () => {
                     videoElement.play();
+                    
+                    // FOCUS DECRYPTION LAYER: Force macro switching or continuous close-autofocus mechanics
+                    const track = stream.getVideoTracks()[0];
+                    if (track && track.getCapabilities) {
+                        const capabilities = track.getCapabilities();
+                        const advancedConstraints = {};
+                        
+                        if (capabilities.focusMode) {
+                            if (capabilities.focusMode.includes('continuous')) {
+                                advancedConstraints.focusMode = 'continuous';
+                            } else if (capabilities.focusMode.includes('macro')) {
+                                advancedConstraints.focusMode = 'macro';
+                            }
+                        }
+                        
+                        // Push hardware focus to its minimum physical diopter boundary threshold if manual overrides are unlocked
+                        if (capabilities.focusDistance && advancedConstraints.focusMode !== 'continuous') {
+                            advancedConstraints.focusMode = 'manual';
+                            advancedConstraints.focusDistance = capabilities.focusDistance.min;
+                        }
+                        
+                        if (Object.keys(advancedConstraints).length > 0) {
+                            track.applyConstraints({ advanced: [advancedConstraints] }).catch(() => {});
+                        }
+                    }
+                    
                     executeThrottledFramePump();
                 });
-            }).catch(() => {});
+            }).catch(() => {
+                // FALLBACK: Attempt general ecosystem request if strict constraint array fails on older architecture
+                navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).then(s => {
+                    videoElement.srcObject = s;
+                    videoElement.play();
+                    executeThrottledFramePump();
+                }).catch(() => {});
+            });
 
             let lastHandProcessTime = 0;
             function executeThrottledFramePump() {
@@ -547,13 +581,12 @@
             handVisualizerGroup.visible = true;
             const landmarks = results.multiHandLandmarks[0];
             const fovRad = (camera.fov * Math.PI) / 180;
-            const projectDistance = 0.45; 
+            const projectDistance = 0.35; 
             const viewHeightMax = Math.tan(fovRad / 2) * projectDistance;
             const viewWidthMax = viewHeightMax * camera.aspect;
 
             for (let i = 0; i < 21; i++) {
                 const lm = landmarks[i];
-                // HORIZONTAL TRANSLATION REMAP: Scales normalized points directly into unmirrored spatial channels
                 const localX = (lm.x - 0.5) * 2 * viewWidthMax; 
                 const localY = (0.5 - lm.y) * 2 * viewHeightMax;
                 const localZ = -projectDistance - (lm.z * 0.35); 
@@ -1319,7 +1352,7 @@
             if (!sensorsEngaged) return; 
             if (matrixOverloadActive) { statusLabel.innerHTML = `<div class="matrix-overload-title">Matrix Overload!</div><div class="matrix-overload-sub">Touch screen to re-initiate reconstruction sequence.</div>`; statusLabel.classList.remove('pulse-animation'); }
             else if (!mapLoadedForAnchor) { statusLabel.innerHTML = "Calibrating Satellites..."; statusLabel.classList.add('pulse-animation'); }
-            else if (!globalShutdownShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
+            else if (!globalShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
             
             if (!matrixOverloadActive) reticle.style.display = 'block'; else reticle.style.display = 'none';
             if (isCurrentlyDetected && !matrixOverloadActive && !globalShutdownTriggered) { trackerContainer.style.display = 'block'; trackerContainer.innerHTML = "WARNING: POSITION EXPOSED"; }
@@ -1508,17 +1541,22 @@
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); renderer.setClearColor(0x020205, 1.0);
             scene.add(mapStructuralMeshes); autoInitializeSensors(); setupVisorEnvironmentLighting(); onWindowResize(); window.addEventListener('resize', onWindowResize);
             
-            // BUILD BIOMETRIC MESH GROUP WITH TOP-LAYER PRIORITY
+            // BUILD BIOMETRIC MESH OVERLAY LAYERS WITH HIGHER ORDER PRIORITY
             handVisualizerGroup = new THREE.Group();
-            // LAYER OVERLAY SETTINGS: Disabling depth calculations guarantees projection over structural hulls
             handVisualizerGroup.renderOrder = 9999; 
-
-            const jointGeometry = new THREE.IcosahedronGeometry(0.014, 1);
-            const jointMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true, depthTest: false, depthWrite: false });
+            
+            const jointGeometry = new THREE.IcosahedronGeometry(0.007, 1);
+            // CRITICAL UPGRADE: Force absolute depth bypassing values to guarantee visibility over stars and skyboxes
+            const jointMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0x00ffcc, 
+                wireframe: true,
+                depthTest: false,
+                depthWrite: false,
+                transparent: true
+            });
             
             for (let i = 0; i < 21; i++) {
                 const jMesh = new THREE.Mesh(jointGeometry, jointMaterial);
-                jMesh.renderOrder = 9999;
                 handVisualizerGroup.add(jMesh);
                 structuralJointMeshes.push(jMesh);
             }
@@ -1527,8 +1565,13 @@
             const jointPositionsArray = new Float32Array(BIOMETRIC_BONES_MAP.length * 6);
             skeletonGeo.setAttribute('position', new THREE.BufferAttribute(jointPositionsArray, 3));
             
-            skeletalBonesMesh = new THREE.LineSegments(skeletonGeo, new THREE.LineBasicMaterial({ color: 0xff0055, linewidth: 3, depthTest: false, depthWrite: false }));
-            skeletalBonesMesh.renderOrder = 9999;
+            skeletalBonesMesh = new THREE.LineSegments(skeletonGeo, new THREE.LineBasicMaterial({ 
+                color: 0xff0055, 
+                linewidth: 2,
+                depthTest: false,
+                depthWrite: false,
+                transparent: true
+            }));
             handVisualizerGroup.add(skeletalBonesMesh);
             
             camera.add(handVisualizerGroup);
