@@ -284,6 +284,7 @@
         let previousPinchDist = 0;
         let minimapZoomScale = 1.0;
         let minimapPanOffset = new THREE.Vector3(0, 0, 0);
+        let lastMapClickTime = 0;
 
         let geoTelemetryOffset = { lat: 0.0, lon: 0.0 };
         let gpsTargetPosition = new THREE.Vector3(0, 1.7, 0);
@@ -711,6 +712,22 @@
             mapContainer.addEventListener('pointercancel', flushActiveMapPointers);
             mapContainer.addEventListener('pointerleave', flushActiveMapPointers);
 
+            // DOUBLE-TAP ZOOM CONTROLLER SYSTEM
+            mapContainer.addEventListener('click', (e) => {
+                if (!isMinimapEnlarged) return;
+                const rightNowTime = Date.now();
+                if (rightNowTime - lastMapClickTime < 300) {
+                    e.stopPropagation();
+                    if (minimapZoomScale > 1.1) {
+                        minimapZoomScale = 1.0;
+                    } else {
+                        minimapZoomScale = 12.0;
+                    }
+                    minimapPanOffset.set(0, 0, 0);
+                }
+                lastMapClickTime = rightNowTime;
+            });
+
             window.addEventListener('click', (e) => {
                 if (!sensorsEngaged || e.target.closest('#fine-tune-dock') || e.target.closest('#hacking-modal')) return; 
                 
@@ -914,7 +931,8 @@
         function deployTacticalDronePlatoon() {
             tacticalDronesCollection.forEach(d => scene.remove(d.meshElement)); tacticalDronesCollection.length = 0;
             if (renderedStreetsList.length === 0) return; 
-            const targetCount = 36; const actualCount = Math.min(targetCount, renderedStreetsList.length);
+            // INTENSITY UPGRADE: Increased patrol count cap to 72 units to densify active sector monitoring
+            const targetCount = 72; const actualCount = Math.min(targetCount, renderedStreetsList.length);
             for (let i = 0; i < actualCount; i++) {
                 const stepDistributedIndex = Math.floor(i * (renderedStreetsList.length / actualCount)); const street = renderedStreetsList[stepDistributedIndex]; if (street.points.length < 2) continue;
                 const d = compileTacticalPatrolDrone(); d.coreAsset.position.set(street.points[0].x, 25.0, street.points[0].z); scene.add(d.coreAsset);
@@ -1114,8 +1132,14 @@
                     }
                 } else {
                     bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07); const targetNode = bot.routeCoordinates[bot.currentNodeIndex]; const ndx = targetNode.x - pos.x; const ndz = targetNode.z - pos.z; const ndist = Math.hypot(ndx, ndz);
-                    if (ndist < 1.0) { bot.currentNodeIndex += bot.patrolDirectionFactor; if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { bot.patrolDirectionFactor *= -1; bot.currentNodeIndex += bot.patrolDirectionFactor * 2; bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex, bot.routeCoordinates.length - 1)); } }
-                    if (ndist > 0.1) { botTargetAngle = Math.atan2(ndx, ndz); const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); pos.x += (ndx / ndist) * frameVelocityStride; pos.z += (ndz / ndist) * frameVelocityStride; }
+                    
+                    // ANTI-SPIN STABILIZER INTEGRATION: Raised arrival distance threshold to 2.0m to prevent overshoot orbital traps
+                    if (ndist < 2.0) { bot.currentNodeIndex += bot.patrolDirectionFactor; if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { bot.patrolDirectionFactor *= -1; bot.currentNodeIndex += bot.patrolDirectionFactor * 2; bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex, bot.routeCoordinates.length - 1)); } }
+                    if (ndist > 0.1) { 
+                        // ANGULAR LOCK: Restricts tracking angle updates when under 1.5m to stop steering oscillations in close spaces
+                        if (ndist > 1.5) { botTargetAngle = Math.atan2(ndx, ndz); }
+                        const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); pos.x += (ndx / ndist) * frameVelocityStride; pos.z += (ndz / ndist) * frameVelocityStride; 
+                    }
                 }
                 let botAngleDiff = botTargetAngle - bot.meshElement.rotation.y; while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2; while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2; bot.meshElement.rotation.y += botAngleDiff * 0.08;
                 const alternateCycle = Math.sin(timestamp * 0.008 * bot.velocity); bot.armL.rotation.x = -alternateCycle * 0.3; bot.armR.rotation.x = THREE.MathUtils.lerp(alternateCycle * 0.3, -Math.PI / 2, bot.aimProgress); bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
@@ -1268,7 +1292,6 @@
             const playerCoords = transformWorldToMapCoords(camera.position.x, camera.position.z);
             minimapCtx.save();
             minimapCtx.translate(playerCoords.x, playerCoords.y);
-            // ALIGNMENT RESTORATION FIX: Rotates by +yawAngle locally to counteract the canvas mapping rotation and lock pointing straight up
             minimapCtx.rotate(yawAngle); 
             minimapCtx.fillStyle = '#ff7700'; 
             minimapCtx.beginPath(); minimapCtx.arc(0, 0, 4, 0, Math.PI * 2); minimapCtx.fill();
