@@ -310,7 +310,7 @@
         const renderedStreetsList = [];
         const renderedBuildingsList = [];
         const renderedPedestrianList = []; 
-        const tacticalDronesCollection = []; // FIXED SYNTAX ERROR: Culled stray space identifier
+        const tacticalDronesCollection = []; 
         const humanoidBotsCollection = []; 
         const activeLasersCollection = []; 
         let anomaliesCollectedCount = 0;
@@ -322,6 +322,9 @@
         let currentlyActiveTerminalObj = null;
         let internalPuzzleTrackingData = {};
 
+        // ACOUSTIC ALARM TRACKING BUFFER
+        let activeTerminalAlarms = [];
+
         let mqttClientInstance = null;
         const connectedAgentsMap = {};
         const localSessionAgentSignature = "AGENT_" + Math.random().toString(36).substring(2, 9);
@@ -331,7 +334,7 @@
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
-        // POOLED VECTOR scratch REGISTERS
+        // POOLED VECTOR SCRATCH REGISTERS
         const _scratchVToP = new THREE.Vector3();
         const _scratchBeamDir = new THREE.Vector3();
         const _scratchBotHeading = new THREE.Vector3();
@@ -1096,7 +1099,7 @@
             terminalMeshInstance.userData = { id: indexId, type: 'terminal', puzzle: assignedPuzzleType, hacked: false, originalColor: 0x00ff55 };
             scene.add(terminalMeshInstance);
             actionableItemsArray.push(terminalMeshInstance);
-            hackingTerminalsCollection.push({ id: indexId, mesh: terminalMeshInstance, pos: positionVector, hacked: false });
+            hackingTerminalsCollection.push({ id: indexId, mesh: terminalMeshInstance, pos: positionVector, hacked: false, lowering: false });
         }
 
         function deployTacticalDronePlatoon() {
@@ -1252,13 +1255,34 @@
 
         function triggerTerminalDecryptionSuccess() {
             if (!currentlyActiveTerminalObj) return;
-            currentlyActiveTerminalObj.userData.hacked = true; currentlyActiveTerminalObj.material = sharedMaterials.terminalHacked;
+            currentlyActiveTerminalObj.userData.hacked = true; 
+            currentlyActiveTerminalObj.material = sharedMaterials.terminalHacked;
+            
+            // Remove from click logic rays instantly to isolate while kinematics fire
+            const clkIdx = actionableItemsArray.indexOf(currentlyActiveTerminalObj);
+            if (clkIdx !== -1) actionableItemsArray.splice(clkIdx, 1);
+
             for (let i = actionableItemsArray.length - 1; i >= 0; i--) {
-                if (actionableItemsArray[i].userData.parentId === currentlyActiveTerminalObj.userData.id) { scene.remove(actionableItemsArray[i]); actionableItemsArray.splice(i, 1); }
+                if (actionableItemsArray[i].userData.parentId === currentlyActiveTerminalObj.userData.id) { 
+                    scene.remove(actionableItemsArray[i]); 
+                    actionableItemsArray.splice(i, 1); 
+                }
             }
+            
             const trackItem = hackingTerminalsCollection.find(t => t.id === currentlyActiveTerminalObj.userData.id);
-            if (trackItem) trackItem.hacked = true;
-            totalTerminalsHacked++; document.getElementById('hacked-terminal-counter').innerText = `${totalTerminalsHacked} / ${hackingTerminalsCollection.length}`;
+            if (trackItem) {
+                trackItem.hacked = true;
+                trackItem.lowering = true; // Engage translation engine update parameters
+            }
+
+            // SIMULTANEOUS LOCAL RADAR ALARM PROJECTION PROTOCOL
+            activeTerminalAlarms.push({
+                pos: currentlyActiveTerminalObj.position.clone(),
+                expiresAt: Date.now() + 20000 // 20-second active network broadcast lifecounter
+            });
+
+            totalTerminalsHacked++; 
+            document.getElementById('hacked-terminal-counter').innerText = `${totalTerminalsHacked} / ${hackingTerminalsCollection.length}`;
             abortTerminalDecryptionSequence();
             if (totalTerminalsHacked >= hackingTerminalsCollection.length) { triggerGlobalHardwareOverride(); }
         }
@@ -1272,6 +1296,15 @@
         function advanceDronePatrolSimulation(timestamp) {
             let spaceOverlay = document.getElementById('visor-screen-overlay');
             let droneDetectedFlag = false; if (matrixOverloadActive) return;
+
+            // CLEAN SYSTEM ALARM FILTERS MATCHING CURRENT HARDWARE TIME LOGS
+            const curSystemTime = Date.now();
+            activeTerminalAlarms = activeTerminalAlarms.filter(alarm => curSystemTime < alarm.expiresAt);
+
+            // UNLESS SEEN BY ENEMY RULE LAYER: Immediately clear all local alarm coordinates if player profile drops containment
+            if (isCurrentlyDetected) {
+                activeTerminalAlarms = [];
+            }
 
             tacticalDronesCollection.forEach(drone => {
                 let pos = drone.meshElement.position;
@@ -1293,11 +1326,27 @@
 
                 if (isDirectlySpottingPlayer) { droneDetectedFlag = true; drone.isChasingPlayer = true; lastSeenPlayerPosition.copy(camera.position); }
 
+                // RESOLVE ALARM NEIGHBORHOOD MAPS INLINE
+                let closestLocalAlarm = null;
+                for (let alarm of activeTerminalAlarms) {
+                    if (pos.distanceTo(alarm.pos) < 80.0) { // 80-meter radar investigation boundaries
+                        closestLocalAlarm = alarm;
+                        break;
+                    }
+                }
+
                 if (drone.isChasingPlayer || alertStateActive) {
                     tx = lastSeenPlayerPosition.x; tz = lastSeenPlayerPosition.z; 
                     const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
                     if (dist > 1.0) { targetAngle = Math.atan2(dx, dz); pos.x += (dx / dist) * drone.movementVelocityFactor * 1.4; pos.z += (dz / dist) * drone.movementVelocityFactor * 1.4; }
-                } else {
+                } 
+                else if (closestLocalAlarm) {
+                    // OVERRIDE DRONE ROUTE TO SEARCH THE ALARM SITE LOCATION
+                    tx = closestLocalAlarm.pos.x; tz = closestLocalAlarm.pos.z;
+                    const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
+                    if (dist > 1.0) { targetAngle = Math.atan2(dx, dz); pos.x += (dx / dist) * drone.movementVelocityFactor * 1.2; pos.z += (dz / dist) * drone.movementVelocityFactor * 1.2; }
+                } 
+                else {
                     const node = drone.routeCoordinates[drone.currentNodeIndex]; const dx = node.x - pos.x; const dz = node.z - pos.z; const dist = Math.hypot(dx, dz);
                     if (dist > 0.1) targetAngle = Math.atan2(dx, dz);
                     if (dist < 2.0) {
@@ -1308,7 +1357,7 @@
                     } else { pos.x += (dx / dist) * drone.movementVelocityFactor; pos.z += (dz / dist) * drone.movementVelocityFactor; }
                 }
 
-                const currentConeColor = (drone.isChasingPlayer || alertStateActive) ? 0xff0000 : 0x00ff00;
+                const currentConeColor = (drone.isChasingPlayer || alertStateActive) ? 0xff0000 : (closestLocalAlarm ? 0xffff00 : 0x00ff00);
                 drone.scannerBeamGroup.children[0].material.color.setHex(currentConeColor);
                 let angleDiff = targetAngle - drone.meshElement.rotation.y;
                 while (angleDiff < -Math.PI) angleDiff += Math.PI * 2; while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
@@ -1334,6 +1383,15 @@
                 }
                 
                 if (canBotSeePlayerRightNow) { botDetectedFlag = true; bot.isAlerted = true; lastSeenPlayerPosition.copy(camera.position); } else { bot.isAlerted = false; }
+                
+                let closestBotAlarm = null;
+                for (let alarm of activeTerminalAlarms) {
+                    if (pos.distanceTo(alarm.pos) < 80.0) {
+                        closestBotAlarm = alarm;
+                        break;
+                    }
+                }
+
                 if (bot.isAlerted || alertStateActive) {
                     bot.aimProgress = Math.min(1.0, bot.aimProgress + 0.07); const dx = lastSeenPlayerPosition.x - pos.x; const dz = lastSeenPlayerPosition.z - pos.z; const distToLastSeen = Math.hypot(dx, dz); botTargetAngle = Math.atan2(dx, dz);
                     if (distToLastSeen > 2.0) { const frameVelocityStride = Math.min(distToLastSeen, bot.velocity * 0.12 * 1.5); pos.x += (dx / distToLastSeen) * frameVelocityStride; pos.z += (dz / distToLastSeen) * frameVelocityStride; }
@@ -1351,7 +1409,15 @@
                         
                         activeLasersCollection.push({ meshElement: laserMesh, directionVector: new THREE.Vector3().subVectors(_scratchLaserTarget, _scratchMuzzleOffset).normalize(), velocitySpeed: 5.5, distanceTraveled: 0, maxDistanceLimit: _scratchMuzzleOffset.distanceTo(_scratchLaserTarget) });
                     }
-                } else {
+                } 
+                else if (closestBotAlarm) {
+                    // INTERCEPT ROUTE PATHS TO CONVERGE PROTOCOLS ON ALARM RADIUS
+                    bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07);
+                    const dx = closestBotAlarm.pos.x - pos.x; const dz = closestBotAlarm.pos.z - pos.z;
+                    const distToAlarm = Math.hypot(dx, dz); botTargetAngle = Math.atan2(dx, dz);
+                    if (distToAlarm > 1.5) { const frameVelocityStride = Math.min(distToAlarm, bot.velocity * 0.12 * 1.2); pos.x += (dx / distToAlarm) * frameVelocityStride; pos.z += (dz / distToAlarm) * frameVelocityStride; }
+                }
+                else {
                     bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07); const targetNode = bot.routeCoordinates[bot.currentNodeIndex]; const ndx = targetNode.x - pos.x; const ndz = targetNode.z - pos.z; const ndist = Math.hypot(ndx, ndz);
                     
                     if (ndist < 2.0) { 
@@ -1595,7 +1661,7 @@
             const botGroup = new THREE.Group(); const skinColor = 0xff0000; const accentColor = 0xff3333;
             const headMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.4), new THREE.MeshBasicMaterial({ color: 0x000000 })); headMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(headMesh.geometry), new THREE.LineBasicMaterial({ color: skinColor }))); headMesh.position.y = 1.3;
             const eyeVisor = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.05), new THREE.MeshBasicMaterial({ color: accentColor })); eyeVisor.position.set(0, 0.05, 0.2); headMesh.add(eyeVisor); botGroup.add(headMesh);
-            const torsoMesh = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.4), new THREE.MeshBasicMaterial({ color: 0x000000 })); torsoMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(torsoMesh.geometry), new THREE.LineBasicMaterial({ color: skinColor }))); torsoMesh.position.y = 0.65; botGroup.add(torsoMesh);
+            const torsoMesh = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.4), new THREE.MeshBasicMaterial({ color: 0x000000 })); torsoMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(headMesh.geometry), new THREE.LineBasicMaterial({ color: skinColor }))); torsoMesh.position.y = 0.65; botGroup.add(torsoMesh);
             const leftArmGroup = new THREE.Group(); leftArmGroup.position.set(-0.45, 1.0, 0); const lLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: skinColor })); lLimbs.position.y = -0.4; leftArmGroup.add(lLimbs); botGroup.add(leftArmGroup);
             const rightArmGroup = new THREE.Group(); rightArmGroup.position.set(0.45, 1.0, 0); const rLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: skinColor })); rLimbs.position.y = -0.4; rightArmGroup.add(rLimbs);
             const pistolBlaster = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.07, 0.3), new THREE.MeshBasicMaterial({ color: accentColor })); pistolBlaster.position.set(0, -0.9, 0); rightArmGroup.add(pistolBlaster); botGroup.add(rightArmGroup);
@@ -1676,6 +1742,18 @@
                 requestAnimationFrame(frameLoopEngine); const t = Date.now();
                 spatialAnomaliesCollection.forEach(a => { if (!a.collected) { a.mesh.rotation.x += 0.01; a.mesh.rotation.y += 0.02; } });
                 
+                // KINEMATIC DISPLACEMENT TRANSLATION LOOP FOR LOWERING TERMINALS
+                hackingTerminalsCollection.forEach(tNode => {
+                    if (tNode.lowering) {
+                        tNode.mesh.position.y -= 0.05; // Drop factor per frame delta
+                        if (tNode.mesh.position.y <= -2.5) {
+                            tNode.mesh.position.y = -2.5;
+                            tNode.lowering = false;
+                            scene.remove(tNode.mesh); // Disappear and completely erase entry matching mesh geometries
+                        }
+                    }
+                });
+
                 if (sensorsEngaged) { 
                     advanceDayNightCycleSimulation();
                     advanceDronePatrolSimulation(t); 
