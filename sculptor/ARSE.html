@@ -331,7 +331,7 @@
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
-        // ARTICULATED REAL-TIME GEOMETRY POOL
+        // BIOMETRIC GEOMETRY ARRAY DEFINITIONS
         let handVisualizerGroup;
         const structuralJointMeshes = [];
         let skeletalBonesMesh;
@@ -412,8 +412,10 @@
             const leftUpperArmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.07, 0.55)), wireframeMat); leftUpperArmSeg.position.y = -0.25; leftShoulderPivot.add(leftUpperArmSeg);
             const leftElbowPivot = new THREE.Group(); leftElbowPivot.position.set(0, -0.275, 0);
             const leftForearmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.05, 0.05, 0.5)), wireframeMat); leftForearmSeg.position.y = -0.25; leftElbowPivot.add(leftForearmSeg); leftUpperArmSeg.add(leftElbowPivot); torsoBox.add(leftShoulderPivot);
-            const rightShoulderPivot = new THREE.Group(); rightShoulderPivot.position.set(0.45, 1.0, 0); const rLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: 0xff0000 })); rLimbs.position.y = -0.4; rightShoulderPivot.add(rLimbs);
-            const pistolBlaster = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.07, 0.3), new THREE.MeshBasicMaterial({ color: 0xff3333 })); pistolBlaster.position.set(0, -0.9, 0); rightShoulderPivot.add(pistolBlaster); masterRigContainer.add(rightShoulderPivot);
+            const rightShoulderPivot = new THREE.Group(); rightShoulderPivot.position.set(0.45, 0.45, 0);
+            const rightUpperArmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.07, 0.55)), wireframeMat); rightUpperArmSeg.position.y = -0.25; rightShoulderPivot.add(rightUpperArmSeg);
+            const rightElbowPivot = new THREE.Group(); rightElbowPivot.position.set(0, -0.275, 0);
+            const rightForearmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.05, 0.05, 0.5)), wireframeMat); rightForearmSeg.position.y = -0.25; rightElbowPivot.add(rightForearmSeg); rightUpperArmSeg.add(rightElbowPivot); torsoBox.add(rightShoulderPivot);
             const leftHipPivot = new THREE.Group(); leftHipPivot.position.set(-0.22, -0.6, 0);
             const leftThighSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.09, 0.07, 0.65)), wireframeMat); leftThighSeg.position.y = -0.325; leftHipPivot.add(leftThighSeg);
             const leftKneePivot = new THREE.Group(); leftKneePivot.position.set(0, -0.325, 0);
@@ -423,7 +425,7 @@
             const rightKneePivot = new THREE.Group(); rightKneePivot.position.set(0, -0.325, 0);
             const rightShinSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.05, 0.6)), wireframeMat); rightShinSeg.position.y = -0.3; rightKneePivot.add(rightShinSeg); rightThighSeg.add(rightKneePivot); torsoBox.add(rightHipPivot);
             return {
-                rootMesh: masterRigContainer, leftShoulder: leftShoulderPivot, leftElbow: leftElbowPivot, rightShoulder: rightShoulderPivot, rightElbow: rightShoulderPivot, leftHip: leftHipPivot, leftKnee: leftKneePivot, rightHip: rightHipPivot, rightKnee: rightKneePivot
+                rootMesh: masterRigContainer, leftShoulder: leftShoulderPivot, leftElbow: leftElbowPivot, rightShoulder: rightShoulderPivot, rightElbow: rightElbowPivot, leftHip: leftHipPivot, leftKnee: leftKneePivot, rightHip: rightHipPivot, rightKnee: rightKneePivot
             };
         }
 
@@ -494,7 +496,6 @@
             document.getElementById('agent-count-display').style.display = 'block';
             document.getElementById('terminal-status-overlay').style.display = 'block';
             initializeHighPrecisionGpsTracking(); initializeSatelliteMultiplayerTelemetry();
-            
             initializeHardwareBiometricTracking();
         }
 
@@ -1181,7 +1182,7 @@
         }
 
         function triggerGlobalHardwareOverride() {
-            globalShutdownTriggered = true;
+            globalShutdownShutdownTriggered = true;
             document.getElementById('main-hud-status').innerText = "NETWORK SHUTDOWN RECONSTRUCTION COMPLETE";
             document.getElementById('main-hud-status').style.color = "#ff0055";
         }
@@ -1316,7 +1317,7 @@
             if (!sensorsEngaged) return; 
             if (matrixOverloadActive) { statusLabel.innerHTML = `<div class="matrix-overload-title">Matrix Overload!</div><div class="matrix-overload-sub">Touch screen to re-initiate reconstruction sequence.</div>`; statusLabel.classList.remove('pulse-animation'); }
             else if (!mapLoadedForAnchor) { statusLabel.innerHTML = "Calibrating Satellites..."; statusLabel.classList.add('pulse-animation'); }
-            else if (!globalShutdownShutdown || !globalShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
+            else if (!globalShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
             
             if (!matrixOverloadActive) reticle.style.display = 'block'; else reticle.style.display = 'none';
             if (isCurrentlyDetected && !matrixOverloadActive && !globalShutdownTriggered) { trackerContainer.style.display = 'block'; trackerContainer.innerHTML = "WARNING: POSITION EXPOSED"; }
@@ -1505,11 +1506,13 @@
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); renderer.setClearColor(0x020205, 1.0);
             scene.add(mapStructuralMeshes); autoInitializeSensors(); setupVisorEnvironmentLighting(); onWindowResize(); window.addEventListener('resize', onWindowResize);
             
-            // BUILD BIOMETRIC MESH OVERLAY LAYERS
+            // BUILD BIOMETRIC GESTURE CONTAINER
             handVisualizerGroup = new THREE.Group();
-            
-            // DEPTH VERIFICATION UPGRADE: materials strictly clear depth checks to render over the map structure
-            const jointGeometry = new THREE.IcosahedronGeometry(0.007, 1);
+            // HUD DEPTH MATRIX BLOCK: Locks rendering execution to paint above standard world coordinate grids
+            handVisualizerGroup.renderOrder = 99999; 
+
+            const jointGeometry = new THREE.IcosahedronGeometry(0.012, 1); // Enlarged geometry profiles
+            // FORCE ON-TOP PASSES: Disables depth test filters to break culling dependencies entirely
             const jointMaterial = new THREE.MeshBasicMaterial({ 
                 color: 0x00ffcc, 
                 wireframe: true,
@@ -1519,7 +1522,7 @@
             
             for (let i = 0; i < 21; i++) {
                 const jMesh = new THREE.Mesh(jointGeometry, jointMaterial);
-                jMesh.renderOrder = 9999; 
+                jMesh.frustumCulled = false; 
                 handVisualizerGroup.add(jMesh);
                 structuralJointMeshes.push(jMesh);
             }
@@ -1530,14 +1533,11 @@
             
             skeletalBonesMesh = new THREE.LineSegments(skeletonGeo, new THREE.LineBasicMaterial({ 
                 color: 0xff0055, 
-                linewidth: 2,
+                linewidth: 3,
                 depthTest: false,
                 depthWrite: false
             }));
-            
-            // Force prioritization thresholds
-            handVisualizerGroup.renderOrder = 9999;
-            skeletalBonesMesh.renderOrder = 9999;
+            skeletalBonesMesh.frustumCulled = false;
             handVisualizerGroup.add(skeletalBonesMesh);
             
             camera.add(handVisualizerGroup);
