@@ -194,7 +194,7 @@
 </head>
 <body>
 
-    <!-- SILENT FEED EXTRACTION NODE -->
+    <!-- SILENT REAR CAPTURE NODE -->
     <video id="webcam-hardware-feed" autoplay playsinline style="display:none;"></video>
 
     <div id="visor-boot-gate" onclick="engageVisorSystemFromBootGate()">
@@ -331,7 +331,7 @@
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
-        // BIOMETRIC GEOMETRY ARRAY DEFINITIONS
+        // ARTICULATED REAL-TIME GEOMETRY POOL
         let handVisualizerGroup;
         const structuralJointMeshes = [];
         let skeletalBonesMesh;
@@ -514,21 +514,33 @@
 
             handsTrackingInstance.onResults(handleBiometricLandmarkResults);
 
+            // COMPASS REAR FOCUS ENVIRONMENT CONFIGURATION
             navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { ideal: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } }
+                video: { facingMode: { exact: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } }
             }).then(stream => {
                 videoElement.srcObject = stream;
                 videoElement.addEventListener('loadedmetadata', () => {
                     videoElement.play();
                     executeThrottledFramePump();
                 });
-            }).catch(() => {});
+            }).catch(() => {
+                // Secondary fallback configuration query if exact hardware layer flags are blocked
+                navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } }
+                }).then(stream => {
+                    videoElement.srcObject = stream;
+                    videoElement.addEventListener('loadedmetadata', () => {
+                        videoElement.play();
+                        executeThrottledFramePump();
+                    });
+                }).catch(() => {});
+            });
 
             let lastHandProcessTime = 0;
             function executeThrottledFramePump() {
                 if (sensorsEngaged && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
                     const now = Date.now();
-                    if (now - lastHandProcessTime > 55) { 
+                    if (now - lastHandProcessTime > 45) { 
                         handsTrackingInstance.send({ image: videoElement });
                         lastHandProcessTime = now;
                     }
@@ -546,7 +558,7 @@
             handVisualizerGroup.visible = true;
             const landmarks = results.multiHandLandmarks[0];
             const fovRad = (camera.fov * Math.PI) / 180;
-            const projectDistance = 0.35; 
+            const projectDistance = 0.32; 
             const viewHeightMax = Math.tan(fovRad / 2) * projectDistance;
             const viewWidthMax = viewHeightMax * camera.aspect;
 
@@ -554,7 +566,7 @@
                 const lm = landmarks[i];
                 const localX = (lm.x - 0.5) * 2 * viewWidthMax; 
                 const localY = (0.5 - lm.y) * 2 * viewHeightMax;
-                const localZ = -projectDistance - (lm.z * 0.35); 
+                const localZ = -projectDistance - (lm.z * 0.25); 
 
                 structuralJointMeshes[i].position.set(localX, localY, localZ);
             }
@@ -1182,7 +1194,7 @@
         }
 
         function triggerGlobalHardwareOverride() {
-            globalShutdownShutdownTriggered = true;
+            globalShutdownTriggered = true;
             document.getElementById('main-hud-status').innerText = "NETWORK SHUTDOWN RECONSTRUCTION COMPLETE";
             document.getElementById('main-hud-status').style.color = "#ff0055";
         }
@@ -1358,6 +1370,7 @@
             const mapCenterX = camera.position.x + minimapPanOffset.x;
             const mapCenterZ = camera.position.z + minimapPanOffset.z;
 
+            // RECONSTRUCTION MATRIX UPGRADE
             function transformWorldToMapCoords(wx, wz) {
                 return {
                     x: (wx - mapCenterX) * scale,
@@ -1506,23 +1519,22 @@
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); renderer.setClearColor(0x020205, 1.0);
             scene.add(mapStructuralMeshes); autoInitializeSensors(); setupVisorEnvironmentLighting(); onWindowResize(); window.addEventListener('resize', onWindowResize);
             
-            // BUILD BIOMETRIC GESTURE CONTAINER
+            // BUILD BIOMETRIC OVERLAY MATRIX WITH DEPTH DISBALED
             handVisualizerGroup = new THREE.Group();
-            // HUD DEPTH MATRIX BLOCK: Locks rendering execution to paint above standard world coordinate grids
-            handVisualizerGroup.renderOrder = 99999; 
-
-            const jointGeometry = new THREE.IcosahedronGeometry(0.012, 1); // Enlarged geometry profiles
-            // FORCE ON-TOP PASSES: Disables depth test filters to break culling dependencies entirely
+            handVisualizerGroup.renderOrder = 9999; 
+            
+            // VISIBILITY UPGRADE: Increased radius bounds to solid 12mm primitives
+            const jointGeometry = new THREE.SphereGeometry(0.012, 16, 16);
             const jointMaterial = new THREE.MeshBasicMaterial({ 
                 color: 0x00ffcc, 
-                wireframe: true,
-                depthTest: false,
-                depthWrite: false
+                depthTest: false, 
+                depthWrite: false, 
+                transparent: true, 
+                opacity: 0.85 
             });
             
             for (let i = 0; i < 21; i++) {
                 const jMesh = new THREE.Mesh(jointGeometry, jointMaterial);
-                jMesh.frustumCulled = false; 
                 handVisualizerGroup.add(jMesh);
                 structuralJointMeshes.push(jMesh);
             }
@@ -1533,11 +1545,12 @@
             
             skeletalBonesMesh = new THREE.LineSegments(skeletonGeo, new THREE.LineBasicMaterial({ 
                 color: 0xff0055, 
-                linewidth: 3,
-                depthTest: false,
-                depthWrite: false
+                linewidth: 4, 
+                depthTest: false, 
+                depthWrite: false,
+                transparent: true,
+                opacity: 0.85
             }));
-            skeletalBonesMesh.frustumCulled = false;
             handVisualizerGroup.add(skeletalBonesMesh);
             
             camera.add(handVisualizerGroup);
