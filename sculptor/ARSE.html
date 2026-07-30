@@ -195,7 +195,6 @@
 <body>
 
     <video id="webcam-hardware-feed" autoplay playsinline style="display:none;"></video>
-    <!-- INTERMEDIARY NON-BLOCKING PIXEL EXTRACTION NODE -->
     <canvas id="biometric-pixel-buffer" style="display:none;"></canvas>
 
     <div id="visor-boot-gate" onclick="engageVisorSystemFromBootGate()">
@@ -332,10 +331,10 @@
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
-        // ARTICULATED BIOMETRIC MATRIX DEFINITIONS
+        // VOLUMETRIC CYBERNETIC BIOMETRIC MATRIX DEFINITIONS
         let handVisualizerGroup;
         const structuralJointMeshes = [];
-        let skeletalBonesMesh;
+        const volumetricBoneMeshes = [];
         const BIOMETRIC_BONES_MAP = [
             [0,1], [1,2], [2,3], [3,4],
             [0,5], [5,6], [6,7], [7,8],
@@ -343,6 +342,10 @@
             [9,13], [13,14], [14,15], [15,16],
             [13,17], [17,18], [18,19], [19,20], [0,17]
         ];
+
+        // REUSABLE LOCAL INTERMEDIATE TRANSFORMATION BUFFERS
+        const _boneDirectionVec = new THREE.Vector3();
+        const _boneDefaultUpAxis = new THREE.Vector3(0, 1, 0);
 
         const sharedMaterials = {
             grass: new THREE.MeshLambertMaterial({ color: 0x071e0e, depthWrite: true }),
@@ -501,7 +504,6 @@
             initializeHardwareBiometricTracking();
         }
 
-        // BIOMETRIC EXT_BUFFER CONTEXT INTEGRATION
         function initializeHardwareBiometricTracking() {
             const videoElement = document.getElementById('webcam-hardware-feed');
             const bufferCanvas = document.getElementById('biometric-pixel-buffer');
@@ -522,7 +524,7 @@
             handsTrackingInstance.onResults(handleBiometricLandmarkResults);
 
             navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { ideal: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } }
+                video: { facingMode: { exact: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } }
             }).then(stream => {
                 videoElement.srcObject = stream;
                 videoElement.addEventListener('loadedmetadata', () => {
@@ -579,6 +581,15 @@
             }
         }
 
+        // VOLUMETRIC VECTOR ORIENTATION MATH CAPTURE
+        function orientVolumetricBoneCylinder(mesh, pStart, pEnd) {
+            mesh.position.copy(pStart).add(pEnd).multiplyScalar(0.5);
+            const distance = pStart.distanceTo(pEnd);
+            mesh.scale.set(1, distance, 1);
+            _boneDirectionVec.subVectors(pEnd, pStart).normalize();
+            mesh.quaternion.setFromUnitVectors(_boneDefaultUpAxis, _boneDirectionVec);
+        }
+
         function handleBiometricLandmarkResults(results) {
             if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
                 handVisualizerGroup.visible = false;
@@ -601,15 +612,13 @@
                 structuralJointMeshes[i].position.set(localX, localY, localZ);
             }
 
-            const posAttr = skeletalBonesMesh.geometry.attributes.position;
-            let idx = 0;
-            BIOMETRIC_BONES_MAP.forEach(connection => {
+            // ITERATIVELY SNAP VOLUMETRIC CYLINDER NODES Programmatically
+            for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
+                const connection = BIOMETRIC_BONES_MAP[i];
                 const vStart = structuralJointMeshes[connection[0]].position;
                 const vEnd = structuralJointMeshes[connection[1]].position;
-                posAttr.setXYZ(idx++, vStart.x, vStart.y, vStart.z);
-                posAttr.setXYZ(idx++, vEnd.x, vEnd.y, vEnd.z);
-            });
-            posAttr.needsUpdate = true;
+                orientVolumetricBoneCylinder(volumetricBoneMeshes[i], vStart, vEnd);
+            }
         }
 
         document.addEventListener('visibilitychange', async () => {
@@ -704,7 +713,6 @@
             stellarDomeSystem.material.opacity = stellarOpacityValue;
         }
 
-        // MAP RETRIEVAL SUB-SYSTEMS
         function autoInitializeSensors() {
             const viewportCanvas = document.getElementById('canvas3d');
             viewportCanvas.addEventListener('pointerdown', (e) => {
@@ -1444,7 +1452,7 @@
             }
             tacticalDronesCollection.forEach(d => {
                 const coords = transformWorldToMapCoords(d.meshElement.position.x, d.meshElement.position.z);
-                minimapCtx.save(); minimapCtx.fillStyle = globalShutdownTriggered ? '#555555' : '#ff0000'; minimapCtx.strokeStyle = '#ff3333'; minimapCtx.lineWidth = 1; minimapCtx.translate(coords.x, coords.y); minimapCtx.rotate(d.meshElement.rotation.y);
+                minimapCtx.save(); minimapCtx.fillStyle = globalShutdownShutdownTriggered ? '#555555' : '#ff0000'; minimapCtx.strokeStyle = '#ff3333'; minimapCtx.lineWidth = 1; minimapCtx.translate(coords.x, coords.y); minimapCtx.rotate(d.meshElement.rotation.y);
                 const itemSize = Math.max(4.0, 6.0 * scale); minimapCtx.beginPath(); minimapCtx.moveTo(0, -itemSize); minimapCtx.lineTo(-itemSize * 0.7, itemSize * 0.7); minimapCtx.lineTo(itemSize * 0.7, itemSize * 0.7); minimapCtx.closePath(); minimapCtx.fill(); minimapCtx.stroke(); minimapCtx.restore();
             });
             humanoidBotsCollection.forEach(b => {
@@ -1549,13 +1557,14 @@
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); renderer.setClearColor(0x020205, 1.0);
             scene.add(mapStructuralMeshes); autoInitializeSensors(); setupVisorEnvironmentLighting(); onWindowResize(); window.addEventListener('resize', onWindowResize);
             
-            // BUILD BIOMETRIC MESH OVERLAY LAYERS WITH OVERRIDING DEPTH MANIPULATION
+            // CONSTRUCT SHRUNKEN, VECTOR-ORANGE BIOMETRIC OVERLAY GROUP
             handVisualizerGroup = new THREE.Group();
             handVisualizerGroup.renderOrder = 9999; 
             
-            const jointGeometry = new THREE.IcosahedronGeometry(0.012, 1);
-            const jointMaterial = new THREE.MeshBasicMaterial({ 
-                color: 0x00ffcc, 
+            // Upgraded sphere geometries to a shrunken tactical footprint profile
+            const jointGeometry = new THREE.SphereGeometry(0.0035, 8, 8);
+            const biometricOrangeMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0xff5500, 
                 wireframe: true,
                 depthTest: false,
                 depthWrite: false,
@@ -1563,23 +1572,19 @@
             });
             
             for (let i = 0; i < 21; i++) {
-                const jMesh = new THREE.Mesh(jointGeometry, jointMaterial);
+                const jMesh = new THREE.Mesh(jointGeometry, biometricOrangeMaterial);
                 handVisualizerGroup.add(jMesh);
                 structuralJointMeshes.push(jMesh);
             }
 
-            const skeletonGeo = new THREE.BufferGeometry();
-            const jointPositionsArray = new Float32Array(BIOMETRIC_BONES_MAP.length * 6);
-            skeletonGeo.setAttribute('position', new THREE.BufferAttribute(jointPositionsArray, 3));
+            // CONSTRUCT PROGRAMMATIC CYLINDER BONE POOL STAPLES
+            const baseBoneUnitGeometry = new THREE.CylinderGeometry(0.0014, 0.0014, 1.0, 5);
             
-            skeletalBonesMesh = new THREE.LineSegments(skeletonGeo, new THREE.LineBasicMaterial({ 
-                color: 0xff0055, 
-                linewidth: 3,
-                depthTest: false,
-                depthWrite: false,
-                transparent: true
-            }));
-            handVisualizerGroup.add(skeletalBonesMesh);
+            for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
+                const boneMeshInstance = new THREE.Mesh(baseBoneUnitGeometry, biometricOrangeMaterial);
+                handVisualizerGroup.add(boneMeshInstance);
+                volumetricBoneMeshes.push(boneMeshInstance);
+            }
             
             camera.add(handVisualizerGroup);
             scene.add(camera);
