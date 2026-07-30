@@ -712,7 +712,6 @@
             mapContainer.addEventListener('pointercancel', flushActiveMapPointers);
             mapContainer.addEventListener('pointerleave', flushActiveMapPointers);
 
-            // DOUBLE-TAP ZOOM CONTROLLER SYSTEM
             mapContainer.addEventListener('click', (e) => {
                 if (!isMinimapEnlarged) return;
                 const rightNowTime = Date.now();
@@ -928,14 +927,14 @@
             hackingTerminalsCollection.push({ id: indexId, mesh: terminalMeshInstance, pos: positionVector, hacked: false });
         }
 
+        // DRONE PATROL ENGINE: Constrains trajectories to open street segments and distributes assets uniformly
         function deployTacticalDronePlatoon() {
             tacticalDronesCollection.forEach(d => scene.remove(d.meshElement)); tacticalDronesCollection.length = 0;
             if (renderedStreetsList.length === 0) return; 
             const targetCount = 72;
             for (let i = 0; i < targetCount; i++) {
-                const streetIdx = Math.floor(Math.random() * renderedStreetsList.length);
+                const streetIdx = i % renderedStreetsList.length;
                 const street = renderedStreetsList[streetIdx]; if (!street || street.points.length < 2) continue;
-                // SCATTER EXTRACTION ENGINE: Pulls localized index variations to sweep out localized cluster density anomalies
                 const startNodeIdx = Math.floor(Math.random() * street.points.length);
                 const spawnPoint = street.points[startNodeIdx];
                 const d = compileTacticalPatrolDrone(); d.coreAsset.position.set(spawnPoint.x, 25.0, spawnPoint.z); scene.add(d.coreAsset);
@@ -945,18 +944,39 @@
             }
         }
 
+        // BOT GARRISON ENGINE: Restricts tracks exclusively to sidewalks and strings chains together to avoid close-quarter trap errors
         function deployHumanoidGarrison() {
             humanoidBotsCollection.forEach(b => scene.remove(b.meshElement)); humanoidBotsCollection.length = 0;
-            if (globalTrafficNodes.length < 5) return;
+            const validSidewalkTracks = renderedPedestrianList.filter(p => !p.isCrosswalk && p.points.length >= 2);
+            if (validSidewalkTracks.length === 0) return;
             const targetCount = 48;
             for(let i = 0; i < targetCount; i++) {
-                const pathData = [];
-                const startIdx = Math.floor(Math.random() * globalTrafficNodes.length);
-                // BLOC CHAINING ARCHITECTURE: Stitches extensive travel blocks sequentially to drop terminal error velocity caps to zero
-                for(let j = 0; j < 12; j++) {
-                    const node = globalTrafficNodes[(startIdx + j) % globalTrafficNodes.length];
-                    pathData.push({ x: node.x, z: node.z });
+                let track = validSidewalkTracks[Math.floor(Math.random() * validSidewalkTracks.length)];
+                let pathData = [...track.points];
+                let currentEnd = pathData[pathData.length - 1];
+                let visitedTracks = new Set([track]);
+                
+                // Iterative proximity connector builds extensive sidewalk paths
+                for (let k = 0; k < 4; k++) {
+                    let nextTrack = null;
+                    let closeDist = 25.0;
+                    for (let t of validSidewalkTracks) {
+                        if (visitedTracks.has(t)) continue;
+                        let d = Math.hypot(t.points[0].x - currentEnd.x, t.points[0].z - currentEnd.z);
+                        if (d < closeDist) { closeDist = d; nextTrack = t; }
+                    }
+                    if (nextTrack) {
+                        pathData.push(...nextTrack.points);
+                        visitedTracks.add(nextTrack);
+                        currentEnd = pathData[pathData.length - 1];
+                    } else { break; }
                 }
+                
+                if (pathData.length < 6) {
+                    let origPoints = [...pathData];
+                    for (let m = origPoints.length - 2; m >= 0; m--) pathData.push(origPoints[m]);
+                }
+
                 const botRef = compileHumanoidCombatBot(); botRef.model.position.set(pathData[0].x, 0.02, pathData[0].z); scene.add(botRef.model);
                 humanoidBotsCollection.push({
                     id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0
@@ -1141,7 +1161,14 @@
                 } else {
                     bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07); const targetNode = bot.routeCoordinates[bot.currentNodeIndex]; const ndx = targetNode.x - pos.x; const ndz = targetNode.z - pos.z; const ndist = Math.hypot(ndx, ndz);
                     
-                    if (ndist < 2.0) { bot.currentNodeIndex += bot.patrolDirectionFactor; if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { bot.patrolDirectionFactor *= -1; bot.currentNodeIndex += bot.patrolDirectionFactor * 2; bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex, bot.routeCoordinates.length - 1)); } }
+                    if (ndist < 2.0) { 
+                        bot.currentNodeIndex += bot.patrolDirectionFactor; 
+                        if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { 
+                            bot.patrolDirectionFactor *= -1; 
+                            bot.currentNodeIndex += bot.patrolDirectionFactor * 2; 
+                        } 
+                        bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex, bot.routeCoordinates.length - 1));
+                    }
                     if (ndist > 0.1) { 
                         if (ndist > 1.5) { botTargetAngle = Math.atan2(ndx, ndz); }
                         const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); pos.x += (ndx / ndist) * frameVelocityStride; pos.z += (ndz / ndist) * frameVelocityStride; 
