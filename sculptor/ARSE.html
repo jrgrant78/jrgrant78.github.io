@@ -48,14 +48,16 @@
 </head>
 <body>
 
-    <video id="webcam-hardware-feed" autoplay playsinline width="640" height="480" style="display:none;"></video>
+    <video id="webcam-hardware-feed" autoplay playsinline style="display:none;"></video>
+    <!-- INTERMEDIARY PIXEL PUMP BUFFER -->
+    <canvas id="biometric-pixel-buffer" style="display:none;"></canvas>
 
     <div id="visor-boot-gate" onclick="engageVisorDiagnosticMode()">
         <div style="font-size: 28px; font-weight: 900; letter-spacing: 6px; color: #00ffcc; margin-bottom: 20px; text-shadow: 0 0 15px #00ffcc;">
             // BIOMETRIC DIAGNOSTIC ISOLATION
         </div>
         <div class="pulse-animation" style="font-size: 12px; font-weight: bold; letter-spacing: 2px;">
-            TAP SCREEN TO INITIALIZE CAMERA SUB-SYSTEMS
+            TAP SCREEN TO INITIALIZE INTERCEPT PIXEL PUMP
         </div>
     </div>
 
@@ -69,7 +71,6 @@
         let scene, camera, renderer;
         let sensorsEngaged = false; 
 
-        // ARTICULATED BIOMETRIC MATRIX DEFINITIONS
         let handVisualizerGroup;
         const structuralJointMeshes = [];
         let skeletalBonesMesh;
@@ -88,46 +89,61 @@
             const bootGate = document.getElementById('visor-boot-gate');
             bootGate.style.display = 'none';
             
-            document.getElementById('diagnostic-status').innerText = "SEARCHING FOR BIOMETRIC SIGNALS...";
+            document.getElementById('diagnostic-status').innerText = "CONNECTING REAR SENSOR...";
 
             initializeHardwareBiometricTracking();
         }
 
         function initializeHardwareBiometricTracking() {
             const videoElement = document.getElementById('webcam-hardware-feed');
+            const bufferCanvas = document.getElementById('biometric-pixel-buffer');
+            const bufferCtx = bufferCanvas.getContext('2d');
+
             const handsTrackingInstance = new window.Hands({
                 locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
             });
 
             handsTrackingInstance.setOptions({
                 maxNumHands: 1,
-                modelComplexity: 0, // Lite computational footprint
+                modelComplexity: 0, 
                 minDetectionConfidence: 0.45,
-                minTrackingConfidence: 0.45
+                minTrackingConfidence: 0.45,
+                selfieMode: false // CRITICAL: Forces tracking profiles to read unmirrored environment pixels
             });
 
             handsTrackingInstance.onResults(handleBiometricLandmarkResults);
 
-            // Fallback chain handling exact vs ideal environment modes to bypass mobile constraints
+            // Bypasses locked constraint arrays to request the native device camera directly
             navigator.mediaDevices.getUserMedia({
                 video: { facingMode: { ideal: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } }
             }).then(stream => {
                 videoElement.srcObject = stream;
                 videoElement.addEventListener('loadedmetadata', () => {
                     videoElement.play();
+                    document.getElementById('diagnostic-status').innerText = "SEARCHING FOR BIOMETRIC SIGNALS...";
                     executeThrottledFramePump();
                 });
             }).catch((err) => {
                 document.getElementById('diagnostic-status').innerText = "CAMERA ACCESS DENIED";
-                console.error("Camera system acquisition failure:", err);
+                console.error(err);
             });
 
             let lastHandProcessTime = 0;
-            function executeThrottledFramePump() {
+            async function executeThrottledFramePump() {
                 if (sensorsEngaged && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
                     const now = Date.now();
-                    if (now - lastHandProcessTime > 40) { // Throttled processing window
-                        handsTrackingInstance.send({ image: videoElement });
+                    if (now - lastHandProcessTime > 45) {
+                        // Resizes the offscreen pipeline context smoothly matching native hardware frames
+                        if (bufferCanvas.width !== videoElement.videoWidth) {
+                            bufferCanvas.width = videoElement.videoWidth;
+                            bufferCanvas.height = videoElement.videoHeight;
+                        }
+                        
+                        // Captures frames onto the clean 2D canvas container
+                        bufferCtx.drawImage(videoElement, 0, 0, bufferCanvas.width, bufferCanvas.height);
+                        
+                        // Passes the safe canvas image payload directly to MediaPipe
+                        await handsTrackingInstance.send({ image: bufferCanvas });
                         lastHandProcessTime = now;
                     }
                 }
@@ -145,20 +161,18 @@
                 return;
             }
 
-            // Target lock acquired
             handVisualizerGroup.visible = true;
             statusLabel.innerText = "HAND TRACKING ACTIVE";
             statusLabel.style.color = "#ff0055";
             
             const landmarks = results.multiHandLandmarks[0];
             const fovRad = (camera.fov * Math.PI) / 180;
-            const projectDistance = 0.25; // Render closer to the lens to prevent far-plane clipping limits
+            const projectDistance = 0.3; // Placed optimally within active frustum limits
             const viewHeightMax = Math.tan(fovRad / 2) * projectDistance;
             const viewWidthMax = viewHeightMax * camera.aspect;
 
             for (let i = 0; i < 21; i++) {
                 const lm = landmarks[i];
-                // Project normalized camera space cleanly into Three.js screen space child vectors
                 const localX = (lm.x - 0.5) * 2 * viewWidthMax; 
                 const localY = (0.5 - lm.y) * 2 * viewHeightMax;
                 const localZ = -projectDistance - (lm.z * 0.2); 
@@ -195,12 +209,11 @@
 
             window.addEventListener('resize', onWindowResize);
             
-            // CONSTRUCT EXCLUSIVE VISUAL DIAGNOSTIC CORE GROUP
             handVisualizerGroup = new THREE.Group();
             handVisualizerGroup.renderOrder = 9999;
             
-            // Increased geometry footprint size for debugging visibility issues instantly
-            const jointGeometry = new THREE.SphereGeometry(0.006, 8, 8);
+            // Scaled up joint spheres to verify rendering pipelines instantly
+            const jointGeometry = new THREE.SphereGeometry(0.014, 8, 8);
             const jointMaterial = new THREE.MeshBasicMaterial({ 
                 color: 0x00ffcc, 
                 wireframe: true,
@@ -221,14 +234,13 @@
             
             skeletalBonesMesh = new THREE.LineSegments(skeletonGeo, new THREE.LineBasicMaterial({ 
                 color: 0xff0055, 
-                linewidth: 3,
+                linewidth: 4,
                 depthTest: false,
                 depthWrite: false,
                 transparent: true
             }));
             handVisualizerGroup.add(skeletalBonesMesh);
             
-            // Lock tracking assets directly to perspective system
             camera.add(handVisualizerGroup);
             scene.add(camera);
 
