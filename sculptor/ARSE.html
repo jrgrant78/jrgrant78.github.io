@@ -331,7 +331,7 @@
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
-        // GLOBAL HARDWARE PERFORMANCE OPTIMIZATION SCRATCH REGISTERS
+        // PERFORMANCE SCRATCH REGISTERS
         const _scratchVToP = new THREE.Vector3();
         const _scratchBeamDir = new THREE.Vector3();
         const _scratchBotHeading = new THREE.Vector3();
@@ -339,11 +339,13 @@
         const _scratchMuzzleOffset = new THREE.Vector3();
         const _scratchLaserTarget = new THREE.Vector3();
         let biometricInferenceLock = false;
+        let lastMinimapUpdateTime = 0;
 
-        // VOLUMETRIC CYBERNETIC BIOMETRIC MATRIX DEFINITIONS
+        // VOLUMETRIC BIOMETRIC REGISTERS
         let handVisualizerGroup;
         const structuralJointMeshes = [];
         const volumetricBoneMeshes = [];
+        const kinematicTargetCoordinates = Array.from({ length: 21 }, () => new THREE.Vector3(0, 0, -0.35));
         const BIOMETRIC_BONES_MAP = [
             [0,1], [1,2], [2,3], [3,4],
             [0,5], [5,6], [6,7], [7,8],
@@ -517,6 +519,10 @@
             const bufferCanvas = document.getElementById('biometric-pixel-buffer');
             const bufferCtx = bufferCanvas.getContext('2d');
 
+            // HARDWARE DOWNSAMPLE MATRICES
+            bufferCanvas.width = 256;
+            bufferCanvas.height = 192;
+
             const handsTrackingInstance = new window.Hands({
                 locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
             });
@@ -524,15 +530,15 @@
             handsTrackingInstance.setOptions({
                 maxNumHands: 1,
                 modelComplexity: 0, 
-                minDetectionConfidence: 0.55,
-                minTrackingConfidence: 0.55,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5,
                 selfieMode: false 
             });
 
             handsTrackingInstance.onResults(handleBiometricLandmarkResults);
 
             navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { exact: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } }
+                video: { facingMode: { exact: "environment" }, width: { ideal: 480 }, height: { ideal: 360 } }
             }).then(stream => {
                 videoElement.srcObject = stream;
                 videoElement.addEventListener('loadedmetadata', () => {
@@ -573,18 +579,12 @@
 
             let lastHandProcessTime = 0;
             async function executeThrottledFramePump() {
-                // PERFORMANCE FILTER: Force thread drops to drop async stack builds completely
                 if (sensorsEngaged && !biometricInferenceLock && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
                     const now = Date.now();
-                    if (now - lastHandProcessTime > 60) { 
+                    // Increased step window to cut CPU overhead, smooth kinematics handled by WebGL interpolation
+                    if (now - lastHandProcessTime > 75) { 
                         biometricInferenceLock = true; 
-                        if (bufferCanvas.width !== videoElement.videoWidth) {
-                            bufferCanvas.width = videoElement.videoWidth;
-                            bufferCanvas.height = videoElement.videoHeight;
-                        }
-                        bufferCtx.drawImage(videoElement, 0, 0, bufferCanvas.width, bufferCanvas.height);
-                        
-                        // Fire calculation thread asynchronously, updating the lock natively via callback returns
+                        bufferCtx.drawImage(videoElement, 0, 0, 256, 192);
                         handsTrackingInstance.send({ image: bufferCanvas }).catch(() => {
                             biometricInferenceLock = false;
                         });
@@ -604,7 +604,6 @@
         }
 
         function handleBiometricLandmarkResults(results) {
-            // Free hardware gate lock safely matching computation callbacks
             biometricInferenceLock = false;
 
             if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
@@ -619,20 +618,14 @@
             const viewHeightMax = Math.tan(fovRad / 2) * projectDistance;
             const viewWidthMax = viewHeightMax * camera.aspect;
 
+            // Cache raw coordinates locally for smooth interpolation updates
             for (let i = 0; i < 21; i++) {
                 const lm = landmarks[i];
-                const localX = (lm.x - 0.5) * 2 * viewWidthMax; 
-                const localY = (0.5 - lm.y) * 2 * viewHeightMax;
-                const localZ = -projectDistance - (lm.z * 0.35); 
-
-                structuralJointMeshes[i].position.set(localX, localY, localZ);
-            }
-
-            for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
-                const connection = BIOMETRIC_BONES_MAP[i];
-                const vStart = structuralJointMeshes[connection[0]].position;
-                const vEnd = structuralJointMeshes[connection[1]].position;
-                orientVolumetricBoneCylinder(volumetricBoneMeshes[i], vStart, vEnd);
+                kinematicTargetCoordinates[i].set(
+                    (lm.x - 0.5) * 2 * viewWidthMax,
+                    (0.5 - lm.y) * 2 * viewHeightMax,
+                    -projectDistance - (lm.z * 0.35)
+                );
             }
         }
 
@@ -1268,7 +1261,6 @@
 
                 let tx = 0, tz = 0; let targetAngle = drone.meshElement.rotation.y;
                 
-                // RECYCLED REGISTER CONSTRAINTS: Erase active per-frame allocations completely
                 _scratchVToP.copy(camera.position).sub(pos); 
                 const dToP = _scratchVToP.length();
                 _scratchBeamDir.set(0, -1, 0).applyQuaternion(drone.scannerBeamGroup.quaternion).applyQuaternion(drone.meshElement.quaternion).normalize(); 
@@ -1307,7 +1299,6 @@
                 let canBotSeePlayerRightNow = false; 
                 let botTargetAngle = bot.meshElement.rotation.y;
                 
-                // POOLED VECTOR CACHE RECYCLING
                 _scratchBotHeading.copy(camera.position).sub(pos);
                 _scratchBotHeading.y = 0;
                 const distanceToPlayer = _scratchBotHeading.length();
@@ -1599,7 +1590,6 @@
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); renderer.setClearColor(0x020205, 1.0);
             scene.add(mapStructuralMeshes); autoInitializeSensors(); setupVisorEnvironmentLighting(); onWindowResize(); window.addEventListener('resize', onWindowResize);
             
-            // CONSTRUCT SHRUNKEN, VECTOR-ORANGE BIOMETRIC OVERLAY GROUP
             handVisualizerGroup = new THREE.Group();
             handVisualizerGroup.renderOrder = 9999; 
             
@@ -1632,12 +1622,31 @@
             function frameLoopEngine() {
                 requestAnimationFrame(frameLoopEngine); const t = Date.now();
                 spatialAnomaliesCollection.forEach(a => { if (!a.collected) { a.mesh.rotation.x += 0.01; a.mesh.rotation.y += 0.02; } });
+                
                 if (sensorsEngaged) { 
                     advanceDayNightCycleSimulation();
                     advanceDronePatrolSimulation(t); 
                     evaluateGameplayState(); 
+
+                    // KINEMATIC INTERPOLATION FILTER
+                    if (handVisualizerGroup.visible) {
+                        for (let i = 0; i < 21; i++) {
+                            structuralJointMeshes[i].position.lerp(kinematicTargetCoordinates[i], 0.35);
+                        }
+                        for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
+                            const connection = BIOMETRIC_BONES_MAP[i];
+                            orientVolumetricBoneCylinder(volumetricBoneMeshes[i], structuralJointMeshes[connection[0]].position, structuralJointMeshes[connection[1]].position);
+                        }
+                    }
                 }
-                renderer.render(scene, camera); update2DMinimapSystem();
+                
+                renderer.render(scene, camera); 
+
+                // LOCK RADAR TRACKING MATRIX UPDATES PROGRAMMATICALLY TO 15Hz
+                if (t - lastMinimapUpdateTime > 66) {
+                    update2DMinimapSystem();
+                    lastMinimapUpdateTime = t;
+                }
             }
             frameLoopEngine();
         }
