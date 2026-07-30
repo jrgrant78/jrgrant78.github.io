@@ -194,8 +194,8 @@
 </head>
 <body>
 
-    <!-- SILENT REAR CAPTURE NODE -->
-    <video id="webcam-hardware-feed" autoplay playsinline style="display:none;"></video>
+    <!-- SILENT FEED EXTRACTION NODE - MOUNTED ABSOLUTE TO ENSURE STEADY SAMPLING PROCESSES -->
+    <video id="webcam-hardware-feed" autoplay playsinline style="position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none;"></video>
 
     <div id="visor-boot-gate" onclick="engageVisorSystemFromBootGate()">
         <div style="font-size: 36px; font-weight: 900; letter-spacing: 8px; color: #00ffcc; margin-bottom: 2px; text-shadow: 0 0 15px #00ffcc;">
@@ -331,7 +331,7 @@
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
-        // ARTICULATED REAL-TIME GEOMETRY POOL
+        // ARTICULATED BIOMETRIC PASSIVE STRUCTURE ARCHITECTURE
         let handVisualizerGroup;
         const structuralJointMeshes = [];
         let skeletalBonesMesh;
@@ -514,33 +514,22 @@
 
             handsTrackingInstance.onResults(handleBiometricLandmarkResults);
 
-            // COMPASS REAR FOCUS ENVIRONMENT CONFIGURATION
+            // ENV TARGET CALIBRATION: Requests rear camera strictly to prevent portrait translation drops
             navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { exact: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } }
+                video: { facingMode: { ideal: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } }
             }).then(stream => {
                 videoElement.srcObject = stream;
                 videoElement.addEventListener('loadedmetadata', () => {
                     videoElement.play();
                     executeThrottledFramePump();
                 });
-            }).catch(() => {
-                // Secondary fallback configuration query if exact hardware layer flags are blocked
-                navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } }
-                }).then(stream => {
-                    videoElement.srcObject = stream;
-                    videoElement.addEventListener('loadedmetadata', () => {
-                        videoElement.play();
-                        executeThrottledFramePump();
-                    });
-                }).catch(() => {});
-            });
+            }).catch(() => {});
 
             let lastHandProcessTime = 0;
             function executeThrottledFramePump() {
                 if (sensorsEngaged && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
                     const now = Date.now();
-                    if (now - lastHandProcessTime > 45) { 
+                    if (now - lastHandProcessTime > 55) { 
                         handsTrackingInstance.send({ image: videoElement });
                         lastHandProcessTime = now;
                     }
@@ -558,15 +547,16 @@
             handVisualizerGroup.visible = true;
             const landmarks = results.multiHandLandmarks[0];
             const fovRad = (camera.fov * Math.PI) / 180;
-            const projectDistance = 0.32; 
+            const projectDistance = 0.45; 
             const viewHeightMax = Math.tan(fovRad / 2) * projectDistance;
             const viewWidthMax = viewHeightMax * camera.aspect;
 
             for (let i = 0; i < 21; i++) {
                 const lm = landmarks[i];
+                // HORIZONTAL TRANSLATION REMAP: Scales normalized points directly into unmirrored spatial channels
                 const localX = (lm.x - 0.5) * 2 * viewWidthMax; 
                 const localY = (0.5 - lm.y) * 2 * viewHeightMax;
-                const localZ = -projectDistance - (lm.z * 0.25); 
+                const localZ = -projectDistance - (lm.z * 0.35); 
 
                 structuralJointMeshes[i].position.set(localX, localY, localZ);
             }
@@ -1329,7 +1319,7 @@
             if (!sensorsEngaged) return; 
             if (matrixOverloadActive) { statusLabel.innerHTML = `<div class="matrix-overload-title">Matrix Overload!</div><div class="matrix-overload-sub">Touch screen to re-initiate reconstruction sequence.</div>`; statusLabel.classList.remove('pulse-animation'); }
             else if (!mapLoadedForAnchor) { statusLabel.innerHTML = "Calibrating Satellites..."; statusLabel.classList.add('pulse-animation'); }
-            else if (!globalShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
+            else if (!globalShutdownShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
             
             if (!matrixOverloadActive) reticle.style.display = 'block'; else reticle.style.display = 'none';
             if (isCurrentlyDetected && !matrixOverloadActive && !globalShutdownTriggered) { trackerContainer.style.display = 'block'; trackerContainer.innerHTML = "WARNING: POSITION EXPOSED"; }
@@ -1370,7 +1360,6 @@
             const mapCenterX = camera.position.x + minimapPanOffset.x;
             const mapCenterZ = camera.position.z + minimapPanOffset.z;
 
-            // RECONSTRUCTION MATRIX UPGRADE
             function transformWorldToMapCoords(wx, wz) {
                 return {
                     x: (wx - mapCenterX) * scale,
@@ -1519,22 +1508,17 @@
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); renderer.setClearColor(0x020205, 1.0);
             scene.add(mapStructuralMeshes); autoInitializeSensors(); setupVisorEnvironmentLighting(); onWindowResize(); window.addEventListener('resize', onWindowResize);
             
-            // BUILD BIOMETRIC OVERLAY MATRIX WITH DEPTH DISBALED
+            // BUILD BIOMETRIC MESH GROUP WITH TOP-LAYER PRIORITY
             handVisualizerGroup = new THREE.Group();
+            // LAYER OVERLAY SETTINGS: Disabling depth calculations guarantees projection over structural hulls
             handVisualizerGroup.renderOrder = 9999; 
-            
-            // VISIBILITY UPGRADE: Increased radius bounds to solid 12mm primitives
-            const jointGeometry = new THREE.SphereGeometry(0.012, 16, 16);
-            const jointMaterial = new THREE.MeshBasicMaterial({ 
-                color: 0x00ffcc, 
-                depthTest: false, 
-                depthWrite: false, 
-                transparent: true, 
-                opacity: 0.85 
-            });
+
+            const jointGeometry = new THREE.IcosahedronGeometry(0.014, 1);
+            const jointMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true, depthTest: false, depthWrite: false });
             
             for (let i = 0; i < 21; i++) {
                 const jMesh = new THREE.Mesh(jointGeometry, jointMaterial);
+                jMesh.renderOrder = 9999;
                 handVisualizerGroup.add(jMesh);
                 structuralJointMeshes.push(jMesh);
             }
@@ -1543,14 +1527,8 @@
             const jointPositionsArray = new Float32Array(BIOMETRIC_BONES_MAP.length * 6);
             skeletonGeo.setAttribute('position', new THREE.BufferAttribute(jointPositionsArray, 3));
             
-            skeletalBonesMesh = new THREE.LineSegments(skeletonGeo, new THREE.LineBasicMaterial({ 
-                color: 0xff0055, 
-                linewidth: 4, 
-                depthTest: false, 
-                depthWrite: false,
-                transparent: true,
-                opacity: 0.85
-            }));
+            skeletalBonesMesh = new THREE.LineSegments(skeletonGeo, new THREE.LineBasicMaterial({ color: 0xff0055, linewidth: 3, depthTest: false, depthWrite: false }));
+            skeletalBonesMesh.renderOrder = 9999;
             handVisualizerGroup.add(skeletalBonesMesh);
             
             camera.add(handVisualizerGroup);
