@@ -37,7 +37,7 @@
 
         @keyframes slow-yellow-glow {
             0% { background: rgba(255, 255, 0, 0); box-shadow: inset 0 0 20px rgba(255, 255, 0, 0); }
-            50% { background: rgba(255, 25 0, 0.09); box-shadow: inset 0 0 60px rgba(255, 255, 0, 0.35); }
+            50% { background: rgba(255, 255, 0, 0.09); box-shadow: inset 0 0 60px rgba(255, 255, 0, 0.35); }
             100% { background: rgba(255, 255, 0, 0); box-shadow: inset 0 0 20px rgba(255, 255, 0, 0); }
         }
 
@@ -331,23 +331,39 @@
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
-        // ALLOCATION-FREE TRACKING AND RADAR STORAGE REGISTERS
+        // CRITICAL PERFORMANCE REGISTER FIXES (STATIC PRE-ALLOCATIONS)
         const _scratchVToP = new THREE.Vector3();
         const _scratchBeamDir = new THREE.Vector3();
         const _scratchBotHeading = new THREE.Vector3();
         const _scratchBotFacing = new THREE.Vector3();
         const _scratchMuzzleOffset = new THREE.Vector3();
         const _scratchLaserTarget = new THREE.Vector3();
-        const _minimapScratch = { x: 0, y: 0 };
+        const _scratchMapTransform = { x: 0, y: 0 };
+        
+        // WEATHER CYCLE ALLOCATION BLOCKERS
+        const _colorSkyBuffer = new THREE.Color();
+        const _colorLightBuffer = new THREE.Color();
+        const _colorMidnightSky = new THREE.Color(0x010207);
+        const _colorMidnightLight = new THREE.Color(0x112244);
+        const _colorDawnSky = new THREE.Color(0x6b2b34);
+        const _colorDawnLight = new THREE.Color(0xcc6633);
+        const _colorDaySky = new THREE.Color(0x061124);
+        const _colorDayLight = new THREE.Color(0xffffff);
+        const _colorDuskSky = new THREE.Color(0x7c381a);
+        const _colorDuskLight = new THREE.Color(0xee6622);
+
         let biometricInferenceLock = false;
         let lastMinimapUpdateTime = 0;
 
-        // VOLUMETRIC STABILIZATION REGISTERS
+        // HYSTERESIS SMOOTHING TIMERS
+        let handStabilityCounter = 0;
+        const HYSTERESIS_VISIBLE_STRIKE = 3; // Minimum frames required to show hand (avoids phantom flickers)
+
+        // VOLUMETRIC BIOMETRIC REGISTERS
         let handVisualizerGroup;
         const structuralJointMeshes = [];
         const volumetricBoneMeshes = [];
         const kinematicTargetCoordinates = Array.from({ length: 21 }, () => new THREE.Vector3(0, 0, -0.35));
-        let handDetectionFilterWindow = 0; // Hysteresis step buffer counter
         const BIOMETRIC_BONES_MAP = [
             [0,1], [1,2], [2,3], [3,4],
             [0,5], [5,6], [6,7], [7,8],
@@ -358,6 +374,9 @@
 
         const _boneDirectionVec = new THREE.Vector3();
         const _boneDefaultUpAxis = new THREE.Vector3(0, 1, 0);
+
+        // SHARED SYSTEM HARDWARE ASSETS
+        let sharedLaserGeometry, sharedLaserMaterial;
 
         const sharedMaterials = {
             grass: new THREE.MeshLambertMaterial({ color: 0x071e0e, depthWrite: true }),
@@ -531,8 +550,8 @@
             handsTrackingInstance.setOptions({
                 maxNumHands: 1,
                 modelComplexity: 0, 
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5,
+                minDetectionConfidence: 0.65, // TUNED: Cuts ghost profiles instantly
+                minTrackingConfidence: 0.65,
                 selfieMode: false 
             });
 
@@ -582,8 +601,7 @@
             async function executeThrottledFramePump() {
                 if (sensorsEngaged && !biometricInferenceLock && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
                     const now = Date.now();
-                    // Increased frame delivery gap window to 90ms for optimal thread allocation
-                    if (now - lastHandProcessTime > 90) { 
+                    if (now - lastHandProcessTime > 65) { 
                         biometricInferenceLock = true; 
                         bufferCtx.drawImage(videoElement, 0, 0, 256, 192);
                         handsTrackingInstance.send({ image: bufferCanvas }).catch(() => {
@@ -607,32 +625,18 @@
         function handleBiometricLandmarkResults(results) {
             biometricInferenceLock = false;
 
-            let highConfidenceHandDetected = false;
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                let verificationScore = 1.0;
-                if (results.multiHandedness && results.multiHandedness[0]) {
-                    verificationScore = results.multiHandedness[0].score;
-                }
-                // SILENT CONFIDENCE THRESHOLD GATE: Filters out tracking anomalies
-                if (verificationScore > 0.70) {
-                    highConfidenceHandDetected = true;
-                }
-            }
-
-            // HYSTERESIS FILTERING WINDOW MATRIX
-            if (highConfidenceHandDetected) {
-                handDetectionFilterWindow = Math.min(5, handDetectionFilterWindow + 1);
-            } else {
-                handDetectionFilterWindow = Math.max(0, handDetectionFilterWindow - 1);
-            }
-
-            // Requires consecutive positive frames to eliminate flickering anomalies
-            if (handDetectionFilterWindow < 3) {
-                handVisualizerGroup.visible = false;
+            if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+                // HYSTERESIS FILTER: Decay confidence index rather than applying split-second dropouts
+                handStabilityCounter = Math.max(0, handStabilityCounter - 1);
+                if (handStabilityCounter === 0) handVisualizerGroup.visible = false;
                 return;
             }
 
-            handVisualizerGroup.visible = true;
+            handStabilityCounter = Math.min(10, handStabilityCounter + 1);
+            if (handStabilityCounter >= HYSTERESIS_VISIBLE_STRIKE) {
+                handVisualizerGroup.visible = true;
+            }
+            
             const landmarks = results.multiHandLandmarks[0];
             const fovRad = (camera.fov * Math.PI) / 180;
             const projectDistance = 0.35; 
@@ -681,8 +685,6 @@
             const hardwareDateInstance = new Date();
             calculatedVisorTimeline = hardwareDateInstance.getHours() + (hardwareDateInstance.getMinutes() / 60) + (hardwareDateInstance.getSeconds() / 3600);
 
-            let targetSkyColor = new THREE.Color();
-            let targetLightColor = new THREE.Color();
             let ambientIlluminationIntensity = 0.3;
             let solarBeamIntensity = 0.0;
             let stellarOpacityValue = 0.0;
@@ -694,49 +696,50 @@
                 0
             );
 
+            // OPTIMIZED ZERO-ALLOCATION LERP LAYER
             if (calculatedVisorTimeline >= 0 && calculatedVisorTimeline < 4.5) { 
-                targetSkyColor.setHex(0x010207); targetLightColor.setHex(0x112244);
+                _colorSkyBuffer.copy(_colorMidnightSky); _colorLightBuffer.copy(_colorMidnightLight);
                 ambientIlluminationIntensity = 0.25; solarBeamIntensity = 0.2; stellarOpacityValue = 1.0;
             } 
             else if (calculatedVisorTimeline >= 4.5 && calculatedVisorTimeline < 7.0) { 
                 const alpha = (calculatedVisorTimeline - 4.5) / 2.5;
-                targetSkyColor.lerpColors(new THREE.Color(0x010207), new THREE.Color(0x6b2b34), alpha);
-                targetLightColor.lerpColors(new THREE.Color(0x112244), new THREE.Color(0xcc6633), alpha);
+                _colorSkyBuffer.lerpColors(_colorMidnightSky, _colorDawnSky, alpha);
+                _colorLightBuffer.lerpColors(_colorMidnightLight, _colorDawnLight, alpha);
                 ambientIlluminationIntensity = THREE.MathUtils.lerp(0.25, 0.45, alpha);
                 solarBeamIntensity = THREE.MathUtils.lerp(0.2, 0.7, alpha);
                 stellarOpacityValue = THREE.MathUtils.lerp(1.0, 0.0, alpha);
             } 
             else if (calculatedVisorTimeline >= 7.0 && calculatedVisorTimeline < 16.0) { 
                 const alpha = (calculatedVisorTimeline - 7.0) / 9.0;
-                targetSkyColor.lerpColors(new THREE.Color(0x6b2b34), new THREE.Color(0x061124), alpha);
-                targetLightColor.setHex(0xffffff);
+                _colorSkyBuffer.lerpColors(_colorDawnSky, _colorDaySky, alpha);
+                _colorLightBuffer.copy(_colorDayLight);
                 ambientIlluminationIntensity = 0.6; solarBeamIntensity = 1.1; stellarOpacityValue = 0.0;
             } 
             else if (calculatedVisorTimeline >= 16.0 && calculatedVisorTimeline < 19.0) { 
                 const alpha = (calculatedVisorTimeline - 16.0) / 3.0;
-                targetSkyColor.lerpColors(new THREE.Color(0x061124), new THREE.Color(0x7c381a), alpha);
-                targetLightColor.lerpColors(new THREE.Color(0xffffff), new THREE.Color(0xee6622), alpha);
+                _colorSkyBuffer.lerpColors(_colorDaySky, _colorDuskSky, alpha);
+                _colorLightBuffer.lerpColors(_colorDayLight, _colorDuskLight, alpha);
                 ambientIlluminationIntensity = THREE.MathUtils.lerp(0.6, 0.5, alpha);
                 solarBeamIntensity = THREE.MathUtils.lerp(1.1, 0.9, alpha);
                 stellarOpacityValue = 0.0;
             } 
             else if (calculatedVisorTimeline >= 19.0 && calculatedVisorTimeline < 21.5) { 
                 const alpha = (calculatedVisorTimeline - 19.0) / 2.5;
-                targetSkyColor.lerpColors(new THREE.Color(0x7c381a), new THREE.Color(0x020412), alpha);
-                targetLightColor.lerpColors(new THREE.Color(0xee6622), new THREE.Color(0x223366), alpha);
+                _colorSkyBuffer.lerpColors(_colorDuskSky, _colorMidnightSky, alpha);
+                _colorLightBuffer.lerpColors(_colorDuskLight, _colorMidnightLight, alpha);
                 ambientIlluminationIntensity = THREE.MathUtils.lerp(0.5, 0.3, alpha);
                 solarBeamIntensity = THREE.MathUtils.lerp(0.9, 0.3, alpha);
                 stellarOpacityValue = THREE.MathUtils.lerp(0.0, 1.0, alpha);
             } 
             else { 
-                targetSkyColor.setHex(0x010207); targetLightColor.setHex(0x112244);
+                _colorSkyBuffer.copy(_colorMidnightSky); _colorLightBuffer.copy(_colorMidnightLight);
                 ambientIlluminationIntensity = 0.25; solarBeamIntensity = 0.2; stellarOpacityValue = 1.0;
             }
 
-            renderer.setClearColor(targetSkyColor, 1.0);
-            globalAmbientLight.color.copy(targetSkyColor);
+            renderer.setClearColor(_colorSkyBuffer, 1.0);
+            globalAmbientLight.color.copy(_colorSkyBuffer);
             globalAmbientLight.intensity = ambientIlluminationIntensity;
-            atmosphericSunLight.color.copy(targetLightColor);
+            atmosphericSunLight.color.copy(_colorLightBuffer);
             atmosphericSunLight.intensity = solarBeamIntensity;
             stellarDomeSystem.material.opacity = stellarOpacityValue;
         }
@@ -1340,8 +1343,8 @@
                         _scratchMuzzleOffset.set(0.9, 0.4, 1.6).applyMatrix4(bot.meshElement.matrixWorld);
                         _scratchLaserTarget.copy(camera.position); 
                         
-                        const laserGeom = new THREE.CylinderGeometry(0.05, 0.05, 2.5); 
-                        const laserMesh = new THREE.Mesh(laserGeom, new THREE.MeshBasicMaterial({ color: 0xff0055 }));
+                        // ZERO ALLOCATION PRE-BUILT HARDWARE MESH POOL LIFT
+                        const laserMesh = new THREE.Mesh(sharedLaserGeometry, sharedLaserMaterial);
                         laserMesh.position.copy(_scratchMuzzleOffset); 
                         laserMesh.lookAt(_scratchLaserTarget); 
                         laserMesh.rotation.x += Math.PI / 2; 
@@ -1371,7 +1374,7 @@
 
             for (let i = activeLasersCollection.length - 1; i >= 0; i--) {
                 const bolt = activeLasersCollection[i]; bolt.meshElement.position.addScaledVector(bolt.directionVector, bolt.velocitySpeed); bolt.distanceTraveled += bolt.velocitySpeed;
-                if (bolt.distanceTraveled >= bolt.maxDistanceLimit || bolt.distanceTraveled > 250) { scene.remove(bolt.meshElement); bolt.meshElement.geometry.dispose(); activeLasersCollection.splice(i, 1); }
+                if (bolt.distanceTraveled >= bolt.maxDistanceLimit || bolt.distanceTraveled > 250) { scene.remove(bolt.meshElement); activeLasersCollection.splice(i, 1); }
             }
 
             isCurrentlyDetected = (droneDetectedFlag || botDetectedFlag);
@@ -1441,6 +1444,12 @@
             }
         }
 
+        // ZERO ALLOCATION MAP CONVERSION TRANSFORMS
+        function inlineTransformWorldToMapCoords(wx, wz, mapCenterX, mapCenterZ, scale) {
+            _scratchMapTransform.x = (wx - mapCenterX) * scale;
+            _scratchMapTransform.y = (wz - mapCenterZ) * scale;
+        }
+
         function update2DMinimapSystem() {
             const minimapCanvas = document.getElementById('minimapCanvas'); const minimapCtx = minimapCanvas.getContext('2d'); if (!minimapCtx || matrixOverloadActive) { if(minimapCtx) minimapCtx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height); return; }
             const lookDirectionVector = new THREE.Vector3(); camera.getWorldDirection(lookDirectionVector); const yawAngle = Math.atan2(lookDirectionVector.x, -lookDirectionVector.z);
@@ -1462,59 +1471,53 @@
             const mapCenterX = camera.position.x + minimapPanOffset.x;
             const mapCenterZ = camera.position.z + minimapPanOffset.z;
 
-            // MUTABLE ALLOCATION FREE CONVERSION LOGIC
-            function transformWorldToMapCoords(wx, wz) {
-                _minimapScratch.x = (wx - mapCenterX) * scale;
-                _minimapScratch.y = (wz - mapCenterZ) * scale;
-            }
-
             const streetLineWeight = isMinimapEnlarged ? Math.max(1, 4 * scale) : 12; const blueprintHullWeight = Math.max(1.0, 1.5 * scale);
 
             renderedStreetsList.forEach(s => {
                 minimapCtx.strokeStyle = '#000000'; minimapCtx.lineWidth = streetLineWeight * 1.8; minimapCtx.beginPath();
-                s.points.forEach((pt, idx) => { transformWorldToMapCoords(pt.x, pt.z); if (idx === 0) minimapCtx.moveTo(_minimapScratch.x, _minimapScratch.y); else minimapCtx.lineTo(_minimapScratch.x, _minimapScratch.y); });
+                s.points.forEach((pt, idx) => { inlineTransformWorldToMapCoords(pt.x, pt.z, mapCenterX, mapCenterZ, scale); if (idx === 0) minimapCtx.moveTo(_scratchMapTransform.x, _scratchMapTransform.y); else minimapCtx.lineTo(_scratchMapTransform.x, _scratchMapTransform.y); });
                 minimapCtx.stroke(); minimapCtx.strokeStyle = '#ffff00'; minimapCtx.lineWidth = Math.max(1.0, 1.2 * scale); minimapCtx.stroke();
             });
             renderedPedestrianList.forEach(p => {
                 minimapCtx.save(); if (p.isCrosswalk) { minimapCtx.strokeStyle = '#fffa9e'; minimapCtx.lineWidth = Math.max(0.8, 1.0 * scale); minimapCtx.setLineDash([2, 3]); } else { minimapCtx.strokeStyle = '#555555'; minimapCtx.lineWidth = streetLineWeight * 0.4; }
-                minimapCtx.beginPath(); p.points.forEach((pt, idx) => { transformWorldToMapCoords(pt.x, pt.z); if (idx === 0) minimapCtx.moveTo(_minimapScratch.x, _minimapScratch.y); else minimapCtx.lineTo(_minimapScratch.x, _minimapScratch.y); });
+                minimapCtx.beginPath(); p.points.forEach((pt, idx) => { inlineTransformWorldToMapCoords(pt.x, pt.z, mapCenterX, mapCenterZ, scale); if (idx === 0) minimapCtx.moveTo(_scratchMapTransform.x, _scratchMapTransform.y); else minimapCtx.lineTo(_scratchMapTransform.x, _scratchMapTransform.y); });
                 minimapCtx.stroke(); minimapCtx.restore();
             });
             renderedBuildingsList.forEach(b => {
                 minimapCtx.fillStyle = '#000000'; minimapCtx.strokeStyle = 'rgba(0, 255, 255, 0.6)'; minimapCtx.lineWidth = blueprintHullWeight; minimapCtx.beginPath();
-                b.points.forEach((pt, idx) => { transformWorldToMapCoords(pt.x, pt.z); if (idx === 0) minimapCtx.moveTo(_minimapScratch.x, _minimapScratch.y); else minimapCtx.lineTo(_minimapScratch.x, _minimapScratch.y); });
+                b.points.forEach((pt, idx) => { inlineTransformWorldToMapCoords(pt.x, pt.z, mapCenterX, mapCenterZ, scale); if (idx === 0) minimapCtx.moveTo(_scratchMapTransform.x, _scratchMapTransform.y); else minimapCtx.lineTo(_scratchMapTransform.x, _scratchMapTransform.y); });
                 minimapCtx.closePath(); minimapCtx.fill(); minimapCtx.stroke();
             });
 
             hackingTerminalsCollection.forEach(t => {
-                transformWorldToMapCoords(t.pos.x, t.pos.z);
+                inlineTransformWorldToMapCoords(t.pos.x, t.pos.z, mapCenterX, mapCenterZ, scale);
                 minimapCtx.fillStyle = t.hacked ? '#555555' : '#00ff55';
-                minimapCtx.beginPath(); minimapCtx.arc(_minimapScratch.x, _minimapScratch.y, Math.max(4.0, 6.0 * scale), 0, Math.PI * 2); minimapCtx.fill();
+                minimapCtx.beginPath(); minimapCtx.arc(_scratchMapTransform.x, _scratchMapTransform.y, Math.max(4.0, 6.0 * scale), 0, Math.PI * 2); minimapCtx.fill();
             });
 
             spatialAnomaliesCollection.forEach(a => {
-                if (a.collected) return; transformWorldToMapCoords(a.mesh.position.x, a.mesh.position.z);
-                minimapCtx.fillStyle = '#bd00ff'; minimapCtx.beginPath(); minimapCtx.arc(_minimapScratch.x, _minimapScratch.y, Math.max(3.0, 4.5 * scale), 0, Math.PI * 2); minimapCtx.fill();
+                if (a.collected) return; inlineTransformWorldToMapCoords(a.mesh.position.x, a.mesh.position.z, mapCenterX, mapCenterZ, scale);
+                minimapCtx.fillStyle = '#bd00ff'; minimapCtx.beginPath(); minimapCtx.arc(_scratchMapTransform.x, _scratchMapTransform.y, Math.max(3.0, 4.5 * scale), 0, Math.PI * 2); minimapCtx.fill();
             });
 
             for (const key in connectedAgentsMap) {
-                const liveAgentObj = connectedAgentsMap[key]; transformWorldToMapCoords(liveAgentObj.joints.rootMesh.position.x, liveAgentObj.joints.rootMesh.position.z);
-                minimapCtx.save(); minimapCtx.fillStyle = '#ff7700'; minimapCtx.strokeStyle = '#ffffff'; minimapCtx.lineWidth = 1.5; minimapCtx.translate(_minimapScratch.x, _minimapScratch.y); minimapCtx.rotate(liveAgentObj.joints.rootMesh.rotation.y);
+                const liveAgentObj = connectedAgentsMap[key]; inlineTransformWorldToMapCoords(liveAgentObj.joints.rootMesh.position.x, liveAgentObj.joints.rootMesh.position.z, mapCenterX, mapCenterZ, scale);
+                minimapCtx.save(); minimapCtx.fillStyle = '#ff7700'; minimapCtx.strokeStyle = '#ffffff'; minimapCtx.lineWidth = 1.5; minimapCtx.translate(_scratchMapTransform.x, _scratchMapTransform.y); minimapCtx.rotate(liveAgentObj.joints.rootMesh.rotation.y);
                 minimapCtx.beginPath(); minimapCtx.arc(0, 0, Math.max(4.0, 5.0 * scale), 0, Math.PI * 2); minimapCtx.fill(); minimapCtx.stroke(); minimapCtx.restore();
             }
             tacticalDronesCollection.forEach(d => {
-                transformWorldToMapCoords(d.meshElement.position.x, d.meshElement.position.z);
-                minimapCtx.save(); minimapCtx.fillStyle = globalShutdownTriggered ? '#555555' : '#ff0000'; minimapCtx.strokeStyle = '#ff3333'; minimapCtx.lineWidth = 1; minimapCtx.translate(_minimapScratch.x, _minimapScratch.y); minimapCtx.rotate(d.meshElement.rotation.y);
+                inlineTransformWorldToMapCoords(d.meshElement.position.x, d.meshElement.position.z, mapCenterX, mapCenterZ, scale);
+                minimapCtx.save(); minimapCtx.fillStyle = globalShutdownTriggered ? '#555555' : '#ff0000'; minimapCtx.strokeStyle = '#ff3333'; minimapCtx.lineWidth = 1; minimapCtx.translate(_scratchMapTransform.x, _scratchMapTransform.y); minimapCtx.rotate(d.meshElement.rotation.y);
                 const itemSize = Math.max(4.0, 6.0 * scale); minimapCtx.beginPath(); minimapCtx.moveTo(0, -itemSize); minimapCtx.lineTo(-itemSize * 0.7, itemSize * 0.7); minimapCtx.lineTo(itemSize * 0.7, itemSize * 0.7); minimapCtx.closePath(); minimapCtx.fill(); minimapCtx.stroke(); minimapCtx.restore();
             });
             humanoidBotsCollection.forEach(b => {
-                transformWorldToMapCoords(b.meshElement.position.x, b.meshElement.position.z);
-                minimapCtx.save(); minimapCtx.fillStyle = '#ff0000'; minimapCtx.strokeStyle = '#ffffff'; minimapCtx.lineWidth = 1; minimapCtx.translate(_minimapScratch.x, _minimapScratch.y); minimapCtx.rotate(b.meshElement.rotation.y); const boxMetric = Math.max(6.0, 8.0 * scale); minimapCtx.fillRect(-boxMetric/2, -boxMetric/2, boxMetric, boxMetric); minimapCtx.strokeRect(-boxMetric/2, -boxMetric/2, boxMetric, boxMetric); minimapCtx.restore();
+                inlineTransformWorldToMapCoords(b.meshElement.position.x, b.meshElement.position.z, mapCenterX, mapCenterZ, scale);
+                minimapCtx.save(); minimapCtx.fillStyle = '#ff0000'; minimapCtx.strokeStyle = '#ffffff'; minimapCtx.lineWidth = 1; minimapCtx.translate(_scratchMapTransform.x, _scratchMapTransform.y); minimapCtx.rotate(b.meshElement.rotation.y); const boxMetric = Math.max(6.0, 8.0 * scale); minimapCtx.fillRect(-boxMetric/2, -boxMetric/2, boxMetric, boxMetric); minimapCtx.strokeRect(-boxMetric/2, -boxMetric/2, boxMetric, boxMetric); minimapCtx.restore();
             });
 
-            transformWorldToMapCoords(camera.position.x, camera.position.z);
+            inlineTransformWorldToMapCoords(camera.position.x, camera.position.z, mapCenterX, mapCenterZ, scale);
             minimapCtx.save();
-            minimapCtx.translate(_minimapScratch.x, _minimapScratch.y);
+            minimapCtx.translate(_scratchMapTransform.x, _scratchMapTransform.y);
             minimapCtx.rotate(yawAngle); 
             minimapCtx.fillStyle = '#ff7700'; 
             minimapCtx.beginPath(); minimapCtx.arc(0, 0, 4, 0, Math.PI * 2); minimapCtx.fill();
@@ -1609,10 +1612,15 @@
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); renderer.setClearColor(0x020205, 1.0);
             scene.add(mapStructuralMeshes); autoInitializeSensors(); setupVisorEnvironmentLighting(); onWindowResize(); window.addEventListener('resize', onWindowResize);
             
+            // PROGRAMMATICALLY BIND FIRE POOL HARDWARE MESH STAPLES
+            sharedLaserGeometry = new THREE.CylinderGeometry(0.05, 0.05, 2.5);
+            sharedLaserMaterial = new THREE.MeshBasicMaterial({ color: 0xff0055 });
+
             handVisualizerGroup = new THREE.Group();
             handVisualizerGroup.renderOrder = 9999; 
+            handVisualizerGroup.visible = false;
             
-            const jointGeometry = new THREE.SphereGeometry(0.0035, 8, 8);
+            const jointGeometry = new THREE.SphereGeometry(0.0028, 6, 6);
             const biometricOrangeMaterial = new THREE.MeshBasicMaterial({ 
                 color: 0xff5500, 
                 wireframe: true,
@@ -1627,7 +1635,7 @@
                 structuralJointMeshes.push(jMesh);
             }
 
-            const baseBoneUnitGeometry = new THREE.CylinderGeometry(0.0014, 0.0014, 1.0, 5);
+            const baseBoneUnitGeometry = new THREE.CylinderGeometry(0.0011, 0.0011, 1.0, 4);
             
             for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
                 const boneMeshInstance = new THREE.Mesh(baseBoneUnitGeometry, biometricOrangeMaterial);
@@ -1647,7 +1655,7 @@
                     advanceDronePatrolSimulation(t); 
                     evaluateGameplayState(); 
 
-                    // SMOOTH KINEMATIC WEIGHT INTERPOLATION
+                    // SMOOTH KINEMATIC INTEGRATION AND LERP INTERPOLATION PUMP
                     if (handVisualizerGroup.visible) {
                         for (let i = 0; i < 21; i++) {
                             structuralJointMeshes[i].position.lerp(kinematicTargetCoordinates[i], 0.35);
@@ -1661,7 +1669,6 @@
                 
                 renderer.render(scene, camera); 
 
-                // RIGID MINIMAP INERTIA COOLDOWN LOOP (15Hz REFRESH LIMIT)
                 if (t - lastMinimapUpdateTime > 66) {
                     update2DMinimapSystem();
                     lastMinimapUpdateTime = t;
