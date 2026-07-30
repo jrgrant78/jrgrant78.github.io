@@ -406,6 +406,9 @@
 
         let isMinimapEnlarged = false;
 
+        // POWER MANAGEMENT UPGRADE: Active wake lock sentinel tracking
+        let screenWakeLockInstance = null;
+
         let geoTelemetryOffset = { lat: 0.0, lon: 0.0 };
         let gpsTargetPosition = new THREE.Vector3(0, 1.7, 0);
         let initialSnapCompleted = false; 
@@ -646,6 +649,17 @@
             } catch (networkBlockError) {}
         }
 
+        // POWER MANAGEMENT UPGRADE: Query and secure wake lock context parameters safely
+        async function executeScreenWakeLockEngagement() {
+            if ('wakeLock' in navigator) {
+                try {
+                    screenWakeLockInstance = await navigator.wakeLock.request('screen');
+                } catch (err) {
+                    console.warn(`Wake Lock configuration mapping rejected: ${err.message}`);
+                }
+            }
+        }
+
         function engageVisorSystemFromBootGate() {
             if (sensorsEngaged) return;
             sensorsEngaged = true;
@@ -666,6 +680,9 @@
                 bindAbsoluteCompassListeners();
             }
 
+            // POWER MANAGEMENT UPGRADE: Bound to first explicit interaction gate
+            executeScreenWakeLockEngagement();
+
             const bootGate = document.getElementById('visor-boot-gate');
             bootGate.style.opacity = '0';
             setTimeout(() => {
@@ -677,6 +694,13 @@
             initializeHighPrecisionGpsTracking();
             initializeSatelliteMultiplayerTelemetry();
         }
+
+        // POWER MANAGEMENT UPGRADE: Visibility handler auto-recovers wake lock if user switches tasks
+        document.addEventListener('visibilitychange', async () => {
+            if (screenWakeLockInstance !== null && document.visibilityState === 'visible') {
+                await executeScreenWakeLockEngagement();
+            }
+        });
 
         function autoInitializeSensors() {
             const viewportCanvas = document.getElementById('canvas3d');
@@ -1307,7 +1331,6 @@
             minimapCtx.restore();
             minimapCtx.strokeStyle = '#00ffcc'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.arc(centerMeters, centerMeters, centerMeters - 2, 0, Math.PI * 2); minimapCtx.stroke();
             
-            // SYNTAX FIX: Bound the rendering canvas context property call correctly to resolve the rendering crash
             minimapCtx.fillStyle = '#ff7700'; 
             minimapCtx.beginPath(); minimapCtx.arc(centerMeters, centerMeters, 4, 0, Math.PI * 2); minimapCtx.fill();
             minimapCtx.strokeStyle = '#ff7700'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.moveTo(centerMeters, centerMeters); minimapCtx.lineTo(centerMeters, centerMeters - 14); minimapCtx.stroke();
