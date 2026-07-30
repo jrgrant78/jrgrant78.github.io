@@ -355,9 +355,8 @@
         let biometricInferenceLock = false;
         let lastMinimapUpdateTime = 0;
 
-        // HYSTERESIS SMOOTHING TIMERS
-        let handStabilityCounter = 0;
-        const HYSTERESIS_VISIBLE_STRIKE = 3; // Minimum frames required to show hand (avoids phantom flickers)
+        // HYSTERESIS SMOOTHING TIMERS (HYBRID TRACKING INDEX BUFFER)
+        let handConfidenceScore = 0.0;
 
         // VOLUMETRIC BIOMETRIC REGISTERS
         let handVisualizerGroup;
@@ -550,7 +549,7 @@
             handsTrackingInstance.setOptions({
                 maxNumHands: 1,
                 modelComplexity: 0, 
-                minDetectionConfidence: 0.65, // TUNED: Cuts ghost profiles instantly
+                minDetectionConfidence: 0.65, // SHARP FILTER: Eliminates ghost profiles
                 minTrackingConfidence: 0.65,
                 selfieMode: false 
             });
@@ -601,12 +600,17 @@
             async function executeThrottledFramePump() {
                 if (sensorsEngaged && !biometricInferenceLock && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
                     const now = Date.now();
-                    if (now - lastHandProcessTime > 65) { 
+                    if (now - lastHandProcessTime > 70) { 
                         biometricInferenceLock = true; 
                         bufferCtx.drawImage(videoElement, 0, 0, 256, 192);
-                        handsTrackingInstance.send({ image: bufferCanvas }).catch(() => {
-                            biometricInferenceLock = false;
-                        });
+                        
+                        // EVENT LOOP DECOUPLING: Offloads heavy WASM script executing to macro-task stack
+                        setTimeout(() => {
+                            handsTrackingInstance.send({ image: bufferCanvas }).catch(() => {
+                                biometricInferenceLock = false;
+                            });
+                        }, 0);
+                        
                         lastHandProcessTime = now;
                     }
                 }
@@ -626,14 +630,15 @@
             biometricInferenceLock = false;
 
             if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-                // HYSTERESIS FILTER: Decay confidence index rather than applying split-second dropouts
-                handStabilityCounter = Math.max(0, handStabilityCounter - 1);
-                if (handStabilityCounter === 0) handVisualizerGroup.visible = false;
+                // ASYMMETRIC CONFIDENCE DECAY: Reduces momentary drops, stops immediate frame loss
+                handConfidenceScore = Math.max(0.0, handConfidenceScore - 0.12);
+                if (handConfidenceScore <= 0.1) handVisualizerGroup.visible = false;
                 return;
             }
 
-            handStabilityCounter = Math.min(10, handStabilityCounter + 1);
-            if (handStabilityCounter >= HYSTERESIS_VISIBLE_STRIKE) {
+            // SMOOTH HYSTERESIS FILTER: Prevents short visual noise frames from flickering the mesh
+            handConfidenceScore = Math.min(1.0, handConfidenceScore + 0.28);
+            if (handConfidenceScore >= 0.45) {
                 handVisualizerGroup.visible = true;
             }
             
@@ -696,7 +701,6 @@
                 0
             );
 
-            // OPTIMIZED ZERO-ALLOCATION LERP LAYER
             if (calculatedVisorTimeline >= 0 && calculatedVisorTimeline < 4.5) { 
                 _colorSkyBuffer.copy(_colorMidnightSky); _colorLightBuffer.copy(_colorMidnightLight);
                 ambientIlluminationIntensity = 0.25; solarBeamIntensity = 0.2; stellarOpacityValue = 1.0;
@@ -1343,7 +1347,6 @@
                         _scratchMuzzleOffset.set(0.9, 0.4, 1.6).applyMatrix4(bot.meshElement.matrixWorld);
                         _scratchLaserTarget.copy(camera.position); 
                         
-                        // ZERO ALLOCATION PRE-BUILT HARDWARE MESH POOL LIFT
                         const laserMesh = new THREE.Mesh(sharedLaserGeometry, sharedLaserMaterial);
                         laserMesh.position.copy(_scratchMuzzleOffset); 
                         laserMesh.lookAt(_scratchLaserTarget); 
@@ -1444,7 +1447,6 @@
             }
         }
 
-        // ZERO ALLOCATION MAP CONVERSION TRANSFORMS
         function inlineTransformWorldToMapCoords(wx, wz, mapCenterX, mapCenterZ, scale) {
             _scratchMapTransform.x = (wx - mapCenterX) * scale;
             _scratchMapTransform.y = (wz - mapCenterZ) * scale;
@@ -1555,7 +1557,7 @@
             spatialAnomaliesCollection.forEach(a => scene.remove(a.mesh)); spatialAnomaliesCollection.length = 0; const geo = new THREE.IcosahedronGeometry(1.5, 1);
             for (let i = 0; i < 5; i++) {
                 let p = new THREE.Vector3((Math.random()-0.5)*60, 1.7, (Math.random()-0.5)*60); if (globalTrafficNodes.length > 0) p.copy(globalTrafficNodes[Math.floor(Math.random()*globalTrafficNodes.length)]).y = 1.7;
-                const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xbd00ff, wireframe: true })); mesh.position.copy(p); scene.add(mesh);
+                const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xxbd00ff, wireframe: true })); mesh.position.copy(p); scene.add(mesh);
                 spatialAnomaliesCollection.push({ mesh: mesh, collected: false, radius: 6.0 });
             }
         }
@@ -1609,10 +1611,14 @@
 
         function init() {
             scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 4000); camera.position.set(0, 1.7, 0);
-            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); renderer.setClearColor(0x020205, 1.0);
+            
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); 
+            // GPU PIPELINE FIX: Lowering fill-rate saturation allows MediaPipe's WebGL context to accelerate instantly
+            renderer.setPixelRatio(1.0); 
+            renderer.setClearColor(0x020205, 1.0);
+            
             scene.add(mapStructuralMeshes); autoInitializeSensors(); setupVisorEnvironmentLighting(); onWindowResize(); window.addEventListener('resize', onWindowResize);
             
-            // PROGRAMMATICALLY BIND FIRE POOL HARDWARE MESH STAPLES
             sharedLaserGeometry = new THREE.CylinderGeometry(0.05, 0.05, 2.5);
             sharedLaserMaterial = new THREE.MeshBasicMaterial({ color: 0xff0055 });
 
@@ -1655,7 +1661,6 @@
                     advanceDronePatrolSimulation(t); 
                     evaluateGameplayState(); 
 
-                    // SMOOTH KINEMATIC INTEGRATION AND LERP INTERPOLATION PUMP
                     if (handVisualizerGroup.visible) {
                         for (let i = 0; i < 21; i++) {
                             structuralJointMeshes[i].position.lerp(kinematicTargetCoordinates[i], 0.35);
