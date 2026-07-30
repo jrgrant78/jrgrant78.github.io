@@ -331,7 +331,7 @@
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
-        // PERFORMANCE SCRATCH REGISTERS
+        // CRITICAL PERFORMANCE REGISTERS
         const _scratchVToP = new THREE.Vector3();
         const _scratchBeamDir = new THREE.Vector3();
         const _scratchBotHeading = new THREE.Vector3();
@@ -341,8 +341,10 @@
         let biometricInferenceLock = false;
         let lastMinimapUpdateTime = 0;
 
-        // VOLUMETRIC BIOMETRIC REGISTERS
+        // BIOMETRIC TRACKING DATA AND FLICKER HYSTERESIS REGISTERS
         let handVisualizerGroup;
+        let stableDetectionFrames = 0;
+        const REQUIRED_STABLE_FRAMES = 2;
         const structuralJointMeshes = [];
         const volumetricBoneMeshes = [];
         const kinematicTargetCoordinates = Array.from({ length: 21 }, () => new THREE.Vector3(0, 0, -0.35));
@@ -426,7 +428,7 @@
             const leftUpperArmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.07, 0.55)), wireframeMat); leftUpperArmSeg.position.y = -0.25; leftShoulderPivot.add(leftUpperArmSeg);
             const leftElbowPivot = new THREE.Group(); leftElbowPivot.position.set(0, -0.275, 0);
             const leftForearmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.05, 0.05, 0.5)), wireframeMat); leftForearmSeg.position.y = -0.25; leftElbowPivot.add(leftForearmSeg); leftUpperArmSeg.add(leftElbowPivot); torsoBox.add(leftShoulderPivot);
-            const rightShoulderPivot = new THREE.Group(); rightShoulderPivot.position.set(0.45, 0.45, 0);
+            const rightShoulderPivot = new THREE.Group(); rightShoulderPivot.position.set(0.45, 1.0, 0);
             const rightUpperArmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.07, 0.55)), wireframeMat); rightUpperArmSeg.position.y = -0.25; rightShoulderPivot.add(rightUpperArmSeg);
             const rightElbowPivot = new THREE.Group(); rightElbowPivot.position.set(0, -0.275, 0);
             const rightForearmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.05, 0.05, 0.5)), wireframeMat); rightForearmSeg.position.y = -0.25; rightElbowPivot.add(rightForearmSeg); rightUpperArmSeg.add(rightElbowPivot); torsoBox.add(rightShoulderPivot);
@@ -517,9 +519,9 @@
         function initializeHardwareBiometricTracking() {
             const videoElement = document.getElementById('webcam-hardware-feed');
             const bufferCanvas = document.getElementById('biometric-pixel-buffer');
-            const bufferCtx = bufferCanvas.getContext('2d');
-
-            // HARDWARE DOWNSAMPLE MATRICES
+            
+            // OPTIMIZATION MATRIX: Force high-performance read parameters on offscreen context
+            const bufferCtx = bufferCanvas.getContext('2d', { willReadFrequently: true });
             bufferCanvas.width = 256;
             bufferCanvas.height = 192;
 
@@ -527,11 +529,12 @@
                 locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
             });
 
+            // GHOST EXTRACTION PROTOCOL: Boost tracking barriers to block low-probability noise spikes
             handsTrackingInstance.setOptions({
                 maxNumHands: 1,
                 modelComplexity: 0, 
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5,
+                minDetectionConfidence: 0.75,
+                minTrackingConfidence: 0.75,
                 selfieMode: false 
             });
 
@@ -581,9 +584,9 @@
             async function executeThrottledFramePump() {
                 if (sensorsEngaged && !biometricInferenceLock && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
                     const now = Date.now();
-                    // Increased step window to cut CPU overhead, smooth kinematics handled by WebGL interpolation
-                    if (now - lastHandProcessTime > 75) { 
+                    if (now - lastHandProcessTime > 66) { 
                         biometricInferenceLock = true; 
+                        bufferCtx.imageSmoothingEnabled = false; // Cuts pixel blending overhead cycles completely
                         bufferCtx.drawImage(videoElement, 0, 0, 256, 192);
                         handsTrackingInstance.send({ image: bufferCanvas }).catch(() => {
                             biometricInferenceLock = false;
@@ -606,8 +609,16 @@
         function handleBiometricLandmarkResults(results) {
             biometricInferenceLock = false;
 
+            // SIGNAL HYSTERESIS CHECK: Drop tracking layout instantly on null inputs to terminate ghost flickers
             if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+                stableDetectionFrames = 0;
                 handVisualizerGroup.visible = false;
+                return;
+            }
+
+            // Requires sequential tracking logic verification to filter short detection noise frames
+            stableDetectionFrames++;
+            if (stableDetectionFrames < REQUIRED_STABLE_FRAMES) {
                 return;
             }
 
@@ -618,7 +629,6 @@
             const viewHeightMax = Math.tan(fovRad / 2) * projectDistance;
             const viewWidthMax = viewHeightMax * camera.aspect;
 
-            // Cache raw coordinates locally for smooth interpolation updates
             for (let i = 0; i < 21; i++) {
                 const lm = landmarks[i];
                 kinematicTargetCoordinates[i].set(
@@ -920,7 +930,7 @@
                 `https://overpass-api.de/api/interpreter`, `https://overpass.kumi.systems/api/interpreter`, `https://lz4.overpass-api.de/api/interpreter`
             ];
             const range = 0.0145;
-            const query = `[out:json][timeout:35];(way["building"](${lat-range},${lon-range},${lat+range},${lon+range});way["highway"](${lat-range},${lon-range},${lat+range},${lon+range}););out body;>;out skel qt;`;
+            const query = `[out:json][timeout:35];(way["building"](${lat-range},${lon-range},${lat+range},${lon-range});way["highway"](${lat-range},${lon-range},${lat+range},${lon+range}););out body;>;out skel qt;`;
             let data = null; let success = false;
             for (let i = 0; i < overpassEndpoints.length; i++) {
                 const mirrorController = new AbortController(); const timeoutId = setTimeout(() => mirrorController.abort(), 12000);
@@ -960,7 +970,7 @@
                 if (el.type === 'way' && el.nodes) {
                     const pts = []; el.nodes.forEach(nid => { if (nodesLookup[nid]) pts.push(nodesLookup[nid]); }); if (pts.length < 2) return;
                     const cx = pts.reduce((sum, p) => sum + p.x, 0) / pts.length; const cz = pts.reduce((sum, p) => sum + p.z, 0) / pts.length;
-                    if (Math.hypot(cx, cz) > MAP_RADIUS_METERS) return;
+                    if ((cx * cx + cz * cz) > MAP_RADIUS_METERS * MAP_RADIUS_METERS) return;
                     if (el.tags && el.tags.building) { buildNeonStructuralHulls(pts, el.tags); }
                     else if (el.tags && el.tags.highway) {
                         if (['footway', 'pedestrian', 'path', 'sidewalk'].includes(el.tags.highway) || el.tags.footway) { buildPedestrianConduits(pts, el.tags); }
@@ -1262,6 +1272,7 @@
                 let tx = 0, tz = 0; let targetAngle = drone.meshElement.rotation.y;
                 
                 _scratchVToP.copy(camera.position).sub(pos); 
+                // ZERO-ALLOC MATRIX: Extract length via pre-allocated scratch vectors
                 const dToP = _scratchVToP.length();
                 _scratchBeamDir.set(0, -1, 0).applyQuaternion(drone.scannerBeamGroup.quaternion).applyQuaternion(drone.meshElement.quaternion).normalize(); 
                 _scratchVToP.normalize();
@@ -1272,17 +1283,19 @@
 
                 if (drone.isChasingPlayer || alertStateActive) {
                     tx = lastSeenPlayerPosition.x; tz = lastSeenPlayerPosition.z; 
-                    const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
-                    if (dist > 1.0) { targetAngle = Math.atan2(dx, dz); pos.x += (dx / dist) * drone.movementVelocityFactor * 1.4; pos.z += (dz / dist) * drone.movementVelocityFactor * 1.4; }
+                    const dx = tx - pos.x; const dz = tz - pos.z; 
+                    const distSq = dx * dx + dz * dz;
+                    if (distSq > 1.0) { const dist = Math.sqrt(distSq); targetAngle = Math.atan2(dx, dz); pos.x += (dx / dist) * drone.movementVelocityFactor * 1.4; pos.z += (dz / dist) * drone.movementVelocityFactor * 1.4; }
                 } else {
-                    const node = drone.routeCoordinates[drone.currentNodeIndex]; const dx = node.x - pos.x; const dz = node.z - pos.z; const dist = Math.hypot(dx, dz);
-                    if (dist > 0.1) targetAngle = Math.atan2(dx, dz);
-                    if (dist < 2.0) {
+                    const node = drone.routeCoordinates[drone.currentNodeIndex]; const dx = node.x - pos.x; const dz = node.z - pos.z; 
+                    const distSq = dx * dx + dz * dz;
+                    if (distSq > 0.01) targetAngle = Math.atan2(dx, dz);
+                    if (distSq < 4.0) { // Programmatic 2-meter snapping check boundary
                         drone.currentNodeIndex += drone.patrolDirectionFactor;
                         if (drone.currentNodeIndex >= drone.routeCoordinates.length || drone.currentNodeIndex < 0) {
                             drone.patrolDirectionFactor *= -1; drone.currentNodeIndex += drone.patrolDirectionFactor * 2; drone.currentNodeIndex = Math.max(0, Math.min(drone.currentNodeIndex, drone.routeCoordinates.length - 1));
                         }
-                    } else { pos.x += (dx / dist) * drone.movementVelocityFactor; pos.z += (dz / dist) * drone.movementVelocityFactor; }
+                    } else { const dist = Math.sqrt(distSq); pos.x += (dx / dist) * drone.movementVelocityFactor; pos.z += (dz / dist) * drone.movementVelocityFactor; }
                 }
 
                 const currentConeColor = (drone.isChasingPlayer || alertStateActive) ? 0xff0000 : 0x00ff00;
@@ -1312,8 +1325,9 @@
                 
                 if (canBotSeePlayerRightNow) { botDetectedFlag = true; bot.isAlerted = true; lastSeenPlayerPosition.copy(camera.position); } else { bot.isAlerted = false; }
                 if (bot.isAlerted || alertStateActive) {
-                    bot.aimProgress = Math.min(1.0, bot.aimProgress + 0.07); const dx = lastSeenPlayerPosition.x - pos.x; const dz = lastSeenPlayerPosition.z - pos.z; const distToLastSeen = Math.hypot(dx, dz); botTargetAngle = Math.atan2(dx, dz);
-                    if (distToLastSeen > 2.0) { const frameVelocityStride = Math.min(distToLastSeen, bot.velocity * 0.12 * 1.5); pos.x += (dx / distToLastSeen) * frameVelocityStride; pos.z += (dz / distToLastSeen) * frameVelocityStride; }
+                    bot.aimProgress = Math.min(1.0, bot.aimProgress + 0.07); const dx = lastSeenPlayerPosition.x - pos.x; const dz = lastSeenPlayerPosition.z - pos.z; 
+                    const distToLastSeenSq = dx * dx + dz * dz; botTargetAngle = Math.atan2(dx, dz);
+                    if (distToLastSeenSq > 4.0) { const distToLastSeen = Math.sqrt(distToLastSeenSq); const frameVelocityStride = Math.min(distToLastSeen, bot.velocity * 0.12 * 1.5); pos.x += (dx / distToLastSeen) * frameVelocityStride; pos.z += (dz / distToLastSeen) * frameVelocityStride; }
                     if (canBotSeePlayerRightNow && distanceToPlayer <= 25.0 && timestamp - bot.lastFireTimestamp > 1200) {
                         bot.lastFireTimestamp = timestamp; playerHealth = Math.max(0, playerHealth - 8.0); spaceOverlay.classList.add('flash-red-harm'); setTimeout(() => spaceOverlay.classList.remove('flash-red-harm'), 150);
                         
@@ -1330,9 +1344,10 @@
                         activeLasersCollection.push({ meshElement: laserMesh, directionVector: new THREE.Vector3().subVectors(_scratchLaserTarget, _scratchMuzzleOffset).normalize(), velocitySpeed: 5.5, distanceTraveled: 0, maxDistanceLimit: _scratchMuzzleOffset.distanceTo(_scratchLaserTarget) });
                     }
                 } else {
-                    bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07); const targetNode = bot.routeCoordinates[bot.currentNodeIndex]; const ndx = targetNode.x - pos.x; const ndz = targetNode.z - pos.z; const ndist = Math.hypot(ndx, ndz);
+                    bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07); const targetNode = bot.routeCoordinates[bot.currentNodeIndex]; const ndx = targetNode.x - pos.x; const ndz = targetNode.z - pos.z; 
+                    const ndistSq = ndx * ndx + ndz * ndz;
                     
-                    if (ndist < 2.0) { 
+                    if (ndistSq < 4.0) { 
                         bot.currentNodeIndex += bot.patrolDirectionFactor; 
                         if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { 
                             bot.patrolDirectionFactor *= -1; 
@@ -1340,9 +1355,9 @@
                         } 
                         bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex, bot.routeCoordinates.length - 1));
                     }
-                    if (ndist > 0.1) { 
-                        if (ndist > 1.5) { botTargetAngle = Math.atan2(ndx, ndz); }
-                        const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); pos.x += (ndx / ndist) * frameVelocityStride; pos.z += (ndz / ndist) * frameVelocityStride; 
+                    if (ndistSq > 0.01) { 
+                        if (ndistSq > 2.25) { botTargetAngle = Math.atan2(ndx, ndz); }
+                        const ndist = Math.sqrt(ndistSq); const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); pos.x += (ndx / ndist) * frameVelocityStride; pos.z += (ndz / ndist) * frameVelocityStride; 
                     }
                 }
                 let botAngleDiff = botTargetAngle - bot.meshElement.rotation.y; while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2; while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2; bot.meshElement.rotation.y += botAngleDiff * 0.08;
@@ -1628,7 +1643,7 @@
                     advanceDronePatrolSimulation(t); 
                     evaluateGameplayState(); 
 
-                    // KINEMATIC INTERPOLATION FILTER
+                    // KINEMATIC VECTOR LERP INTERPOLATOR
                     if (handVisualizerGroup.visible) {
                         for (let i = 0; i < 21; i++) {
                             structuralJointMeshes[i].position.lerp(kinematicTargetCoordinates[i], 0.35);
@@ -1642,7 +1657,7 @@
                 
                 renderer.render(scene, camera); 
 
-                // LOCK RADAR TRACKING MATRIX UPDATES PROGRAMMATICALLY TO 15Hz
+                // LOCK CANVAS minimap RADAR COMPUTATIONS TO STRICT 15Hz FRAME STRIDES
                 if (t - lastMinimapUpdateTime > 66) {
                     update2DMinimapSystem();
                     lastMinimapUpdateTime = t;
