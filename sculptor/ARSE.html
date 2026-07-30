@@ -646,6 +646,14 @@
 
                     minimapPanOffset.x -= translatedWorldX;
                     minimapPanOffset.z -= translatedWorldZ;
+
+                    // BOUNDARY CLAMP ENGINE: Restricts camera offsets from viewing beyond the 1.6km geometry boundaries
+                    const maxPanDist = Math.max(0, MAP_RADIUS_METERS - VISIBLE_MAP_RADIUS);
+                    if (maxPanDist === 0) {
+                        minimapPanOffset.set(0, 0, 0);
+                    } else if (minimapPanOffset.length() > maxPanDist) {
+                        minimapPanOffset.setLength(maxPanDist);
+                    }
                 } 
                 else if (activeMapPointers.length === 2) {
                     let activeDistance = Math.hypot(
@@ -656,12 +664,19 @@
                         let zoomRatio = activeDistance / previousPinchDist;
                         minimapZoomScale *= zoomRatio;
                         
-                        // LIMIT PROTOCOL UPGRADE: Auto-center and lock if user attempts to breach the 1.0 minimum zoom boundary
                         if (minimapZoomScale < 1.0) {
                             minimapZoomScale = 1.0;
                             minimapPanOffset.set(0, 0, 0); 
                         }
                         minimapZoomScale = Math.min(12.0, minimapZoomScale); 
+
+                        // Re-enforce limits dynamically on zoom scale operations
+                        const baseRadiusCheck = MAP_RADIUS_METERS;
+                        const visibleRadiusCheck = baseRadiusCheck / minimapZoomScale;
+                        const dynamicMaxPanDist = Math.max(0, MAP_RADIUS_METERS - visibleRadiusCheck);
+                        if (dynamicMaxMaxPanDist === 0 || minimapPanOffset.length() > dynamicMaxPanDist) {
+                            minimapPanOffset.setLength(dynamicMaxPanDist);
+                        }
                     }
                     previousPinchDist = activeDistance;
                 }
@@ -677,12 +692,10 @@
             mapContainer.addEventListener('pointercancel', flushActiveMapPointers);
             mapContainer.addEventListener('pointerleave', flushActiveMapPointers);
 
-            // OUTSIDE OVERLAY TRIGGER UPGRADE: Intercept window framework coordinates directly
             window.addEventListener('click', (e) => {
                 if (!sensorsEngaged || e.target.closest('#fine-tune-dock') || e.target.closest('#hacking-modal')) return; 
                 
                 if (isMinimapEnlarged) {
-                    // Tap anywhere OUTSIDE the enlarged container element to close the tactical visualization view
                     if (!e.target.closest('#minimap-container')) {
                         isMinimapEnlarged = false;
                         mapContainer.classList.remove('enlarged');
@@ -690,7 +703,6 @@
                         minimapPanOffset.set(0, 0, 0);
                     }
                 } else {
-                    // Tap INSIDE the bounds of the running miniature compass overlay to trigger full screen rendering
                     if (e.target.closest('#minimap-container')) {
                         isMinimapEnlarged = true;
                         mapContainer.classList.add('enlarged');
@@ -1178,7 +1190,6 @@
             const VISIBLE_MAP_RADIUS = baseRadius / minimapZoomScale;
             const scale = centerMeters / VISIBLE_MAP_RADIUS;
 
-            // Map origin focus incorporates real time screen drag vector translations
             const mapCenterX = camera.position.x + minimapPanOffset.x;
             const mapCenterZ = camera.position.z + minimapPanOffset.z;
 
@@ -1229,14 +1240,17 @@
                 minimapCtx.save(); minimapCtx.fillStyle = '#ff0000'; minimapCtx.strokeStyle = '#ffffff'; minimapCtx.lineWidth = 1; minimapCtx.translate(dx, dz); const boxMetric = Math.max(6.0, 8.0 * scale); minimapCtx.fillRect(-boxMetric/2, -boxMetric/2, boxMetric, boxMetric); minimapCtx.strokeRect(-boxMetric/2, -boxMetric/2, boxMetric, boxMetric); minimapCtx.restore();
             });
 
-            // FIXED WORLD LOCK UPGRADE: Computes position relative to map focus, keeping the pin anchored to its spatial coordinate under click panning
+            // FIXED LOCK PROTOCOL: Draws coordinates within the transformed matrix layer so it locks to its geographic position
             const playerDx = (camera.position.x - mapCenterX) * scale;
             const playerDz = (camera.position.z - mapCenterZ) * scale;
 
+            minimapCtx.fillStyle = '#ff7700'; 
+            minimapCtx.beginPath(); minimapCtx.arc(playerDx, playerDz, 4, 0, Math.PI * 2); minimapCtx.fill();
+            minimapCtx.strokeStyle = '#ff7700'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.moveTo(playerDx, playerDz); 
+            minimapCtx.lineTo(playerDx, playerDz - 14); minimapCtx.stroke();
+
+            // Restore canvas attributes to complete UI outer structural layers safely
             minimapCtx.restore(); minimapCtx.strokeStyle = '#00ffcc'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.arc(centerMeters, centerMeters, centerMeters - 2, 0, Math.PI * 2); minimapCtx.stroke();
-            minimapCtx.fillStyle = '#ff7700'; minimapCtx.beginPath(); minimapCtx.arc(centerMeters + playerDx, centerMeters + playerDz, 4, 0, Math.PI * 2); minimapCtx.fill();
-            minimapCtx.strokeStyle = '#ff7700'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.moveTo(centerMeters + playerDx, centerMeters + playerDz); 
-            minimapCtx.lineTo(centerMeters + playerDx, centerMeters + playerDz - 14); minimapCtx.stroke();
         }
 
         function initializeHighPrecisionGpsTracking() {
