@@ -331,7 +331,7 @@
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
-        // ALLOCATION POOL REGISTERS
+        // POOLED VECTOR scratch REGISTERS
         const _scratchVToP = new THREE.Vector3();
         const _scratchBeamDir = new THREE.Vector3();
         const _scratchBotHeading = new THREE.Vector3();
@@ -354,23 +354,25 @@
         let biometricInferenceLock = false;
         let lastMinimapUpdateTime = 0;
 
-        // BIOMETRIC STREAM TRACKING CONFIGURATION
+        // ADAPTIVE BIOMETRIC FREQUENCY CONFIGURATION
         let handStabilityCounter = 0;
         const HYSTERESIS_VISIBLE_STRIKE = 3; 
         let biometricDynamicThrottle = 200; 
 
-        // VOLUMETRIC BIOMETRIC REGISTERS
+        // VOLUMETRIC SOLID BIOMETRIC HAND ARRAYS
         let handVisualizerGroup;
         let palmMesh, palmGeometry;
         const structuralJointMeshes = [];
         const volumetricBoneMeshes = [];
         const kinematicTargetCoordinates = Array.from({ length: 21 }, () => new THREE.Vector3(0, 0, -0.35));
+        
+        // REFACTORED BONE CONNECTIONS: Metacarpals hidden inside the palm have been culled completely
         const BIOMETRIC_BONES_MAP = [
-            [0,1], [1,2], [2,3], [3,4],
-            [0,5], [5,6], [6,7], [7,8],
-            [5,9], [9,10], [10,11], [11,12],
-            [9,13], [13,14], [14,15], [15,16],
-            [13,17], [17,18], [18,19], [19,20], [0,17]
+            [1,2], [2,3], [3,4],       // Thumb Phalanges
+            [5,6], [6,7], [7,8],       // Index Finger
+            [9,10], [10,11], [11,12],  // Middle Finger
+            [13,14], [14,15], [15,16], // Ring Finger
+            [17,18], [18,19], [19,20]  // Pinky Finger
         ];
 
         const _boneDirectionVec = new THREE.Vector3();
@@ -1613,11 +1615,13 @@
             handVisualizerGroup.renderOrder = 9999; 
             handVisualizerGroup.visible = false;
             
-            // CONSTRUCT DEFINED knuckles SITTING PERFECTLY WITHIN THE ENLARGED FINGERS
-            const jointGeometry = new THREE.SphereGeometry(0.0036, 6, 6);
+            // CONSTRUCT CHUNKY KNUCKLES MESH CAPSULES
+            const jointGeometry = new THREE.SphereGeometry(0.0048, 8, 8);
+            
+            // SYSTEM OVERCLOCK: Solid unlit flat tactical matrix shading profiles
             const biometricOrangeMaterial = new THREE.MeshBasicMaterial({ 
                 color: 0xff5500, 
-                wireframe: true,
+                wireframe: false, // REMOVED WIREFRAME LAYER
                 depthTest: false,
                 depthWrite: false,
                 transparent: true
@@ -1630,8 +1634,8 @@
                 structuralJointMeshes.push(jMesh);
             }
 
-            // UPGRADED FINGER ASSETS: Robust cylinders creating physical definition instead of wire skeletons
-            const baseBoneUnitGeometry = new THREE.CylinderGeometry(0.0035, 0.0024, 1.0, 5);
+            // UPGRADED FINGER GEOMETRY: Thick cylinders give the fingers realistic physical definition
+            const baseBoneUnitGeometry = new THREE.CylinderGeometry(0.0045, 0.0035, 1.0, 6);
             
             for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
                 const boneMeshInstance = new THREE.Mesh(baseBoneUnitGeometry, biometricOrangeMaterial);
@@ -1640,16 +1644,15 @@
                 volumetricBoneMeshes.push(boneMeshInstance);
             }
 
-            // ZERO ALLOCATION TRIANGULATED PALM CONSTRUCTION (5 Boundary Points forming a clean center membrane)
+            // DYNAMIC DETACHED PALM MEMBRANEPLATE
             palmGeometry = new THREE.BufferGeometry();
-            const palmPositionsArray = new Float32Array(5 * 3); // 5 points (Joints 0, 5, 9, 13, 17)
+            const palmPositionsArray = new Float32Array(5 * 3); 
             palmGeometry.setAttribute('position', new THREE.BufferAttribute(palmPositionsArray, 3));
             
-            // Index paths tracing triangular fan routes matching the wrist center outwards to root knuckles
             const palmIndices = [
-                0, 1, 2,  // Wrist -> Index Root -> Middle Root
-                0, 2, 3,  // Wrist -> Middle Root -> Ring Root
-                0, 3, 4   // Wrist -> Ring Root -> Pinky Root
+                0, 1, 2,  
+                0, 2, 3,  
+                0, 3, 4   
             ];
             palmGeometry.setIndex(palmIndices);
 
@@ -1657,7 +1660,7 @@
                 color: 0xff5500,
                 side: THREE.DoubleSide,
                 transparent: true,
-                opacity: 0.28,
+                opacity: 0.85, // INCREASED OPACITY: Forms a solid shield blocking out interior lines completely
                 depthTest: false,
                 depthWrite: false
             });
@@ -1689,7 +1692,7 @@
                             volumetricBoneMeshes[i].updateMatrix();
                         }
 
-                        // HIGH FREQUENCY DIRECT MEMORY WRITE: Maps the palm plate dynamic vertex stretches inline
+                        // HIGH-SPEED MEMORY REFLECTION: Dynamically stretches the opaque palm boundary plate
                         const palmVertices = palmGeometry.attributes.position.array;
                         const boundNodes = [0, 5, 9, 13, 17];
                         for (let idx = 0; idx < 5; idx++) {
