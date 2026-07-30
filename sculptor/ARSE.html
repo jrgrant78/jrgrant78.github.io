@@ -412,10 +412,8 @@
             const leftUpperArmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.07, 0.55)), wireframeMat); leftUpperArmSeg.position.y = -0.25; leftShoulderPivot.add(leftUpperArmSeg);
             const leftElbowPivot = new THREE.Group(); leftElbowPivot.position.set(0, -0.275, 0);
             const leftForearmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.05, 0.05, 0.5)), wireframeMat); leftForearmSeg.position.y = -0.25; leftElbowPivot.add(leftForearmSeg); leftUpperArmSeg.add(leftElbowPivot); torsoBox.add(leftShoulderPivot);
-            const rightShoulderPivot = new THREE.Group(); rightShoulderPivot.position.set(0.45, 0.45, 0);
-            const rightUpperArmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.07, 0.55)), wireframeMat); rightUpperArmSeg.position.y = -0.25; rightShoulderPivot.add(rightUpperArmSeg);
-            const rightElbowPivot = new THREE.Group(); rightElbowPivot.position.set(0, -0.275, 0);
-            const rightForearmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.05, 0.05, 0.5)), wireframeMat); rightForearmSeg.position.y = -0.25; rightElbowPivot.add(rightForearmSeg); rightUpperArmSeg.add(rightElbowPivot); torsoBox.add(rightShoulderPivot);
+            const rightShoulderPivot = new THREE.Group(); rightShoulderPivot.position.set(0.45, 1.0, 0); const rLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: 0xff0000 })); rLimbs.position.y = -0.4; rightShoulderPivot.add(rLimbs);
+            const pistolBlaster = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.07, 0.3), new THREE.MeshBasicMaterial({ color: 0xff3333 })); pistolBlaster.position.set(0, -0.9, 0); rightShoulderPivot.add(pistolBlaster); masterRigContainer.add(rightShoulderPivot);
             const leftHipPivot = new THREE.Group(); leftHipPivot.position.set(-0.22, -0.6, 0);
             const leftThighSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.09, 0.07, 0.65)), wireframeMat); leftThighSeg.position.y = -0.325; leftHipPivot.add(leftThighSeg);
             const leftKneePivot = new THREE.Group(); leftKneePivot.position.set(0, -0.325, 0);
@@ -425,7 +423,7 @@
             const rightKneePivot = new THREE.Group(); rightKneePivot.position.set(0, -0.325, 0);
             const rightShinSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.05, 0.6)), wireframeMat); rightShinSeg.position.y = -0.3; rightKneePivot.add(rightShinSeg); rightThighSeg.add(rightKneePivot); torsoBox.add(rightHipPivot);
             return {
-                rootMesh: masterRigContainer, leftShoulder: leftShoulderPivot, leftElbow: leftElbowPivot, rightShoulder: rightShoulderPivot, rightElbow: rightElbowPivot, leftHip: leftHipPivot, leftKnee: leftKneePivot, rightHip: rightHipPivot, rightKnee: rightKneePivot
+                rootMesh: masterRigContainer, leftShoulder: leftShoulderPivot, leftElbow: leftElbowPivot, rightShoulder: rightShoulderPivot, rightElbow: rightShoulderPivot, leftHip: leftHipPivot, leftKnee: leftKneePivot, rightHip: rightHipPivot, rightKnee: rightKneePivot
             };
         }
 
@@ -497,18 +495,15 @@
             document.getElementById('terminal-status-overlay').style.display = 'block';
             initializeHighPrecisionGpsTracking(); initializeSatelliteMultiplayerTelemetry();
             
-            // LIGHTWEIGHT PIPELINE TRIGGER
             initializeHardwareBiometricTracking();
         }
 
-        // RECONSTRUCTED NON-BLOCKING BACK CAMERA GEOMETRY ENGINE
         function initializeHardwareBiometricTracking() {
             const videoElement = document.getElementById('webcam-hardware-feed');
             const handsTrackingInstance = new window.Hands({
                 locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
             });
 
-            // OPTIMIZATION MATRIX: Force Lite parameters to eliminate frame dropping entirely
             handsTrackingInstance.setOptions({
                 maxNumHands: 1,
                 modelComplexity: 0, 
@@ -518,7 +513,6 @@
 
             handsTrackingInstance.onResults(handleBiometricLandmarkResults);
 
-            // REAR HARDWARE CONSTRAINT LOCK: Strips out selfie fallback vulnerabilities
             navigator.mediaDevices.getUserMedia({
                 video: { facingMode: { ideal: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } }
             }).then(stream => {
@@ -533,7 +527,6 @@
             function executeThrottledFramePump() {
                 if (sensorsEngaged && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
                     const now = Date.now();
-                    // FRAME THROTTLE FILTER: Balance main thread allocations to fix thread-locking lag bugs
                     if (now - lastHandProcessTime > 55) { 
                         handsTrackingInstance.send({ image: videoElement });
                         lastHandProcessTime = now;
@@ -558,7 +551,6 @@
 
             for (let i = 0; i < 21; i++) {
                 const lm = landmarks[i];
-                // REAR COORDINATE MAP ALIGNMENT: Strip mirroring defaults to track rear vectors accurately
                 const localX = (lm.x - 0.5) * 2 * viewWidthMax; 
                 const localY = (0.5 - lm.y) * 2 * viewHeightMax;
                 const localZ = -projectDistance - (lm.z * 0.35); 
@@ -566,7 +558,6 @@
                 structuralJointMeshes[i].position.set(localX, localY, localZ);
             }
 
-            // RECYCLED ATTR LOCK: Update line structures without clearing array definitions to solve garbage collection stuttering
             const posAttr = skeletalBonesMesh.geometry.attributes.position;
             let idx = 0;
             BIOMETRIC_BONES_MAP.forEach(connection => {
@@ -1325,7 +1316,7 @@
             if (!sensorsEngaged) return; 
             if (matrixOverloadActive) { statusLabel.innerHTML = `<div class="matrix-overload-title">Matrix Overload!</div><div class="matrix-overload-sub">Touch screen to re-initiate reconstruction sequence.</div>`; statusLabel.classList.remove('pulse-animation'); }
             else if (!mapLoadedForAnchor) { statusLabel.innerHTML = "Calibrating Satellites..."; statusLabel.classList.add('pulse-animation'); }
-            else if (!globalShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
+            else if (!globalShutdownShutdown || !globalShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
             
             if (!matrixOverloadActive) reticle.style.display = 'block'; else reticle.style.display = 'none';
             if (isCurrentlyDetected && !matrixOverloadActive && !globalShutdownTriggered) { trackerContainer.style.display = 'block'; trackerContainer.innerHTML = "WARNING: POSITION EXPOSED"; }
@@ -1514,14 +1505,21 @@
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); renderer.setClearColor(0x020205, 1.0);
             scene.add(mapStructuralMeshes); autoInitializeSensors(); setupVisorEnvironmentLighting(); onWindowResize(); window.addEventListener('resize', onWindowResize);
             
-            // BUILD DIGITAL BIOMETRIC GEOMETRY HULLS
+            // BUILD BIOMETRIC MESH OVERLAY LAYERS
             handVisualizerGroup = new THREE.Group();
-            const jointGeometry = new THREE.IcosahedronGeometry(0.007, 1);
-            const jointMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true });
             
-            // FIXED OVERLAY RE-BIND: Elements initialized properly to track rendering triggers inside camera space
+            // DEPTH VERIFICATION UPGRADE: materials strictly clear depth checks to render over the map structure
+            const jointGeometry = new THREE.IcosahedronGeometry(0.007, 1);
+            const jointMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0x00ffcc, 
+                wireframe: true,
+                depthTest: false,
+                depthWrite: false
+            });
+            
             for (let i = 0; i < 21; i++) {
                 const jMesh = new THREE.Mesh(jointGeometry, jointMaterial);
+                jMesh.renderOrder = 9999; 
                 handVisualizerGroup.add(jMesh);
                 structuralJointMeshes.push(jMesh);
             }
@@ -1530,7 +1528,16 @@
             const jointPositionsArray = new Float32Array(BIOMETRIC_BONES_MAP.length * 6);
             skeletonGeo.setAttribute('position', new THREE.BufferAttribute(jointPositionsArray, 3));
             
-            skeletalBonesMesh = new THREE.LineSegments(skeletonGeo, new THREE.LineBasicMaterial({ color: 0xff0055, linewidth: 2 }));
+            skeletalBonesMesh = new THREE.LineSegments(skeletonGeo, new THREE.LineBasicMaterial({ 
+                color: 0xff0055, 
+                linewidth: 2,
+                depthTest: false,
+                depthWrite: false
+            }));
+            
+            // Force prioritization thresholds
+            handVisualizerGroup.renderOrder = 9999;
+            skeletalBonesMesh.renderOrder = 9999;
             handVisualizerGroup.add(skeletalBonesMesh);
             
             camera.add(handVisualizerGroup);
