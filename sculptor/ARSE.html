@@ -70,7 +70,8 @@
             position: absolute; bottom: 25px; left: 25px; width: 26vh; height: 26vh;
             min-width: 90px; min-height: 90px; max-width: 180px; max-height: 180px;
             z-index: 100; pointer-events: auto; cursor: pointer;
-            transition: all 0.3s ease;
+            touch-action: none; /* Block browser native pan/zoom behavior */
+            transition: width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), bottom 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), left 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), top 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
 
         #minimap-container.enlarged {
@@ -83,7 +84,7 @@
         #compass-ring {
             position: absolute; top: -5%; left: -5%; width: 110%; height: 110%;
             border: 2px dashed rgba(0, 255, 204, 0.3); border-radius: 50%;
-            transform-origin: center; will-change: transform;
+            transform-origin: center; will-change: transform; pointer-events: none;
         }
 
         .compass-marker { position: absolute; font-family: monospace; font-size: 9px; font-weight: 900; color: #00ffcc; }
@@ -278,6 +279,14 @@
 
         let atmosphericSunLight, globalAmbientLight, stellarDomeSystem;
         let calculatedVisorTimeline = 12.0; 
+
+        // HUD INTERACTION MATRIX: Tracks active screen-space pointers, pan matrices, and magnification constraints
+        let activeMapPointers = [];
+        let previousPinchDist = 0;
+        let totalMapDragDist = 0;
+        let blockMinimapCloseOnce = false;
+        let minimapZoomScale = 1.0;
+        let minimapPanOffset = new THREE.Vector3(0, 0, 0);
 
         let geoTelemetryOffset = { lat: 0.0, lon: 0.0 };
         let gpsTargetPosition = new THREE.Vector3(0, 1.7, 0);
@@ -501,7 +510,6 @@
             scene.add(stellarDomeSystem);
         }
 
-        // REAL-TIME SYNCHRONIZATION UPGRADE: Pulls down hardware date values directly on each cycle
         function advanceDayNightCycleSimulation() {
             const hardwareDateInstance = new Date();
             calculatedVisorTimeline = hardwareDateInstance.getHours() + (hardwareDateInstance.getMinutes() / 60) + (hardwareDateInstance.getSeconds() / 3600);
@@ -595,11 +603,107 @@
                 e.stopPropagation(); document.getElementById('biasPanel').classList.toggle('open');
             });
 
+            // GESTURE INITIALIZATION: Intercepts pointer arrays mapping directly across the enlarged HUD vector window
+            const mapContainer = document.getElementById('minimap-container');
+            
+            mapContainer.addEventListener('pointerdown', (e) => {
+                if (!isMinimapEnlarged) return;
+                e.stopPropagation(); 
+                activeMapPointers.push(e);
+                if (activeMapPointers.length === 2) {
+                    previousPinchDist = Math.hypot(
+                        activeMapPointers[0].clientX - activeMapPointers[1].clientX,
+                        activeMapPointers[0].clientY - activeMapPointers[1].clientY
+                    );
+                }
+                totalMapDragDist = 0;
+            });
+
+            mapContainer.addEventListener('pointermove', (e) => {
+                if (!isMinimapEnlarged) return;
+                e.stopPropagation();
+                
+                const ptrIndex = activeMapPointers.findIndex(p => p.pointerId === e.pointerId);
+                if (ptrIndex === -1) return;
+                
+                let legacyPointer = activeMapPointers[ptrIndex];
+                let deltaX = e.clientX - legacyPointer.clientX;
+                let deltaY = e.clientY - legacyPointer.clientY;
+                totalMapDragDist += Math.hypot(deltaX, deltaY);
+                
+                activeMapPointers[ptrIndex] = e;
+
+                if (totalMapDragDist > 6) {
+                    blockMinimapCloseOnce = true;
+                }
+
+                if (activeMapPointers.length === 1) {
+                    // Pan Engine Configuration: Rotate the client drag vectors around look yaw angle parameters
+                    const headingVector = new THREE.Vector3(); 
+                    camera.getWorldDirection(headingVector); 
+                    const currentYawAngle = Math.atan2(headingVector.x, -headingVector.z);
+                    
+                    const baseRadius = MAP_RADIUS_METERS;
+                    const VISIBLE_MAP_RADIUS = baseRadius / minimapZoomScale;
+                    const minimapCanvas = document.getElementById('minimapCanvas');
+                    const centerMeters = minimapCanvas.width / 2;
+                    const contextScale = centerMeters / VISIBLE_MAP_RADIUS;
+
+                    let spaceDeltaMetersX = deltaX / contextScale;
+                    let spaceDeltaMetersZ = deltaY / contextScale;
+
+                    let translatedWorldX = spaceDeltaMetersX * Math.cos(currentYawAngle) - spaceDeltaMetersZ * Math.sin(currentYawAngle);
+                    let translatedWorldZ = spaceDeltaMetersX * Math.sin(currentYawAngle) + spaceDeltaMetersZ * Math.cos(currentYawAngle);
+
+                    minimapPanOffset.x -= translatedWorldX;
+                    minimapPanOffset.z -= translatedWorldZ;
+                } 
+                else if (activeMapPointers.length === 2) {
+                    // Pinch Zoom Configuration: Update scale ratio based on active pointer spread variance
+                    let activeDistance = Math.hypot(
+                        activeMapPointers[0].clientX - activeMapPointers[1].clientX,
+                        activeMapPointers[0].clientY - activeMapPointers[1].clientY
+                    );
+                    if (previousPinchDist > 0) {
+                        let zoomRatio = activeDistance / previousPinchDist;
+                        minimapZoomScale *= zoomRatio;
+                        minimapZoomScale = Math.max(0.2, Math.min(12.0, minimapZoomScale)); // Security boundary limits
+                    }
+                    previousPinchDist = activeDistance;
+                }
+            });
+
+            const flushActiveMapPointers = (e) => {
+                const ptrIndex = activeMapPointers.findIndex(p => p.pointerId === e.pointerId);
+                if (ptrIndex !== -1) activeMapPointers.splice(ptrIndex, 1);
+                if (activeMapPointers.length < 2) previousPinchDist = 0;
+            };
+
+            mapContainer.addEventListener('pointerup', flushActiveMapPointers);
+            mapContainer.addEventListener('pointercancel', flushActiveMapPointers);
+            mapContainer.addEventListener('pointerleave', flushActiveMapPointers);
+
             window.addEventListener('click', (e) => {
                 if (!sensorsEngaged || e.target.closest('#fine-tune-dock') || e.target.closest('#hacking-modal')) return; 
-                const mapContainer = document.getElementById('minimap-container');
-                if (isMinimapEnlarged) { isMinimapEnlarged = false; mapContainer.classList.remove('enlarged'); }
-                else { if (e.target.closest('#minimap-container')) { isMinimapEnlarged = true; mapContainer.classList.add('enlarged'); } }
+                if (isMinimapEnlarged) {
+                    if (e.target.closest('#minimap-container')) {
+                        if (blockMinimapCloseOnce) {
+                            blockMinimapCloseOnce = false; 
+                            return;
+                        }
+                        isMinimapEnlarged = false;
+                        mapContainer.classList.remove('enlarged');
+                        // Clean matrix configuration on structural collapse
+                        minimapZoomScale = 1.0;
+                        minimapPanOffset.set(0, 0, 0);
+                    }
+                } else {
+                    if (e.target.closest('#minimap-container')) {
+                        isMinimapEnlarged = true;
+                        mapContainer.classList.add('enlarged');
+                        blockMinimapCloseOnce = false;
+                    }
+                }
             });
         }
 
@@ -1066,9 +1170,10 @@
             }
         }
 
+        // 2D MATRIX PIPELINE ENGINE: Computes and slides assets based on internal panning offsets and custom scaling parameters
         function update2DMinimapSystem() {
             const minimapCanvas = document.getElementById('minimapCanvas'); const minimapCtx = minimapCanvas.getContext('2d'); if (!minimapCtx || matrixOverloadActive) { if(minimapCtx) minimapCtx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height); return; }
-            const directionVector = new THREE.Vector3(); camera.getWorldDirection(directionVector); const yaw = Math.atan2(directionVector.x, -directionVector.z);
+            const lookDirectionVector = new THREE.Vector3(); camera.getWorldDirection(lookDirectionVector); const yaw = Math.atan2(lookDirectionVector.x, -lookDirectionVector.z);
             const ring = document.getElementById('compass-ring'); if (ring) ring.style.transform = `rotate(${THREE.MathUtils.radToDeg(-yaw)}deg)`;
             const currentContainerElement = document.getElementById('minimap-container'); const targetContainerWidth = currentContainerElement.offsetWidth;
             if (minimapCanvas.width !== targetContainerWidth && targetContainerWidth > 0) { minimapCanvas.width = targetContainerWidth; minimapCanvas.height = targetContainerWidth; }
@@ -1078,57 +1183,71 @@
             minimapCtx.fillStyle = '#071e0e'; minimapCtx.fillRect(0, 0, minimapCanvas.width, minimapCanvas.height);
             minimapCtx.translate(centerMeters, centerMeters); minimapCtx.rotate(-yaw); 
             
-            const VISIBLE_MAP_RADIUS = isMinimapEnlarged ? MAP_RADIUS_METERS : 100; const scale = centerMeters / VISIBLE_MAP_RADIUS;
+            // Scaled Zoom Calculation Matrix
+            const baseRadius = isMinimapEnlarged ? MAP_RADIUS_METERS : 100; 
+            const VISIBLE_MAP_RADIUS = baseRadius / minimapZoomScale;
+            const scale = centerMeters / VISIBLE_MAP_RADIUS;
+
+            const mapCenterX = camera.position.x + minimapPanOffset.x;
+            const mapCenterZ = camera.position.z + minimapPanOffset.z;
+
             const streetLineWeight = isMinimapEnlarged ? Math.max(1, 4 * scale) : 12; const blueprintHullWeight = Math.max(1.0, 1.5 * scale);
 
             renderedStreetsList.forEach(s => {
-                const firstPt = s.points[0]; if (!isMinimapEnlarged && Math.hypot(firstPt.x - camera.position.x, firstPt.z - camera.position.z) > VISIBLE_MAP_RADIUS * 1.5) return;
+                const firstPt = s.points[0]; if (Math.hypot(firstPt.x - mapCenterX, firstPt.z - mapCenterZ) > VISIBLE_MAP_RADIUS * 1.6) return;
                 minimapCtx.strokeStyle = '#000000'; minimapCtx.lineWidth = streetLineWeight * 1.8; minimapCtx.beginPath();
-                s.points.forEach((pt, idx) => { const dx = (pt.x - camera.position.x) * scale; const dz = (pt.z - camera.position.z) * scale; if (idx === 0) minimapCtx.moveTo(dx, dz); else minimapCtx.lineTo(dx, dz); });
+                s.points.forEach((pt, idx) => { const dx = (pt.x - mapCenterX) * scale; const dz = (pt.z - mapCenterZ) * scale; if (idx === 0) minimapCtx.moveTo(dx, dz); else minimapCtx.lineTo(dx, dz); });
                 minimapCtx.stroke(); minimapCtx.strokeStyle = '#ffff00'; minimapCtx.lineWidth = Math.max(1.0, 1.2 * scale); minimapCtx.stroke();
             });
             renderedPedestrianList.forEach(p => {
-                const firstPt = p.points[0]; if (!isMinimapEnlarged && Math.hypot(firstPt.x - camera.position.x, firstPt.z - camera.position.z) > VISIBLE_MAP_RADIUS * 1.5) return;
+                const firstPt = p.points[0]; if (Math.hypot(firstPt.x - mapCenterX, firstPt.z - mapCenterZ) > VISIBLE_MAP_RADIUS * 1.6) return;
                 minimapCtx.save(); if (p.isCrosswalk) { minimapCtx.strokeStyle = '#fffa9e'; minimapCtx.lineWidth = Math.max(0.8, 1.0 * scale); minimapCtx.setLineDash([2, 3]); } else { minimapCtx.strokeStyle = '#555555'; minimapCtx.lineWidth = streetLineWeight * 0.4; }
-                minimapCtx.beginPath(); p.points.forEach((pt, idx) => { const dx = (pt.x - camera.position.x) * scale; const dz = (pt.z - camera.position.z) * scale; if (idx === 0) minimapCtx.moveTo(dx, dz); else minimapCtx.lineTo(idx, dz); });
+                minimapCtx.beginPath(); p.points.forEach((pt, idx) => { const dx = (pt.x - mapCenterX) * scale; const dz = (pt.z - mapCenterZ) * scale; if (idx === 0) minimapCtx.moveTo(dx, dz); else minimapCtx.lineTo(dx, dz); });
                 minimapCtx.stroke(); minimapCtx.restore();
             });
             renderedBuildingsList.forEach(b => {
-                const firstPt = b.points[0]; if (!isMinimapEnlarged && Math.hypot(firstPt.x - camera.position.x, firstPt.z - camera.position.z) > VISIBLE_MAP_RADIUS * 1.5) return;
+                const firstPt = b.points[0]; if (Math.hypot(firstPt.x - mapCenterX, firstPt.z - mapCenterZ) > VISIBLE_MAP_RADIUS * 1.6) return;
                 minimapCtx.fillStyle = '#000000'; minimapCtx.strokeStyle = 'rgba(0, 255, 255, 0.6)'; minimapCtx.lineWidth = blueprintHullWeight; minimapCtx.beginPath();
-                b.points.forEach((pt, idx) => { const dx = (pt.x - camera.position.x) * scale; const dz = (pt.z - camera.position.z) * scale; if (idx === 0) minimapCtx.moveTo(dx, dz); else minimapCtx.lineTo(dx, dz); });
+                b.points.forEach((pt, idx) => { const dx = (pt.x - mapCenterX) * scale; const dz = (pt.z - mapCenterZ) * scale; if (idx === 0) minimapCtx.moveTo(dx, dz); else minimapCtx.lineTo(dx, dz); });
                 minimapCtx.closePath(); minimapCtx.fill(); minimapCtx.stroke();
             });
 
             hackingTerminalsCollection.forEach(t => {
-                const dx = (t.pos.x - camera.position.x) * scale; const dz = (t.pos.z - camera.position.z) * scale;
+                const dx = (t.pos.x - mapCenterX) * scale; const dz = (t.pos.z - mapCenterZ) * scale;
                 minimapCtx.fillStyle = t.hacked ? '#555555' : '#00ff55';
                 minimapCtx.beginPath(); minimapCtx.arc(dx, dz, Math.max(4.0, 6.0 * scale), 0, Math.PI * 2); minimapCtx.fill();
             });
 
             spatialAnomaliesCollection.forEach(a => {
-                if (a.collected) return; const dx = (a.mesh.position.x - camera.position.x) * scale; const dz = (a.mesh.position.z - camera.position.z) * scale;
+                if (a.collected) return; const dx = (a.mesh.position.x - mapCenterX) * scale; const dz = (a.mesh.position.z - mapCenterZ) * scale;
                 minimapCtx.fillStyle = '#bd00ff'; minimapCtx.beginPath(); minimapCtx.arc(dx, dz, Math.max(3.0, 4.5 * scale), 0, Math.PI * 2); minimapCtx.fill();
             });
 
             for (const key in connectedAgentsMap) {
-                const liveAgentObj = connectedAgentsMap[key]; const dx = (liveAgentObj.joints.rootMesh.position.x - camera.position.x) * scale; const dz = (liveAgentObj.joints.rootMesh.position.z - camera.position.z) * scale;
+                const liveAgentObj = connectedAgentsMap[key]; const dx = (liveAgentObj.joints.rootMesh.position.x - mapCenterX) * scale; const dz = (liveAgentObj.joints.rootMesh.position.z - mapCenterZ) * scale;
                 minimapCtx.save(); minimapCtx.fillStyle = '#ff7700'; minimapCtx.strokeStyle = '#ffffff'; minimapCtx.lineWidth = 1.5; minimapCtx.translate(dx, dz); minimapCtx.rotate(liveAgentObj.joints.rootMesh.rotation.y);
                 minimapCtx.beginPath(); minimapCtx.arc(0, 0, Math.max(4.0, 5.0 * scale), 0, Math.PI * 2); minimapCtx.fill(); minimapCtx.stroke(); minimapCtx.restore();
             }
             tacticalDronesCollection.forEach(d => {
-                const dx = (d.meshElement.position.x - camera.position.x) * scale; const dz = (d.meshElement.position.z - camera.position.z) * scale;
+                const dx = (d.meshElement.position.x - mapCenterX) * scale; const dz = (d.meshElement.position.z - mapCenterZ) * scale;
                 minimapCtx.save(); minimapCtx.fillStyle = globalShutdownTriggered ? '#555555' : '#ff0000'; minimapCtx.strokeStyle = '#ff3333'; minimapCtx.lineWidth = 1; minimapCtx.translate(dx, dz); minimapCtx.rotate(d.meshElement.rotation.y);
                 const itemSize = Math.max(4.0, 6.0 * scale); minimapCtx.beginPath(); minimapCtx.moveTo(0, -itemSize); minimapCtx.lineTo(-itemSize * 0.7, itemSize * 0.7); minimapCtx.lineTo(itemSize * 0.7, itemSize * 0.7); minimapCtx.closePath(); minimapCtx.fill(); minimapCtx.stroke(); minimapCtx.restore();
             });
             humanoidBotsCollection.forEach(b => {
-                const dx = (b.meshElement.position.x - camera.position.x) * scale; const dz = (b.meshElement.position.z - camera.position.z) * scale;
+                const dx = (b.meshElement.position.x - mapCenterX) * scale; const dz = (b.meshElement.position.z - mapCenterZ) * scale;
                 minimapCtx.save(); minimapCtx.fillStyle = '#ff0000'; minimapCtx.strokeStyle = '#ffffff'; minimapCtx.lineWidth = 1; minimapCtx.translate(dx, dz); const boxMetric = Math.max(6.0, 8.0 * scale); minimapCtx.fillRect(-boxMetric/2, -boxMetric/2, boxMetric, boxMetric); minimapCtx.strokeRect(-boxMetric/2, -boxMetric/2, boxMetric, boxMetric); minimapCtx.restore();
             });
 
+            // Player Matrix Renderer: Render tracking nodes relative to custom panning offsets
+            const playerDx = (camera.position.x - mapCenterX) * scale;
+            const playerDz = (camera.position.z - mapCenterZ) * scale;
+
             minimapCtx.restore(); minimapCtx.strokeStyle = '#00ffcc'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.arc(centerMeters, centerMeters, centerMeters - 2, 0, Math.PI * 2); minimapCtx.stroke();
-            minimapCtx.fillStyle = '#ff7700'; minimapCtx.beginPath(); minimapCtx.arc(centerMeters, centerMeters, 4, 0, Math.PI * 2); minimapCtx.fill();
-            minimapCtx.strokeStyle = '#ff7700'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.moveTo(centerMeters, centerMeters); minimapCtx.lineTo(centerMeters, centerMeters - 14); minimapCtx.stroke();
+            minimapCtx.fillStyle = '#ff7700'; minimapCtx.beginPath(); minimapCtx.arc(centerMeters + playerDx, centerMeters + playerDz, 4, 0, Math.PI * 2); minimapCtx.fill();
+            minimapCtx.strokeStyle = '#ff7700'; minimapCtx.lineWidth = 2; minimapCtx.beginPath(); minimapCtx.moveTo(centerMeters + playerDx, centerMeters + playerDz); 
+            
+            // Cast player sightline vector directly upwards inside the pre-rotated compass array
+            minimapCtx.lineTo(centerMeters + playerDx, centerMeters + playerDz - 14); minimapCtx.stroke();
         }
 
         function initializeHighPrecisionGpsTracking() {
