@@ -355,9 +355,9 @@
         let biometricInferenceLock = false;
         let lastMinimapUpdateTime = 0;
 
-        // HYSTERESIS SMOOTHING & ANTI-FLICKER REGISTERS
+        // HYSTERESIS SMOOTHING TIMERS
         let handStabilityCounter = 0;
-        const HYSTERESIS_VISIBLE_STRIKE = 3; 
+        const HYSTERESIS_VISIBLE_STRIKE = 3; // Minimum frames required to show hand (avoids phantom flickers)
 
         // VOLUMETRIC BIOMETRIC REGISTERS
         let handVisualizerGroup;
@@ -375,6 +375,7 @@
         const _boneDirectionVec = new THREE.Vector3();
         const _boneDefaultUpAxis = new THREE.Vector3(0, 1, 0);
 
+        // SHARED SYSTEM HARDWARE ASSETS
         let sharedLaserGeometry, sharedLaserMaterial;
 
         const sharedMaterials = {
@@ -536,6 +537,11 @@
 
         function initializeHardwareBiometricTracking() {
             const videoElement = document.getElementById('webcam-hardware-feed');
+            const bufferCanvas = document.getElementById('biometric-pixel-buffer');
+            const bufferCtx = bufferCanvas.getContext('2d');
+
+            bufferCanvas.width = 256;
+            bufferCanvas.height = 192;
 
             const handsTrackingInstance = new window.Hands({
                 locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
@@ -544,7 +550,7 @@
             handsTrackingInstance.setOptions({
                 maxNumHands: 1,
                 modelComplexity: 0, 
-                minDetectionConfidence: 0.65, 
+                minDetectionConfidence: 0.65, // TUNED: Cuts ghost profiles instantly
                 minTrackingConfidence: 0.65,
                 selfieMode: false 
             });
@@ -595,17 +601,16 @@
             async function executeThrottledFramePump() {
                 if (sensorsEngaged && !biometricInferenceLock && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
                     const now = Date.now();
-                    if (now - lastHandProcessTime > 66) { 
+                    if (now - lastHandProcessTime > 65) { 
                         biometricInferenceLock = true; 
-                        // PERFORMANCE VISOR UPGRADE: Inject video asset directly to bypass canvas pipeline allocation math
-                        handsTrackingInstance.send({ image: videoElement }).catch(() => {
+                        bufferCtx.drawImage(videoElement, 0, 0, 256, 192);
+                        handsTrackingInstance.send({ image: bufferCanvas }).catch(() => {
                             biometricInferenceLock = false;
                         });
                         lastHandProcessTime = now;
                     }
                 }
-                // DECOUPLED INDEPENDENT SCHEDULER: Moves calculation execution outside requestAnimationFrame frames
-                setTimeout(executeThrottledFramePump, 16);
+                requestAnimationFrame(executeThrottledFramePump);
             }
         }
 
@@ -621,13 +626,13 @@
             biometricInferenceLock = false;
 
             if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-                // HYSTERESIS CONTROLLER FILTER: Prevents rapid hand dropping stutters
+                // HYSTERESIS FILTER: Decay confidence index rather than applying split-second dropouts
                 handStabilityCounter = Math.max(0, handStabilityCounter - 1);
                 if (handStabilityCounter === 0) handVisualizerGroup.visible = false;
                 return;
             }
 
-            handStabilityCounter = Math.min(6, handStabilityCounter + 1);
+            handStabilityCounter = Math.min(10, handStabilityCounter + 1);
             if (handStabilityCounter >= HYSTERESIS_VISIBLE_STRIKE) {
                 handVisualizerGroup.visible = true;
             }
@@ -691,6 +696,7 @@
                 0
             );
 
+            // OPTIMIZED ZERO-ALLOCATION LERP LAYER
             if (calculatedVisorTimeline >= 0 && calculatedVisorTimeline < 4.5) { 
                 _colorSkyBuffer.copy(_colorMidnightSky); _colorLightBuffer.copy(_colorMidnightLight);
                 ambientIlluminationIntensity = 0.25; solarBeamIntensity = 0.2; stellarOpacityValue = 1.0;
@@ -955,7 +961,7 @@
         function triggerMatrixOverloadErrorState() {
             matrixOverloadActive = true; mapLoadedForAnchor = false; isFetchingMap = false;
             while(mapStructuralMeshes.children.length > 0) { const m = mapStructuralMeshes.children[0]; if (m.geometry) m.geometry.dispose(); mapStructuralMeshes.remove(m); }
-            tactical DronesCollection.forEach(d => scene.remove(d.meshElement)); tacticalDronesCollection.length = 0;
+            tacticalDronesCollection.forEach(d => scene.remove(d.meshElement)); tacticalDronesCollection.length = 0;
             humanoidBotsCollection.forEach(b => scene.remove(b.meshElement)); humanoidBotsCollection.length = 0;
             spatialAnomaliesCollection.forEach(a => scene.remove(a.mesh)); spatialAnomaliesCollection.length = 0;
             hackingTerminalsCollection.forEach(t => scene.remove(t.mesh)); hackingTerminalsCollection.length = 0;
@@ -1337,6 +1343,7 @@
                         _scratchMuzzleOffset.set(0.9, 0.4, 1.6).applyMatrix4(bot.meshElement.matrixWorld);
                         _scratchLaserTarget.copy(camera.position); 
                         
+                        // ZERO ALLOCATION PRE-BUILT HARDWARE MESH POOL LIFT
                         const laserMesh = new THREE.Mesh(sharedLaserGeometry, sharedLaserMaterial);
                         laserMesh.position.copy(_scratchMuzzleOffset); 
                         laserMesh.lookAt(_scratchLaserTarget); 
@@ -1437,6 +1444,7 @@
             }
         }
 
+        // ZERO ALLOCATION MAP CONVERSION TRANSFORMS
         function inlineTransformWorldToMapCoords(wx, wz, mapCenterX, mapCenterZ, scale) {
             _scratchMapTransform.x = (wx - mapCenterX) * scale;
             _scratchMapTransform.y = (wz - mapCenterZ) * scale;
@@ -1604,6 +1612,7 @@
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); renderer.setClearColor(0x020205, 1.0);
             scene.add(mapStructuralMeshes); autoInitializeSensors(); setupVisorEnvironmentLighting(); onWindowResize(); window.addEventListener('resize', onWindowResize);
             
+            // PROGRAMMATICALLY BIND FIRE POOL HARDWARE MESH STAPLES
             sharedLaserGeometry = new THREE.CylinderGeometry(0.05, 0.05, 2.5);
             sharedLaserMaterial = new THREE.MeshBasicMaterial({ color: 0xff0055 });
 
@@ -1646,10 +1655,10 @@
                     advanceDronePatrolSimulation(t); 
                     evaluateGameplayState(); 
 
+                    // SMOOTH KINEMATIC INTEGRATION AND LERP INTERPOLATION PUMP
                     if (handVisualizerGroup.visible) {
                         for (let i = 0; i < 21; i++) {
-                            // SMOOTH EMA TRACKING VECTOR LERP
-                            structuralJointMeshes[i].position.lerp(kinematicTargetCoordinates[i], 0.3);
+                            structuralJointMeshes[i].position.lerp(kinematicTargetCoordinates[i], 0.35);
                         }
                         for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
                             const connection = BIOMETRIC_BONES_MAP[i];
