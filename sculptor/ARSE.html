@@ -294,7 +294,6 @@
         const _scratchRayTarget = new THREE.Vector3();
         const _scratchRayDir = new THREE.Vector3();
         const _scratchHandCheckVec = new THREE.Vector3();
-        const _scratchCompCheckVec = new THREE.Vector3();
         
         const _colorSkyBuffer = new THREE.Color();
         const _colorLightBuffer = new THREE.Color();
@@ -965,7 +964,14 @@
             if (tags && tags["building:levels"]) h = parseInt(tags["building:levels"]) * 3.5; h = Math.min(h, 60);
             const geom = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false }); geom.rotateX(-Math.PI / 2); 
             buildingSolidGeoms.push(geom); buildingWireGeoms.push(new THREE.EdgesGeometry(geom));
-            renderedBuildingsList.push({ points: points });
+            
+            // PRE-COMPILE 2D SPATIAL AABB BOX FOR OPTIMIZED AI OVERLAP CALCULATIONS
+            let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+            points.forEach(p => {
+                if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+                if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
+            });
+            renderedBuildingsList.push({ points: points, box: { minX, maxX, minZ, maxZ } });
         }
 
         function buildNeonVectorPathways(points, tags) {
@@ -1031,32 +1037,28 @@
             document.getElementById('hacked-terminal-counter').innerText = `0 / ${hackingTerminalsCollection.length}`;
         }
 
-        // FULL 3D WORKSTATION CONFIGURATION CONSOLE SPATIAL GENERATION ENGINE
         function createTerminalEntity(positionVector, indexId) {
             const terminalGroup = new THREE.Group();
             terminalGroup.position.copy(positionVector);
             
-            // Core pillar pillar base geometry
             const pillarGeo = new THREE.CylinderGeometry(0.25, 0.35, 1.3, 8);
             const pillarMesh = new THREE.Mesh(pillarGeo, sharedMaterials.terminalActive);
             pillarMesh.position.y = 0.65;
             terminalGroup.add(pillarMesh);
             
-            // Console display framework positioned exactly at player's eye level (1.7m)
             const consoleFrameGeo = new THREE.BoxGeometry(0.9, 0.6, 0.08);
             const consoleMesh = new THREE.Mesh(consoleFrameGeo, new THREE.MeshBasicMaterial({ color: 0x030714 }));
             consoleMesh.position.y = 1.7;
-            consoleMesh.rotation.x = -Math.PI / 6; // Angled slightly upwards for tracking convenience
+            consoleMesh.rotation.x = -Math.PI / 6; 
             
             const outerGlowWire = new THREE.LineSegments(new THREE.EdgesGeometry(consoleFrameGeo), new THREE.LineBasicMaterial({ color: 0x00ffcc }));
             consoleMesh.add(outerGlowWire);
             terminalGroup.add(consoleMesh);
             
-            // Attach tactile 3D sub-elements to the virtual panel mesh array
             const keyGeo = new THREE.BoxGeometry(0.12, 0.12, 0.04);
             const activeSubButtons = [];
             for (let i = 0; i < 3; i++) {
-                const keyMat = new THREE.MeshBasicMaterial({ color: 0xff0055 }); // Unhacked state color profile
+                const keyMat = new THREE.MeshBasicMaterial({ color: 0xff0055 }); 
                 const keyMesh = new THREE.Mesh(keyGeo, keyMat);
                 keyMesh.position.set(-0.24 + i * 0.24, 0.12, 0.041);
                 keyMesh.userData = { type: 'button', clicked: false, subId: i };
@@ -1064,32 +1066,55 @@
                 activeSubButtons.push(keyMesh);
             }
             
-            // Mechanical breaker path sliding track
             const runnerGeo = new THREE.BoxGeometry(0.6, 0.03, 0.02);
             const runnerMesh = new THREE.Mesh(runnerGeo, new THREE.MeshBasicMaterial({ color: 0x444444 }));
             runnerMesh.position.set(0, -0.12, 0.03);
             consoleMesh.add(runnerMesh);
             
-            const handleGeo = new THREE.BoxGeometry(0.08, 0.1, 0.05);
-            const handleMesh = new THREE.Mesh(handleGeo, new THREE.MeshBasicMaterial({ color: 0x00ffcc }));
-            handleMesh.position.set(-0.26, 0, 0.02); // Left initialization alignment node
+            const handleMesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.05), new THREE.MeshBasicMaterial({ color: 0x00ffcc }));
+            handleMesh.position.set(-0.26, 0, 0.02); 
             handleMesh.userData = { type: 'handle', progress: 0.0 };
             runnerMesh.add(handleMesh);
             
-            // Auto-align console orientations to face general grid origin point
             terminalGroup.lookAt(0, 0, 0);
             terminalGroup.rotation.x = 0;
             terminalGroup.rotation.z = 0;
             
             scene.add(terminalGroup);
+
+            // INITIALIZATION MATRIX CACHE EVALUATION: Saves button vectors statically to eliminate runtime traversal lag
+            terminalGroup.updateMatrixWorld(true);
+            consoleMesh.updateMatrixWorld(true);
+            
+            activeSubButtons.forEach(btn => {
+                btn.userData.worldPos = new THREE.Vector3();
+                btn.getWorldPosition(btn.userData.worldPos);
+            });
+
+            let trackStartWorld = new THREE.Vector3();
+            let trackEndWorld = new THREE.Vector3();
+            
+            handleMesh.position.x = -0.26;
+            handleMesh.updateMatrixWorld(true);
+            handleMesh.getWorldPosition(trackStartWorld);
+            
+            handleMesh.position.x = 0.26;
+            handleMesh.updateMatrixWorld(true);
+            handleMesh.getWorldPosition(trackEndWorld);
+            
+            handleMesh.position.x = -0.26;
+            handleMesh.updateMatrixWorld(true);
             
             hackingTerminalsCollection.push({
                 id: indexId,
-                pos: terminalGroup.position, // Mirror updates down to map context layers
+                pos: terminalGroup.position, 
                 group: terminalGroup,
                 consoleScreen: consoleMesh,
                 buttons: activeSubButtons,
                 slideHandle: handleMesh,
+                trackStartWorldPos: trackStartWorld,
+                trackEndWorldPos: trackEndWorld,
+                handleWorldPos: new THREE.Vector3().copy(trackStartWorld),
                 hacked: false,
                 lowering: false
             });
@@ -1149,10 +1174,36 @@
             }
         }
 
-        function triggerGlobalHardwareOverride() {
-            globalShutdownTriggered = true;
-            document.getElementById('main-hud-status').innerText = "NETWORK SHUTDOWN RECONSTRUCTION COMPLETE";
-            document.getElementById('main-hud-status').style.color = "#ff0055";
+        function evaluateRaycastedObjectActivation(meshObject) {
+            if (meshObject.userData.type === 'datapad') { displayHolographicDatapadCode(meshObject); }
+        }
+
+        function displayHolographicDatapadCode(padMesh) { alert(`VISOR DATA EXPANSION:\nDECRYPTED ENTRY ACCESS CODE -> [ ${padMesh.userData.code} ]`); }
+
+        // ULTRA-LIGHTWEIGHT MATHEMATICAL COLLISION ENGINE: Replaces raycasting loops with primitive box vectors
+        function handleAIBuildingCollision(pos, radius) {
+            if (!mapLoadedForAnchor) return;
+            for (let i = 0; i < renderedBuildingsList.length; i++) {
+                const b = renderedBuildingsList[i].box;
+                if (pos.x + radius > b.minX && pos.x - radius < b.maxX &&
+                    pos.z + radius > b.minZ && pos.z - radius < b.maxZ) {
+                    
+                    let pushLeft = pos.x - b.minX + radius;
+                    let pushRight = b.maxX - pos.x + radius;
+                    let pushUp = pos.z - b.minZ + radius;
+                    let pushDown = b.maxZ - pos.z + radius;
+                    
+                    let minPush = pushLeft;
+                    if (pushRight < minPush) minPush = pushRight;
+                    if (pushUp < minPush) minPush = pushUp;
+                    if (pushDown < minPush) minPush = pushDown;
+                    
+                    if (minPush === pushLeft) pos.x -= pushLeft;
+                    else if (minPush === pushRight) pos.x += pushRight;
+                    else if (minPush === pushUp) pos.z -= pushUp;
+                    else pos.z += pushDown;
+                }
+            }
         }
 
         function advanceDronePatrolSimulation(timestamp) {
@@ -1238,19 +1289,9 @@
                     }
                 }
 
-                if ((moveX !== 0 || moveZ !== 0) && combinedBuildingMesh) {
-                    let moveVec = new THREE.Vector3(moveX, 0, moveZ);
-                    visionRaycaster.set(pos, moveVec.clone().normalize());
-                    let buildingHits = visionRaycaster.intersectObject(combinedBuildingMesh);
-                    if (buildingHits.length > 0 && buildingHits[0].distance < (moveVec.length() + 3.0)) {
-                        let normal = buildingHits[0].face.normal;
-                        moveVec.projectOnPlane(normal); 
-                        pos.addScaledVector(normal, 0.05); 
-                        if (moveVec.lengthSq() > 0.001) targetAngle = Math.atan2(moveVec.x, moveVec.z);
-                    }
-                    pos.x += moveVec.x;
-                    pos.z += moveVec.z;
-                }
+                pos.x += moveX;
+                pos.z += moveZ;
+                handleAIBuildingCollision(pos, 1.5); 
 
                 const currentConeColor = (drone.isChasingPlayer || alertStateActive) ? 0xff0000 : (closestLocalAlarm ? 0xffff00 : 0x00ff00);
                 drone.scannerBeamGroup.children[0].material.color.setHex(currentConeColor);
@@ -1350,20 +1391,9 @@
                     }
                 }
 
-                if ((bMoveX !== 0 || bMoveZ !== 0) && combinedBuildingMesh) {
-                    let bMoveVec = new THREE.Vector3(bMoveX, 0, bMoveZ);
-                    let botRaySource = pos.clone(); botRaySource.y = 1.5; 
-                    visionRaycaster.set(botRaySource, bMoveVec.clone().normalize());
-                    let buildingHits = visionRaycaster.intersectObject(combinedBuildingMesh);
-                    if (buildingHits.length > 0 && buildingHits[0].distance < (bMoveVec.length() + 1.8)) {
-                        let normal = buildingHits[0].face.normal;
-                        bMoveVec.projectOnPlane(normal); 
-                        pos.addScaledVector(normal, 0.05); 
-                        if (bMoveVec.lengthSq() > 0.001) botTargetAngle = Math.atan2(bMoveVec.x, bMoveVec.z);
-                    }
-                    pos.x += bMoveVec.x;
-                    pos.z += bMoveVec.z;
-                }
+                pos.x += bMoveX;
+                pos.z += bMoveZ;
+                handleAIBuildingCollision(pos, 1.0); 
 
                 let botAngleDiff = botTargetAngle - bot.meshElement.rotation.y; while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2; while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2; bot.meshElement.rotation.y += botAngleDiff * 0.08;
                 const alternateCycle = Math.sin(timestamp * 0.008 * bot.velocity); bot.armL.rotation.x = -alternateCycle * 0.3; bot.armR.rotation.x = THREE.MathUtils.lerp(alternateCycle * 0.3, -Math.PI / 2, bot.aimProgress); bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
@@ -1713,42 +1743,41 @@
                         palmGeometry.attributes.position.needsUpdate = true;
                         palmMesh.updateMatrix();
 
-                        // SPATIAL VOLUMETRIC KINEMATIC INTERACTION PIPELINE (ZERO-LAG PROXIMITY GATE)
-                        _scratchHandCheckVec.copy(structuralJointMeshes[8].position); // Focus on Index tip node
-                        _scratchHandCheckVec.applyMatrix4(camera.matrixWorld); // Extract true world coordinates
+                        // LIGHTWEIGHT SPATIAL PROXIMITY COUPLING LAYER: Queries pre-cached vectors to achieve 0ms framework lag
+                        _scratchHandCheckVec.copy(structuralJointMeshes[8].position); 
+                        _scratchHandCheckVec.applyMatrix4(camera.matrixWorld); 
 
                         hackingTerminalsCollection.forEach(tNode => {
                             if (tNode.hacked) return;
 
                             const flatDistanceToUnit = camera.position.distanceTo(tNode.group.position);
-                            if (flatDistanceToUnit < 3.0) { // Only sample nearby clusters to preserve processing frame allocations
+                            if (flatDistanceToUnit < 3.5) { 
                                 
-                                // Process 3D Push-Buttons
                                 tNode.buttons.forEach(btn => {
                                     if (!btn.userData.clicked) {
-                                        btn.getWorldPosition(_scratchCompCheckVec);
-                                        if (_scratchHandCheckVec.distanceTo(_scratchCompCheckVec) < 0.14) {
+                                        // Read static pre-cached coordinates directly from setup allocation blocks
+                                        if (_scratchHandCheckVec.distanceTo(btn.userData.worldPos) < 0.14) {
                                             btn.userData.clicked = true;
-                                            btn.material.color.setHex(0x00ff55); // Feedback shift to green
-                                            generateLocalElectricSpark(_scratchCompCheckVec);
+                                            btn.material.color.setHex(0x00ff55); 
+                                            generateLocalElectricSpark(btn.userData.worldPos);
                                         }
                                     }
                                 });
 
-                                // Process Linear Slider Track Interaction
                                 if (tNode.slideHandle.userData.progress < 1.0) {
-                                    tNode.slideHandle.getWorldPosition(_scratchCompCheckVec);
-                                    if (_scratchHandCheckVec.distanceTo(_scratchCompCheckVec) < 0.18) {
+                                    // Math Lerp calculates handle displacement seamlessly without tracking dynamic matrix stacks
+                                    tNode.handleWorldPos.lerpVectors(tNode.trackStartWorldPos, tNode.trackEndWorldPos, tNode.slideHandle.userData.progress);
+                                    
+                                    if (_scratchHandCheckVec.distanceTo(tNode.handleWorldPos) < 0.18) {
                                         tNode.slideHandle.userData.progress = Math.min(1.0, tNode.slideHandle.userData.progress + 0.025);
                                         tNode.slideHandle.position.x = -0.26 + (tNode.slideHandle.userData.progress * 0.52);
                                         
                                         if (tNode.slideHandle.userData.progress >= 1.0) {
-                                            tNode.slideHandle.material.color.setHex(0x00ffff); // Locked sequence styling confirmation
+                                            tNode.slideHandle.material.color.setHex(0x00ffff); 
                                         }
                                     }
                                 }
 
-                                // Evaluate spatial validation state requirements
                                 const formsCompleted = tNode.buttons.every(b => b.userData.clicked);
                                 const trackCompleted = tNode.slideHandle.userData.progress >= 1.0;
                                 
