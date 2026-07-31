@@ -199,15 +199,15 @@
 
     <div id="fine-tune-dock">
         <div id="biasPanel" class="bias-control-panel">
-            <button class="nudge-btn" onclick="applyGeospatialNudge(0.00004, 0)" title="Nudge North">+N</button>
-            <button class="nudge-btn" onclick="applyGeospatialNudge(-0.00004, 0)" title="Nudge South">-S</button>
-            <button class="nudge-btn" onclick="applyGeospatialNudge(0, -0.00005)" title="Nudge West">-W</button>
-            <button class="nudge-btn" onclick="applyGeospatialNudge(0, 0.00005)" title="Nudge East">+E</button>
+            <button class="nudge-btn" onpointerdown="applyGeospatialNudge(0.00004, 0); event.stopPropagation();" title="Nudge North">+N</button>
+            <button class="nudge-btn" onpointerdown="applyGeospatialNudge(-0.00004, 0); event.stopPropagation();" title="Nudge South">-S</button>
+            <button class="nudge-btn" onpointerdown="applyGeospatialNudge(0, -0.00005); event.stopPropagation();" title="Nudge West">-W</button>
+            <button class="nudge-btn" onpointerdown="applyGeospatialNudge(0, 0.00005); event.stopPropagation();" title="Nudge East">+E</button>
         </div>
         <button id="offsetMenuTriggerBtn" class="offset-menu-trigger" title="Positional Offset Calibration">⌖</button>
     </div>
 
-    <script {nonce}>
+    <script>
         let scene, camera, renderer;
         let lookYaw = 0; let lookPitch = 0;
         let isDragging = false;
@@ -411,11 +411,11 @@
             const leftHipPivot = new THREE.Group(); leftHipPivot.position.set(-0.22, -0.6, 0);
             const leftThighSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.09, 0.07, 0.65)), wireframeMat); leftThighSeg.position.y = -0.325; leftHipPivot.add(leftThighSeg);
             const leftKneePivot = new THREE.Group(); leftKneePivot.position.set(0, -0.325, 0);
-            const leftShinSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.05, 0.6)), wireframeMat); leftShinSeg.position.y = -0.3; leftKneePivot.add(leftShinSeg); leftThighSeg.add(leftHipPivot); torsoBox.add(leftHipPivot);
+            const leftShinSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.05, 0.6)), wireframeMat); leftShinSeg.position.y = -0.3; leftKneePivot.add(leftShinSeg); leftThighSeg.add(leftKneePivot); torsoBox.add(leftHipPivot);
             const rightHipPivot = new THREE.Group(); rightHipPivot.position.set(0.22, -0.6, 0);
             const rightThighSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.09, 0.07, 0.65)), wireframeMat); rightThighSeg.position.y = -0.325; rightHipPivot.add(rightThighSeg);
             const rightKneePivot = new THREE.Group(); rightKneePivot.position.set(0, -0.325, 0);
-            const rightShinSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.05, 0.6)), wireframeMat); rightShinSeg.position.y = -0.3; rightKneePivot.add(rightShinSeg); rightThighSeg.add(rightHipPivot); torsoBox.add(rightHipPivot);
+            const rightShinSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.05, 0.6)), wireframeMat); rightShinSeg.position.y = -0.3; rightKneePivot.add(rightShinSeg); rightThighSeg.add(rightKneePivot); torsoBox.add(rightHipPivot);
             return {
                 rootMesh: masterRigContainer, leftShoulder: leftShoulderPivot, leftElbow: leftElbowPivot, rightShoulder: rightShoulderPivot, rightElbow: rightElbowPivot, leftHip: leftHipPivot, leftKnee: leftKneePivot, rightHip: rightHipPivot, rightKnee: rightKneePivot
             };
@@ -856,6 +856,12 @@
                     }
                 }
             });
+
+            // HIGH-RESPONSIVENESS POINTER DOCK INTERFACES: Direct interaction binding prevents touch drop errors
+            document.getElementById('offsetMenuTriggerBtn').addEventListener('pointerdown', (e) => {
+                e.stopPropagation(); e.preventDefault();
+                document.getElementById('biasPanel').classList.toggle('open');
+            });
         }
 
         function bindAbsoluteCompassListeners() {
@@ -1129,7 +1135,7 @@
                 const spawnPoint = street.points[startNodeIdx];
                 const d = compileTacticalPatrolDrone(); d.coreAsset.position.set(spawnPoint.x, 25.0, spawnPoint.z); scene.add(d.coreAsset);
                 tacticalDronesCollection.push({
-                    id: i, meshElement: d.coreAsset, scannerBeamGroup: d.dynamicScannerBeam, leftArmAsset: d.leftArm, rightArmAsset: d.rightArm, routeCoordinates: street.points, currentNodeIndex: startNodeIdx, patrolDirectionFactor: Math.random() > 0.5 ? 1 : -1, movementVelocityFactor: 0.09 + Math.random() * 0.04, isChasingPlayer: false, isGrounded: false
+                    id: i, meshElement: d.coreAsset, scannerBeamGroup: d.dynamicScannerBeam, leftArmAsset: d.leftArm, rightArmAsset: d.rightArm, routeCoordinates: street.points, currentNodeIndex: startNodeIdx, patrolDirectionFactor: Math.random() > 0.5 ? 1 : -1, movementVelocityFactor: 0.09 + Math.random() * 0.04, isChasingPlayer: false, isGrounded: false, lastPosX: spawnPoint.x, lastPosZ: spawnPoint.z, stuckFrames: 0
                 });
             }
         }
@@ -1167,8 +1173,7 @@
 
                 const botRef = compileHumanoidCombatBot(); botRef.model.position.set(pathData[0].x, 0.02, pathData[0].z); scene.add(botRef.model);
                 humanoidBotsCollection.push({
-                    id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0,
-                    lastX: pathData[0].x, lastZ: pathData[0].z, stuckCounter: 0 // Track position states over frame boundaries
+                    id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0, lastPosX: pathData[0].x, lastPosZ: pathData[0].z, stuckFrames: 0
                 });
             }
         }
@@ -1202,12 +1207,6 @@
                     else pos.z += pushDown;
                 }
             }
-        }
-
-        function triggerGlobalHardwareOverride() {
-            globalShutdownTriggered = true;
-            document.getElementById('main-hud-status').innerText = "NETWORK SHUTDOWN RECONSTRUCTION COMPLETE";
-            document.getElementById('main-hud-status').style.color = "#ff0055";
         }
 
         function advanceDronePatrolSimulation(timestamp) {
@@ -1301,6 +1300,23 @@
                 pos.z += moveZ;
                 handleAIBuildingCollision(pos, 1.5); 
 
+                // DRONE CORNER OVERLAP RECOVERY PROTOCOL: Adds lateral expansion offsets to guide flight bounds seamlessly
+                let dActualDist = Math.hypot(pos.x - drone.lastPosX, pos.z - drone.lastPosZ);
+                drone.lastPosX = pos.x; drone.lastPosZ = pos.z;
+                if ((moveX !== 0 || moveZ !== 0) && dActualDist < 0.02) {
+                    drone.stuckFrames = (drone.stuckFrames || 0) + 1;
+                    if (drone.stuckFrames > 6) {
+                        let dTargetNode = drone.routeCoordinates[drone.currentNodeIndex];
+                        let bdx = dTargetNode.x - pos.x; let bdz = dTargetNode.z - pos.z; let bh = Math.hypot(bdx, bdz) || 1;
+                        pos.x += (-bdz / bh) * drone.movementVelocityFactor * 4.0;
+                        pos.z += (bdx / bh) * drone.movementVelocityFactor * 4.0;
+                        if (drone.stuckFrames > 25) {
+                            drone.currentNodeIndex = (drone.currentNodeIndex + drone.patrolDirectionFactor + drone.routeCoordinates.length) % drone.routeCoordinates.length;
+                            drone.stuckFrames = 0;
+                        }
+                    }
+                } else { drone.stuckFrames = 0; }
+
                 const currentConeColor = (drone.isChasingPlayer || alertStateActive) ? 0xff0000 : (closestLocalAlarm ? 0xffff00 : 0x00ff00);
                 drone.scannerBeamGroup.children[0].material.color.setHex(currentConeColor);
                 let angleDiff = targetAngle - drone.meshElement.rotation.y;
@@ -1348,14 +1364,12 @@
                 }
 
                 let bMoveX = 0, bMoveZ = 0;
-                let ndx = 0, ndz = 0, ndist = 1;
-                let isMovingState = false;
-
                 if (bot.isAlerted || alertStateActive) {
-                    bot.aimProgress = Math.min(1.0, bot.aimProgress + 0.07); 
-                    ndx = lastSeenPlayerPosition.x - pos.x; ndz = lastSeenPlayerPosition.z - pos.z; ndist = Math.hypot(ndx, ndz) || 1;
-                    if (ndist > 2.0) { 
-                        isMovingState = true;
+                    bot.aimProgress = Math.min(1.0, bot.aimProgress + 0.07); const dx = lastSeenPlayerPosition.x - pos.x; const dz = lastSeenPlayerPosition.z - pos.z; const distToLastSeen = Math.hypot(dx, dz); botTargetAngle = Math.atan2(dx, dz);
+                    if (distToLastSeen > 2.0) { 
+                        const frameVelocityStride = Math.min(distToLastSeen, bot.velocity * 0.12 * 1.5); 
+                        bMoveX = (dx / distToLastSeen) * frameVelocityStride;
+                        bMoveZ = (dz / distToLastSeen) * frameVelocityStride;
                     }
                     if (canBotSeePlayerRightNow && distanceToPlayer <= 25.0 && timestamp - bot.lastFireTimestamp > 1200) {
                         bot.lastFireTimestamp = timestamp; playerHealth = Math.max(0, playerHealth - 8.0); spaceOverlay.classList.add('flash-red-harm'); setTimeout(() => spaceOverlay.classList.remove('flash-red-harm'), 150);
@@ -1374,15 +1388,18 @@
                 } 
                 else if (closestBotAlarm) {
                     bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07);
-                    ndx = closestBotAlarm.pos.x - pos.x; ndz = closestBotAlarm.pos.z - pos.z; ndist = Math.hypot(ndx, ndz) || 1;
-                    if (ndist > 1.5) { 
-                        isMovingState = true;
+                    const dx = closestBotAlarm.pos.x - pos.x; const dz = closestBotAlarm.pos.z - pos.z;
+                    const distToAlarm = Math.hypot(dx, dz); botTargetAngle = Math.atan2(dx, dz);
+                    if (distToAlarm > 1.5) { 
+                        const frameVelocityStride = Math.min(distToAlarm, bot.velocity * 0.12 * 1.2); 
+                        bMoveX = (dx / distToAlarm) * frameVelocityStride;
+                        bMoveZ = (dz / distToAlarm) * frameVelocityStride;
                     }
                 }
                 else {
                     bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07); 
                     let targetNode = bot.routeCoordinates[bot.currentNodeIndex]; 
-                    ndx = targetNode.x - pos.x; ndz = targetNode.z - pos.z; ndist = Math.hypot(ndx, ndz);
+                    let ndx = targetNode.x - pos.x; let ndz = targetNode.z - pos.z; let ndist = Math.hypot(ndx, ndz);
                     
                     if (ndist < 3.0) { 
                         bot.currentNodeIndex += bot.patrolDirectionFactor; 
@@ -1393,39 +1410,8 @@
                         targetNode = bot.routeCoordinates[bot.currentNodeIndex];
                         ndx = targetNode.x - pos.x; ndz = targetNode.z - pos.z; ndist = Math.hypot(ndx, ndz) || 1;
                     }
-                    isMovingState = true;
-                }
-
-                // INTEGRATED SPATIAL STUCK DETECTOR: Expands steering vector dimensions when physical walls counter velocity targets
-                if (isMovingState) {
-                    let frameDeltaMoved = Math.hypot(pos.x - bot.lastX, pos.z - bot.lastZ);
-                    bot.lastX = pos.x;
-                    bot.lastZ = pos.z;
-
-                    if (frameDeltaMoved < 0.005) { 
-                        bot.stuckCounter++; 
-                    } else { 
-                        bot.stuckCounter = Math.max(0, bot.stuckCounter - 1); 
-                    }
-
-                    if (bot.stuckCounter > 10) {
-                        // Dynamically append a lateral path offset normal to its heading to widen its turn rotation envelope
-                        let expansionWidth = Math.min(4.5, (bot.stuckCounter - 10) * 0.25);
-                        let sideSign = (bot.id % 2 === 0) ? 1 : -1;
-                        let pX = -ndz / ndist;
-                        let pZ = ndx / ndist;
-                        ndx += pX * expansionWidth * sideSign;
-                        ndz += pZ * expansionWidth * sideSign;
-                        ndist = Math.hypot(ndx, ndz) || 1;
-                    }
-
                     botTargetAngle = Math.atan2(ndx, ndz);
-                    
-                    let activeSpeedStride = bot.velocity * 0.12;
-                    if (bot.isAlerted || alertStateActive) activeSpeedStride *= 1.5;
-                    else if (closestBotAlarm) activeSpeedStride *= 1.2;
-
-                    const frameVelocityStride = Math.min(ndist, activeSpeedStride); 
+                    const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); 
                     bMoveX = (ndx / ndist) * frameVelocityStride;
                     bMoveZ = (ndz / ndist) * frameVelocityStride;
                 }
@@ -1434,7 +1420,24 @@
                 pos.z += bMoveZ;
                 handleAIBuildingCollision(pos, 1.0); 
 
-                let botAngleDiff = botAngleDiff = botTargetAngle - bot.meshElement.rotation.y; while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2; while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2; bot.meshElement.rotation.y += botAngleDiff * 0.08;
+                // INFANTRY PATH-EXPANSION AND STEERING INFERENCE ENGINE: Nudges orthogonal tracking to resolve alignment gridlocks
+                let bActualDist = Math.hypot(pos.x - bot.lastPosX, pos.z - bot.lastPosZ);
+                bot.lastPosX = pos.x; bot.lastPosZ = pos.z;
+                if ((bMoveX !== 0 || bMoveZ !== 0) && bActualDist < 0.02) {
+                    bot.stuckFrames = (bot.stuckFrames || 0) + 1;
+                    if (bot.stuckFrames > 6) {
+                        let bTargetNode = bot.routeCoordinates[bot.currentNodeIndex];
+                        let bdx = bTargetNode.x - pos.x; let bdz = bTargetNode.z - pos.z; let bh = Math.hypot(bdx, bdz) || 1;
+                        pos.x += (-bdz / bh) * bot.velocity * 0.4;
+                        pos.z += (bdx / bh) * bot.velocity * 0.4;
+                        if (bot.stuckFrames > 25) {
+                            bot.currentNodeIndex = (bot.currentNodeIndex + bot.patrolDirectionFactor + bot.routeCoordinates.length) % bot.routeCoordinates.length;
+                            bot.stuckFrames = 0;
+                        }
+                    }
+                } else { bot.stuckFrames = 0; }
+
+                let botAngleDiff = botTargetAngle - bot.meshElement.rotation.y; while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2; while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2; bot.meshElement.rotation.y += botAngleDiff * 0.08;
                 const alternateCycle = Math.sin(timestamp * 0.008 * bot.velocity); bot.armL.rotation.x = -alternateCycle * 0.3; bot.armR.rotation.x = THREE.MathUtils.lerp(alternateCycle * 0.3, -Math.PI / 2, bot.aimProgress); bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
             });
 
