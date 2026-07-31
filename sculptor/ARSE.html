@@ -280,8 +280,6 @@
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
-        const visionRaycaster = new THREE.Raycaster();
-
         // POOLED VECTOR SCRATCH REGISTERS
         const _scratchVToP = new THREE.Vector3();
         const _scratchBeamDir = new THREE.Vector3();
@@ -290,9 +288,6 @@
         const _scratchMuzzleOffset = new THREE.Vector3();
         const _scratchLaserTarget = new THREE.Vector3();
         const _scratchMapTransform = { x: 0, y: 0 };
-        const _scratchRaySource = new THREE.Vector3();
-        const _scratchRayTarget = new THREE.Vector3();
-        const _scratchRayDir = new THREE.Vector3();
         const _scratchHandCheckVec = new THREE.Vector3();
         
         const _colorSkyBuffer = new THREE.Color();
@@ -905,7 +900,6 @@
             }
             isFetchingMap = false; 
             if (success && data) { 
-                // Protective timeout wrap keeps structural tracking fluid during dense mapping assembly cycles
                 setTimeout(() => { parseAndBuildOSMWorld(data, anchorCoordinates.lat, anchorCoordinates.lon); }, 50);
             }
             else { triggerMatrixOverloadErrorState(); }
@@ -1024,7 +1018,6 @@
                 for(let i=0; i < count - 1; i++) { crosswalkGeoms.push(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(points[i].x, 0.018, points[i].z), new THREE.Vector3(points[i+1].x, 0.018, points[i+1].z)])); }
                 renderedPedestrianList.push({ points: points, isCrosswalk: true }); return;
             }
-            // Syntax error cleared out cleanly
             const sidewalkHalfWidth = 1.2; const vertices = []; const indices = []; const normals = new Array(count);
             for (let i = 0; i < count; i++) {
                 let dx, dz; if (i === 0) { dx = points[1].x - points[0].x; dz = points[1].z - points[0].z; } else if (i === count - 1) { dx = points[count-1].x - points[count-2].x; dz = points[count-1].z - points[count-2].z; } else { dx = (points[i+1].x - points[i-1].x)/2; dz = (points[i+1].z - points[i-1].z)/2; }
@@ -1140,7 +1133,7 @@
         function deployTacticalDronePlatoon() {
             tacticalDronesCollection.forEach(d => scene.remove(d.meshElement)); tacticalDronesCollection.length = 0;
             if (renderedStreetsList.length === 0) return; 
-            const targetCount = Math.min(72, renderedStreetsList.length * 4); // Adaptive safety cap ensures loop bounds clear safely
+            const targetCount = Math.min(72, renderedStreetsList.length * 4); 
             for (let i = 0; i < targetCount; i++) {
                 const streetIdx = i % renderedStreetsList.length;
                 const street = renderedStreetsList[streetIdx]; if (!street || street.points.length < 2) continue;
@@ -1191,6 +1184,12 @@
             }
         }
 
+        function evaluateRaycastedObjectActivation(meshObject) {
+            if (meshObject.userData.type === 'datapad') { displayHolographicDatapadCode(meshObject); }
+        }
+
+        displayHolographicDatapadCode(padMesh) { alert(`VISOR DATA EXPANSION:\nDECRYPTED ENTRY ACCESS CODE -> [ ${padMesh.userData.code} ]`); }
+
         function handleAIBuildingCollision(pos, radius) {
             if (!mapLoadedForAnchor) return;
             const size = renderedBuildingsList.length;
@@ -1215,6 +1214,47 @@
                     else pos.z += pushDown;
                 }
             }
+        }
+
+        // ULTRA-LIGHTWEIGHT MATHEMATICAL OCCLUSION ENGINE: Replaces heavy raycasting with pure bounding matrix evaluations
+        function isLineOfSightOccluded(p1, p2) {
+            const x1 = p1.x, z1 = p1.z;
+            const x2 = p2.x, z2 = p2.z;
+            const size = renderedBuildingsList.length;
+            
+            for (let i = 0; i < size; i++) {
+                const b = renderedBuildingsList[i].box;
+                
+                // 1. Fast segment bounding box bounding overlap check
+                if (x1 < x2) { if (x2 < b.minX || x1 > b.maxX) continue; }
+                else { if (x1 < b.minX || x2 > b.maxX) continue; }
+                if (z1 < z2) { if (z2 < b.minZ || z1 > b.maxZ) continue; }
+                else { if (z1 < b.minZ || z2 > b.maxZ) continue; }
+                
+                // 2. High-speed 2D Slab line intersection calculation
+                let dx = x2 - x1;
+                let dz = z2 - z1;
+                let tmin = 0, tmax = 1;
+                
+                if (Math.abs(dx) > 1e-6) {
+                    let invDx = 1.0 / dx;
+                    let tx1 = (b.minX - x1) * invDx;
+                    let tx2 = (b.maxX - x1) * invDx;
+                    tmin = Math.max(tmin, Math.min(tx1, tx2));
+                    tmax = Math.min(tmax, Math.max(tx1, tx2));
+                } else if (x1 < b.minX || x1 > b.maxX) continue;
+                
+                if (Math.abs(dz) > 1e-6) {
+                    let invDz = 1.0 / dz;
+                    let tz1 = (b.minZ - z1) * invDz;
+                    let tz2 = (b.maxZ - z1) * invDz;
+                    tmin = Math.max(tmin, Math.min(tz1, tz2));
+                    tmax = Math.min(tmax, Math.max(tz1, tz2));
+                } else if (z1 < b.minZ || z1 > b.maxZ) continue;
+                
+                if (tmax >= tmin) return true; // Vector collides directly through building bounds profile
+            }
+            return false;
         }
 
         function advanceDronePatrolSimulation(timestamp) {
@@ -1246,13 +1286,9 @@
                 
                 let isDirectlySpottingPlayer = (Math.acos(_scratchBeamDir.dot(_scratchVToP)) <= CONE_SEMI_ANGLE && dToP <= CONE_HEIGHT);
 
-                if (isDirectlySpottingPlayer && combinedBuildingMesh) {
-                    _scratchRayTarget.copy(camera.position);
-                    _scratchRaySource.copy(pos);
-                    _scratchRayDir.subVectors(_scratchRayTarget, _scratchRaySource).normalize();
-                    visionRaycaster.set(_scratchRaySource, _scratchRayDir);
-                    const occlusionHits = visionRaycaster.intersectObject(combinedBuildingMesh);
-                    if (occlusionHits.length > 0 && occlusionHits[0].distance < dToP) {
+                // SWAPPED RAYCAST WITH LIGHTWEIGHT BOUNDS CHECK: Zero frame drop when scanning
+                if (isDirectlySpottingPlayer) {
+                    if (isLineOfSightOccluded(pos, camera.position)) {
                         isDirectlySpottingPlayer = false; 
                     }
                 }
@@ -1344,17 +1380,12 @@
                     _scratchBotHeading.normalize(); 
                     _scratchBotFacing.set(Math.sin(bot.meshElement.rotation.y), 0, Math.cos(bot.meshElement.rotation.y)).normalize(); 
                     let forwardVisionCosineDot = _scratchBotFacing.dot(_scratchBotHeading); 
-                    if (forwardVisionCosineDot >= 0.5) canBotSeePlayerRightNow = true; 
-                }
-                
-                if (canBotSeePlayerRightNow && combinedBuildingMesh) {
-                    _scratchRayTarget.copy(camera.position);
-                    _scratchRaySource.copy(pos).y += 2.6; 
-                    _scratchRayDir.subVectors(_scratchRayTarget, _scratchRaySource).normalize();
-                    visionRaycaster.set(_scratchRaySource, _scratchRayDir);
-                    const occlusionHits = visionRaycaster.intersectObject(combinedBuildingMesh);
-                    if (occlusionHits.length > 0 && occlusionHits[0].distance < distanceToPlayer) {
-                        canBotSeePlayerRightNow = false; 
+                    
+                    // ACCELERATED BOT ACCURATE VISUAL MATCHING: Pure math bypasses scene tree lookups completely
+                    if (forwardVisionCosineDot >= 0.5) {
+                        if (!isLineOfSightOccluded(pos, camera.position)) {
+                            canBotSeePlayerRightNow = true;
+                        }
                     }
                 }
 
