@@ -322,7 +322,9 @@
         let currentlyActiveTerminalObj = null;
         let internalPuzzleTrackingData = {};
 
-        // ACOUSTIC ALARM TRACKING BUFFER
+        // MASTER STRUCTURAL INTERCEPT LINK REFERENCE FOR OCCLUSION
+        let combinedBuildingMesh = null;
+
         let activeTerminalAlarms = [];
 
         let mqttClientInstance = null;
@@ -334,6 +336,9 @@
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
+        // CRITICAL ZERO-ALLOCATION VISION RAY ENGINE REGISTER
+        const visionRaycaster = new THREE.Raycaster();
+
         // POOLED VECTOR SCRATCH REGISTERS
         const _scratchVToP = new THREE.Vector3();
         const _scratchBeamDir = new THREE.Vector3();
@@ -342,6 +347,9 @@
         const _scratchMuzzleOffset = new THREE.Vector3();
         const _scratchLaserTarget = new THREE.Vector3();
         const _scratchMapTransform = { x: 0, y: 0 };
+        const _scratchRaySource = new THREE.Vector3();
+        const _scratchRayTarget = new THREE.Vector3();
+        const _scratchRayDir = new THREE.Vector3();
         
         const _colorSkyBuffer = new THREE.Color();
         const _colorLightBuffer = new THREE.Color();
@@ -962,7 +970,7 @@
         }
 
         function triggerMatrixOverloadErrorState() {
-            matrixOverloadActive = true; mapLoadedForAnchor = false; isFetchingMap = false;
+            matrixOverloadActive = true; mapLoadedForAnchor = false; isFetchingMap = false; combinedBuildingMesh = null;
             while(mapStructuralMeshes.children.length > 0) { const m = mapStructuralMeshes.children[0]; if (m.geometry) m.geometry.dispose(); mapStructuralMeshes.remove(m); }
             tacticalDronesCollection.forEach(d => scene.remove(d.meshElement)); tacticalDronesCollection.length = 0;
             humanoidBotsCollection.forEach(b => scene.remove(b.meshElement)); humanoidBotsCollection.length = 0;
@@ -974,7 +982,7 @@
         function parseAndBuildOSMWorld(osmData, anchorLat, anchorLon) {
             while(mapStructuralMeshes.children.length > 0) { const m = mapStructuralMeshes.children[0]; if (m.geometry) m.geometry.dispose(); mapStructuralMeshes.remove(m); }
             globalTrafficNodes.length = 0; renderedStreetsList.length = 0; renderedBuildingsList.length = 0; renderedPedestrianList.length = 0;
-            actionableItemsArray.length = 0; hackingTerminalsCollection.length = 0;
+            actionableItemsArray.length = 0; hackingTerminalsCollection.length = 0; combinedBuildingMesh = null;
 
             buildingSolidGeoms = []; buildingWireGeoms = []; roadSolidGeoms = []; roadCurbGeoms = []; roadCenterGeoms = []; sidewalkSolidGeoms = []; crosswalkGeoms = [];
             const grassGroundMesh = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), sharedMaterials.grass); grassGroundMesh.rotation.x = -Math.PI / 2; mapStructuralMeshes.add(grassGroundMesh);
@@ -995,7 +1003,10 @@
                 }
             });
 
-            if (buildingSolidGeoms.length > 0) { mapStructuralMeshes.add(new THREE.Mesh(THREE.BufferGeometryUtils.mergeBufferGeometries(buildingSolidGeoms), sharedMaterials.buildingSolid)); }
+            if (buildingSolidGeoms.length > 0) { 
+                combinedBuildingMesh = new THREE.Mesh(THREE.BufferGeometryUtils.mergeBufferGeometries(buildingSolidGeoms), sharedMaterials.buildingSolid);
+                mapStructuralMeshes.add(combinedBuildingMesh); 
+            }
             if (buildingWireGeoms.length > 0) { mapStructuralMeshes.add(new THREE.LineSegments(THREE.BufferGeometryUtils.mergeBufferGeometries(buildingWireGeoms), sharedMaterials.buildingWire)); }
             if (roadSolidGeoms.length > 0) { mapStructuralMeshes.add(new THREE.Mesh(THREE.BufferGeometryUtils.mergeBufferGeometries(roadSolidGeoms), sharedMaterials.roadSolid)); }
             if (roadCurbGeoms.length > 0) { mapStructuralMeshes.add(new THREE.LineSegments(THREE.BufferGeometryUtils.mergeBufferGeometries(roadCurbGeoms), sharedMaterials.roadCurb)); }
@@ -1181,7 +1192,7 @@
                     <div class="keypad-display" id="kp-disp">----</div>
                     <div class="keypad-grid">
                         ${[1,2,3,4,5,6,7,8,9].map(n => `<div class="keypad-key" onclick="pressHackingKey(${n})">${n}</div>`).join('')}
-                        <div class="keypad-key" onclick="pressHackingKey('C')">C</div><div class="keypad-key" onclick="pressHackingKey(0)">0</div><div class="keypad-key" onclick="pressHackingKey('E')">E</div>
+                        <div class="keypad-key" onclick="pressHackingKey('C')">C</div><div class="keypad-key" onclick="pressHackingKey(0 holiday)">0</div><div class="keypad-key" onclick="pressHackingKey('E')">E</div>
                     </div>
                 `;
             } 
@@ -1258,7 +1269,6 @@
             currentlyActiveTerminalObj.userData.hacked = true; 
             currentlyActiveTerminalObj.material = sharedMaterials.terminalHacked;
             
-            // Remove from click logic rays instantly to isolate while kinematics fire
             const clkIdx = actionableItemsArray.indexOf(currentlyActiveTerminalObj);
             if (clkIdx !== -1) actionableItemsArray.splice(clkIdx, 1);
 
@@ -1272,13 +1282,12 @@
             const trackItem = hackingTerminalsCollection.find(t => t.id === currentlyActiveTerminalObj.userData.id);
             if (trackItem) {
                 trackItem.hacked = true;
-                trackItem.lowering = true; // Engage translation engine update parameters
+                trackItem.lowering = true; 
             }
 
-            // SIMULTANEOUS LOCAL RADAR ALARM PROJECTION PROTOCOL
             activeTerminalAlarms.push({
                 pos: currentlyActiveTerminalObj.position.clone(),
-                expiresAt: Date.now() + 20000 // 20-second active network broadcast lifecounter
+                expiresAt: Date.now() + 20000 
             });
 
             totalTerminalsHacked++; 
@@ -1297,11 +1306,10 @@
             let spaceOverlay = document.getElementById('visor-screen-overlay');
             let droneDetectedFlag = false; if (matrixOverloadActive) return;
 
-            // CLEAN SYSTEM ALARM FILTERS MATCHING CURRENT HARDWARE TIME LOGS
             const curSystemTime = Date.now();
             activeTerminalAlarms = activeTerminalAlarms.filter(alarm => curSystemTime < alarm.expiresAt);
 
-            // UNLESS SEEN BY ENEMY RULE LAYER: Immediately clear all local alarm coordinates if player profile drops containment
+            // IF PLAYER DUMPS EXPOSURE: Instantly clean out tactical distraction nodes
             if (isCurrentlyDetected) {
                 activeTerminalAlarms = [];
             }
@@ -1322,14 +1330,25 @@
                 _scratchBeamDir.set(0, -1, 0).applyQuaternion(drone.scannerBeamGroup.quaternion).applyQuaternion(drone.meshElement.quaternion).normalize(); 
                 _scratchVToP.normalize();
                 
-                const isDirectlySpottingPlayer = (Math.acos(_scratchBeamDir.dot(_scratchVToP)) <= CONE_SEMI_ANGLE && dToP <= CONE_HEIGHT);
+                let isDirectlySpottingPlayer = (Math.acos(_scratchBeamDir.dot(_scratchVToP)) <= CONE_SEMI_ANGLE && dToP <= CONE_HEIGHT);
+
+                // 3D VOLUMETRIC OCCLUSION LAYER FOR DRONE EYE CONES
+                if (isDirectlySpottingPlayer && combinedBuildingMesh) {
+                    _scratchRayTarget.copy(camera.position);
+                    _scratchRaySource.copy(pos);
+                    _scratchRayDir.subVectors(_scratchRayTarget, _scratchRaySource).normalize();
+                    visionRaycaster.set(_scratchRaySource, _scratchRayDir);
+                    const occlusionHits = visionRaycaster.intersectObject(combinedBuildingMesh);
+                    if (occlusionHits.length > 0 && occlusionHits[0].distance < dToP) {
+                        isDirectlySpottingPlayer = false; // Blocked by roof or wall shell structure!
+                    }
+                }
 
                 if (isDirectlySpottingPlayer) { droneDetectedFlag = true; drone.isChasingPlayer = true; lastSeenPlayerPosition.copy(camera.position); }
 
-                // RESOLVE ALARM NEIGHBORHOOD MAPS INLINE
                 let closestLocalAlarm = null;
                 for (let alarm of activeTerminalAlarms) {
-                    if (pos.distanceTo(alarm.pos) < 80.0) { // 80-meter radar investigation boundaries
+                    if (pos.distanceTo(alarm.pos) < 80.0) { 
                         closestLocalAlarm = alarm;
                         break;
                     }
@@ -1341,7 +1360,6 @@
                     if (dist > 1.0) { targetAngle = Math.atan2(dx, dz); pos.x += (dx / dist) * drone.movementVelocityFactor * 1.4; pos.z += (dz / dist) * drone.movementVelocityFactor * 1.4; }
                 } 
                 else if (closestLocalAlarm) {
-                    // OVERRIDE DRONE ROUTE TO SEARCH THE ALARM SITE LOCATION
                     tx = closestLocalAlarm.pos.x; tz = closestLocalAlarm.pos.z;
                     const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
                     if (dist > 1.0) { targetAngle = Math.atan2(dx, dz); pos.x += (dx / dist) * drone.movementVelocityFactor * 1.2; pos.z += (dz / dist) * drone.movementVelocityFactor * 1.2; }
@@ -1382,6 +1400,18 @@
                     if (forwardVisionCosineDot >= 0.5) canBotSeePlayerRightNow = true; 
                 }
                 
+                // LINE-OF-SIGHT GEOMETRY WALL FILTERING FOR GROUND PATROLS
+                if (canBotSeePlayerRightNow && combinedBuildingMesh) {
+                    _scratchRayTarget.copy(camera.position);
+                    _scratchRaySource.copy(pos).y += 2.6; // Read out ray originating accurately from infantry eye box level
+                    _scratchRayDir.subVectors(_scratchRayTarget, _scratchRaySource).normalize();
+                    visionRaycaster.set(_scratchRaySource, _scratchRayDir);
+                    const occlusionHits = visionRaycaster.intersectObject(combinedBuildingMesh);
+                    if (occlusionHits.length > 0 && occlusionHits[0].distance < distanceToPlayer) {
+                        canBotSeePlayerRightNow = false; // Blocked behind a wall structure or inside boundary!
+                    }
+                }
+
                 if (canBotSeePlayerRightNow) { botDetectedFlag = true; bot.isAlerted = true; lastSeenPlayerPosition.copy(camera.position); } else { bot.isAlerted = false; }
                 
                 let closestBotAlarm = null;
@@ -1411,7 +1441,6 @@
                     }
                 } 
                 else if (closestBotAlarm) {
-                    // INTERCEPT ROUTE PATHS TO CONVERGE PROTOCOLS ON ALARM RADIUS
                     bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07);
                     const dx = closestBotAlarm.pos.x - pos.x; const dz = closestBotAlarm.pos.z - pos.z;
                     const distToAlarm = Math.hypot(dx, dz); botTargetAngle = Math.atan2(dx, dz);
@@ -1742,14 +1771,13 @@
                 requestAnimationFrame(frameLoopEngine); const t = Date.now();
                 spatialAnomaliesCollection.forEach(a => { if (!a.collected) { a.mesh.rotation.x += 0.01; a.mesh.rotation.y += 0.02; } });
                 
-                // KINEMATIC DISPLACEMENT TRANSLATION LOOP FOR LOWERING TERMINALS
                 hackingTerminalsCollection.forEach(tNode => {
                     if (tNode.lowering) {
-                        tNode.mesh.position.y -= 0.05; // Drop factor per frame delta
+                        tNode.mesh.position.y -= 0.05; 
                         if (tNode.mesh.position.y <= -2.5) {
                             tNode.mesh.position.y = -2.5;
                             tNode.lowering = false;
-                            scene.remove(tNode.mesh); // Disappear and completely erase entry matching mesh geometries
+                            scene.remove(tNode.mesh); 
                         }
                     }
                 });
