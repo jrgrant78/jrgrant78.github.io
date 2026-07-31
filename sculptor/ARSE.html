@@ -411,7 +411,7 @@
             const leftHipPivot = new THREE.Group(); leftHipPivot.position.set(-0.22, -0.6, 0);
             const leftThighSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.09, 0.07, 0.65)), wireframeMat); leftThighSeg.position.y = -0.325; leftHipPivot.add(leftThighSeg);
             const leftKneePivot = new THREE.Group(); leftKneePivot.position.set(0, -0.325, 0);
-            const leftShinSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.05, 0.6)), wireframeMat); leftShinSeg.position.y = -0.3; leftKneePivot.add(leftShinSeg); leftThighSeg.add(leftKneePivot); torsoBox.add(leftHipPivot);
+            const leftShinSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.05, 0.6)), wireframeMat); leftShinSeg.position.y = -0.3; leftKneePivot.add(leftShinSeg); leftThighSeg.add(leftHipPivot); torsoBox.add(leftHipPivot);
             const rightHipPivot = new THREE.Group(); rightHipPivot.position.set(0.22, -0.6, 0);
             const rightThighSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.09, 0.07, 0.65)), wireframeMat); rightThighSeg.position.y = -0.325; rightHipPivot.add(rightThighSeg);
             const rightKneePivot = new THREE.Group(); rightKneePivot.position.set(0, -0.325, 0);
@@ -857,7 +857,6 @@
                 }
             });
 
-            // HIGH-RESPONSIVENESS POINTER DOCK INTERFACES: Direct interaction binding prevents touch drop errors
             document.getElementById('offsetMenuTriggerBtn').addEventListener('pointerdown', (e) => {
                 e.stopPropagation(); e.preventDefault();
                 document.getElementById('biasPanel').classList.toggle('open');
@@ -1279,28 +1278,31 @@
                     }
                 } 
                 else {
+                    // TARGET MILESTONE SEPARATION SYSTEM: Isolated tight radius limits avoid dense node skipping artifacts
                     let node = drone.routeCoordinates[drone.currentNodeIndex]; 
                     let dx = node.x - pos.x; let dz = node.z - pos.z; let dist = Math.hypot(dx, dz);
                     
-                    if (dist < 3.0) { 
+                    if (dist < 1.2) { 
                         drone.currentNodeIndex += drone.patrolDirectionFactor;
                         if (drone.currentNodeIndex >= drone.routeCoordinates.length || drone.currentNodeIndex < 0) {
                             drone.patrolDirectionFactor *= -1; 
                             drone.currentNodeIndex = Math.max(0, Math.min(drone.currentNodeIndex + drone.patrolDirectionFactor * 2, drone.routeCoordinates.length - 1));
                         }
-                        node = drone.routeCoordinates[drone.currentNodeIndex];
-                        dx = node.x - pos.x; dz = node.z - pos.z; dist = Math.hypot(dx, dz) || 1;
                     }
-                    targetAngle = Math.atan2(dx, dz);
-                    moveX = (dx / dist) * drone.movementVelocityFactor; 
-                    moveZ = (dz / dist) * drone.movementVelocityFactor; 
+                    
+                    // Unconditionally compute tracking trajectory values toward active target vectors
+                    let activeNode = drone.routeCoordinates[drone.currentNodeIndex];
+                    let adx = activeNode.x - pos.x; let adz = activeNode.z - pos.z; let adist = Math.hypot(adx, adz) || 1;
+                    
+                    targetAngle = Math.atan2(adx, adz);
+                    moveX = (adx / adist) * drone.movementVelocityFactor; 
+                    moveZ = (adz / adist) * drone.movementVelocityFactor; 
                 }
 
                 pos.x += moveX;
                 pos.z += moveZ;
                 handleAIBuildingCollision(pos, 1.5); 
 
-                // DRONE CORNER OVERLAP RECOVERY PROTOCOL: Adds lateral expansion offsets to guide flight bounds seamlessly
                 let dActualDist = Math.hypot(pos.x - drone.lastPosX, pos.z - drone.lastPosZ);
                 drone.lastPosX = pos.x; drone.lastPosZ = pos.z;
                 if ((moveX !== 0 || moveZ !== 0) && dActualDist < 0.02) {
@@ -1401,26 +1403,28 @@
                     let targetNode = bot.routeCoordinates[bot.currentNodeIndex]; 
                     let ndx = targetNode.x - pos.x; let ndz = targetNode.z - pos.z; let ndist = Math.hypot(ndx, ndz);
                     
-                    if (ndist < 3.0) { 
+                    if (ndist < 1.2) { 
                         bot.currentNodeIndex += bot.patrolDirectionFactor; 
                         if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { 
                             bot.patrolDirectionFactor *= -1; 
                             bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex + bot.patrolDirectionFactor * 2, bot.routeCoordinates.length - 1));
                         } 
-                        targetNode = bot.routeCoordinates[bot.currentNodeIndex];
-                        ndx = targetNode.x - pos.x; ndz = targetNode.z - pos.z; ndist = Math.hypot(ndx, ndz) || 1;
                     }
-                    botTargetAngle = Math.atan2(ndx, ndz);
-                    const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); 
-                    bMoveX = (ndx / ndist) * frameVelocityStride;
-                    bMoveZ = (ndz / ndist) * frameVelocityStride;
+                    
+                    // Force velocity updates to map seamlessly to the current node objective pass parameters
+                    let activeBotNode = bot.routeCoordinates[bot.currentNodeIndex];
+                    let andx = activeBotNode.x - pos.x; let andz = activeBotNode.z - pos.z; let andist = Math.hypot(andx, andz) || 1;
+                    
+                    botTargetAngle = Math.atan2(andx, andz);
+                    const frameVelocityStride = Math.min(andist, bot.velocity * 0.12); 
+                    bMoveX = (andx / andist) * frameVelocityStride;
+                    bMoveZ = (andz / andist) * frameVelocityStride;
                 }
 
                 pos.x += bMoveX;
                 pos.z += bMoveZ;
                 handleAIBuildingCollision(pos, 1.0); 
 
-                // INFANTRY PATH-EXPANSION AND STEERING INFERENCE ENGINE: Nudges orthogonal tracking to resolve alignment gridlocks
                 let bActualDist = Math.hypot(pos.x - bot.lastPosX, pos.z - bot.lastPosZ);
                 bot.lastPosX = pos.x; bot.lastPosZ = pos.z;
                 if ((bMoveX !== 0 || bMoveZ !== 0) && bActualDist < 0.02) {
@@ -1493,7 +1497,7 @@
             if (!sensorsEngaged) return; 
             if (matrixOverloadActive) { statusLabel.innerHTML = `<div class="matrix-overload-title">Matrix Overload!</div><div class="matrix-overload-sub">Touch screen to re-initiate reconstruction sequence.</div>`; statusLabel.classList.remove('pulse-animation'); }
             else if (!mapLoadedForAnchor) { statusLabel.innerHTML = "Calibrating Satellites..."; statusLabel.classList.add('pulse-animation'); }
-            else if (!globalShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
+            else if (!globalShutdownShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
             
             if (!matrixOverloadActive) reticle.style.display = 'block'; else reticle.style.display = 'none';
             if (isCurrentlyDetected && !matrixOverloadActive && !globalShutdownTriggered) { trackerContainer.style.display = 'block'; trackerContainer.innerHTML = "WARNING: POSITION EXPOSED"; }
