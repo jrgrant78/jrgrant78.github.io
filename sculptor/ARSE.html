@@ -403,11 +403,11 @@
             const leftShoulderPivot = new THREE.Group(); leftShoulderPivot.position.set(-0.45, 0.45, 0);
             const leftUpperArmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.07, 0.55)), wireframeMat); leftUpperArmSeg.position.y = -0.25; leftShoulderPivot.add(leftUpperArmSeg);
             const leftElbowPivot = new THREE.Group(); leftElbowPivot.position.set(0, -0.275, 0);
-            const leftForearmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.05, 0.05, 0.5)), wireframeMat); leftForearmSeg.position.y = -0.25; leftElbowPivot.add(leftForearmSeg); leftUpperArmSeg.add(leftShoulderPivot); torsoBox.add(leftShoulderPivot);
+            const leftForearmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.05, 0.05, 0.5)), wireframeMat); leftForearmSeg.position.y = -0.25; leftUpperArmSeg.add(leftShoulderPivot); torsoBox.add(leftShoulderPivot);
             const rightShoulderPivot = new THREE.Group(); rightShoulderPivot.position.set(0.45, 0.45, 0);
             const rightUpperArmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.07, 0.55)), wireframeMat); rightUpperArmSeg.position.y = -0.25; rightShoulderPivot.add(rightUpperArmSeg);
             const rightElbowPivot = new THREE.Group(); rightElbowPivot.position.set(0, -0.275, 0);
-            const rightForearmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.05, 0.05, 0.5)), wireframeMat); rightForearmSeg.position.y = -0.25; rightElbowPivot.add(rightForearmSeg); rightUpperArmSeg.add(rightElbowPivot); torsoBox.add(rightShoulderPivot);
+            const rightForearmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.05, 0.05, 0.5)), wireframeMat); rightForearmSeg.position.y = -0.25; rightUpperArmSeg.add(rightElbowPivot); torsoBox.add(rightShoulderPivot);
             const leftHipPivot = new THREE.Group(); leftHipPivot.position.set(-0.22, -0.6, 0);
             const leftThighSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.09, 0.07, 0.65)), wireframeMat); leftThighSeg.position.y = -0.325; leftHipPivot.add(leftThighSeg);
             const leftKneePivot = new THREE.Group(); leftKneePivot.position.set(0, -0.325, 0);
@@ -965,7 +965,6 @@
             const geom = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false }); geom.rotateX(-Math.PI / 2); 
             buildingSolidGeoms.push(geom); buildingWireGeoms.push(new THREE.EdgesGeometry(geom));
             
-            // PRE-COMPILE 2D SPATIAL AABB BOX FOR OPTIMIZED AI OVERLAP CALCULATIONS
             let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
             points.forEach(p => {
                 if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
@@ -1082,7 +1081,6 @@
             
             scene.add(terminalGroup);
 
-            // INITIALIZATION MATRIX CACHE EVALUATION: Saves button vectors statically to eliminate runtime traversal lag
             terminalGroup.updateMatrixWorld(true);
             consoleMesh.updateMatrixWorld(true);
             
@@ -1180,7 +1178,6 @@
 
         function displayHolographicDatapadCode(padMesh) { alert(`VISOR DATA EXPANSION:\nDECRYPTED ENTRY ACCESS CODE -> [ ${padMesh.userData.code} ]`); }
 
-        // ULTRA-LIGHTWEIGHT MATHEMATICAL COLLISION ENGINE: Replaces raycasting loops with primitive box vectors
         function handleAIBuildingCollision(pos, radius) {
             if (!mapLoadedForAnchor) return;
             for (let i = 0; i < renderedBuildingsList.length; i++) {
@@ -1276,17 +1273,22 @@
                     }
                 } 
                 else {
-                    const node = drone.routeCoordinates[drone.currentNodeIndex]; const dx = node.x - pos.x; const dz = node.z - pos.z; const dist = Math.hypot(dx, dz);
-                    if (dist > 0.1) targetAngle = Math.atan2(dx, dz);
-                    if (dist < 2.0) {
+                    // DECOUPLED ROUTE INTERPOLATION PROTOCOL: Separates index increments from calculations to guarantee fluid movement
+                    let node = drone.routeCoordinates[drone.currentNodeIndex]; 
+                    let dx = node.x - pos.x; let dz = node.z - pos.z; let dist = Math.hypot(dx, dz);
+                    
+                    if (dist < 3.0) { 
                         drone.currentNodeIndex += drone.patrolDirectionFactor;
                         if (drone.currentNodeIndex >= drone.routeCoordinates.length || drone.currentNodeIndex < 0) {
-                            drone.patrolDirectionFactor *= -1; drone.currentNodeIndex += drone.patrolDirectionFactor * 2; drone.currentNodeIndex = Math.max(0, Math.min(drone.currentNodeIndex, drone.routeCoordinates.length - 1));
+                            drone.patrolDirectionFactor *= -1; 
+                            drone.currentNodeIndex = Math.max(0, Math.min(drone.currentNodeIndex + drone.patrolDirectionFactor * 2, drone.routeCoordinates.length - 1));
                         }
-                    } else { 
-                        moveX = (dx / dist) * drone.movementVelocityFactor; 
-                        moveZ = (dz / dist) * drone.movementVelocityFactor; 
+                        node = drone.routeCoordinates[drone.currentNodeIndex];
+                        dx = node.x - pos.x; dz = node.z - pos.z; dist = Math.hypot(dx, dz) || 1;
                     }
+                    targetAngle = Math.atan2(dx, dz);
+                    moveX = (dx / dist) * drone.movementVelocityFactor; 
+                    moveZ = (dz / dist) * drone.movementVelocityFactor; 
                 }
 
                 pos.x += moveX;
@@ -1373,22 +1375,24 @@
                     }
                 }
                 else {
-                    bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07); const targetNode = bot.routeCoordinates[bot.currentNodeIndex]; const ndx = targetNode.x - pos.x; const ndz = targetNode.z - pos.z; const ndist = Math.hypot(ndx, ndz);
+                    // DECOUPLED GROUND INFANTRY PATROL STRIDE PROTOCOL
+                    bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07); 
+                    let targetNode = bot.routeCoordinates[bot.currentNodeIndex]; 
+                    let ndx = targetNode.x - pos.x; let ndz = targetNode.z - pos.z; let ndist = Math.hypot(ndx, ndz);
                     
-                    if (ndist < 2.0) { 
+                    if (ndist < 3.0) { 
                         bot.currentNodeIndex += bot.patrolDirectionFactor; 
                         if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { 
                             bot.patrolDirectionFactor *= -1; 
-                            bot.currentNodeIndex += bot.patrolDirectionFactor * 2; 
+                            bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex + bot.patrolDirectionFactor * 2, bot.routeCoordinates.length - 1));
                         } 
-                        bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex, bot.routeCoordinates.length - 1));
+                        targetNode = bot.routeCoordinates[bot.currentNodeIndex];
+                        ndx = targetNode.x - pos.x; ndz = targetNode.z - pos.z; ndist = Math.hypot(ndx, ndz) || 1;
                     }
-                    if (ndist > 0.1) { 
-                        if (ndist > 1.5) { botTargetAngle = Math.atan2(ndx, ndz); }
-                        const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); 
-                        bMoveX = (ndx / ndist) * frameVelocityStride;
-                        bMoveZ = (ndz / ndist) * frameVelocityStride;
-                    }
+                    botTargetAngle = Math.atan2(ndx, ndz);
+                    const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); 
+                    bMoveX = (ndx / ndist) * frameVelocityStride;
+                    bMoveZ = (ndz / ndist) * frameVelocityStride;
                 }
 
                 pos.x += bMoveX;
@@ -1743,7 +1747,6 @@
                         palmGeometry.attributes.position.needsUpdate = true;
                         palmMesh.updateMatrix();
 
-                        // LIGHTWEIGHT SPATIAL PROXIMITY COUPLING LAYER: Queries pre-cached vectors to achieve 0ms framework lag
                         _scratchHandCheckVec.copy(structuralJointMeshes[8].position); 
                         _scratchHandCheckVec.applyMatrix4(camera.matrixWorld); 
 
@@ -1755,7 +1758,6 @@
                                 
                                 tNode.buttons.forEach(btn => {
                                     if (!btn.userData.clicked) {
-                                        // Read static pre-cached coordinates directly from setup allocation blocks
                                         if (_scratchHandCheckVec.distanceTo(btn.userData.worldPos) < 0.14) {
                                             btn.userData.clicked = true;
                                             btn.material.color.setHex(0x00ff55); 
@@ -1765,7 +1767,6 @@
                                 });
 
                                 if (tNode.slideHandle.userData.progress < 1.0) {
-                                    // Math Lerp calculates handle displacement seamlessly without tracking dynamic matrix stacks
                                     tNode.handleWorldPos.lerpVectors(tNode.trackStartWorldPos, tNode.trackEndWorldPos, tNode.slideHandle.userData.progress);
                                     
                                     if (_scratchHandCheckVec.distanceTo(tNode.handleWorldPos) < 0.18) {
