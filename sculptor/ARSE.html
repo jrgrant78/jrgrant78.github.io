@@ -970,8 +970,7 @@
                 if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
                 if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
             });
-            // STORE BUILDING HEIGHT CACHE: Empowers dynamic vertical roof validation thresholds
-            renderedBuildingsList.push({ points: points, box: { minX, maxX, minZ, maxZ }, height: h });
+            renderedBuildingsList.push({ points: points, box: { minX, maxX, minZ, maxZ } });
         }
 
         function buildNeonVectorPathways(points, tags) {
@@ -1130,20 +1129,32 @@
                 const spawnPoint = street.points[startNodeIdx];
                 const d = compileTacticalPatrolDrone(); d.coreAsset.position.set(spawnPoint.x, 25.0, spawnPoint.z); scene.add(d.coreAsset);
                 tacticalDronesCollection.push({
-                    id: i, meshElement: d.coreAsset, scannerBeamGroup: d.dynamicScannerBeam, leftArmAsset: d.leftArm, rightArmAsset: d.rightArm, routeCoordinates: street.points, currentNodeIndex: startNodeIdx, patrolDirectionFactor: Math.random() > 0.5 ? 1 : -1, movementVelocityFactor: 0.09 + Math.random() * 0.04, isChasingPlayer: false, isGrounded: false,
-                    stuckFrames: 0, lastX: spawnPoint.x, lastZ: spawnPoint.z // Anti-Stuck Tracking Registers
+                    id: i, meshElement: d.coreAsset, scannerBeamGroup: d.dynamicScannerBeam, leftArmAsset: d.leftArm, rightArmAsset: d.rightArm, routeCoordinates: street.points, currentNodeIndex: startNodeIdx, patrolDirectionFactor: Math.random() > 0.5 ? 1 : -1, movementVelocityFactor: 0.09 + Math.random() * 0.04, isChasingPlayer: false, isGrounded: false, lastPos: new THREE.Vector3().copy(d.coreAsset.position), stuckFrames: 0
                 });
             }
         }
 
+        // INITIALIZATION SANITIZATION ENGINE: Scrubs corrupted OSM path nodes overlapping structural hulls
         function deployHumanoidGarrison() {
             humanoidBotsCollection.forEach(b => scene.remove(b.meshElement)); humanoidBotsCollection.length = 0;
             const validSidewalkTracks = renderedPedestrianList.filter(p => !p.isCrosswalk && p.points.length >= 2);
             if (validSidewalkTracks.length === 0) return;
+            
+            function isPointInAnyBuilding(x, z, buffer = 1.0) {
+                for (let i = 0; i < renderedBuildingsList.length; i++) {
+                    const b = renderedBuildingsList[i].box;
+                    if (x > b.minX - buffer && x < b.maxX + buffer && z > b.minZ - buffer && z < b.maxZ + buffer) return true;
+                }
+                return false;
+            }
+
             const targetCount = 48;
             for(let i = 0; i < targetCount; i++) {
                 let track = validSidewalkTracks[Math.floor(Math.random() * validSidewalkTracks.length)];
-                let pathData = [...track.points];
+                let pathData = [];
+                track.points.forEach(pt => { if (!isPointInAnyBuilding(pt.x, pt.z)) pathData.push(pt); });
+                if (pathData.length === 0) continue; 
+                
                 let currentEnd = pathData[pathData.length - 1];
                 let visitedTracks = new Set([track]);
                 
@@ -1156,21 +1167,21 @@
                         if (d < closeDist) { closeDist = d; nextTrack = t; }
                     }
                     if (nextTrack) {
-                        pathData.push(...nextTrack.points);
+                        nextTrack.points.forEach(pt => { if (!isPointInAnyBuilding(pt.x, pt.z)) pathData.push(pt); });
                         visitedTracks.add(nextTrack);
                         currentEnd = pathData[pathData.length - 1];
                     } else { break; }
                 }
                 
-                if (pathData.length < 6) {
+                if (pathData.length < 6 && pathData.length > 1) {
                     let origPoints = [...pathData];
                     for (let m = origPoints.length - 2; m >= 0; m--) pathData.push(origPoints[m]);
                 }
+                if (pathData.length < 2) continue;
 
                 const botRef = compileHumanoidCombatBot(); botRef.model.position.set(pathData[0].x, 0.02, pathData[0].z); scene.add(botRef.model);
                 humanoidBotsCollection.push({
-                    id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0,
-                    stuckFrames: 0, lastX: pathData[0].x, lastZ: pathData[0].z // Anti-Stuck Tracking Registers
+                    id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0, lastPos: new THREE.Vector3().copy(botRef.model.position), stuckFrames: 0
                 });
             }
         }
@@ -1181,32 +1192,27 @@
 
         function displayHolographicDatapadCode(padMesh) { alert(`VISOR DATA EXPANSION:\nDECRYPTED ENTRY ACCESS CODE -> [ ${padMesh.userData.code} ]`); }
 
-        // VOLUMETRIC COLLISION FRAME ENGINE: Validates vertical roof lines to accommodate dynamic overhead clearance mapping
-        function handleAIBuildingCollision(pos, radius, currentY) {
+        function handleAIBuildingCollision(pos, radius) {
             if (!mapLoadedForAnchor) return;
             for (let i = 0; i < renderedBuildingsList.length; i++) {
                 const b = renderedBuildingsList[i].box;
-                const bHeight = renderedBuildingsList[i].height;
-                
-                if (currentY < bHeight) { 
-                    if (pos.x + radius > b.minX && pos.x - radius < b.maxX &&
-                        pos.z + radius > b.minZ && pos.z - radius < b.maxZ) {
-                        
-                        let pushLeft = pos.x - b.minX + radius;
-                        let pushRight = b.maxX - pos.x + radius;
-                        let pushUp = pos.z - b.minZ + radius;
-                        let pushDown = b.maxZ - pos.z + radius;
-                        
-                        let minPush = pushLeft;
-                        if (pushRight < minPush) minPush = pushRight;
-                        if (pushUp < minPush) minPush = pushUp;
-                        if (pushDown < minPush) minPush = pushDown;
-                        
-                        if (minPush === pushLeft) pos.x -= pushLeft;
-                        else if (minPush === pushRight) pos.x += pushRight;
-                        else if (minPush === pushUp) pos.z -= pushUp;
-                        else pos.z += pushDown;
-                    }
+                if (pos.x + radius > b.minX && pos.x - radius < b.maxX &&
+                    pos.z + radius > b.minZ && pos.z - radius < b.maxZ) {
+                    
+                    let pushLeft = pos.x - b.minX + radius;
+                    let pushRight = b.maxX - pos.x + radius;
+                    let pushUp = pos.z - b.minZ + radius;
+                    let pushDown = b.maxZ - pos.z + radius;
+                    
+                    let minPush = pushLeft;
+                    if (pushRight < minPush) minPush = pushRight;
+                    if (pushUp < minPush) minPush = pushUp;
+                    if (pushDown < minPush) minPush = pushDown;
+                    
+                    if (minPush === pushLeft) pos.x -= pushLeft;
+                    else if (minPush === pushRight) pos.x += pushRight;
+                    else if (minPush === pushUp) pos.z -= pushUp;
+                    else pos.z += pushDown;
                 }
             }
         }
@@ -1300,20 +1306,18 @@
 
                 pos.x += moveX;
                 pos.z += moveZ;
-                handleAIBuildingCollision(pos, 1.5, pos.y); 
+                handleAIBuildingCollision(pos, 1.5); 
 
-                // ADAPTIVE DETECTIONS GATE FOR STUCK DRONES
-                let distMoved = Math.hypot(pos.x - drone.lastX, pos.z - drone.lastZ);
-                drone.lastX = pos.x; drone.lastZ = pos.z;
-                if ((Math.abs(moveX) > 0.01 || Math.abs(moveZ) > 0.01) && distMoved < 0.02) {
+                // Aerial Stalling Fallback Logic
+                let dDistMoved = Math.hypot(pos.x - drone.lastPos.x, pos.z - drone.lastPos.z);
+                if ((moveX !== 0 || moveZ !== 0) && dDistMoved < 0.01) {
                     drone.stuckFrames++;
-                    if (drone.stuckFrames > 30) {
-                        drone.currentNodeIndex = (drone.currentNodeIndex + drone.patrolDirectionFactor + drone.routeCoordinates.length) % drone.routeCoordinates.length;
+                    if (drone.stuckFrames > 8) {
+                        drone.currentNodeIndex = Math.max(0, Math.min(drone.currentNodeIndex + drone.patrolDirectionFactor, drone.routeCoordinates.length - 1));
                         drone.stuckFrames = 0;
                     }
-                } else {
-                    drone.stuckFrames = 0;
-                }
+                } else { drone.stuckFrames = 0; }
+                drone.lastPos.copy(pos);
 
                 const currentConeColor = (drone.isChasingPlayer || alertStateActive) ? 0xff0000 : (closestLocalAlarm ? 0xffff00 : 0x00ff00);
                 drone.scannerBeamGroup.children[0].material.color.setHex(currentConeColor);
@@ -1406,9 +1410,7 @@
                             bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex + bot.patrolDirectionFactor * 2, bot.routeCoordinates.length - 1));
                         } 
                         targetNode = bot.routeCoordinates[bot.currentNodeIndex];
-                        if (targetNode) {
-                            ndx = targetNode.x - pos.x; ndz = targetNode.z - pos.z; ndist = Math.hypot(ndx, ndz) || 1;
-                        }
+                        ndx = targetNode.x - pos.x; ndz = targetNode.z - pos.z; ndist = Math.hypot(ndx, ndz) || 1;
                     }
                     botTargetAngle = Math.atan2(ndx, ndz);
                     const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); 
@@ -1418,22 +1420,20 @@
 
                 pos.x += bMoveX;
                 pos.z += bMoveZ;
-                handleAIBuildingCollision(pos, 1.0, pos.y); 
+                handleAIBuildingCollision(pos, 1.0); 
 
-                // ADAPTIVE DETECTIONS GATE FOR STUCK BOTS: Skips corrupted nodes to circumvent geometric deadlock pinning
-                let bDistMoved = Math.hypot(pos.x - bot.lastX, pos.z - bot.lastZ);
-                bot.lastX = pos.x; bot.lastZ = pos.z;
-                if ((Math.abs(bMoveX) > 0.01 || Math.abs(bMoveZ) > 0.01) && bDistMoved < 0.02) {
+                // GROUND OVERLAP STUCK FRAMES PROTOCOL: Skip blocked tracking links instantly
+                let actualDistMoved = Math.hypot(pos.x - bot.lastPos.x, pos.z - bot.lastPos.z);
+                if ((bMoveX !== 0 || bMoveZ !== 0) && actualDistMoved < 0.01) {
                     bot.stuckFrames++;
-                    if (bot.stuckFrames > 30) {
-                        bot.currentNodeIndex = (bot.currentNodeIndex + bot.patrolDirectionFactor + bot.routeCoordinates.length) % bot.routeCoordinates.length;
+                    if (bot.stuckFrames > 8) {
+                        bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex + bot.patrolDirectionFactor, bot.routeCoordinates.length - 1));
                         bot.stuckFrames = 0;
                     }
-                } else {
-                    bot.stuckFrames = 0;
-                }
+                } else { bot.stuckFrames = 0; }
+                bot.lastPos.copy(pos);
 
-                let botAngleDiff = botAngleDiff = botTargetAngle - bot.meshElement.rotation.y; while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2; while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2; bot.meshElement.rotation.y += botAngleDiff * 0.08;
+                let botAngleDiff = botTargetAngle - bot.meshElement.rotation.y; while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2; while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2; bot.meshElement.rotation.y += botAngleDiff * 0.08;
                 const alternateCycle = Math.sin(timestamp * 0.008 * bot.velocity); bot.armL.rotation.x = -alternateCycle * 0.3; bot.armR.rotation.x = THREE.MathUtils.lerp(alternateCycle * 0.3, -Math.PI / 2, bot.aimProgress); bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
             });
 
@@ -1663,7 +1663,7 @@
             const eyeVisor = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.05), new THREE.MeshBasicMaterial({ color: accentColor })); eyeVisor.position.set(0, 0.05, 0.2); headMesh.add(eyeVisor); botGroup.add(headMesh);
             const torsoMesh = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.4), new THREE.MeshBasicMaterial({ color: 0x000000 })); torsoMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(headMesh.geometry), new THREE.LineBasicMaterial({ color: skinColor }))); torsoMesh.position.y = 0.65; botGroup.add(torsoMesh);
             const leftArmGroup = new THREE.Group(); leftArmGroup.position.set(-0.45, 1.0, 0); const lLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: skinColor })); lLimbs.position.y = -0.4; leftArmGroup.add(lLimbs); botGroup.add(leftArmGroup);
-            const rightArmGroup = new THREE.Group(); rightArmGroup.position.set(0.45, 1.0, 0); const rLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: skinColor })); rLimbs.position.y = -0.4; rightArmGroup.add(rLimbs);
+            const rightArmGroup = new THREE.Group(); rightArmGroup.position.set(0.45, 1.0, 0); const rLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: skinColor })); rLegSegment = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.05, 0.7), new THREE.MeshBasicMaterial({ color: skinColor })); rLimbs.position.y = -0.4; rightArmGroup.add(rLimbs);
             const pistolBlaster = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.07, 0.3), new THREE.MeshBasicMaterial({ color: accentColor })); pistolBlaster.position.set(0, -0.9, 0); rightArmGroup.add(pistolBlaster); botGroup.add(rightArmGroup);
             const leftLegPivot = new THREE.Group(); leftLegPivot.position.set(-0.22, 0.2, 0); const lLegSegment = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.05, 0.7), new THREE.MeshBasicMaterial({ color: skinColor })); lLegSegment.position.y = -0.35; leftLegPivot.add(lLegSegment);
             const rightLegPivot = new THREE.Group(); rightLegPivot.position.set(0.22, 0.2, 0); const rLegSegment = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.05, 0.7), new THREE.MeshBasicMaterial({ color: skinColor })); rLegSegment.position.y = -0.35; rightLegPivot.add(rLegSegment);
