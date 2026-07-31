@@ -752,7 +752,7 @@
                     const currentYawAngle = Math.atan2(headingVector.x, -headingVector.z);
 
                     let spaceDeltaMetersX = deltaX / contextScale;
-                    let spaceDeltaMetersZ = deltaY / contextScale;
+                    let spaceDeltaMetersZ = delta;
 
                     let translatedWorldX = spaceDeltaMetersX * Math.cos(currentYawAngle) - spaceDeltaMetersZ * Math.sin(currentYawAngle);
                     let translatedWorldZ = spaceDeltaMetersX * Math.sin(currentYawAngle) + spaceDeltaMetersZ * Math.cos(currentYawAngle);
@@ -970,7 +970,8 @@
                 if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
                 if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
             });
-            renderedBuildingsList.push({ points: points, box: { minX, maxX, minZ, maxZ } });
+            // STORE HEIGHT MATRIX DATA: Grants aerial entities vertical layout awareness
+            renderedBuildingsList.push({ points: points, box: { minX, maxX, minZ, maxZ }, height: h });
         }
 
         function buildNeonVectorPathways(points, tags) {
@@ -1129,32 +1130,19 @@
                 const spawnPoint = street.points[startNodeIdx];
                 const d = compileTacticalPatrolDrone(); d.coreAsset.position.set(spawnPoint.x, 25.0, spawnPoint.z); scene.add(d.coreAsset);
                 tacticalDronesCollection.push({
-                    id: i, meshElement: d.coreAsset, scannerBeamGroup: d.dynamicScannerBeam, leftArmAsset: d.leftArm, rightArmAsset: d.rightArm, routeCoordinates: street.points, currentNodeIndex: startNodeIdx, patrolDirectionFactor: Math.random() > 0.5 ? 1 : -1, movementVelocityFactor: 0.09 + Math.random() * 0.04, isChasingPlayer: false, isGrounded: false, lastPos: new THREE.Vector3().copy(d.coreAsset.position), stuckFrames: 0
+                    id: i, meshElement: d.coreAsset, scannerBeamGroup: d.dynamicScannerBeam, leftArmAsset: d.leftArm, rightArmAsset: d.rightArm, routeCoordinates: street.points, currentNodeIndex: startNodeIdx, patrolDirectionFactor: Math.random() > 0.5 ? 1 : -1, movementVelocityFactor: 0.09 + Math.random() * 0.04, isChasingPlayer: false, isGrounded: false, stuckCounter: 0
                 });
             }
         }
 
-        // INITIALIZATION SANITIZATION ENGINE: Scrubs corrupted OSM path nodes overlapping structural hulls
         function deployHumanoidGarrison() {
             humanoidBotsCollection.forEach(b => scene.remove(b.meshElement)); humanoidBotsCollection.length = 0;
             const validSidewalkTracks = renderedPedestrianList.filter(p => !p.isCrosswalk && p.points.length >= 2);
             if (validSidewalkTracks.length === 0) return;
-            
-            function isPointInAnyBuilding(x, z, buffer = 1.0) {
-                for (let i = 0; i < renderedBuildingsList.length; i++) {
-                    const b = renderedBuildingsList[i].box;
-                    if (x > b.minX - buffer && x < b.maxX + buffer && z > b.minZ - buffer && z < b.maxZ + buffer) return true;
-                }
-                return false;
-            }
-
             const targetCount = 48;
             for(let i = 0; i < targetCount; i++) {
                 let track = validSidewalkTracks[Math.floor(Math.random() * validSidewalkTracks.length)];
-                let pathData = [];
-                track.points.forEach(pt => { if (!isPointInAnyBuilding(pt.x, pt.z)) pathData.push(pt); });
-                if (pathData.length === 0) continue; 
-                
+                let pathData = [...track.points];
                 let currentEnd = pathData[pathData.length - 1];
                 let visitedTracks = new Set([track]);
                 
@@ -1167,21 +1155,20 @@
                         if (d < closeDist) { closeDist = d; nextTrack = t; }
                     }
                     if (nextTrack) {
-                        nextTrack.points.forEach(pt => { if (!isPointInAnyBuilding(pt.x, pt.z)) pathData.push(pt); });
+                        pathData.push(...nextTrack.points);
                         visitedTracks.add(nextTrack);
                         currentEnd = pathData[pathData.length - 1];
                     } else { break; }
                 }
                 
-                if (pathData.length < 6 && pathData.length > 1) {
+                if (pathData.length < 6) {
                     let origPoints = [...pathData];
                     for (let m = origPoints.length - 2; m >= 0; m--) pathData.push(origPoints[m]);
                 }
-                if (pathData.length < 2) continue;
 
                 const botRef = compileHumanoidCombatBot(); botRef.model.position.set(pathData[0].x, 0.02, pathData[0].z); scene.add(botRef.model);
                 humanoidBotsCollection.push({
-                    id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0, lastPos: new THREE.Vector3().copy(botRef.model.position), stuckFrames: 0
+                    id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0, stuckCounter: 0
                 });
             }
         }
@@ -1192,17 +1179,22 @@
 
         function displayHolographicDatapadCode(padMesh) { alert(`VISOR DATA EXPANSION:\nDECRYPTED ENTRY ACCESS CODE -> [ ${padMesh.userData.code} ]`); }
 
+        // HEIGHT-AWARE MATHEMATICAL COLLISION ENGAGEMENT
         function handleAIBuildingCollision(pos, radius) {
             if (!mapLoadedForAnchor) return;
             for (let i = 0; i < renderedBuildingsList.length; i++) {
-                const b = renderedBuildingsList[i].box;
-                if (pos.x + radius > b.minX && pos.x - radius < b.maxX &&
-                    pos.z + radius > b.minZ && pos.z - radius < b.maxZ) {
+                const b = renderedBuildingsList[i];
+                // VERTICAL LAYER GATE: Permits aerial entities to completely ignore roofs beneath them
+                if (pos.y > b.height) continue; 
+                
+                const box = b.box;
+                if (pos.x + radius > box.minX && pos.x - radius < box.maxX &&
+                    pos.z + radius > box.minZ && pos.z - radius < box.maxZ) {
                     
-                    let pushLeft = pos.x - b.minX + radius;
-                    let pushRight = b.maxX - pos.x + radius;
-                    let pushUp = pos.z - b.minZ + radius;
-                    let pushDown = b.maxZ - pos.z + radius;
+                    let pushLeft = pos.x - box.minX + radius;
+                    let pushRight = box.maxX - pos.x + radius;
+                    let pushUp = pos.z - box.minZ + radius;
+                    let pushDown = box.maxZ - pos.z + radius;
                     
                     let minPush = pushLeft;
                     if (pushRight < minPush) minPush = pushRight;
@@ -1304,20 +1296,22 @@
                     moveZ = (dz / dist) * drone.movementVelocityFactor; 
                 }
 
+                // UNSTICK MONITOR FOR FLIGHT SCRIPTS
+                const dronePreX = pos.x; const dronePreZ = pos.z;
                 pos.x += moveX;
                 pos.z += moveZ;
                 handleAIBuildingCollision(pos, 1.5); 
 
-                // Aerial Stalling Fallback Logic
-                let dDistMoved = Math.hypot(pos.x - drone.lastPos.x, pos.z - drone.lastPos.z);
-                if ((moveX !== 0 || moveZ !== 0) && dDistMoved < 0.01) {
-                    drone.stuckFrames++;
-                    if (drone.stuckFrames > 8) {
+                const droneRealMoveDist = Math.hypot(pos.x - dronePreX, pos.z - dronePreZ);
+                if ((moveX !== 0 || moveZ !== 0) && droneRealMoveDist < 0.01) {
+                    drone.stuckCounter++;
+                    if (drone.stuckCounter > 25) { // Force-skip node if wedged by a facade
                         drone.currentNodeIndex = Math.max(0, Math.min(drone.currentNodeIndex + drone.patrolDirectionFactor, drone.routeCoordinates.length - 1));
-                        drone.stuckFrames = 0;
+                        drone.stuckCounter = 0;
                     }
-                } else { drone.stuckFrames = 0; }
-                drone.lastPos.copy(pos);
+                } else {
+                    drone.stuckCounter = 0;
+                }
 
                 const currentConeColor = (drone.isChasingPlayer || alertStateActive) ? 0xff0000 : (closestLocalAlarm ? 0xffff00 : 0x00ff00);
                 drone.scannerBeamGroup.children[0].material.color.setHex(currentConeColor);
@@ -1418,20 +1412,22 @@
                     bMoveZ = (ndz / ndist) * frameVelocityStride;
                 }
 
+                // UNSTICK MONITOR FOR INFANTRY BOT PATROLS
+                const botPreX = pos.x; const botPreZ = pos.z;
                 pos.x += bMoveX;
                 pos.z += bMoveZ;
                 handleAIBuildingCollision(pos, 1.0); 
 
-                // GROUND OVERLAP STUCK FRAMES PROTOCOL: Skip blocked tracking links instantly
-                let actualDistMoved = Math.hypot(pos.x - bot.lastPos.x, pos.z - bot.lastPos.z);
-                if ((bMoveX !== 0 || bMoveZ !== 0) && actualDistMoved < 0.01) {
-                    bot.stuckFrames++;
-                    if (bot.stuckFrames > 8) {
+                const botRealMoveDist = Math.hypot(pos.x - botPreX, pos.z - botPreZ);
+                if ((bMoveX !== 0 || bMoveZ !== 0) && botRealMoveDist < 0.01) {
+                    bot.stuckCounter++;
+                    if (bot.stuckCounter > 25) { // Abandon unreachable point if pinned by hull matrix math
                         bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex + bot.patrolDirectionFactor, bot.routeCoordinates.length - 1));
-                        bot.stuckFrames = 0;
+                        bot.stuckCounter = 0;
                     }
-                } else { bot.stuckFrames = 0; }
-                bot.lastPos.copy(pos);
+                } else {
+                    bot.stuckCounter = 0;
+                }
 
                 let botAngleDiff = botTargetAngle - bot.meshElement.rotation.y; while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2; while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2; bot.meshElement.rotation.y += botAngleDiff * 0.08;
                 const alternateCycle = Math.sin(timestamp * 0.008 * bot.velocity); bot.armL.rotation.x = -alternateCycle * 0.3; bot.armR.rotation.x = THREE.MathUtils.lerp(alternateCycle * 0.3, -Math.PI / 2, bot.aimProgress); bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
@@ -1489,7 +1485,7 @@
             if (!sensorsEngaged) return; 
             if (matrixOverloadActive) { statusLabel.innerHTML = `<div class="matrix-overload-title">Matrix Overload!</div><div class="matrix-overload-sub">Touch screen to re-initiate reconstruction sequence.</div>`; statusLabel.classList.remove('pulse-animation'); }
             else if (!mapLoadedForAnchor) { statusLabel.innerHTML = "Calibrating Satellites..."; statusLabel.classList.add('pulse-animation'); }
-            else if (!globalShutdownShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
+            else if (!globalShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
             
             if (!matrixOverloadActive) reticle.style.display = 'block'; else reticle.style.display = 'none';
             if (isCurrentlyDetected && !matrixOverloadActive && !globalShutdownTriggered) { trackerContainer.style.display = 'block'; trackerContainer.innerHTML = "WARNING: POSITION EXPOSED"; }
@@ -1629,12 +1625,7 @@
             spatialAnomaliesCollection.forEach(a => { if (a.collected) return; const d = Math.hypot(a.mesh.position.x - camera.position.x, a.mesh.position.z - camera.position.z); if (d <= a.radius) { a.collected = true; scene.remove(a.mesh); anomaliesCollectedCount++; } });
         }
 
-        function onWindowResize() {
-            const width = window.innerWidth; const height = window.innerHeight; camera.aspect = width / height; camera.updateProjectionMatrix(); renderer.setSize(width, height);
-            const cracksCanvas = document.getElementById('cracks-canvas'); cracksCanvas.width = width; cracksCanvas.height = height;
-            const currentContainerElement = document.getElementById('minimap-container'); const targetWidth = currentContainerElement.offsetWidth;
-            if (targetWidth > 0) { const minimapCanvas = document.getElementById('minimapCanvas'); minimapCanvas.width = targetWidth; minimapCanvas.height = targetWidth; }
-        }
+        onWindowResize(); window.addEventListener('resize', onWindowResize);
 
         function compileTacticalPatrolDrone() {
             const droneGroup = new THREE.Group(); const chassisColor = 0xff0000; const initialBeamColor = 0x00ff00;
@@ -1663,7 +1654,7 @@
             const eyeVisor = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.05), new THREE.MeshBasicMaterial({ color: accentColor })); eyeVisor.position.set(0, 0.05, 0.2); headMesh.add(eyeVisor); botGroup.add(headMesh);
             const torsoMesh = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.4), new THREE.MeshBasicMaterial({ color: 0x000000 })); torsoMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(headMesh.geometry), new THREE.LineBasicMaterial({ color: skinColor }))); torsoMesh.position.y = 0.65; botGroup.add(torsoMesh);
             const leftArmGroup = new THREE.Group(); leftArmGroup.position.set(-0.45, 1.0, 0); const lLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: skinColor })); lLimbs.position.y = -0.4; leftArmGroup.add(lLimbs); botGroup.add(leftArmGroup);
-            const rightArmGroup = new THREE.Group(); rightArmGroup.position.set(0.45, 1.0, 0); const rLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: skinColor })); rLegSegment = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.05, 0.7), new THREE.MeshBasicMaterial({ color: skinColor })); rLimbs.position.y = -0.4; rightArmGroup.add(rLimbs);
+            const rightArmGroup = new THREE.Group(); rightArmGroup.position.set(0.45, 1.0, 0); const rLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: skinColor })); rLimbs.position.y = -0.4; rightArmGroup.add(rLimbs);
             const pistolBlaster = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.07, 0.3), new THREE.MeshBasicMaterial({ color: accentColor })); pistolBlaster.position.set(0, -0.9, 0); rightArmGroup.add(pistolBlaster); botGroup.add(rightArmGroup);
             const leftLegPivot = new THREE.Group(); leftLegPivot.position.set(-0.22, 0.2, 0); const lLegSegment = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.05, 0.7), new THREE.MeshBasicMaterial({ color: skinColor })); lLegSegment.position.y = -0.35; leftLegPivot.add(lLegSegment);
             const rightLegPivot = new THREE.Group(); rightLegPivot.position.set(0.22, 0.2, 0); const rLegSegment = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.05, 0.7), new THREE.MeshBasicMaterial({ color: skinColor })); rLegSegment.position.y = -0.35; rightLegPivot.add(rLegSegment);
