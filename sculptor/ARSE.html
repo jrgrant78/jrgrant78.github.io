@@ -411,7 +411,7 @@
             const leftHipPivot = new THREE.Group(); leftHipPivot.position.set(-0.22, -0.6, 0);
             const leftThighSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.09, 0.07, 0.65)), wireframeMat); leftThighSeg.position.y = -0.325; leftHipPivot.add(leftThighSeg);
             const leftKneePivot = new THREE.Group(); leftKneePivot.position.set(0, -0.325, 0);
-            const leftShinSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.05, 0.6)), wireframeMat); leftShinSeg.position.y = -0.3; leftKneePivot.add(leftShinSeg); leftThighSeg.add(leftKneePivot); torsoBox.add(leftHipPivot);
+            const leftShinSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.05, 0.6)), wireframeMat); leftShinSeg.position.y = -0.3; leftKneePivot.add(leftShinSeg); leftThighSeg.add(leftHipPivot); torsoBox.add(leftHipPivot);
             const rightHipPivot = new THREE.Group(); rightHipPivot.position.set(0.22, -0.6, 0);
             const rightThighSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.09, 0.07, 0.65)), wireframeMat); rightThighSeg.position.y = -0.325; rightHipPivot.add(rightThighSeg);
             const rightKneePivot = new THREE.Group(); rightKneePivot.position.set(0, -0.325, 0);
@@ -970,7 +970,8 @@
                 if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
                 if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
             });
-            renderedBuildingsList.push({ points: points, box: { minX, maxX, minZ, maxZ } });
+            // STORE BUILDING HEIGHT CACHE: Empowers dynamic vertical roof validation thresholds
+            renderedBuildingsList.push({ points: points, box: { minX, maxX, minZ, maxZ }, height: h });
         }
 
         function buildNeonVectorPathways(points, tags) {
@@ -1129,7 +1130,8 @@
                 const spawnPoint = street.points[startNodeIdx];
                 const d = compileTacticalPatrolDrone(); d.coreAsset.position.set(spawnPoint.x, 25.0, spawnPoint.z); scene.add(d.coreAsset);
                 tacticalDronesCollection.push({
-                    id: i, meshElement: d.coreAsset, scannerBeamGroup: d.dynamicScannerBeam, leftArmAsset: d.leftArm, rightArmAsset: d.rightArm, routeCoordinates: street.points, currentNodeIndex: startNodeIdx, patrolDirectionFactor: Math.random() > 0.5 ? 1 : -1, movementVelocityFactor: 0.09 + Math.random() * 0.04, isChasingPlayer: false, isGrounded: false
+                    id: i, meshElement: d.coreAsset, scannerBeamGroup: d.dynamicScannerBeam, leftArmAsset: d.leftArm, rightArmAsset: d.rightArm, routeCoordinates: street.points, currentNodeIndex: startNodeIdx, patrolDirectionFactor: Math.random() > 0.5 ? 1 : -1, movementVelocityFactor: 0.09 + Math.random() * 0.04, isChasingPlayer: false, isGrounded: false,
+                    stuckFrames: 0, lastX: spawnPoint.x, lastZ: spawnPoint.z // Anti-Stuck Tracking Registers
                 });
             }
         }
@@ -1167,7 +1169,8 @@
 
                 const botRef = compileHumanoidCombatBot(); botRef.model.position.set(pathData[0].x, 0.02, pathData[0].z); scene.add(botRef.model);
                 humanoidBotsCollection.push({
-                    id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0
+                    id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0,
+                    stuckFrames: 0, lastX: pathData[0].x, lastZ: pathData[0].z // Anti-Stuck Tracking Registers
                 });
             }
         }
@@ -1178,27 +1181,32 @@
 
         function displayHolographicDatapadCode(padMesh) { alert(`VISOR DATA EXPANSION:\nDECRYPTED ENTRY ACCESS CODE -> [ ${padMesh.userData.code} ]`); }
 
-        function handleAIBuildingCollision(pos, radius) {
+        // VOLUMETRIC COLLISION FRAME ENGINE: Validates vertical roof lines to accommodate dynamic overhead clearance mapping
+        function handleAIBuildingCollision(pos, radius, currentY) {
             if (!mapLoadedForAnchor) return;
             for (let i = 0; i < renderedBuildingsList.length; i++) {
                 const b = renderedBuildingsList[i].box;
-                if (pos.x + radius > b.minX && pos.x - radius < b.maxX &&
-                    pos.z + radius > b.minZ && pos.z - radius < b.maxZ) {
-                    
-                    let pushLeft = pos.x - b.minX + radius;
-                    let pushRight = b.maxX - pos.x + radius;
-                    let pushUp = pos.z - b.minZ + radius;
-                    let pushDown = b.maxZ - pos.z + radius;
-                    
-                    let minPush = pushLeft;
-                    if (pushRight < minPush) minPush = pushRight;
-                    if (pushUp < minPush) minPush = pushUp;
-                    if (pushDown < minPush) minPush = pushDown;
-                    
-                    if (minPush === pushLeft) pos.x -= pushLeft;
-                    else if (minPush === pushRight) pos.x += pushRight;
-                    else if (minPush === pushUp) pos.z -= pushUp;
-                    else pos.z += pushDown;
+                const bHeight = renderedBuildingsList[i].height;
+                
+                if (currentY < bHeight) { 
+                    if (pos.x + radius > b.minX && pos.x - radius < b.maxX &&
+                        pos.z + radius > b.minZ && pos.z - radius < b.maxZ) {
+                        
+                        let pushLeft = pos.x - b.minX + radius;
+                        let pushRight = b.maxX - pos.x + radius;
+                        let pushUp = pos.z - b.minZ + radius;
+                        let pushDown = b.maxZ - pos.z + radius;
+                        
+                        let minPush = pushLeft;
+                        if (pushRight < minPush) minPush = pushRight;
+                        if (pushUp < minPush) minPush = pushUp;
+                        if (pushDown < minPush) minPush = pushDown;
+                        
+                        if (minPush === pushLeft) pos.x -= pushLeft;
+                        else if (minPush === pushRight) pos.x += pushRight;
+                        else if (minPush === pushUp) pos.z -= pushUp;
+                        else pos.z += pushDown;
+                    }
                 }
             }
         }
@@ -1273,7 +1281,6 @@
                     }
                 } 
                 else {
-                    // DECOUPLED ROUTE INTERPOLATION PROTOCOL: Separates index increments from calculations to guarantee fluid movement
                     let node = drone.routeCoordinates[drone.currentNodeIndex]; 
                     let dx = node.x - pos.x; let dz = node.z - pos.z; let dist = Math.hypot(dx, dz);
                     
@@ -1293,7 +1300,20 @@
 
                 pos.x += moveX;
                 pos.z += moveZ;
-                handleAIBuildingCollision(pos, 1.5); 
+                handleAIBuildingCollision(pos, 1.5, pos.y); 
+
+                // ADAPTIVE DETECTIONS GATE FOR STUCK DRONES
+                let distMoved = Math.hypot(pos.x - drone.lastX, pos.z - drone.lastZ);
+                drone.lastX = pos.x; drone.lastZ = pos.z;
+                if ((Math.abs(moveX) > 0.01 || Math.abs(moveZ) > 0.01) && distMoved < 0.02) {
+                    drone.stuckFrames++;
+                    if (drone.stuckFrames > 30) {
+                        drone.currentNodeIndex = (drone.currentNodeIndex + drone.patrolDirectionFactor + drone.routeCoordinates.length) % drone.routeCoordinates.length;
+                        drone.stuckFrames = 0;
+                    }
+                } else {
+                    drone.stuckFrames = 0;
+                }
 
                 const currentConeColor = (drone.isChasingPlayer || alertStateActive) ? 0xff0000 : (closestLocalAlarm ? 0xffff00 : 0x00ff00);
                 drone.scannerBeamGroup.children[0].material.color.setHex(currentConeColor);
@@ -1375,7 +1395,6 @@
                     }
                 }
                 else {
-                    // DECOUPLED GROUND INFANTRY PATROL STRIDE PROTOCOL
                     bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07); 
                     let targetNode = bot.routeCoordinates[bot.currentNodeIndex]; 
                     let ndx = targetNode.x - pos.x; let ndz = targetNode.z - pos.z; let ndist = Math.hypot(ndx, ndz);
@@ -1387,7 +1406,9 @@
                             bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex + bot.patrolDirectionFactor * 2, bot.routeCoordinates.length - 1));
                         } 
                         targetNode = bot.routeCoordinates[bot.currentNodeIndex];
-                        ndx = targetNode.x - pos.x; ndz = targetNode.z - pos.z; ndist = Math.hypot(ndx, ndz) || 1;
+                        if (targetNode) {
+                            ndx = targetNode.x - pos.x; ndz = targetNode.z - pos.z; ndist = Math.hypot(ndx, ndz) || 1;
+                        }
                     }
                     botTargetAngle = Math.atan2(ndx, ndz);
                     const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); 
@@ -1397,9 +1418,22 @@
 
                 pos.x += bMoveX;
                 pos.z += bMoveZ;
-                handleAIBuildingCollision(pos, 1.0); 
+                handleAIBuildingCollision(pos, 1.0, pos.y); 
 
-                let botAngleDiff = botTargetAngle - bot.meshElement.rotation.y; while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2; while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2; bot.meshElement.rotation.y += botAngleDiff * 0.08;
+                // ADAPTIVE DETECTIONS GATE FOR STUCK BOTS: Skips corrupted nodes to circumvent geometric deadlock pinning
+                let bDistMoved = Math.hypot(pos.x - bot.lastX, pos.z - bot.lastZ);
+                bot.lastX = pos.x; bot.lastZ = pos.z;
+                if ((Math.abs(bMoveX) > 0.01 || Math.abs(bMoveZ) > 0.01) && bDistMoved < 0.02) {
+                    bot.stuckFrames++;
+                    if (bot.stuckFrames > 30) {
+                        bot.currentNodeIndex = (bot.currentNodeIndex + bot.patrolDirectionFactor + bot.routeCoordinates.length) % bot.routeCoordinates.length;
+                        bot.stuckFrames = 0;
+                    }
+                } else {
+                    bot.stuckFrames = 0;
+                }
+
+                let botAngleDiff = botAngleDiff = botTargetAngle - bot.meshElement.rotation.y; while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2; while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2; bot.meshElement.rotation.y += botAngleDiff * 0.08;
                 const alternateCycle = Math.sin(timestamp * 0.008 * bot.velocity); bot.armL.rotation.x = -alternateCycle * 0.3; bot.armR.rotation.x = THREE.MathUtils.lerp(alternateCycle * 0.3, -Math.PI / 2, bot.aimProgress); bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
             });
 
@@ -1455,7 +1489,7 @@
             if (!sensorsEngaged) return; 
             if (matrixOverloadActive) { statusLabel.innerHTML = `<div class="matrix-overload-title">Matrix Overload!</div><div class="matrix-overload-sub">Touch screen to re-initiate reconstruction sequence.</div>`; statusLabel.classList.remove('pulse-animation'); }
             else if (!mapLoadedForAnchor) { statusLabel.innerHTML = "Calibrating Satellites..."; statusLabel.classList.add('pulse-animation'); }
-            else if (!globalShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
+            else if (!globalShutdownShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
             
             if (!matrixOverloadActive) reticle.style.display = 'block'; else reticle.style.display = 'none';
             if (isCurrentlyDetected && !matrixOverloadActive && !globalShutdownTriggered) { trackerContainer.style.display = 'block'; trackerContainer.innerHTML = "WARNING: POSITION EXPOSED"; }
