@@ -407,7 +407,7 @@
             const rightShoulderPivot = new THREE.Group(); rightShoulderPivot.position.set(0.45, 0.45, 0);
             const rightUpperArmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.07, 0.55)), wireframeMat); rightUpperArmSeg.position.y = -0.25; rightShoulderPivot.add(rightUpperArmSeg);
             const rightElbowPivot = new THREE.Group(); rightElbowPivot.position.set(0, -0.275, 0);
-            const rightForearmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.05, 0.05, 0.5)), wireframeMat); rightForearmSeg.position.y = -0.25; rightUpperArmSeg.add(rightElbowPivot); torsoBox.add(rightShoulderPivot);
+            const rightForearmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.05, 0.05, 0.5)), wireframeMat); rightUpperArmSeg.add(rightElbowPivot); torsoBox.add(rightShoulderPivot);
             const leftHipPivot = new THREE.Group(); leftHipPivot.position.set(-0.22, -0.6, 0);
             const leftThighSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.09, 0.07, 0.65)), wireframeMat); leftThighSeg.position.y = -0.325; leftHipPivot.add(leftThighSeg);
             const leftKneePivot = new THREE.Group(); leftKneePivot.position.set(0, -0.325, 0);
@@ -988,7 +988,6 @@
                 if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
             });
 
-            // COMPILATION INLINE CACHE: Evaluates structural center and squared extents once to filter downstream spatial loops
             const cx = (minX + maxX) * 0.5;
             const cz = (minZ + maxZ) * 0.5;
             const extent = Math.hypot(maxX - minX, maxZ - minZ) * 0.5;
@@ -1156,11 +1155,23 @@
             }
         }
 
+        // HIGH-PERFORMANCE LINEAR PATH SELECTION GARRISON PROTOCOL
         function deployHumanoidGarrison() {
             humanoidBotsCollection.forEach(b => scene.remove(b.meshElement)); humanoidBotsCollection.length = 0;
-            const validSidewalkTracks = renderedPedestrianList.filter(p => !p.isCrosswalk && p.points.length >= 2);
+            
+            // Rejection Filter: Instant elimination of confined or fragmented walkways
+            const validSidewalkTracks = renderedPedestrianList.filter(p => {
+                if (p.isCrosswalk || p.points.length < 2) return false;
+                let singleSegmentLength = 0;
+                for (let j = 0; j < p.points.length - 1; j++) {
+                    singleSegmentLength += Math.hypot(p.points[j+1].x - p.points[j].x, p.points[j+1].z - p.points[j].z);
+                }
+                return singleSegmentLength >= 20.0; // Restrict pool strictly to wide/long spans
+            });
+            
             if (validSidewalkTracks.length === 0) return;
             const targetCount = Math.min(48, validSidewalkTracks.length * 3);
+            
             for(let i = 0; i < targetCount; i++) {
                 let track = validSidewalkTracks[Math.floor(Math.random() * validSidewalkTracks.length)];
                 let pathData = [...track.points];
@@ -1169,7 +1180,7 @@
                 
                 for (let k = 0; k < 4; k++) {
                     let nextTrack = null;
-                    let closeDist = 25.0;
+                    let closeDist = 30.0; 
                     for (let t of validSidewalkTracks) {
                         if (visitedTracks.has(t)) continue;
                         let d = Math.hypot(t.points[0].x - currentEnd.x, t.points[0].z - currentEnd.z);
@@ -1182,6 +1193,15 @@
                     } else { break; }
                 }
                 
+                // Cumulative Length Threshold Gate: Enforce continuous movement trajectories
+                let totalPatrolLength = 0;
+                for (let j = 0; j < pathData.length - 1; j++) {
+                    totalPatrolLength += Math.hypot(pathData[j+1].x - pathData[j].x, pathData[j+1].z - pathData[j].z);
+                }
+                if (totalPatrolLength < 40.0 && validSidewalkTracks.length > i) {
+                    continue; // Re-roll current placement iteration to secure open space alignment
+                }
+
                 if (pathData.length < 6) {
                     let origPoints = [...pathData];
                     for (let m = origPoints.length - 2; m >= 0; m--) pathData.push(origPoints[m]);
@@ -1194,14 +1214,12 @@
             }
         }
 
-        // SCALED SCALAR SPATIAL PROXIMITY COUPLING: Bypasses box testing entirely via fast radius rejection bounds
         function handleAIBuildingCollision(pos, radius) {
             if (!mapLoadedForAnchor) return;
             const size = renderedBuildingsList.length;
             for (let i = 0; i < size; i++) {
                 const b = renderedBuildingsList[i].box;
                 
-                // Pure primitive multiply broad-phase filtering replaces loops instantly
                 const dx = pos.x - b.cx;
                 const dz = pos.z - b.cz;
                 const maxRange = b.extent + radius + 1.5;
@@ -1257,7 +1275,6 @@
                 
                 let isDirectlySpottingPlayer = (Math.acos(_scratchBeamDir.dot(_scratchVToP)) <= CONE_SEMI_ANGLE && dToP <= CONE_HEIGHT);
 
-                // TIME-STAGGERED RAYCAST VISIBILITY GATING: Limits sight execution passes to cut narrow-phase overhead
                 if (isDirectlySpottingPlayer && combinedBuildingMesh) {
                     if (curSystemTime - drone.lastSightCheckTime > 150) {
                         drone.lastSightCheckTime = curSystemTime;
@@ -1361,7 +1378,6 @@
                     if (forwardVisionCosineDot >= 0.5) canBotSeePlayerRightNow = true; 
                 }
                 
-                // STAGGERED INFANTRY OCCLUSION BUFFER COUPLING LAYER
                 if (canBotSeePlayerRightNow && combinedBuildingMesh) {
                     if (curSystemTime - bot.lastSightCheckTime > 150) {
                         bot.lastSightCheckTime = curSystemTime;
