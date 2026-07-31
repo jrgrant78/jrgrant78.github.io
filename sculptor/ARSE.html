@@ -280,6 +280,8 @@
         const CONE_HEIGHT = 38.0; 
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
+        const visionRaycaster = new THREE.Raycaster();
+
         // POOLED VECTOR SCRATCH REGISTERS
         const _scratchVToP = new THREE.Vector3();
         const _scratchBeamDir = new THREE.Vector3();
@@ -288,6 +290,9 @@
         const _scratchMuzzleOffset = new THREE.Vector3();
         const _scratchLaserTarget = new THREE.Vector3();
         const _scratchMapTransform = { x: 0, y: 0 };
+        const _scratchRaySource = new THREE.Vector3();
+        const _scratchRayTarget = new THREE.Vector3();
+        const _scratchRayDir = new THREE.Vector3();
         const _scratchHandCheckVec = new THREE.Vector3();
         
         const _colorSkyBuffer = new THREE.Color();
@@ -982,7 +987,12 @@
                 if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
                 if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
             });
-            renderedBuildingsList.push({ points: points, box: { minX, maxX, minZ, maxZ } });
+
+            // COMPILATION INLINE CACHE: Evaluates structural center and squared extents once to filter downstream spatial loops
+            const cx = (minX + maxX) * 0.5;
+            const cz = (minZ + maxZ) * 0.5;
+            const extent = Math.hypot(maxX - minX, maxZ - minZ) * 0.5;
+            renderedBuildingsList.push({ points: points, box: { minX, maxX, minZ, maxZ, cx, cz, extent } });
         }
 
         function buildNeonVectorPathways(points, tags) {
@@ -1141,7 +1151,7 @@
                 const spawnPoint = street.points[startNodeIdx];
                 const d = compileTacticalPatrolDrone(); d.coreAsset.position.set(spawnPoint.x, 25.0, spawnPoint.z); scene.add(d.coreAsset);
                 tacticalDronesCollection.push({
-                    id: i, meshElement: d.coreAsset, scannerBeamGroup: d.dynamicScannerBeam, leftArmAsset: d.leftArm, rightArmAsset: d.rightArm, routeCoordinates: street.points, currentNodeIndex: startNodeIdx, patrolDirectionFactor: Math.random() > 0.5 ? 1 : -1, movementVelocityFactor: 0.09 + Math.random() * 0.04, isChasingPlayer: false, isGrounded: false, lastPosX: spawnPoint.x, lastPosZ: spawnPoint.z, stuckFrames: 0
+                    id: i, meshElement: d.coreAsset, scannerBeamGroup: d.dynamicScannerBeam, leftArmAsset: d.leftArm, rightArmAsset: d.rightArm, routeCoordinates: street.points, currentNodeIndex: startNodeIdx, patrolDirectionFactor: Math.random() > 0.5 ? 1 : -1, movementVelocityFactor: 0.09 + Math.random() * 0.04, isChasingPlayer: false, isGrounded: false, lastPosX: spawnPoint.x, lastPosZ: spawnPoint.z, stuckFrames: 0, lastSightCheckTime: 0, isOccluded: false
                 });
             }
         }
@@ -1179,22 +1189,24 @@
 
                 const botRef = compileHumanoidCombatBot(); botRef.model.position.set(pathData[0].x, 0.02, pathData[0].z); scene.add(botRef.model);
                 humanoidBotsCollection.push({
-                    id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0, lastPosX: pathData[0].x, lastPosZ: pathData[0].z, stuckFrames: 0
+                    id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0, lastPosX: pathData[0].x, lastPosZ: pathData[0].z, stuckFrames: 0, lastSightCheckTime: 0, isOccluded: false
                 });
             }
         }
 
-        function evaluateRaycastedObjectActivation(meshObject) {
-            if (meshObject.userData.type === 'datapad') { displayHolographicDatapadCode(meshObject); }
-        }
-
-        displayHolographicDatapadCode(padMesh) { alert(`VISOR DATA EXPANSION:\nDECRYPTED ENTRY ACCESS CODE -> [ ${padMesh.userData.code} ]`); }
-
+        // SCALED SCALAR SPATIAL PROXIMITY COUPLING: Bypasses box testing entirely via fast radius rejection bounds
         function handleAIBuildingCollision(pos, radius) {
             if (!mapLoadedForAnchor) return;
             const size = renderedBuildingsList.length;
             for (let i = 0; i < size; i++) {
                 const b = renderedBuildingsList[i].box;
+                
+                // Pure primitive multiply broad-phase filtering replaces loops instantly
+                const dx = pos.x - b.cx;
+                const dz = pos.z - b.cz;
+                const maxRange = b.extent + radius + 1.5;
+                if ((dx * dx + dz * dz) > maxRange * maxRange) continue;
+                
                 if (pos.x + radius > b.minX && pos.x - radius < b.maxX &&
                     pos.z + radius > b.minZ && pos.z - radius < b.maxZ) {
                     
@@ -1214,47 +1226,6 @@
                     else pos.z += pushDown;
                 }
             }
-        }
-
-        // ULTRA-LIGHTWEIGHT MATHEMATICAL OCCLUSION ENGINE: Replaces heavy raycasting with pure bounding matrix evaluations
-        function isLineOfSightOccluded(p1, p2) {
-            const x1 = p1.x, z1 = p1.z;
-            const x2 = p2.x, z2 = p2.z;
-            const size = renderedBuildingsList.length;
-            
-            for (let i = 0; i < size; i++) {
-                const b = renderedBuildingsList[i].box;
-                
-                // 1. Fast segment bounding box bounding overlap check
-                if (x1 < x2) { if (x2 < b.minX || x1 > b.maxX) continue; }
-                else { if (x1 < b.minX || x2 > b.maxX) continue; }
-                if (z1 < z2) { if (z2 < b.minZ || z1 > b.maxZ) continue; }
-                else { if (z1 < b.minZ || z2 > b.maxZ) continue; }
-                
-                // 2. High-speed 2D Slab line intersection calculation
-                let dx = x2 - x1;
-                let dz = z2 - z1;
-                let tmin = 0, tmax = 1;
-                
-                if (Math.abs(dx) > 1e-6) {
-                    let invDx = 1.0 / dx;
-                    let tx1 = (b.minX - x1) * invDx;
-                    let tx2 = (b.maxX - x1) * invDx;
-                    tmin = Math.max(tmin, Math.min(tx1, tx2));
-                    tmax = Math.min(tmax, Math.max(tx1, tx2));
-                } else if (x1 < b.minX || x1 > b.maxX) continue;
-                
-                if (Math.abs(dz) > 1e-6) {
-                    let invDz = 1.0 / dz;
-                    let tz1 = (b.minZ - z1) * invDz;
-                    let tz2 = (b.maxZ - z1) * invDz;
-                    tmin = Math.max(tmin, Math.min(tz1, tz2));
-                    tmax = Math.min(tmax, Math.max(tz1, tz2));
-                } else if (z1 < b.minZ || z1 > b.maxZ) continue;
-                
-                if (tmax >= tmin) return true; // Vector collides directly through building bounds profile
-            }
-            return false;
         }
 
         function advanceDronePatrolSimulation(timestamp) {
@@ -1286,11 +1257,18 @@
                 
                 let isDirectlySpottingPlayer = (Math.acos(_scratchBeamDir.dot(_scratchVToP)) <= CONE_SEMI_ANGLE && dToP <= CONE_HEIGHT);
 
-                // SWAPPED RAYCAST WITH LIGHTWEIGHT BOUNDS CHECK: Zero frame drop when scanning
-                if (isDirectlySpottingPlayer) {
-                    if (isLineOfSightOccluded(pos, camera.position)) {
-                        isDirectlySpottingPlayer = false; 
+                // TIME-STAGGERED RAYCAST VISIBILITY GATING: Limits sight execution passes to cut narrow-phase overhead
+                if (isDirectlySpottingPlayer && combinedBuildingMesh) {
+                    if (curSystemTime - drone.lastSightCheckTime > 150) {
+                        drone.lastSightCheckTime = curSystemTime;
+                        _scratchRayTarget.copy(camera.position);
+                        _scratchRaySource.copy(pos);
+                        _scratchRayDir.subVectors(_scratchRayTarget, _scratchRaySource).normalize();
+                        visionRaycaster.set(_scratchRaySource, _scratchRayDir);
+                        const occlusionHits = visionRaycaster.intersectObject(combinedBuildingMesh);
+                        drone.isOccluded = (occlusionHits.length > 0 && occlusionHits[0].distance < dToP);
                     }
+                    if (drone.isOccluded) isDirectlySpottingPlayer = false;
                 }
 
                 if (isDirectlySpottingPlayer) { droneDetectedFlag = true; drone.isChasingPlayer = true; lastSeenPlayerPosition.copy(camera.position); }
@@ -1380,13 +1358,21 @@
                     _scratchBotHeading.normalize(); 
                     _scratchBotFacing.set(Math.sin(bot.meshElement.rotation.y), 0, Math.cos(bot.meshElement.rotation.y)).normalize(); 
                     let forwardVisionCosineDot = _scratchBotFacing.dot(_scratchBotHeading); 
-                    
-                    // ACCELERATED BOT ACCURATE VISUAL MATCHING: Pure math bypasses scene tree lookups completely
-                    if (forwardVisionCosineDot >= 0.5) {
-                        if (!isLineOfSightOccluded(pos, camera.position)) {
-                            canBotSeePlayerRightNow = true;
-                        }
+                    if (forwardVisionCosineDot >= 0.5) canBotSeePlayerRightNow = true; 
+                }
+                
+                // STAGGERED INFANTRY OCCLUSION BUFFER COUPLING LAYER
+                if (canBotSeePlayerRightNow && combinedBuildingMesh) {
+                    if (curSystemTime - bot.lastSightCheckTime > 150) {
+                        bot.lastSightCheckTime = curSystemTime;
+                        _scratchRayTarget.copy(camera.position);
+                        _scratchRaySource.copy(pos).y += 2.6; 
+                        _scratchRayDir.subVectors(_scratchRayTarget, _scratchRaySource).normalize();
+                        visionRaycaster.set(_scratchRaySource, _scratchRayDir);
+                        const occlusionHits = visionRaycaster.intersectObject(combinedBuildingMesh);
+                        bot.isOccluded = (occlusionHits.length > 0 && occlusionHits[0].distance < distanceToPlayer);
                     }
+                    if (bot.isOccluded) canBotSeePlayerRightNow = false;
                 }
 
                 if (canBotSeePlayerRightNow) { botDetectedFlag = true; bot.isAlerted = true; lastSeenPlayerPosition.copy(camera.position); } else { bot.isAlerted = false; }
