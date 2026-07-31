@@ -904,7 +904,10 @@
                 } catch (e) { clearTimeout(timeoutId); }
             }
             isFetchingMap = false; 
-            if (success && data) { parseAndBuildOSMWorld(data, anchorCoordinates.lat, anchorCoordinates.lon); }
+            if (success && data) { 
+                // Protective timeout wrap keeps structural tracking fluid during dense mapping assembly cycles
+                setTimeout(() => { parseAndBuildOSMWorld(data, anchorCoordinates.lat, anchorCoordinates.lon); }, 50);
+            }
             else { triggerMatrixOverloadErrorState(); }
         }
 
@@ -919,52 +922,57 @@
         }
 
         function parseAndBuildOSMWorld(osmData, anchorLat, anchorLon) {
-            while(mapStructuralMeshes.children.length > 0) { const m = mapStructuralMeshes.children[0]; if (m.geometry) m.geometry.dispose(); mapStructuralMeshes.remove(m); }
-            globalTrafficNodes.length = 0; renderedStreetsList.length = 0; renderedBuildingsList.length = 0; renderedPedestrianList.length = 0;
-            actionableItemsArray.length = 0; hackingTerminalsCollection.length = 0; combinedBuildingMesh = null;
+            try {
+                while(mapStructuralMeshes.children.length > 0) { const m = mapStructuralMeshes.children[0]; if (m.geometry) m.geometry.dispose(); mapStructuralMeshes.remove(m); }
+                globalTrafficNodes.length = 0; renderedStreetsList.length = 0; renderedBuildingsList.length = 0; renderedPedestrianList.length = 0;
+                actionableItemsArray.length = 0; hackingTerminalsCollection.length = 0; combinedBuildingMesh = null;
 
-            buildingSolidGeoms = []; buildingWireGeoms = []; roadSolidGeoms = []; roadCurbGeoms = []; roadCenterGeoms = []; sidewalkSolidGeoms = []; crosswalkGeoms = [];
-            const grassGroundMesh = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), sharedMaterials.grass); grassGroundMesh.rotation.x = -Math.PI / 2; mapStructuralMeshes.add(grassGroundMesh);
+                buildingSolidGeoms = []; buildingWireGeoms = []; roadSolidGeoms = []; roadCurbGeoms = []; roadCenterGeoms = []; sidewalkSolidGeoms = []; crosswalkGeoms = [];
+                const grassGroundMesh = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), sharedMaterials.grass); grassGroundMesh.rotation.x = -Math.PI / 2; mapStructuralMeshes.add(grassGroundMesh);
 
-            if (!osmData || !osmData.elements) return;
-            const nodesLookup = {};
-            osmData.elements.forEach(el => { if (el.type === 'node') nodesLookup[el.id] = latLonToLocalMeters(el.lat, el.lon, anchorLat, anchorLon); });
-            osmData.elements.forEach(el => {
-                if (el.type === 'way' && el.nodes) {
-                    const pts = []; el.nodes.forEach(nid => { if (nodesLookup[nid]) pts.push(nodesLookup[nid]); }); if (pts.length < 2) return;
-                    const cx = pts.reduce((sum, p) => sum + p.x, 0) / pts.length; const cz = pts.reduce((sum, p) => sum + p.z, 0) / pts.length;
-                    if (Math.hypot(cx, cz) > MAP_RADIUS_METERS) return;
-                    if (el.tags && el.tags.building) { buildNeonStructuralHulls(pts, el.tags); }
-                    else if (el.tags && el.tags.highway) {
-                        if (['footway', 'pedestrian', 'path', 'sidewalk'].includes(el.tags.highway) || el.tags.footway) { buildPedestrianConduits(pts, el.tags); }
-                        else { buildNeonVectorPathways(pts, el.tags); }
+                if (!osmData || !osmData.elements) return;
+                const nodesLookup = {};
+                osmData.elements.forEach(el => { if (el.type === 'node') nodesLookup[el.id] = latLonToLocalMeters(el.lat, el.lon, anchorLat, anchorLon); });
+                osmData.elements.forEach(el => {
+                    if (el.type === 'way' && el.nodes) {
+                        const pts = []; el.nodes.forEach(nid => { if (nodesLookup[nid]) pts.push(nodesLookup[nid]); }); if (pts.length < 2) return;
+                        const cx = pts.reduce((sum, p) => sum + p.x, 0) / pts.length; const cz = pts.reduce((sum, p) => sum + p.z, 0) / pts.length;
+                        if (Math.hypot(cx, cz) > MAP_RADIUS_METERS) return;
+                        if (el.tags && el.tags.building) { buildNeonStructuralHulls(pts, el.tags); }
+                        else if (el.tags && el.tags.highway) {
+                            if (['footway', 'pedestrian', 'path', 'sidewalk'].includes(el.tags.highway) || el.tags.footway) { buildPedestrianConduits(pts, el.tags); }
+                            else { buildNeonVectorPathways(pts, el.tags); }
+                        }
                     }
+                });
+
+                if (buildingSolidGeoms.length > 0) { 
+                    combinedBuildingMesh = new THREE.Mesh(THREE.BufferGeometryUtils.mergeBufferGeometries(buildingSolidGeoms), sharedMaterials.buildingSolid);
+                    mapStructuralMeshes.add(combinedBuildingMesh); 
                 }
-            });
+                if (buildingWireGeoms.length > 0) { mapStructuralMeshes.add(new THREE.LineSegments(THREE.BufferGeometryUtils.mergeBufferGeometries(buildingWireGeoms), sharedMaterials.buildingWire)); }
+                if (roadSolidGeoms.length > 0) { mapStructuralMeshes.add(new THREE.Mesh(THREE.BufferGeometryUtils.mergeBufferGeometries(roadSolidGeoms), sharedMaterials.roadSolid)); }
+                if (roadCurbGeoms.length > 0) { mapStructuralMeshes.add(new THREE.LineSegments(THREE.BufferGeometryUtils.mergeBufferGeometries(roadCurbGeoms), sharedMaterials.roadCurb)); }
+                if (roadCenterGeoms.length > 0) {
+                    const mainLine = new THREE.LineSegments(THREE.BufferGeometryUtils.mergeBufferGeometries(roadCenterGeoms), sharedMaterials.roadCenter);
+                    mainLine.computeLineDistances(); mapStructuralMeshes.add(mainLine);
+                }
+                if (sidewalkSolidGeoms.length > 0) { mapStructuralMeshes.add(new THREE.Mesh(THREE.BufferGeometryUtils.mergeBufferGeometries(sidewalkSolidGeoms), sharedMaterials.sidewalkSolid)); }
+                if (crosswalkGeoms.length > 0) {
+                    const crossLine = new THREE.LineSegments(THREE.BufferGeometryUtils.mergeBufferGeometries(crosswalkGeoms), sharedMaterials.crosswalk);
+                    crossLine.computeLineDistances(); mapStructuralMeshes.add(crossLine);
+                }
 
-            if (buildingSolidGeoms.length > 0) { 
-                combinedBuildingMesh = new THREE.Mesh(THREE.BufferGeometryUtils.mergeBufferGeometries(buildingSolidGeoms), sharedMaterials.buildingSolid);
-                mapStructuralMeshes.add(combinedBuildingMesh); 
+                mapLoadedForAnchor = true;
+                spawnQuantumAnomalies();
+                deployTacticalDronePlatoon();
+                deployHumanoidGarrison();
+                generateHackingTerminalGrid();
+                onWindowResize(); 
+            } catch (err) {
+                console.error("OSM generation breakdown caught:", err);
+                triggerMatrixOverloadErrorState();
             }
-            if (buildingWireGeoms.length > 0) { mapStructuralMeshes.add(new THREE.LineSegments(THREE.BufferGeometryUtils.mergeBufferGeometries(buildingWireGeoms), sharedMaterials.buildingWire)); }
-            if (roadSolidGeoms.length > 0) { mapStructuralMeshes.add(new THREE.Mesh(THREE.BufferGeometryUtils.mergeBufferGeometries(roadSolidGeoms), sharedMaterials.roadSolid)); }
-            if (roadCurbGeoms.length > 0) { mapStructuralMeshes.add(new THREE.LineSegments(THREE.BufferGeometryUtils.mergeBufferGeometries(roadCurbGeoms), sharedMaterials.roadCurb)); }
-            if (roadCenterGeoms.length > 0) {
-                const mainLine = new THREE.LineSegments(THREE.BufferGeometryUtils.mergeBufferGeometries(roadCenterGeoms), sharedMaterials.roadCenter);
-                mainLine.computeLineDistances(); mapStructuralMeshes.add(mainLine);
-            }
-            if (sidewalkSolidGeoms.length > 0) { mapStructuralMeshes.add(new THREE.Mesh(THREE.BufferGeometryUtils.mergeBufferGeometries(sidewalkSolidGeoms), sharedMaterials.sidewalkSolid)); }
-            if (crosswalkGeoms.length > 0) {
-                const crossLine = new THREE.LineSegments(THREE.BufferGeometryUtils.mergeBufferGeometries(crosswalkGeoms), sharedMaterials.crosswalk);
-                crossLine.computeLineDistances(); mapStructuralMeshes.add(crossLine);
-            }
-
-            mapLoadedForAnchor = true;
-            spawnQuantumAnomalies();
-            deployTacticalDronePlatoon();
-            deployHumanoidGarrison();
-            generateHackingTerminalGrid();
-            onWindowResize(); 
         }
 
         function buildNeonStructuralHulls(points, tags) {
@@ -1016,7 +1024,7 @@
                 for(let i=0; i < count - 1; i++) { crosswalkGeoms.push(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(points[i].x, 0.018, points[i].z), new THREE.Vector3(points[i+1].x, 0.018, points[i+1].z)])); }
                 renderedPedestrianList.push({ points: points, isCrosswalk: true }); return;
             }
-            // RESOLVED STRUCTURAL TYPO SYNTAX ACCIDENT BELOW
+            // Syntax error cleared out cleanly
             const sidewalkHalfWidth = 1.2; const vertices = []; const indices = []; const normals = new Array(count);
             for (let i = 0; i < count; i++) {
                 let dx, dz; if (i === 0) { dx = points[1].x - points[0].x; dz = points[1].z - points[0].z; } else if (i === count - 1) { dx = points[count-1].x - points[count-2].x; dz = points[count-1].z - points[count-2].z; } else { dx = (points[i+1].x - points[i-1].x)/2; dz = (points[i+1].z - points[i-1].z)/2; }
@@ -1132,7 +1140,7 @@
         function deployTacticalDronePlatoon() {
             tacticalDronesCollection.forEach(d => scene.remove(d.meshElement)); tacticalDronesCollection.length = 0;
             if (renderedStreetsList.length === 0) return; 
-            const targetCount = 72;
+            const targetCount = Math.min(72, renderedStreetsList.length * 4); // Adaptive safety cap ensures loop bounds clear safely
             for (let i = 0; i < targetCount; i++) {
                 const streetIdx = i % renderedStreetsList.length;
                 const street = renderedStreetsList[streetIdx]; if (!street || street.points.length < 2) continue;
@@ -1149,7 +1157,7 @@
             humanoidBotsCollection.forEach(b => scene.remove(b.meshElement)); humanoidBotsCollection.length = 0;
             const validSidewalkTracks = renderedPedestrianList.filter(p => !p.isCrosswalk && p.points.length >= 2);
             if (validSidewalkTracks.length === 0) return;
-            const targetCount = 48;
+            const targetCount = Math.min(48, validSidewalkTracks.length * 3);
             for(let i = 0; i < targetCount; i++) {
                 let track = validSidewalkTracks[Math.floor(Math.random() * validSidewalkTracks.length)];
                 let pathData = [...track.points];
@@ -1183,15 +1191,10 @@
             }
         }
 
-        function evaluateRaycastedObjectActivation(meshObject) {
-            if (meshObject.userData.type === 'datapad') { displayHolographicDatapadCode(meshObject); }
-        }
-
-        function displayHolographicDatapadCode(padMesh) { alert(`VISOR DATA EXPANSION:\nDECRYPTED ENTRY ACCESS CODE -> [ ${padMesh.userData.code} ]`); }
-
         function handleAIBuildingCollision(pos, radius) {
             if (!mapLoadedForAnchor) return;
-            for (let i = 0; i < renderedBuildingsList.length; i++) {
+            const size = renderedBuildingsList.length;
+            for (let i = 0; i < size; i++) {
                 const b = renderedBuildingsList[i].box;
                 if (pos.x + radius > b.minX && pos.x - radius < b.maxX &&
                     pos.z + radius > b.minZ && pos.z - radius < b.maxZ) {
@@ -1436,7 +1439,7 @@
                     }
                 } else { bot.stuckFrames = 0; }
 
-                let botAngleDiff = botAngleDiff = botTargetAngle - bot.meshElement.rotation.y; while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2; while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2; bot.meshElement.rotation.y += botAngleDiff * 0.08;
+                let botAngleDiff = botTargetAngle - bot.meshElement.rotation.y; while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2; while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2; bot.meshElement.rotation.y += botAngleDiff * 0.08;
                 const alternateCycle = Math.sin(timestamp * 0.008 * bot.velocity); bot.armL.rotation.x = -alternateCycle * 0.3; bot.armR.rotation.x = THREE.MathUtils.lerp(alternateCycle * 0.3, -Math.PI / 2, bot.aimProgress); bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
             });
 
@@ -1492,7 +1495,7 @@
             if (!sensorsEngaged) return; 
             if (matrixOverloadActive) { statusLabel.innerHTML = `<div class="matrix-overload-title">Matrix Overload!</div><div class="matrix-overload-sub">Touch screen to re-initiate reconstruction sequence.</div>`; statusLabel.classList.remove('pulse-animation'); }
             else if (!mapLoadedForAnchor) { statusLabel.innerHTML = "Calibrating Satellites..."; statusLabel.classList.add('pulse-animation'); }
-            else if (!globalShutdownShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
+            else if (!globalShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
             
             if (!matrixOverloadActive) reticle.style.display = 'block'; else reticle.style.display = 'none';
             if (isCurrentlyDetected && !matrixOverloadActive && !globalShutdownTriggered) { trackerContainer.style.display = 'block'; trackerContainer.innerHTML = "WARNING: POSITION EXPOSED"; }
