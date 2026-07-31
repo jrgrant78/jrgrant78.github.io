@@ -411,7 +411,7 @@
             const leftHipPivot = new THREE.Group(); leftHipPivot.position.set(-0.22, -0.6, 0);
             const leftThighSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.09, 0.07, 0.65)), wireframeMat); leftThighSeg.position.y = -0.325; leftHipPivot.add(leftThighSeg);
             const leftKneePivot = new THREE.Group(); leftKneePivot.position.set(0, -0.325, 0);
-            const leftShinSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.05, 0.6)), wireframeMat); leftShinSeg.position.y = -0.3; leftKneePivot.add(leftShinSeg); leftThighSeg.add(leftHipPivot); torsoBox.add(leftHipPivot);
+            const leftShinSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.05, 0.6)), wireframeMat); leftShinSeg.position.y = -0.3; leftKneePivot.add(leftShinSeg); leftThighSeg.add(leftKneePivot); torsoBox.add(leftHipPivot);
             const rightHipPivot = new THREE.Group(); rightHipPivot.position.set(0.22, -0.6, 0);
             const rightThighSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.09, 0.07, 0.65)), wireframeMat); rightThighSeg.position.y = -0.325; rightHipPivot.add(rightThighSeg);
             const rightKneePivot = new THREE.Group(); rightKneePivot.position.set(0, -0.325, 0);
@@ -1129,7 +1129,8 @@
                 const spawnPoint = street.points[startNodeIdx];
                 const d = compileTacticalPatrolDrone(); d.coreAsset.position.set(spawnPoint.x, 25.0, spawnPoint.z); scene.add(d.coreAsset);
                 tacticalDronesCollection.push({
-                    id: i, meshElement: d.coreAsset, scannerBeamGroup: d.dynamicScannerBeam, leftArmAsset: d.leftArm, rightArmAsset: d.rightArm, routeCoordinates: street.points, currentNodeIndex: startNodeIdx, patrolDirectionFactor: Math.random() > 0.5 ? 1 : -1, movementVelocityFactor: 0.09 + Math.random() * 0.04, isChasingPlayer: false, isGrounded: false
+                    id: i, meshElement: d.coreAsset, scannerBeamGroup: d.dynamicScannerBeam, leftArmAsset: d.leftArm, rightArmAsset: d.rightArm, routeCoordinates: street.points, currentNodeIndex: startNodeIdx, patrolDirectionFactor: Math.random() > 0.5 ? 1 : -1, movementVelocityFactor: 0.09 + Math.random() * 0.04, isChasingPlayer: false, isGrounded: false,
+                    stuckCounter: 0, pathWiden: false
                 });
             }
         }
@@ -1167,7 +1168,8 @@
 
                 const botRef = compileHumanoidCombatBot(); botRef.model.position.set(pathData[0].x, 0.02, pathData[0].z); scene.add(botRef.model);
                 humanoidBotsCollection.push({
-                    id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0
+                    id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0,
+                    stuckCounter: 0, pathWiden: false
                 });
             }
         }
@@ -1216,14 +1218,16 @@
 
             tacticalDronesCollection.forEach(drone => {
                 let pos = drone.meshElement.position;
-                let dPreX = pos.x; let dPreZ = pos.z; // Snapshot initial tracking states
-
                 if (globalShutdownTriggered) {
                     drone.scannerBeamGroup.visible = false; 
                     if (pos.y > 0.3) { pos.y -= 0.6; drone.meshElement.rotation.x += 0.04; drone.meshElement.rotation.z += 0.02; } 
                     else { pos.y = 0.3; if (Math.random() < 0.08) { generateLocalElectricSpark(pos); } }
                     return; 
                 }
+
+                // Cache drone location pre-step coordinates to execute dead-lock calculations
+                let dOldX = pos.x;
+                let dOldZ = pos.z;
 
                 let tx = 0, tz = 0; let targetAngle = drone.meshElement.rotation.y;
                 
@@ -1278,13 +1282,17 @@
                     let node = drone.routeCoordinates[drone.currentNodeIndex]; 
                     let dx = node.x - pos.x; let dz = node.z - pos.z; let dist = Math.hypot(dx, dz);
                     
-                    if (dist < 3.0) { 
+                    // Dynamic route-widen radius adjustment automatically applied upon corner obstruction flags
+                    let dArrivalThreshold = drone.pathWiden ? 9.5 : 3.0;
+                    if (dist < dArrivalThreshold) { 
                         drone.currentNodeIndex += drone.patrolDirectionFactor;
                         if (drone.currentNodeIndex >= drone.routeCoordinates.length || drone.currentNodeIndex < 0) {
                             drone.patrolDirectionFactor *= -1; 
                             drone.currentNodeIndex = Math.max(0, Math.min(drone.currentNodeIndex + drone.patrolDirectionFactor * 2, drone.routeCoordinates.length - 1));
                         }
                         node = drone.routeCoordinates[drone.currentNodeIndex];
+                        drone.pathWiden = false;
+                        drone.stuckCounter = 0;
                         dx = node.x - pos.x; dz = node.z - pos.z; dist = Math.hypot(dx, dz) || 1;
                     }
                     targetAngle = Math.atan2(dx, dz);
@@ -1296,18 +1304,16 @@
                 pos.z += moveZ;
                 handleAIBuildingCollision(pos, 1.5); 
 
-                // UNSTUCK MECHANIC FOR SCOUT DRONES: Sweeps vectors sideways if clipped by obstacles
-                if ((moveX !== 0 || moveZ !== 0) && Math.hypot(pos.x - dPreX, pos.z - dPreZ) < 0.005) {
-                    drone.stuckFrames = (drone.stuckFrames || 0) + 1;
-                    if (drone.stuckFrames > 30) {
-                        if (drone.isChasingPlayer || alertStateActive || closestLocalAlarm) {
-                            pos.x += moveZ * 2.5; pos.z -= moveX * 2.5; 
-                        } else {
-                            drone.currentNodeIndex = (drone.currentNodeIndex + drone.patrolDirectionFactor + drone.routeCoordinates.length) % drone.routeCoordinates.length;
-                        }
-                        drone.stuckFrames = 0;
+                // Aerial frame collision delta analyzer tracking engine
+                if (!drone.isChasingPlayer && !alertStateActive && (moveX !== 0 || moveZ !== 0)) {
+                    let dActualDist = Math.hypot(pos.x - dOldX, pos.z - dOldZ);
+                    if (dActualDist < 0.02) { 
+                        drone.stuckCounter++;
+                        if (drone.stuckCounter > 40) drone.pathWiden = true; // Widen wayfinding gate perimeter limits
+                    } else {
+                        drone.stuckCounter = Math.max(0, drone.stuckCounter - 1);
                     }
-                } else { drone.stuckFrames = 0; }
+                }
 
                 const currentConeColor = (drone.isChasingPlayer || alertStateActive) ? 0xff0000 : (closestLocalAlarm ? 0xffff00 : 0x00ff00);
                 drone.scannerBeamGroup.children[0].material.color.setHex(currentConeColor);
@@ -1320,10 +1326,13 @@
             let botDetectedFlag = false;
             humanoidBotsCollection.forEach(bot => {
                 let pos = bot.meshElement.position; 
-                let preX = pos.x; let preZ = pos.z; // Cache entry frame coordinates
                 let canBotSeePlayerRightNow = false; 
                 let botTargetAngle = bot.meshElement.rotation.y;
                 
+                // Cache ground entity coordinate matrices pre-step velocity iteration execution profiles
+                let bOldX = pos.x;
+                let bOldZ = pos.z;
+
                 _scratchBotHeading.copy(camera.position).sub(pos);
                 _scratchBotHeading.y = 0;
                 const distanceToPlayer = _scratchBotHeading.length();
@@ -1394,13 +1403,17 @@
                     let targetNode = bot.routeCoordinates[bot.currentNodeIndex]; 
                     let ndx = targetNode.x - pos.x; let ndz = targetNode.z - pos.z; let ndist = Math.hypot(ndx, ndz);
                     
-                    if (ndist < 3.0) { 
+                    // Dynamic structural expansion arrival tolerance configuration layer
+                    let arrivalThreshold = bot.pathWiden ? 9.5 : 3.0;
+                    if (ndist < arrivalThreshold) { 
                         bot.currentNodeIndex += bot.patrolDirectionFactor; 
                         if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { 
                             bot.patrolDirectionFactor *= -1; 
                             bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex + bot.patrolDirectionFactor * 2, bot.routeCoordinates.length - 1));
                         } 
                         targetNode = bot.routeCoordinates[bot.currentNodeIndex];
+                        bot.pathWiden = false;
+                        bot.stuckCounter = 0;
                         ndx = targetNode.x - pos.x; ndz = targetNode.z - pos.z; ndist = Math.hypot(ndx, ndz) || 1;
                     }
                     botTargetAngle = Math.atan2(ndx, ndz);
@@ -1413,18 +1426,16 @@
                 pos.z += bMoveZ;
                 handleAIBuildingCollision(pos, 1.0); 
 
-                // UNSTUCK AUTOMATED SENTINEL FOR HUMAN BOT FORCES: Instantly redirects waypoints if translation math is zeroed out by walls
-                if ((bMoveX !== 0 || bMoveZ !== 0) && Math.hypot(pos.x - preX, pos.z - preZ) < 0.005) {
-                    bot.stuckFrames = (bot.stuckFrames || 0) + 1;
-                    if (bot.stuckFrames > 30) {
-                        if (bot.isAlerted || closestBotAlarm) {
-                            pos.x += bMoveZ * 2.5; pos.z -= bMoveX * 2.5; // Apply a lateral skate vector impulse to step clear of corners
-                        } else {
-                            bot.currentNodeIndex = (bot.currentNodeIndex + bot.patrolDirectionFactor + bot.routeCoordinates.length) % bot.routeCoordinates.length;
-                        }
-                        bot.stuckFrames = 0;
+                // Real-time displacement verification engine: Wides routing radius if forces net out to zero coordinates
+                if (!bot.isAlerted && (bMoveX !== 0 || bMoveZ !== 0)) {
+                    let bActualDist = Math.hypot(pos.x - bOldX, pos.z - bOldZ);
+                    if (bActualDist < 0.02) {
+                        bot.stuckCounter++;
+                        if (bot.stuckCounter > 40) bot.pathWiden = true; // Safe escape path broadening engagement lock
+                    } else {
+                        bot.stuckCounter = Math.max(0, bot.stuckCounter - 1);
                     }
-                } else { bot.stuckFrames = 0; }
+                }
 
                 let botAngleDiff = botTargetAngle - bot.meshElement.rotation.y; while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2; while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2; bot.meshElement.rotation.y += botAngleDiff * 0.08;
                 const alternateCycle = Math.sin(timestamp * 0.008 * bot.velocity); bot.armL.rotation.x = -alternateCycle * 0.3; bot.armR.rotation.x = THREE.MathUtils.lerp(alternateCycle * 0.3, -Math.PI / 2, bot.aimProgress); bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
@@ -1622,14 +1633,8 @@
             spatialAnomaliesCollection.forEach(a => { if (a.collected) return; const d = Math.hypot(a.mesh.position.x - camera.position.x, a.mesh.position.z - camera.position.z); if (d <= a.radius) { a.collected = true; scene.remove(a.mesh); anomaliesCollectedCount++; } });
         }
 
-        function onWindowResize() {
-            const width = window.innerWidth; const height = window.innerHeight; camera.aspect = width / height; camera.updateProjectionMatrix(); renderer.setSize(width, height);
-            const cracksCanvas = document.getElementById('cracks-canvas'); cracksCanvas.width = width; cracksCanvas.height = height;
-            const currentContainerElement = document.getElementById('minimap-container'); const targetWidth = currentContainerElement.offsetWidth;
-            if (targetWidth > 0) { const minimapCanvas = document.getElementById('minimapCanvas'); minimapCanvas.width = targetWidth; minimapCanvas.height = targetWidth; }
-        }
+        onWindowResize(); window.addEventListener('resize', onWindowResize);
 
-        // PHYSICAL THREAT ENTITY MODEL SPECIFICATION FACTORY
         function compileTacticalPatrolDrone() {
             const droneGroup = new THREE.Group(); const chassisColor = 0xff0000; const initialBeamColor = 0x00ff00;
             const bodyMesh = new THREE.Mesh(new THREE.SphereGeometry(1.3, 10, 10), new THREE.MeshBasicMaterial({ color: 0x000000, depthWrite: true })); const bodyWireframeMesh = new THREE.LineSegments(new THREE.EdgesGeometry(bodyMesh.geometry), new THREE.LineBasicMaterial({ color: chassisColor })); droneGroup.add(bodyMesh, bodyWireframeMesh);
@@ -1678,8 +1683,13 @@
             handVisualizerGroup.visible = false;
             
             const jointGeometry = new THREE.SphereGeometry(0.0048, 8, 8);
+            
             const biometricOrangeMaterial = new THREE.MeshBasicMaterial({ 
-                color: 0xff5500, wireframe: false, depthTest: false, depthWrite: false, transparent: true
+                color: 0xff5500, 
+                wireframe: false, 
+                depthTest: false,
+                depthWrite: false,
+                transparent: true
             });
             
             for (let i = 0; i < 21; i++) {
@@ -1690,6 +1700,7 @@
             }
 
             const baseBoneUnitGeometry = new THREE.CylinderGeometry(0.0045, 0.0035, 1.0, 6);
+            
             for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
                 const boneMeshInstance = new THREE.Mesh(baseBoneUnitGeometry, biometricOrangeMaterial);
                 boneMeshInstance.matrixAutoUpdate = false;
@@ -1701,11 +1712,22 @@
             const palmPositionsArray = new Float32Array(7 * 3); 
             palmGeometry.setAttribute('position', new THREE.BufferAttribute(palmPositionsArray, 3));
             
-            const palmIndices = [0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5, 0, 5, 6];
+            const palmIndices = [
+                0, 1, 2,  
+                0, 2, 3,  
+                0, 3, 4,  
+                0, 4, 5,  
+                0, 5, 6   
+            ];
             palmGeometry.setIndex(palmIndices);
 
             const palmMaterial = new THREE.MeshBasicMaterial({
-                color: 0xff5500, side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false
+                color: 0xff5500,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.85, 
+                depthTest: false,
+                depthWrite: false
             });
 
             palmMesh = new THREE.Mesh(palmGeometry, palmMaterial);
