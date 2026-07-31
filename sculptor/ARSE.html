@@ -222,7 +222,7 @@
         let mapLoadedForAnchor = false;
         let sensorsEngaged = false; 
         let matrixOverloadActive = false; 
-        let isFetchingMap = true; 
+        let isFetchingMap = false; 
         let osmFetchController = null;
         const R_EARTH = 6378137;
 
@@ -293,8 +293,8 @@
         const _scratchRaySource = new THREE.Vector3();
         const _scratchRayTarget = new THREE.Vector3();
         const _scratchRayDir = new THREE.Vector3();
-        const _scratchHandWorldTip = new THREE.Vector3();
-        const _scratchBtnWorldPos = new THREE.Vector3();
+        const _scratchHandCheckVec = new THREE.Vector3();
+        const _scratchCompCheckVec = new THREE.Vector3();
         
         const _colorSkyBuffer = new THREE.Color();
         const _colorLightBuffer = new THREE.Color();
@@ -345,6 +345,8 @@
             roadCenter: new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 3, gapSize: 3 }),
             sidewalkSolid: new THREE.MeshLambertMaterial({ color: 0x222222, side: THREE.DoubleSide }),
             crosswalk: new THREE.LineDashedMaterial({ color: 0xfffa9e, dashSize: 1.5, gapSize: 1.5 }),
+            terminalActive: new THREE.MeshLambertMaterial({ color: 0x00ff55, wireframe: true }),
+            terminalHacked: new THREE.MeshLambertMaterial({ color: 0x555555, wireframe: true }),
             datapadGlow: new THREE.MeshBasicMaterial({ color: 0xff0055, wireframe: true })
         };
 
@@ -402,7 +404,7 @@
             const leftShoulderPivot = new THREE.Group(); leftShoulderPivot.position.set(-0.45, 0.45, 0);
             const leftUpperArmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.07, 0.55)), wireframeMat); leftUpperArmSeg.position.y = -0.25; leftShoulderPivot.add(leftUpperArmSeg);
             const leftElbowPivot = new THREE.Group(); leftElbowPivot.position.set(0, -0.275, 0);
-            const leftForearmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.05, 0.05, 0.5)), wireframeMat); leftForearmSeg.position.y = -0.25; leftElbowPivot.add(leftForearmSeg); leftUpperArmSeg.add(leftElbowPivot); torsoBox.add(leftShoulderPivot);
+            const leftForearmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.05, 0.05, 0.5)), wireframeMat); leftForearmSeg.position.y = -0.25; leftElbowPivot.add(leftForearmSeg); leftUpperArmSeg.add(leftShoulderPivot); torsoBox.add(leftShoulderPivot);
             const rightShoulderPivot = new THREE.Group(); rightShoulderPivot.position.set(0.45, 0.45, 0);
             const rightUpperArmSeg = new THREE.LineSegments(extractEdges(new THREE.CylinderGeometry(0.07, 0.07, 0.55)), wireframeMat); rightUpperArmSeg.position.y = -0.25; rightShoulderPivot.add(rightUpperArmSeg);
             const rightElbowPivot = new THREE.Group(); rightElbowPivot.position.set(0, -0.275, 0);
@@ -712,19 +714,6 @@
             window.addEventListener('pointerup', () => { isDragging = false; });
             window.addEventListener('pointercancel', () => { isDragging = false; });
 
-            viewportCanvas.addEventListener('click', (e) => {
-                if (!mapLoadedForAnchor || matrixOverloadActive) return;
-                const mouseNDC = new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
-                const raycaster = new THREE.Raycaster();
-                raycaster.setFromCamera(mouseNDC, camera);
-                const hits = raycaster.intersectObjects(actionableItemsArray, true);
-                if (hits.length > 0) { evaluateRaycastedObjectActivation(hits[0].object); }
-            });
-
-            document.getElementById('offsetMenuTriggerBtn').addEventListener('click', (e) => {
-                e.stopPropagation(); document.getElementById('biasPanel').classList.toggle('open');
-            });
-
             const mapContainer = document.getElementById('minimap-container');
             
             mapContainer.addEventListener('pointerdown', (e) => {
@@ -916,7 +905,7 @@
             tacticalDronesCollection.forEach(d => scene.remove(d.meshElement)); tacticalDronesCollection.length = 0;
             humanoidBotsCollection.forEach(b => scene.remove(b.meshElement)); humanoidBotsCollection.length = 0;
             spatialAnomaliesCollection.forEach(a => scene.remove(a.mesh)); spatialAnomaliesCollection.length = 0;
-            hackingTerminalsCollection.forEach(t => scene.remove(t.masterGroup)); hackingTerminalsCollection.length = 0;
+            hackingTerminalsCollection.forEach(t => scene.remove(t.group)); hackingTerminalsCollection.length = 0;
             actionableItemsArray.length = 0; updateVisorFeedbackHUD(Date.now());
         }
 
@@ -1025,10 +1014,9 @@
             sidewalkSolidGeoms.push(swGeom); renderedPedestrianList.push({ points: points, isCrosswalk: false });
         }
 
-        // GENERATE COMPLETELY VIRTUAL 3D TACTILE BREAKERS TERMINALS
         function generateHackingTerminalGrid() {
-            const startNodePos = new THREE.Vector3(0, 0, -8);
-            createTerminal3DEntity(startNodePos, 0);
+            const startNodePos = new THREE.Vector3(0, 0, -12);
+            createTerminalEntity(startNodePos, 0);
 
             const totalTargetUnits = 11;
             const stepIncrement = Math.floor(globalTrafficNodes.length / (totalTargetUnits - 1)) || 1;
@@ -1037,125 +1025,74 @@
                 const nodeIdx = Math.min(globalTrafficNodes.length - 1, i * stepIncrement - Math.floor(Math.random() * 5));
                 if (nodeIdx < 0 || !globalTrafficNodes[nodeIdx]) continue;
                 const nodePos = globalTrafficNodes[nodeIdx].clone();
-                createTerminal3DEntity(nodePos, i);
+                nodePos.y = 0; 
+                createTerminalEntity(nodePos, i);
             }
             document.getElementById('hacked-terminal-counter').innerText = `0 / ${hackingTerminalsCollection.length}`;
         }
 
-        function createTerminal3DEntity(positionVector, indexId) {
-            const terminalContainerGroup = new THREE.Group();
-            terminalContainerGroup.position.copy(positionVector);
-
-            // 1. Pedestal Base Stand
-            const pedestalBase = new THREE.Mesh(
-                new THREE.CylinderGeometry(0.2, 0.3, 1.3, 8),
-                new THREE.MeshLambertMaterial({ color: 0x111118 })
-            );
-            pedestalBase.position.y = 0.65;
-            terminalContainerGroup.add(pedestalBase);
-
-            // 2. Slanted Console Dashboard Bed (Tracks top boundary precisely)
-            const dashboardSlantBed = new THREE.Group();
-            dashboardSlantBed.position.y = 1.3;
-            dashboardSlantBed.rotation.x = -Math.PI / 6; 
+        // FULL 3D WORKSTATION CONFIGURATION CONSOLE SPATIAL GENERATION ENGINE
+        function createTerminalEntity(positionVector, indexId) {
+            const terminalGroup = new THREE.Group();
+            terminalGroup.position.copy(positionVector);
             
-            const dashboardPlate = new THREE.Mesh(
-                new THREE.BoxGeometry(0.9, 0.6, 0.1),
-                new THREE.MeshLambertMaterial({ color: 0x1c1c24 })
-            );
-            dashboardSlantBed.add(dashboardPlate);
-
-            // 3. Virtual Screen Monitor Display (Eye level at 1.7 meters off the floor)
-            const monitorFrame = new THREE.Mesh(
-                new THREE.BoxGeometry(0.7, 0.35, 0.02),
-                new THREE.MeshBasicMaterial({ color: 0x030305 })
-            );
-            monitorFrame.position.set(0, 0.12, 0.06);
-            dashboardSlantBed.add(monitorFrame);
-
-            // Setup Dedicated UI Display Canvas
-            const canvas2DDisplay = document.createElement('canvas');
-            canvas2DDisplay.width = 256; canvas2DDisplay.height = 128;
-            const ctx2D = canvas2DDisplay.getContext('2d');
-            const displayTex = new THREE.CanvasTexture(canvas2DDisplay);
+            // Core pillar pillar base geometry
+            const pillarGeo = new THREE.CylinderGeometry(0.25, 0.35, 1.3, 8);
+            const pillarMesh = new THREE.Mesh(pillarGeo, sharedMaterials.terminalActive);
+            pillarMesh.position.y = 0.65;
+            terminalGroup.add(pillarMesh);
             
-            const screenDisplayPlane = new THREE.Mesh(
-                new THREE.PlaneGeometry(0.66, 0.31),
-                new THREE.MeshBasicMaterial({ map: displayTex })
-            );
-            screenDisplayPlane.position.set(0, 0.12, 0.072);
-            dashboardSlantBed.add(screenDisplayPlane);
-
-            // 4. Physical 3D Buttons Framework (Sliders substitute)
-            const buttonsArray = [];
-            const buttonSpacing = 0.22;
-            const buttonGeometry = new THREE.BoxGeometry(0.12, 0.08, 0.08);
-
+            // Console display framework positioned exactly at player's eye level (1.7m)
+            const consoleFrameGeo = new THREE.BoxGeometry(0.9, 0.6, 0.08);
+            const consoleMesh = new THREE.Mesh(consoleFrameGeo, new THREE.MeshBasicMaterial({ color: 0x030714 }));
+            consoleMesh.position.y = 1.7;
+            consoleMesh.rotation.x = -Math.PI / 6; // Angled slightly upwards for tracking convenience
+            
+            const outerGlowWire = new THREE.LineSegments(new THREE.EdgesGeometry(consoleFrameGeo), new THREE.LineBasicMaterial({ color: 0x00ffcc }));
+            consoleMesh.add(outerGlowWire);
+            terminalGroup.add(consoleMesh);
+            
+            // Attach tactile 3D sub-elements to the virtual panel mesh array
+            const keyGeo = new THREE.BoxGeometry(0.12, 0.12, 0.04);
+            const activeSubButtons = [];
             for (let i = 0; i < 3; i++) {
-                const btnMat = new THREE.MeshLambertMaterial({ color: 0xff3300, emissive: 0x661100 });
-                const buttonMesh = new THREE.Mesh(buttonGeometry, btnMat);
-                // Position sequentially across the lower half of the dashboard slant plate
-                buttonMesh.position.set((i - 1) * buttonSpacing, -0.14, 0.06);
-                buttonMesh.userData = {
-                    index: i,
-                    active: false,
-                    lastPressed: 0,
-                    originalZ: 0.06
-                };
-                dashboardSlantBed.add(buttonMesh);
-                buttonsArray.push(buttonMesh);
+                const keyMat = new THREE.MeshBasicMaterial({ color: 0xff0055 }); // Unhacked state color profile
+                const keyMesh = new THREE.Mesh(keyGeo, keyMat);
+                keyMesh.position.set(-0.24 + i * 0.24, 0.12, 0.041);
+                keyMesh.userData = { type: 'button', clicked: false, subId: i };
+                consoleMesh.add(keyMesh);
+                activeSubButtons.push(keyMesh);
             }
-
-            terminalContainerGroup.add(dashboardSlantBed);
-            scene.add(terminalContainerGroup);
-
-            // Register system node profiles
+            
+            // Mechanical breaker path sliding track
+            const runnerGeo = new THREE.BoxGeometry(0.6, 0.03, 0.02);
+            const runnerMesh = new THREE.Mesh(runnerGeo, new THREE.MeshBasicMaterial({ color: 0x444444 }));
+            runnerMesh.position.set(0, -0.12, 0.03);
+            consoleMesh.add(runnerMesh);
+            
+            const handleGeo = new THREE.BoxGeometry(0.08, 0.1, 0.05);
+            const handleMesh = new THREE.Mesh(handleGeo, new THREE.MeshBasicMaterial({ color: 0x00ffcc }));
+            handleMesh.position.set(-0.26, 0, 0.02); // Left initialization alignment node
+            handleMesh.userData = { type: 'handle', progress: 0.0 };
+            runnerMesh.add(handleMesh);
+            
+            // Auto-align console orientations to face general grid origin point
+            terminalGroup.lookAt(0, 0, 0);
+            terminalGroup.rotation.x = 0;
+            terminalGroup.rotation.z = 0;
+            
+            scene.add(terminalGroup);
+            
             hackingTerminalsCollection.push({
                 id: indexId,
-                masterGroup: terminalContainerGroup,
-                buttons: buttonsArray,
-                canvas: canvas2DDisplay,
-                ctx: ctx2D,
-                texture: displayTex,
+                pos: terminalGroup.position, // Mirror updates down to map context layers
+                group: terminalGroup,
+                consoleScreen: consoleMesh,
+                buttons: activeSubButtons,
+                slideHandle: handleMesh,
                 hacked: false,
-                lowering: false,
-                pos: positionVector.clone()
+                lowering: false
             });
-
-            // Initialize rendering loop canvas text contents
-            refreshVirtualScreenGraphics(hackingTerminalsCollection[hackingTerminalsCollection.length - 1]);
-        }
-
-        function refreshVirtualScreenGraphics(terminalNodeObj) {
-            const context = terminalNodeObj.ctx;
-            context.fillStyle = '#02040a';
-            context.fillRect(0, 0, 256, 128);
-            
-            context.strokeStyle = '#00ffcc';
-            context.lineWidth = 4;
-            context.strokeRect(2, 2, 252, 124);
-
-            context.font = 'bold 16px Courier New';
-            context.fillStyle = '#00ffcc';
-            context.fillText(`NODE // DECRYPT_0${terminalNodeObj.id}`, 15, 28);
-
-            context.font = '12px Courier New';
-            if (terminalNodeObj.hacked) {
-                context.fillStyle = '#555555';
-                context.fillText('STATUS: LINK PURGED', 15, 55);
-                context.fillStyle = '#ff0055';
-                context.fillText('>> HARDWARE BYPASS OK', 15, 85);
-            } else {
-                context.fillStyle = '#ffff00';
-                context.fillText('BALANCING BREAKER GRID...', 15, 55);
-                
-                // Draw digital status markers mapping physical switches states
-                terminalNodeObj.buttons.forEach((btn, idx) => {
-                    context.fillStyle = btn.userData.active ? '#00ff55' : '#ff3300';
-                    context.fillText(`B0${idx + 1}:[${btn.userData.active ? 'ON ' : 'OFF'}]`, 15 + idx * 78, 90);
-                });
-            }
-            terminalNodeObj.texture.needsUpdate = true;
         }
 
         function deployTacticalDronePlatoon() {
@@ -1163,7 +1100,8 @@
             if (renderedStreetsList.length === 0) return; 
             const targetCount = 72;
             for (let i = 0; i < targetCount; i++) {
-                const street = renderedStreetsList[i % renderedStreetsList.length]; if (!street || street.points.length < 2) continue;
+                const streetIdx = i % renderedStreetsList.length;
+                const street = renderedStreetsList[streetIdx]; if (!street || street.points.length < 2) continue;
                 const startNodeIdx = Math.floor(Math.random() * street.points.length);
                 const spawnPoint = street.points[startNodeIdx];
                 const d = compileTacticalPatrolDrone(); d.coreAsset.position.set(spawnPoint.x, 25.0, spawnPoint.z); scene.add(d.coreAsset);
@@ -1185,45 +1123,30 @@
                 let visitedTracks = new Set([track]);
                 
                 for (let k = 0; k < 4; k++) {
-                    let nextTrack = null; let closeDist = 25.0;
+                    let nextTrack = null;
+                    let closeDist = 25.0;
                     for (let t of validSidewalkTracks) {
                         if (visitedTracks.has(t)) continue;
                         let d = Math.hypot(t.points[0].x - currentEnd.x, t.points[0].z - currentEnd.z);
                         if (d < closeDist) { closeDist = d; nextTrack = t; }
                     }
-                    if (nextTrack) { pathData.push(...nextTrack.points); visitedTracks.add(nextTrack); currentEnd = pathData[pathData.length - 1]; } else { break; }
+                    if (nextTrack) {
+                        pathData.push(...nextTrack.points);
+                        visitedTracks.add(nextTrack);
+                        currentEnd = pathData[pathData.length - 1];
+                    } else { break; }
                 }
+                
                 if (pathData.length < 6) {
                     let origPoints = [...pathData];
                     for (let m = origPoints.length - 2; m >= 0; m--) pathData.push(origPoints[m]);
                 }
+
                 const botRef = compileHumanoidCombatBot(); botRef.model.position.set(pathData[0].x, 0.02, pathData[0].z); scene.add(botRef.model);
                 humanoidBotsCollection.push({
                     id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0
                 });
             }
-        }
-
-        function evaluateRaycastedObjectActivation(meshObject) {
-            if (meshObject.userData.type === 'datapad') { displayHolographicDatapadCode(meshObject); }
-        }
-
-        function displayHolographicDatapadCode(padMesh) { alert(`VISOR DATA EXPANSION:\nDECRYPTED ENTRY ACCESS CODE -> [ ${padMesh.userData.code} ]`); }
-
-        function triggerTerminal3DDecryptionSuccess(tNode) {
-            tNode.hacked = true;
-            tNode.lowering = true;
-            refreshVirtualScreenGraphics(tNode);
-
-            // SIMULTANEOUS ACTIVE AREA THREAT RESPONSE TRIGGER
-            activeTerminalAlarms.push({
-                pos: tNode.pos.clone(),
-                expiresAt: Date.now() + 20000 
-            });
-
-            totalTerminalsHacked++; 
-            document.getElementById('hacked-terminal-counter').innerText = `${totalTerminalsHacked} / ${hackingTerminalsCollection.length}`;
-            if (totalTerminalsHacked >= hackingTerminalsCollection.length) { triggerGlobalHardwareOverride(); }
         }
 
         function triggerGlobalHardwareOverride() {
@@ -1262,30 +1185,44 @@
                 let isDirectlySpottingPlayer = (Math.acos(_scratchBeamDir.dot(_scratchVToP)) <= CONE_SEMI_ANGLE && dToP <= CONE_HEIGHT);
 
                 if (isDirectlySpottingPlayer && combinedBuildingMesh) {
-                    _scratchRayTarget.copy(camera.position); _scratchRaySource.copy(pos);
+                    _scratchRayTarget.copy(camera.position);
+                    _scratchRaySource.copy(pos);
                     _scratchRayDir.subVectors(_scratchRayTarget, _scratchRaySource).normalize();
                     visionRaycaster.set(_scratchRaySource, _scratchRayDir);
                     const occlusionHits = visionRaycaster.intersectObject(combinedBuildingMesh);
-                    if (occlusionHits.length > 0 && occlusionHits[0].distance < dToP) { isDirectlySpottingPlayer = false; }
+                    if (occlusionHits.length > 0 && occlusionHits[0].distance < dToP) {
+                        isDirectlySpottingPlayer = false; 
+                    }
                 }
 
                 if (isDirectlySpottingPlayer) { droneDetectedFlag = true; drone.isChasingPlayer = true; lastSeenPlayerPosition.copy(camera.position); }
 
                 let closestLocalAlarm = null;
                 for (let alarm of activeTerminalAlarms) {
-                    if (pos.distanceTo(alarm.pos) < 80.0) { closestLocalAlarm = alarm; break; }
+                    if (pos.distanceTo(alarm.pos) < 80.0) { 
+                        closestLocalAlarm = alarm;
+                        break;
+                    }
                 }
 
                 let moveX = 0, moveZ = 0;
                 if (drone.isChasingPlayer || alertStateActive) {
                     tx = lastSeenPlayerPosition.x; tz = lastSeenPlayerPosition.z; 
                     const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
-                    if (dist > 1.0) { targetAngle = Math.atan2(dx, dz); moveX = (dx / dist) * drone.movementVelocityFactor * 1.4; moveZ = (dz / dist) * drone.movementVelocityFactor * 1.4; }
+                    if (dist > 1.0) { 
+                        targetAngle = Math.atan2(dx, dz); 
+                        moveX = (dx / dist) * drone.movementVelocityFactor * 1.4; 
+                        moveZ = (dz / dist) * drone.movementVelocityFactor * 1.4; 
+                    }
                 } 
                 else if (closestLocalAlarm) {
                     tx = closestLocalAlarm.pos.x; tz = closestLocalAlarm.pos.z;
                     const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
-                    if (dist > 1.0) { targetAngle = Math.atan2(dx, dz); moveX = (dx / dist) * drone.movementVelocityFactor * 1.2; moveZ = (dz / dist) * drone.movementVelocityFactor * 1.2; }
+                    if (dist > 1.0) { 
+                        targetAngle = Math.atan2(dx, dz); 
+                        moveX = (dx / dist) * drone.movementVelocityFactor * 1.2; 
+                        moveZ = (dz / dist) * drone.movementVelocityFactor * 1.2; 
+                    }
                 } 
                 else {
                     const node = drone.routeCoordinates[drone.currentNodeIndex]; const dx = node.x - pos.x; const dz = node.z - pos.z; const dist = Math.hypot(dx, dz);
@@ -1295,17 +1232,24 @@
                         if (drone.currentNodeIndex >= drone.routeCoordinates.length || drone.currentNodeIndex < 0) {
                             drone.patrolDirectionFactor *= -1; drone.currentNodeIndex += drone.patrolDirectionFactor * 2; drone.currentNodeIndex = Math.max(0, Math.min(drone.currentNodeIndex, drone.routeCoordinates.length - 1));
                         }
-                    } else { moveX = (dx / dist) * drone.movementVelocityFactor; moveZ = (dz / dist) * drone.movementVelocityFactor; }
+                    } else { 
+                        moveX = (dx / dist) * drone.movementVelocityFactor; 
+                        moveZ = (dz / dist) * drone.movementVelocityFactor; 
+                    }
                 }
 
                 if ((moveX !== 0 || moveZ !== 0) && combinedBuildingMesh) {
-                    let moveVec = new THREE.Vector3(moveX, 0, moveZ); visionRaycaster.set(pos, moveVec.clone().normalize());
+                    let moveVec = new THREE.Vector3(moveX, 0, moveZ);
+                    visionRaycaster.set(pos, moveVec.clone().normalize());
                     let buildingHits = visionRaycaster.intersectObject(combinedBuildingMesh);
                     if (buildingHits.length > 0 && buildingHits[0].distance < (moveVec.length() + 3.0)) {
-                        let normal = buildingHits[0].face.normal; moveVec.projectOnPlane(normal); pos.addScaledVector(normal, 0.05);
+                        let normal = buildingHits[0].face.normal;
+                        moveVec.projectOnPlane(normal); 
+                        pos.addScaledVector(normal, 0.05); 
                         if (moveVec.lengthSq() > 0.001) targetAngle = Math.atan2(moveVec.x, moveVec.z);
                     }
-                    pos.x += moveVec.x; pos.z += moveVec.z;
+                    pos.x += moveVec.x;
+                    pos.z += moveVec.z;
                 }
 
                 const currentConeColor = (drone.isChasingPlayer || alertStateActive) ? 0xff0000 : (closestLocalAlarm ? 0xffff00 : 0x00ff00);
@@ -1318,57 +1262,107 @@
 
             let botDetectedFlag = false;
             humanoidBotsCollection.forEach(bot => {
-                let pos = bot.meshElement.position; let canBotSeePlayerRightNow = false; let botTargetAngle = bot.meshElement.rotation.y;
-                _scratchBotHeading.copy(camera.position).sub(pos); _scratchBotHeading.y = 0; const distanceToPlayer = _scratchBotHeading.length();
+                let pos = bot.meshElement.position; 
+                let canBotSeePlayerRightNow = false; 
+                let botTargetAngle = bot.meshElement.rotation.y;
+                
+                _scratchBotHeading.copy(camera.position).sub(pos);
+                _scratchBotHeading.y = 0;
+                const distanceToPlayer = _scratchBotHeading.length();
                 
                 if (distanceToPlayer <= 30.0) { 
-                    _scratchBotHeading.normalize(); _scratchBotFacing.set(Math.sin(bot.meshElement.rotation.y), 0, Math.cos(bot.meshElement.rotation.y)).normalize(); 
-                    if (_scratchBotFacing.dot(_scratchBotHeading) >= 0.5) canBotSeePlayerRightNow = true; 
+                    _scratchBotHeading.normalize(); 
+                    _scratchBotFacing.set(Math.sin(bot.meshElement.rotation.y), 0, Math.cos(bot.meshElement.rotation.y)).normalize(); 
+                    let forwardVisionCosineDot = _scratchBotFacing.dot(_scratchBotHeading); 
+                    if (forwardVisionCosineDot >= 0.5) canBotSeePlayerRightNow = true; 
                 }
                 
                 if (canBotSeePlayerRightNow && combinedBuildingMesh) {
-                    _scratchRayTarget.copy(camera.position); _scratchRaySource.copy(pos).y += 2.6; 
-                    _scratchRayDir.subVectors(_scratchRayTarget, _scratchRaySource).normalize(); visionRaycaster.set(_scratchRaySource, _scratchRayDir);
+                    _scratchRayTarget.copy(camera.position);
+                    _scratchRaySource.copy(pos).y += 2.6; 
+                    _scratchRayDir.subVectors(_scratchRayTarget, _scratchRaySource).normalize();
+                    visionRaycaster.set(_scratchRaySource, _scratchRayDir);
                     const occlusionHits = visionRaycaster.intersectObject(combinedBuildingMesh);
-                    if (occlusionHits.length > 0 && occlusionHits[0].distance < distanceToPlayer) { canBotSeePlayerRightNow = false; }
+                    if (occlusionHits.length > 0 && occlusionHits[0].distance < distanceToPlayer) {
+                        canBotSeePlayerRightNow = false; 
+                    }
                 }
 
                 if (canBotSeePlayerRightNow) { botDetectedFlag = true; bot.isAlerted = true; lastSeenPlayerPosition.copy(camera.position); } else { bot.isAlerted = false; }
                 
                 let closestBotAlarm = null;
                 for (let alarm of activeTerminalAlarms) {
-                    if (pos.distanceTo(alarm.pos) < 80.0) { closestBotAlarm = alarm; break; }
+                    if (pos.distanceTo(alarm.pos) < 80.0) {
+                        closestBotAlarm = alarm;
+                        break;
+                    }
                 }
 
                 let bMoveX = 0, bMoveZ = 0;
                 if (bot.isAlerted || alertStateActive) {
                     bot.aimProgress = Math.min(1.0, bot.aimProgress + 0.07); const dx = lastSeenPlayerPosition.x - pos.x; const dz = lastSeenPlayerPosition.z - pos.z; const distToLastSeen = Math.hypot(dx, dz); botTargetAngle = Math.atan2(dx, dz);
-                    if (distToLastSeen > 2.0) { const frameVelocityStride = Math.min(distToLastSeen, bot.velocity * 0.12 * 1.5); bMoveX = (dx / distToLastSeen) * frameVelocityStride; bMoveZ = (dz / distToLastSeen) * frameVelocityStride; }
+                    if (distToLastSeen > 2.0) { 
+                        const frameVelocityStride = Math.min(distToLastSeen, bot.velocity * 0.12 * 1.5); 
+                        bMoveX = (dx / distToLastSeen) * frameVelocityStride;
+                        bMoveZ = (dz / distToLastSeen) * frameVelocityStride;
+                    }
                     if (canBotSeePlayerRightNow && distanceToPlayer <= 25.0 && timestamp - bot.lastFireTimestamp > 1200) {
                         bot.lastFireTimestamp = timestamp; playerHealth = Math.max(0, playerHealth - 8.0); spaceOverlay.classList.add('flash-red-harm'); setTimeout(() => spaceOverlay.classList.remove('flash-red-harm'), 150);
-                        _scratchMuzzleOffset.set(0.9, 0.4, 1.6).applyMatrix4(bot.meshElement.matrixWorld); _scratchLaserTarget.copy(camera.position); 
-                        const laserMesh = new THREE.Mesh(sharedLaserGeometry, sharedLaserMaterial); laserMesh.position.copy(_scratchMuzzleOffset); laserMesh.lookAt(_scratchLaserTarget); laserMesh.rotation.x += Math.PI / 2; scene.add(laserMesh);
+                        
+                        _scratchMuzzleOffset.set(0.9, 0.4, 1.6).applyMatrix4(bot.meshElement.matrixWorld);
+                        _scratchLaserTarget.copy(camera.position); 
+                        
+                        const laserMesh = new THREE.Mesh(sharedLaserGeometry, sharedLaserMaterial);
+                        laserMesh.position.copy(_scratchMuzzleOffset); 
+                        laserMesh.lookAt(_scratchLaserTarget); 
+                        laserMesh.rotation.x += Math.PI / 2; 
+                        scene.add(laserMesh);
+                        
                         activeLasersCollection.push({ meshElement: laserMesh, directionVector: new THREE.Vector3().subVectors(_scratchLaserTarget, _scratchMuzzleOffset).normalize(), velocitySpeed: 5.5, distanceTraveled: 0, maxDistanceLimit: _scratchMuzzleOffset.distanceTo(_scratchLaserTarget) });
                     }
                 } 
                 else if (closestBotAlarm) {
-                    bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07); const dx = closestBotAlarm.pos.x - pos.x; const dz = closestBotAlarm.pos.z - pos.z; const distToAlarm = Math.hypot(dx, dz); botTargetAngle = Math.atan2(dx, dz);
-                    if (distToAlarm > 1.5) { const frameVelocityStride = Math.min(distToAlarm, bot.velocity * 0.12 * 1.2); bMoveX = (dx / distToAlarm) * frameVelocityStride; bMoveZ = (dz / distToAlarm) * frameVelocityStride; }
+                    bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07);
+                    const dx = closestBotAlarm.pos.x - pos.x; const dz = closestBotAlarm.pos.z - pos.z;
+                    const distToAlarm = Math.hypot(dx, dz); botTargetAngle = Math.atan2(dx, dz);
+                    if (distToAlarm > 1.5) { 
+                        const frameVelocityStride = Math.min(distToAlarm, bot.velocity * 0.12 * 1.2); 
+                        bMoveX = (dx / distToAlarm) * frameVelocityStride;
+                        bMoveZ = (dz / distToAlarm) * frameVelocityStride;
+                    }
                 }
                 else {
                     bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07); const targetNode = bot.routeCoordinates[bot.currentNodeIndex]; const ndx = targetNode.x - pos.x; const ndz = targetNode.z - pos.z; const ndist = Math.hypot(ndx, ndz);
-                    if (ndist < 2.0) { bot.currentNodeIndex += bot.patrolDirectionFactor; if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { bot.patrolDirectionFactor *= -1; bot.currentNodeIndex += bot.patrolDirectionFactor * 2; } bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex, bot.routeCoordinates.length - 1)); }
-                    if (ndist > 0.1) { if (ndist > 1.5) { botTargetAngle = Math.atan2(ndx, ndz); } const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); bMoveX = (ndx / ndist) * frameVelocityStride; bMoveZ = (ndz / ndist) * frameVelocityStride; }
+                    
+                    if (ndist < 2.0) { 
+                        bot.currentNodeIndex += bot.patrolDirectionFactor; 
+                        if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { 
+                            bot.patrolDirectionFactor *= -1; 
+                            bot.currentNodeIndex += bot.patrolDirectionFactor * 2; 
+                        } 
+                        bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex, bot.routeCoordinates.length - 1));
+                    }
+                    if (ndist > 0.1) { 
+                        if (ndist > 1.5) { botTargetAngle = Math.atan2(ndx, ndz); }
+                        const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); 
+                        bMoveX = (ndx / ndist) * frameVelocityStride;
+                        bMoveZ = (ndz / ndist) * frameVelocityStride;
+                    }
                 }
 
                 if ((bMoveX !== 0 || bMoveZ !== 0) && combinedBuildingMesh) {
-                    let bMoveVec = new THREE.Vector3(bMoveX, 0, bMoveZ); let botRaySource = pos.clone(); botRaySource.y = 1.5; visionRaycaster.set(botRaySource, bMoveVec.clone().normalize());
+                    let bMoveVec = new THREE.Vector3(bMoveX, 0, bMoveZ);
+                    let botRaySource = pos.clone(); botRaySource.y = 1.5; 
+                    visionRaycaster.set(botRaySource, bMoveVec.clone().normalize());
                     let buildingHits = visionRaycaster.intersectObject(combinedBuildingMesh);
                     if (buildingHits.length > 0 && buildingHits[0].distance < (bMoveVec.length() + 1.8)) {
-                        let normal = buildingHits[0].face.normal; bMoveVec.projectOnPlane(normal); pos.addScaledVector(normal, 0.05);
+                        let normal = buildingHits[0].face.normal;
+                        bMoveVec.projectOnPlane(normal); 
+                        pos.addScaledVector(normal, 0.05); 
                         if (bMoveVec.lengthSq() > 0.001) botTargetAngle = Math.atan2(bMoveVec.x, bMoveVec.z);
                     }
-                    pos.x += bMoveVec.x; pos.z += bMoveVec.z;
+                    pos.x += bMoveVec.x;
+                    pos.z += bMoveVec.z;
                 }
 
                 let botAngleDiff = botTargetAngle - bot.meshElement.rotation.y; while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2; while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2; bot.meshElement.rotation.y += botAngleDiff * 0.08;
@@ -1651,11 +1645,22 @@
             const palmPositionsArray = new Float32Array(7 * 3); 
             palmGeometry.setAttribute('position', new THREE.BufferAttribute(palmPositionsArray, 3));
             
-            const palmIndices = [ 0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5, 0, 5, 6 ];
+            const palmIndices = [
+                0, 1, 2,  
+                0, 2, 3,  
+                0, 3, 4,  
+                0, 4, 5,  
+                0, 5, 6   
+            ];
             palmGeometry.setIndex(palmIndices);
 
             const palmMaterial = new THREE.MeshBasicMaterial({
-                color: 0xff5500, side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false
+                color: 0xff5500,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.85, 
+                depthTest: false,
+                depthWrite: false
             });
 
             palmMesh = new THREE.Mesh(palmGeometry, palmMaterial);
@@ -1669,14 +1674,13 @@
                 requestAnimationFrame(frameLoopEngine); const t = Date.now();
                 spatialAnomaliesCollection.forEach(a => { if (!a.collected) { a.mesh.rotation.x += 0.01; a.mesh.rotation.y += 0.02; } });
                 
-                // SPATIAL TERMINALS PROCESSING PIPELINE
                 hackingTerminalsCollection.forEach(tNode => {
                     if (tNode.lowering) {
-                        tNode.masterGroup.position.y -= 0.05; 
-                        if (tNode.masterGroup.position.y <= -2.5) {
-                            tNode.masterGroup.position.y = -2.5;
+                        tNode.group.position.y -= 0.05; 
+                        if (tNode.group.position.y <= -3.0) {
+                            tNode.group.position.y = -3.0;
                             tNode.lowering = false;
-                            scene.remove(tNode.masterGroup); 
+                            scene.remove(tNode.group); 
                         }
                     }
                 });
@@ -1709,44 +1713,58 @@
                         palmGeometry.attributes.position.needsUpdate = true;
                         palmMesh.updateMatrix();
 
-                        // HIGH-SPEED REAL-TIME SPATIAL COLLISION LOOP BETWEEN HAND GEOMETRY AND VIRTUAL BUTTONS
-                        _scratchHandWorldTip.copy(structuralJointMeshes[8].position); // Extract indexed tip coordinates
-                        _scratchHandWorldTip.applyMatrix4(camera.matrixWorld); // Map to global world coordinate coordinates
+                        // SPATIAL VOLUMETRIC KINEMATIC INTERACTION PIPELINE (ZERO-LAG PROXIMITY GATE)
+                        _scratchHandCheckVec.copy(structuralJointMeshes[8].position); // Focus on Index tip node
+                        _scratchHandCheckVec.applyMatrix4(camera.matrixWorld); // Extract true world coordinates
 
                         hackingTerminalsCollection.forEach(tNode => {
-                            if (tNode.hacked || tNode.lowering) return;
+                            if (tNode.hacked) return;
 
-                            // Optimization Gate: skip terminals out of physical arm's length radius
-                            const distToNodeBase = _scratchHandWorldTip.distanceTo(tNode.pos);
-                            if (distToNodeBase < 2.5) {
-                                tNode.buttons.forEach(btnMesh => {
-                                    btnMesh.getWorldPosition(_scratchBtnWorldPos);
-                                    const distanceToFingerTip = _scratchHandWorldTip.distanceTo(_scratchBtnWorldPos);
-
-                                    // Trigger bounding sphere intersection check (10cm touch volume)
-                                    if (distanceToFingerTip < 0.12) {
-                                        const timestampNow = Date.now();
-                                        if (timestampNow - btnMesh.userData.lastPressed > 800) { // Debounce gate
-                                            btnMesh.userData.lastPressed = timestampNow;
-                                            
-                                            // Toggle individual spatial breaker switch state
-                                            btnMesh.userData.active = !btnMesh.userData.active;
-                                            
-                                            // Plunge mechanical mesh animation feedback sequence
-                                            btnMesh.position.z = btnMesh.userData.active ? btnMesh.userData.originalZ - 0.03 : btnMesh.userData.originalZ;
-                                            btnMesh.material.color.setHex(btnMesh.userData.active ? 0x00ff55 : 0xff3300);
-                                            btnMesh.material.emissive.setHex(btnMesh.userData.active ? 0x004411 : 0x661100);
-
-                                            refreshVirtualScreenGraphics(tNode);
-
-                                            // Win condition validation: all physical breaker circuits aligned to active green
-                                            const totalActiveBreakers = tNode.buttons.filter(b => b.userData.active).length;
-                                            if (totalActiveBreakers === tNode.buttons.length) {
-                                                triggerTerminal3DDecryptionSuccess(tNode);
-                                            }
+                            const flatDistanceToUnit = camera.position.distanceTo(tNode.group.position);
+                            if (flatDistanceToUnit < 3.0) { // Only sample nearby clusters to preserve processing frame allocations
+                                
+                                // Process 3D Push-Buttons
+                                tNode.buttons.forEach(btn => {
+                                    if (!btn.userData.clicked) {
+                                        btn.getWorldPosition(_scratchCompCheckVec);
+                                        if (_scratchHandCheckVec.distanceTo(_scratchCompCheckVec) < 0.14) {
+                                            btn.userData.clicked = true;
+                                            btn.material.color.setHex(0x00ff55); // Feedback shift to green
+                                            generateLocalElectricSpark(_scratchCompCheckVec);
                                         }
                                     }
                                 });
+
+                                // Process Linear Slider Track Interaction
+                                if (tNode.slideHandle.userData.progress < 1.0) {
+                                    tNode.slideHandle.getWorldPosition(_scratchCompCheckVec);
+                                    if (_scratchHandCheckVec.distanceTo(_scratchCompCheckVec) < 0.18) {
+                                        tNode.slideHandle.userData.progress = Math.min(1.0, tNode.slideHandle.userData.progress + 0.025);
+                                        tNode.slideHandle.position.x = -0.26 + (tNode.slideHandle.userData.progress * 0.52);
+                                        
+                                        if (tNode.slideHandle.userData.progress >= 1.0) {
+                                            tNode.slideHandle.material.color.setHex(0x00ffff); // Locked sequence styling confirmation
+                                        }
+                                    }
+                                }
+
+                                // Evaluate spatial validation state requirements
+                                const formsCompleted = tNode.buttons.every(b => b.userData.clicked);
+                                const trackCompleted = tNode.slideHandle.userData.progress >= 1.0;
+                                
+                                if (formsCompleted && trackCompleted) {
+                                    tNode.hacked = true;
+                                    tNode.lowering = true;
+
+                                    activeTerminalAlarms.push({
+                                        pos: tNode.group.position.clone(),
+                                        expiresAt: Date.now() + 20000
+                                    });
+
+                                    totalTerminalsHacked++;
+                                    document.getElementById('hacked-terminal-counter').innerText = `${totalTerminalsHacked} / ${hackingTerminalsCollection.length}`;
+                                    if (totalTerminalsHacked >= hackingTerminalsCollection.length) { triggerGlobalHardwareOverride(); }
+                                }
                             }
                         });
                     }
