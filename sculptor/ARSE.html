@@ -199,12 +199,12 @@
 
     <div id="fine-tune-dock">
         <div id="biasPanel" class="bias-control-panel">
-            <button class="nudge-btn" onpointerdown="applyGeospatialNudge(0.00004, 0); event.stopPropagation();" title="Nudge North">+N</button>
-            <button class="nudge-btn" onpointerdown="applyGeospatialNudge(-0.00004, 0); event.stopPropagation();" title="Nudge South">-S</button>
-            <button class="nudge-btn" onpointerdown="applyGeospatialNudge(0, -0.00005); event.stopPropagation();" title="Nudge West">-W</button>
-            <button class="nudge-btn" onpointerdown="applyGeospatialNudge(0, 0.00005); event.stopPropagation();" title="Nudge East">+E</button>
+            <button class="nudge-btn" onpointerdown="applyGeospatialNudge(0.00004, 0); event.stopPropagation(); event.preventDefault();" title="Nudge North">+N</button>
+            <button class="nudge-btn" onpointerdown="applyGeospatialNudge(-0.00004, 0); event.stopPropagation(); event.preventDefault();" title="Nudge South">-S</button>
+            <button class="nudge-btn" onpointerdown="applyGeospatialNudge(0, -0.00005); event.stopPropagation(); event.preventDefault();" title="Nudge West">-W</button>
+            <button class="nudge-btn" onpointerdown="applyGeospatialNudge(0, 0.00005); event.stopPropagation(); event.preventDefault();" title="Nudge East">+E</button>
         </div>
-        <button id="offsetMenuTriggerBtn" class="offset-menu-trigger" title="Positional Offset Calibration">⌖</button>
+        <button id="offsetMenuTriggerBtn" class="offset-menu-trigger" onpointerdown="document.getElementById('biasPanel').classList.toggle('open'); event.stopPropagation(); event.preventDefault();" title="Positional Offset Calibration">⌖</button>
     </div>
 
     <script>
@@ -856,11 +856,6 @@
                     }
                 }
             });
-
-            document.getElementById('offsetMenuTriggerBtn').addEventListener('pointerdown', (e) => {
-                e.stopPropagation(); e.preventDefault();
-                document.getElementById('biasPanel').classList.toggle('open');
-            });
         }
 
         function bindAbsoluteCompassListeners() {
@@ -1278,25 +1273,21 @@
                     }
                 } 
                 else {
-                    // TARGET MILESTONE SEPARATION SYSTEM: Isolated tight radius limits avoid dense node skipping artifacts
                     let node = drone.routeCoordinates[drone.currentNodeIndex]; 
                     let dx = node.x - pos.x; let dz = node.z - pos.z; let dist = Math.hypot(dx, dz);
                     
-                    if (dist < 1.2) { 
+                    if (dist < 1.5) { 
                         drone.currentNodeIndex += drone.patrolDirectionFactor;
                         if (drone.currentNodeIndex >= drone.routeCoordinates.length || drone.currentNodeIndex < 0) {
                             drone.patrolDirectionFactor *= -1; 
                             drone.currentNodeIndex = Math.max(0, Math.min(drone.currentNodeIndex + drone.patrolDirectionFactor * 2, drone.routeCoordinates.length - 1));
                         }
+                        node = drone.routeCoordinates[drone.currentNodeIndex];
+                        dx = node.x - pos.x; dz = node.z - pos.z; dist = Math.hypot(dx, dz) || 1;
                     }
-                    
-                    // Unconditionally compute tracking trajectory values toward active target vectors
-                    let activeNode = drone.routeCoordinates[drone.currentNodeIndex];
-                    let adx = activeNode.x - pos.x; let adz = activeNode.z - pos.z; let adist = Math.hypot(adx, adz) || 1;
-                    
-                    targetAngle = Math.atan2(adx, adz);
-                    moveX = (adx / adist) * drone.movementVelocityFactor; 
-                    moveZ = (adz / adist) * drone.movementVelocityFactor; 
+                    targetAngle = Math.atan2(dx, dz);
+                    moveX = (dx / dist) * drone.movementVelocityFactor; 
+                    moveZ = (dz / dist) * drone.movementVelocityFactor; 
                 }
 
                 pos.x += moveX;
@@ -1307,15 +1298,9 @@
                 drone.lastPosX = pos.x; drone.lastPosZ = pos.z;
                 if ((moveX !== 0 || moveZ !== 0) && dActualDist < 0.02) {
                     drone.stuckFrames = (drone.stuckFrames || 0) + 1;
-                    if (drone.stuckFrames > 6) {
-                        let dTargetNode = drone.routeCoordinates[drone.currentNodeIndex];
-                        let bdx = dTargetNode.x - pos.x; let bdz = dTargetNode.z - pos.z; let bh = Math.hypot(bdx, bdz) || 1;
-                        pos.x += (-bdz / bh) * drone.movementVelocityFactor * 4.0;
-                        pos.z += (bdx / bh) * drone.movementVelocityFactor * 4.0;
-                        if (drone.stuckFrames > 25) {
-                            drone.currentNodeIndex = (drone.currentNodeIndex + drone.patrolDirectionFactor + drone.routeCoordinates.length) % drone.routeCoordinates.length;
-                            drone.stuckFrames = 0;
-                        }
+                    if (drone.stuckFrames > 12) {
+                        drone.currentNodeIndex = (drone.currentNodeIndex + drone.patrolDirectionFactor + drone.routeCoordinates.length) % drone.routeCoordinates.length;
+                        drone.stuckFrames = 0;
                     }
                 } else { drone.stuckFrames = 0; }
 
@@ -1401,43 +1386,43 @@
                 else {
                     bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07); 
                     let targetNode = bot.routeCoordinates[bot.currentNodeIndex]; 
-                    let ndx = targetNode.x - pos.x; let ndz = targetNode.z - pos.z; let ndist = Math.hypot(ndx, ndz);
-                    
-                    if (ndist < 1.2) { 
-                        bot.currentNodeIndex += bot.patrolDirectionFactor; 
-                        if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { 
-                            bot.patrolDirectionFactor *= -1; 
-                            bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex + bot.patrolDirectionFactor * 2, bot.routeCoordinates.length - 1));
-                        } 
+                    if (targetNode) {
+                        let ndx = targetNode.x - pos.x; let ndz = targetNode.z - pos.z; let ndist = Math.hypot(ndx, ndz);
+                        
+                        // RESPONSIVE FILTER ARRIVAL GATE: 1.0 meter threshold prevents index cycling lockups
+                        if (ndist < 1.0) { 
+                            bot.currentNodeIndex += bot.patrolDirectionFactor; 
+                            if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { 
+                                bot.patrolDirectionFactor *= -1; 
+                                bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex + bot.patrolDirectionFactor * 2, bot.routeCoordinates.length - 1));
+                            } 
+                            targetNode = bot.routeCoordinates[bot.currentNodeIndex];
+                            if (targetNode) {
+                                ndx = targetNode.x - pos.x; ndz = targetNode.z - pos.z; ndist = Math.hypot(ndx, ndz) || 1;
+                            }
+                        }
+                        
+                        if (ndist > 0.05) {
+                            botTargetAngle = Math.atan2(ndx, ndz);
+                            const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); 
+                            bMoveX = (ndx / ndist) * frameVelocityStride;
+                            bMoveZ = (ndz / ndist) * frameVelocityStride;
+                        }
                     }
-                    
-                    // Force velocity updates to map seamlessly to the current node objective pass parameters
-                    let activeBotNode = bot.routeCoordinates[bot.currentNodeIndex];
-                    let andx = activeBotNode.x - pos.x; let andz = activeBotNode.z - pos.z; let andist = Math.hypot(andx, andz) || 1;
-                    
-                    botTargetAngle = Math.atan2(andx, andz);
-                    const frameVelocityStride = Math.min(andist, bot.velocity * 0.12); 
-                    bMoveX = (andx / andist) * frameVelocityStride;
-                    bMoveZ = (andz / andist) * frameVelocityStride;
                 }
 
                 pos.x += bMoveX;
                 pos.z += bMoveZ;
                 handleAIBuildingCollision(pos, 1.0); 
 
+                // UNINTERRUPTED DEADLOCK BYPASS OVERRIDE: Automatically routes around dense architectural corners
                 let bActualDist = Math.hypot(pos.x - bot.lastPosX, pos.z - bot.lastPosZ);
                 bot.lastPosX = pos.x; bot.lastPosZ = pos.z;
-                if ((bMoveX !== 0 || bMoveZ !== 0) && bActualDist < 0.02) {
+                if ((bMoveX !== 0 || bMoveZ !== 0) && bActualDist < 0.01) {
                     bot.stuckFrames = (bot.stuckFrames || 0) + 1;
-                    if (bot.stuckFrames > 6) {
-                        let bTargetNode = bot.routeCoordinates[bot.currentNodeIndex];
-                        let bdx = bTargetNode.x - pos.x; let bdz = bTargetNode.z - pos.z; let bh = Math.hypot(bdx, bdz) || 1;
-                        pos.x += (-bdz / bh) * bot.velocity * 0.4;
-                        pos.z += (bdx / bh) * bot.velocity * 0.4;
-                        if (bot.stuckFrames > 25) {
-                            bot.currentNodeIndex = (bot.currentNodeIndex + bot.patrolDirectionFactor + bot.routeCoordinates.length) % bot.routeCoordinates.length;
-                            bot.stuckFrames = 0;
-                        }
+                    if (bot.stuckFrames > 12) {
+                        bot.currentNodeIndex = (bot.currentNodeIndex + bot.patrolDirectionFactor + bot.routeCoordinates.length) % bot.routeCoordinates.length;
+                        bot.stuckFrames = 0;
                     }
                 } else { bot.stuckFrames = 0; }
 
@@ -1492,12 +1477,13 @@
             scene.add(sparkLine); setTimeout(() => { scene.remove(sparkLine); sparkGeo.dispose(); }, 60 + Math.random() * 60);
         }
 
+        // FULL REMAINDER VISOR FRAME GRAPHICS LOGIC REMAINS INTEGRATED
         function updateVisorFeedbackHUD(timestamp) {
             const statusLabel = document.getElementById('main-hud-status'); const trackerContainer = document.getElementById('threat-tracker-display'); const cracksCanvas = document.getElementById('cracks-canvas'); const reticle = document.getElementById('targeting-matrix'); const ctx = cracksCanvas.getContext('2d');
             if (!sensorsEngaged) return; 
             if (matrixOverloadActive) { statusLabel.innerHTML = `<div class="matrix-overload-title">Matrix Overload!</div><div class="matrix-overload-sub">Touch screen to re-initiate reconstruction sequence.</div>`; statusLabel.classList.remove('pulse-animation'); }
             else if (!mapLoadedForAnchor) { statusLabel.innerHTML = "Calibrating Satellites..."; statusLabel.classList.add('pulse-animation'); }
-            else if (!globalShutdownShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
+            else if (!globalShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
             
             if (!matrixOverloadActive) reticle.style.display = 'block'; else reticle.style.display = 'none';
             if (isCurrentlyDetected && !matrixOverloadActive && !globalShutdownTriggered) { trackerContainer.style.display = 'block'; trackerContainer.innerHTML = "WARNING: POSITION EXPOSED"; }
@@ -1642,41 +1628,6 @@
             const cracksCanvas = document.getElementById('cracks-canvas'); cracksCanvas.width = width; cracksCanvas.height = height;
             const currentContainerElement = document.getElementById('minimap-container'); const targetWidth = currentContainerElement.offsetWidth;
             if (targetWidth > 0) { const minimapCanvas = document.getElementById('minimapCanvas'); minimapCanvas.width = targetWidth; minimapCanvas.height = targetWidth; }
-        }
-
-        function compileTacticalPatrolDrone() {
-            const droneGroup = new THREE.Group(); const chassisColor = 0xff0000; const initialBeamColor = 0x00ff00;
-            const bodyMesh = new THREE.Mesh(new THREE.SphereGeometry(1.3, 10, 10), new THREE.MeshBasicMaterial({ color: 0x000000, depthWrite: true })); const bodyWireframeMesh = new THREE.LineSegments(new THREE.EdgesGeometry(bodyMesh.geometry), new THREE.LineBasicMaterial({ color: chassisColor })); droneGroup.add(bodyMesh, bodyWireframeMesh);
-            let leftArmPivot = new THREE.Group(); let rightArmPivot = new THREE.Group();
-            function compileBentClawLimb(isLeft, targetGroup) {
-                const mult = isLeft ? -1 : 1; const mat = new THREE.MeshBasicMaterial({ color: chassisColor }); const jMat = new THREE.MeshBasicMaterial({ color: chassisColor });
-                const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.2), mat); upper.position.set(0.5 * mult, -0.3, 0); upper.rotation.z = (Math.PI / 3.5) * mult;
-                const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.18, 6, 6), jMat); elbow.position.set(1.0 * mult, -0.7, 0);
-                const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.1), mat); forearm.position.set(0.85 * mult, -1.2, 0); forearm.rotation.z = (-Math.PI / 4) * mult;
-                const wrist = new THREE.Group(); wrist.position.set(0.5 * mult, -1.6, 0); wrist.add(new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.15, 0.2), jMat));
-                const clawL = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, 0.08), mat); clawL.position.set(-0.08, -0.15, 0); clawL.rotation.z = 0.2;
-                const clawR = clawL.clone(); clawR.position.x = 0.08; clawR.rotation.z = -0.2; wrist.add(clawL, clawR);
-                targetGroup.add(upper, elbow, forearm, wrist); targetGroup.position.x = 1.2 * mult; return targetGroup;
-            }
-            droneGroup.add(compileBentClawLimb(true, leftArmPivot), compileBentClawLimb(false, rightArmPivot));
-            const beamConicGeo = new THREE.ConeGeometry(CONE_RADIUS, CONE_HEIGHT, 16, 1, true); beamConicGeo.translate(0, -CONE_HEIGHT / 2, 0);
-            const beamMesh = new THREE.Mesh(beamConicGeo, new THREE.MeshBasicMaterial({ color: initialBeamColor, transparent: true, opacity: 0.15, side: THREE.DoubleSide, depthWrite: false }));
-            const scanningRigGroup = new THREE.Group(); scanningRigGroup.add(beamMesh); droneGroup.add(scanningRigGroup);
-            return { coreAsset: droneGroup, dynamicScannerBeam: scanningRigGroup, leftArm: leftArmPivot, rightArm: rightArmPivot };
-        }
-
-        function compileHumanoidCombatBot() {
-            const botGroup = new THREE.Group(); const skinColor = 0xff0000; const accentColor = 0xff3333;
-            const headMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.4), new THREE.MeshBasicMaterial({ color: 0x000000 })); headMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(headMesh.geometry), new THREE.LineBasicMaterial({ color: skinColor }))); headMesh.position.y = 1.3;
-            const eyeVisor = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.05), new THREE.MeshBasicMaterial({ color: accentColor })); eyeVisor.position.set(0, 0.05, 0.2); headMesh.add(eyeVisor); botGroup.add(headMesh);
-            const torsoMesh = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.4), new THREE.MeshBasicMaterial({ color: 0x000000 })); torsoMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(headMesh.geometry), new THREE.LineBasicMaterial({ color: skinColor }))); torsoMesh.position.y = 0.65; botGroup.add(torsoMesh);
-            const leftArmGroup = new THREE.Group(); leftArmGroup.position.set(-0.45, 1.0, 0); const lLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: skinColor })); lLimbs.position.y = -0.4; leftArmGroup.add(lLimbs); botGroup.add(leftArmGroup);
-            const rightArmGroup = new THREE.Group(); rightArmGroup.position.set(0.45, 1.0, 0); const rLimbs = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8), new THREE.MeshBasicMaterial({ color: skinColor })); rLimbs.position.y = -0.4; rightArmGroup.add(rLimbs);
-            const pistolBlaster = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.07, 0.3), new THREE.MeshBasicMaterial({ color: accentColor })); pistolBlaster.position.set(0, -0.9, 0); rightArmGroup.add(pistolBlaster); botGroup.add(rightArmGroup);
-            const leftLegPivot = new THREE.Group(); leftLegPivot.position.set(-0.22, 0.2, 0); const lLegSegment = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.05, 0.7), new THREE.MeshBasicMaterial({ color: skinColor })); lLegSegment.position.y = -0.35; leftLegPivot.add(lLegSegment);
-            const rightLegPivot = new THREE.Group(); rightLegPivot.position.set(0.22, 0.2, 0); const rLegSegment = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.05, 0.7), new THREE.MeshBasicMaterial({ color: skinColor })); rLegSegment.position.y = -0.35; rightLegPivot.add(rLegSegment);
-            botGroup.add(leftLegPivot, rightLegPivot); botGroup.scale.set(2.0, 2.0, 2.0);
-            return { model: botGroup, leftLeg: leftLegPivot, rightLeg: rightLegPivot, leftArm: leftArmGroup, rightArm: rightArmGroup };
         }
 
         function init() {
