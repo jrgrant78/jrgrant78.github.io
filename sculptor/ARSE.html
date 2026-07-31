@@ -385,8 +385,8 @@
             roadCenter: new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 3, gapSize: 3 }),
             sidewalkSolid: new THREE.MeshLambertMaterial({ color: 0x222222, side: THREE.DoubleSide }),
             crosswalk: new THREE.LineDashedMaterial({ color: 0xfffa9e, dashSize: 1.5, gapSize: 1.5 }),
-            terminalActive: new THREE.MeshBasicMaterial({ color: 0x00ff55, wireframe: true }),
-            terminalHacked: new THREE.MeshBasicMaterial({ color: 0x555555, wireframe: true }),
+            terminalActive: new THREE.MeshLambertMaterial({ color: 0x00ff55, wireframe: true }),
+            terminalHacked: new THREE.MeshLambertMaterial({ color: 0x555555, wireframe: true }),
             datapadGlow: new THREE.MeshBasicMaterial({ color: 0xff0055, wireframe: true })
         };
 
@@ -519,7 +519,6 @@
             if (document.documentElement.requestFullscreen) {
                 document.documentElement.requestFullscreen().catch(() => {});
             }
-            // REMOVED ORIENTATION LOCK: Allows free rotation between landscape and portrait views
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 DeviceOrientationEvent.requestPermission().then(state => { if (state === 'granted') bindAbsoluteCompassListeners(); });
             } else { bindAbsoluteCompassListeners(); }
@@ -637,7 +636,7 @@
             const fovRad = (camera.fov * Math.PI) / 180;
             const projectDistance = 0.35; 
             const viewHeightMax = Math.tan(fovRad / 2) * projectDistance;
-            const viewWidthMax = viewHeightMax * camera.aspect; // Handles aspect shifting automatically when aspect ratio flips (< 1.0)
+            const viewWidthMax = viewHeightMax * camera.aspect;
 
             for (let i = 0; i < 21; i++) {
                 const lm = landmarks[i];
@@ -1336,15 +1335,24 @@
                     }
                 }
 
+                let moveX = 0, moveZ = 0;
                 if (drone.isChasingPlayer || alertStateActive) {
                     tx = lastSeenPlayerPosition.x; tz = lastSeenPlayerPosition.z; 
                     const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
-                    if (dist > 1.0) { targetAngle = Math.atan2(dx, dz); pos.x += (dx / dist) * drone.movementVelocityFactor * 1.4; pos.z += (dz / dist) * drone.movementVelocityFactor * 1.4; }
+                    if (dist > 1.0) { 
+                        targetAngle = Math.atan2(dx, dz); 
+                        moveX = (dx / dist) * drone.movementVelocityFactor * 1.4; 
+                        moveZ = (dz / dist) * drone.movementVelocityFactor * 1.4; 
+                    }
                 } 
                 else if (closestLocalAlarm) {
                     tx = closestLocalAlarm.pos.x; tz = closestLocalAlarm.pos.z;
                     const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
-                    if (dist > 1.0) { targetAngle = Math.atan2(dx, dz); pos.x += (dx / dist) * drone.movementVelocityFactor * 1.2; pos.z += (dz / dist) * drone.movementVelocityFactor * 1.2; }
+                    if (dist > 1.0) { 
+                        targetAngle = Math.atan2(dx, dz); 
+                        moveX = (dx / dist) * drone.movementVelocityFactor * 1.2; 
+                        moveZ = (dz / dist) * drone.movementVelocityFactor * 1.2; 
+                    }
                 } 
                 else {
                     const node = drone.routeCoordinates[drone.currentNodeIndex]; const dx = node.x - pos.x; const dz = node.z - pos.z; const dist = Math.hypot(dx, dz);
@@ -1354,7 +1362,25 @@
                         if (drone.currentNodeIndex >= drone.routeCoordinates.length || drone.currentNodeIndex < 0) {
                             drone.patrolDirectionFactor *= -1; drone.currentNodeIndex += drone.patrolDirectionFactor * 2; drone.currentNodeIndex = Math.max(0, Math.min(drone.currentNodeIndex, drone.routeCoordinates.length - 1));
                         }
-                    } else { pos.x += (dx / dist) * drone.movementVelocityFactor; pos.z += (dz / dist) * drone.movementVelocityFactor; }
+                    } else { 
+                        moveX = (dx / dist) * drone.movementVelocityFactor; 
+                        moveZ = (dz / dist) * drone.movementVelocityFactor; 
+                    }
+                }
+
+                // DYNAMIC SCANNED SCOUT COLLISION AND SLIDING FAÇADE RECONSTRUCTION
+                if ((moveX !== 0 || moveZ !== 0) && combinedBuildingMesh) {
+                    let moveVec = new THREE.Vector3(moveX, 0, moveZ);
+                    visionRaycaster.set(pos, moveVec.clone().normalize());
+                    let buildingHits = visionRaycaster.intersectObject(combinedBuildingMesh);
+                    if (buildingHits.length > 0 && buildingHits[0].distance < (moveVec.length() + 3.0)) {
+                        let normal = buildingHits[0].face.normal;
+                        moveVec.projectOnPlane(normal); // Project velocity along plane tangent walls
+                        pos.addScaledVector(normal, 0.05); // Push away buffer frame limits
+                        if (moveVec.lengthSq() > 0.001) targetAngle = Math.atan2(moveVec.x, moveVec.z);
+                    }
+                    pos.x += moveVec.x;
+                    pos.z += moveVec.z;
                 }
 
                 const currentConeColor = (drone.isChasingPlayer || alertStateActive) ? 0xff0000 : (closestLocalAlarm ? 0xffff00 : 0x00ff00);
@@ -1403,9 +1429,14 @@
                     }
                 }
 
+                let bMoveX = 0, bMoveZ = 0;
                 if (bot.isAlerted || alertStateActive) {
                     bot.aimProgress = Math.min(1.0, bot.aimProgress + 0.07); const dx = lastSeenPlayerPosition.x - pos.x; const dz = lastSeenPlayerPosition.z - pos.z; const distToLastSeen = Math.hypot(dx, dz); botTargetAngle = Math.atan2(dx, dz);
-                    if (distToLastSeen > 2.0) { const frameVelocityStride = Math.min(distToLastSeen, bot.velocity * 0.12 * 1.5); pos.x += (dx / distToLastSeen) * frameVelocityStride; pos.z += (dz / distToLastSeen) * frameVelocityStride; }
+                    if (distToLastSeen > 2.0) { 
+                        const frameVelocityStride = Math.min(distToLastSeen, bot.velocity * 0.12 * 1.5); 
+                        bMoveX = (dx / distToLastSeen) * frameVelocityStride;
+                        bMoveZ = (dz / distToLastSeen) * frameVelocityStride;
+                    }
                     if (canBotSeePlayerRightNow && distanceToPlayer <= 25.0 && timestamp - bot.lastFireTimestamp > 1200) {
                         bot.lastFireTimestamp = timestamp; playerHealth = Math.max(0, playerHealth - 8.0); spaceOverlay.classList.add('flash-red-harm'); setTimeout(() => spaceOverlay.classList.remove('flash-red-harm'), 150);
                         
@@ -1425,7 +1456,11 @@
                     bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07);
                     const dx = closestBotAlarm.pos.x - pos.x; const dz = closestBotAlarm.pos.z - pos.z;
                     const distToAlarm = Math.hypot(dx, dz); botTargetAngle = Math.atan2(dx, dz);
-                    if (distToAlarm > 1.5) { const frameVelocityStride = Math.min(distToAlarm, bot.velocity * 0.12 * 1.2); pos.x += (dx / distToAlarm) * frameVelocityStride; pos.z += (dz / distToAlarm) * frameVelocityStride; }
+                    if (distToAlarm > 1.5) { 
+                        const frameVelocityStride = Math.min(distToAlarm, bot.velocity * 0.12 * 1.2); 
+                        bMoveX = (dx / distToAlarm) * frameVelocityStride;
+                        bMoveZ = (dz / distToAlarm) * frameVelocityStride;
+                    }
                 }
                 else {
                     bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07); const targetNode = bot.routeCoordinates[bot.currentNodeIndex]; const ndx = targetNode.x - pos.x; const ndz = targetNode.z - pos.z; const ndist = Math.hypot(ndx, ndz);
@@ -1440,9 +1475,28 @@
                     }
                     if (ndist > 0.1) { 
                         if (ndist > 1.5) { botTargetAngle = Math.atan2(ndx, ndz); }
-                        const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); pos.x += (ndx / ndist) * frameVelocityStride; pos.z += (ndz / ndist) * frameVelocityStride; 
+                        const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); 
+                        bMoveX = (ndx / ndist) * frameVelocityStride;
+                        bMoveZ = (ndz / ndist) * frameVelocityStride;
                     }
                 }
+
+                // GROUND COMBATBOT STRUCTURE COLLISION SLIDING SYSTEM
+                if ((bMoveX !== 0 || bMoveZ !== 0) && combinedBuildingMesh) {
+                    let bMoveVec = new THREE.Vector3(bMoveX, 0, bMoveZ);
+                    let botRaySource = pos.clone(); botRaySource.y = 1.5; // Fire at waist height to catch structural hulls
+                    visionRaycaster.set(botRaySource, bMoveVec.clone().normalize());
+                    let buildingHits = visionRaycaster.intersectObject(combinedBuildingMesh);
+                    if (buildingHits.length > 0 && buildingHits[0].distance < (bMoveVec.length() + 1.8)) {
+                        let normal = buildingHits[0].face.normal;
+                        bMoveVec.projectOnPlane(normal); 
+                        pos.addScaledVector(normal, 0.05); 
+                        if (bMoveVec.lengthSq() > 0.001) botTargetAngle = Math.atan2(bMoveVec.x, bMoveVec.z);
+                    }
+                    pos.x += bMoveVec.x;
+                    pos.z += bMoveVec.z;
+                }
+
                 let botAngleDiff = botTargetAngle - bot.meshElement.rotation.y; while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2; while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2; bot.meshElement.rotation.y += botAngleDiff * 0.08;
                 const alternateCycle = Math.sin(timestamp * 0.008 * bot.velocity); bot.armL.rotation.x = -alternateCycle * 0.3; bot.armR.rotation.x = THREE.MathUtils.lerp(alternateCycle * 0.3, -Math.PI / 2, bot.aimProgress); bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
             });
@@ -1524,6 +1578,7 @@
             _scratchMapTransform.y = (wz - mapCenterZ) * scale;
         }
 
+        // REMAINING INLINE MATH GRAPHICS MODULES FULLY UNTOUCHED BELOW THIS POINT
         function update2DMinimapSystem() {
             const minimapCanvas = document.getElementById('minimapCanvas'); const minimapCtx = minimapCanvas.getContext('2d'); if (!minimapCtx || matrixOverloadActive) { if(minimapCtx) minimapCtx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height); return; }
             const lookDirectionVector = new THREE.Vector3(); camera.getWorldDirection(lookDirectionVector); const yawAngle = Math.atan2(lookDirectionVector.x, -lookDirectionVector.z);
