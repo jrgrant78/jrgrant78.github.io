@@ -172,7 +172,7 @@
     <div id="hud-visor-container">
         <div id="targeting-matrix"></div>
         <div id="central-hud-alerts">
-            <div id="main-hud-status" class="hud-banner-text pulse-animation">Calibrating Satellites...</div>
+            <div id="main-hud-status" class="hud-banner-text pulse-animation">Jacking into neural network...</div>
             <div id="threat-tracker-display">TARGET ACQUIRED</div>
         </div>
         <div id="minimap-container">
@@ -214,6 +214,10 @@
         let isFetchingMap = false; 
         let osmFetchController = null;
         const R_EARTH = 6378137;
+
+        // AUTOMATED CONNECTION HOT-RECOVERY TICK REGISTERS
+        let matrixOverloadCountdown = -1;
+        let lastCountdownTickTime = 0;
 
         const MAP_RADIUS_METERS = 1609;
         let isMinimapEnlarged = false;
@@ -849,7 +853,6 @@
                 e.stopPropagation(); e.preventDefault();
                 panel.classList.toggle('open');
             };
-            // UNIFIED CLICK GATE: Fixed input lock by eliminating competing dual touch/pointer micro-streams
             triggerBtn.addEventListener('click', runToggleAction);
         }
 
@@ -896,7 +899,11 @@
         }
 
         function triggerMatrixOverloadErrorState() {
-            matrixOverloadActive = true; mapLoadedForAnchor = false; isFetchingMap = false; combinedBuildingMesh = null;
+            matrixOverloadActive = true;
+            // INITIALIZE AUTOMATED COUNTER SEQUENCES
+            matrixOverloadCountdown = 5;
+            lastCountdownTickTime = Date.now();
+            mapLoadedForAnchor = false; isFetchingMap = false; combinedBuildingMesh = null;
             while(mapStructuralMeshes.children.length > 0) { const m = mapStructuralMeshes.children[0]; if (m.geometry) m.geometry.dispose(); mapStructuralMeshes.remove(m); }
             tacticalDronesCollection.forEach(d => scene.remove(d.meshElement)); tacticalDronesCollection.length = 0;
             humanoidBotsCollection.forEach(b => scene.remove(b.meshElement)); humanoidBotsCollection.length = 0;
@@ -1025,19 +1032,50 @@
             sidewalkSolidGeoms.push(swGeom); renderedPedestrianList.push({ points: points, isCrosswalk: false });
         }
 
+        // PHYSICAL REJECTION COMPILATION LAYER
+        function isPositionInsideAnyBuilding(pos) {
+            const totalHulls = renderedBuildingsList.length;
+            for (let i = 0; i < totalHulls; i++) {
+                const b = renderedBuildingsList[i].box;
+                if (pos.x >= b.minX && pos.x <= b.maxX && pos.z >= b.minZ && pos.z <= b.maxZ) {
+                    return true; 
+                }
+            }
+            return false;
+        }
+
         function generateHackingTerminalGrid() {
-            const startNodePos = new THREE.Vector3(0, 0, -12);
+            let startNodePos = new THREE.Vector3(0, 0, -12);
+            if (isPositionInsideAnyBuilding(startNodePos)) {
+                startNodePos.z -= 15; 
+            }
             createTerminalEntity(startNodePos, 0);
 
             const totalTargetUnits = 11;
-            const stepIncrement = Math.floor(globalTrafficNodes.length / (totalTargetUnits - 1)) || 1;
+            let terminalsCreated = 1;
             
-            for (let i = 1; i < totalTargetUnits; i++) {
-                const nodeIdx = Math.min(globalTrafficNodes.length - 1, i * stepIncrement - Math.floor(Math.random() * 5));
-                if (nodeIdx < 0 || !globalTrafficNodes[nodeIdx]) continue;
-                const nodePos = globalTrafficNodes[nodeIdx].clone();
-                nodePos.y = 0; 
-                createTerminalEntity(nodePos, i);
+            // Rejection Filter: Instant elimination of coordinates that overlap solid interior volumes
+            const validTrafficNodes = globalTrafficNodes.filter(node => !isPositionInsideAnyBuilding(node));
+            
+            if (validTrafficNodes.length > 0) {
+                const stepIncrement = Math.floor(validTrafficNodes.length / (totalTargetUnits - 1)) || 1;
+                for (let i = 1; i < totalTargetUnits; i++) {
+                    const nodeIdx = Math.min(validTrafficNodes.length - 1, i * stepIncrement - Math.floor(Math.random() * 3));
+                    if (nodeIdx < 0 || !validTrafficNodes[nodeIdx]) continue;
+                    const nodePos = validTrafficNodes[nodeIdx].clone();
+                    nodePos.y = 0; 
+                    createTerminalEntity(nodePos, terminalsCreated);
+                    terminalsCreated++;
+                }
+            } else {
+                for (let i = 1; i < totalTargetUnits; i++) {
+                    let fallbackPos = new THREE.Vector3((Math.random() - 0.5) * 120, 0, (Math.random() - 0.5) * 120);
+                    while (isPositionInsideAnyBuilding(fallbackPos)) {
+                        fallbackPos.set((Math.random() - 0.5) * 120, 0, (Math.random() - 0.5) * 120);
+                    }
+                    createTerminalEntity(fallbackPos, terminalsCreated);
+                    terminalsCreated++;
+                }
             }
             document.getElementById('hacked-terminal-counter').innerText = `0 / ${hackingTerminalsCollection.length}`;
         }
@@ -1526,7 +1564,6 @@
             scene.add(sparkLine); setTimeout(() => { scene.remove(sparkLine); sparkGeo.dispose(); }, 60 + Math.random() * 60);
         }
 
-        // GEOSPATIAL TELEMETRY MANUAL OFFSET CALIBRATION ENGINE
         function applyGeospatialNudge(deltaLat, deltaLon) {
             geoTelemetryOffset.lat += deltaLat; geoTelemetryOffset.lon += deltaLon;
             if (hasLockedInitialAnchor) {
@@ -1541,9 +1578,20 @@
         function updateVisorFeedbackHUD(timestamp) {
             const statusLabel = document.getElementById('main-hud-status'); const trackerContainer = document.getElementById('threat-tracker-display'); const cracksCanvas = document.getElementById('cracks-canvas'); const reticle = document.getElementById('targeting-matrix'); const ctx = cracksCanvas.getContext('2d');
             if (!sensorsEngaged) return; 
-            if (matrixOverloadActive) { statusLabel.innerHTML = `<div class="matrix-overload-title">Matrix Overload!</div><div class="matrix-overload-sub">Touch screen to re-initiate reconstruction sequence.</div>`; statusLabel.classList.remove('pulse-animation'); }
-            else if (!mapLoadedForAnchor) { statusLabel.innerHTML = "Calibrating Satellites..."; statusLabel.classList.add('pulse-animation'); }
-            else if (!globalShutdownTriggered) { statusLabel.innerHTML = ""; statusLabel.classList.remove('pulse-animation'); }
+            
+            // HOT-COUNTER CONTROL LOGIC LAYER: Tracks network states and outputs automated ticks
+            if (matrixOverloadActive) { 
+                statusLabel.innerHTML = `<div class="matrix-overload-title" style="color: #ff0055; text-shadow: 0 0 15px #ff0055;">Matrix Overloaded</div><div class="matrix-overload-sub" style="font-size: 14px; margin-top: 5px;">retry in ${Math.max(0, matrixOverloadCountdown)}</div>`; 
+                statusLabel.classList.remove('pulse-animation'); 
+            }
+            else if (!mapLoadedForAnchor) { 
+                statusLabel.innerHTML = "Jacking into neural network..."; 
+                statusLabel.classList.add('pulse-animation'); 
+            }
+            else if (!globalShutdownTriggered) { 
+                statusLabel.innerHTML = ""; 
+                statusLabel.classList.remove('pulse-animation'); 
+            }
             
             if (!matrixOverloadActive) reticle.style.display = 'block'; else reticle.style.display = 'none';
             if (isCurrentlyDetected && !matrixOverloadActive && !globalShutdownTriggered) { trackerContainer.style.display = 'block'; trackerContainer.innerHTML = "WARNING: POSITION EXPOSED"; }
@@ -1807,6 +1855,18 @@
                 requestAnimationFrame(frameLoopEngine); const t = Date.now();
                 spatialAnomaliesCollection.forEach(a => { if (!a.collected) { a.mesh.rotation.x += 0.01; a.mesh.rotation.y += 0.02; } });
                 
+                // AUTOMATED RETRY DECREMENT ENGINE: Checks timestamp offsets to fire queries at zero boundaries
+                if (matrixOverloadActive && matrixOverloadCountdown >= 0) {
+                    if (t - lastCountdownTickTime >= 1000) {
+                        matrixOverloadCountdown--;
+                        lastCountdownTickTime = t;
+                        if (matrixOverloadCountdown < 0) {
+                            matrixOverloadActive = false;
+                            fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
+                        }
+                    }
+                }
+
                 hackingTerminalsCollection.forEach(tNode => {
                     if (tNode.lowering) {
                         tNode.group.position.y -= 0.05; 
@@ -1892,7 +1952,6 @@
 
                                     totalTerminalsHacked++;
                                     document.getElementById('hacked-terminal-counter').innerText = `${totalTerminalsHacked} / ${hackingTerminalsCollection.length}`;
-                                    if (totalTerminalsHacked >= hackingTerminalsCollection.length) { triggerGlobalHardwareOverride(); }
                                 }
                             }
                         });
