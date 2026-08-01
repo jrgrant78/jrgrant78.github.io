@@ -215,7 +215,6 @@
         let osmFetchController = null;
         const R_EARTH = 6378137;
 
-        // AUTOMATED CONNECTION HOT-RECOVERY TICK REGISTERS
         let matrixOverloadCountdown = -1;
         let lastCountdownTickTime = 0;
 
@@ -235,10 +234,6 @@
         let geoTelemetryOffset = { lat: 0.0, lon: 0.0 };
         let gpsTargetPosition = new THREE.Vector3(0, 1.7, 0);
         let initialSnapCompleted = false; 
-
-        let playerVelocityX = 0;
-        let playerVelocityZ = 0;
-        let lastGpsTimestamp = 0;
         let agentUpdateFrameToken = 0;
 
         let playerHealth = 100.0;
@@ -900,7 +895,6 @@
 
         function triggerMatrixOverloadErrorState() {
             matrixOverloadActive = true;
-            // INITIALIZE AUTOMATED COUNTER SEQUENCES
             matrixOverloadCountdown = 5;
             lastCountdownTickTime = Date.now();
             mapLoadedForAnchor = false; isFetchingMap = false; combinedBuildingMesh = null;
@@ -1016,7 +1010,7 @@
         function buildPedestrianConduits(points, tags) {
             const count = points.length; const isCrosswalk = tags && (tags.footway === 'crosswalk' || tags.highway === 'crossing');
             if (isCrosswalk) {
-                for(let i=0; i < count - 1; i++) { crosswalkGeoms.push(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(points[i].x, 0.018, points[i].z), new THREE.Vector3(points[i+1].x, 0.018, points[i+1].z)])); }
+                for(let i=0; i < count - 1; i++) { crosswalkGeoms.push(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(points[i].x, 0.018, points[i+1].z), new THREE.Vector3(points[i+1].x, 0.018, points[i+1].z)])); }
                 renderedPedestrianList.push({ points: points, isCrosswalk: true }); return;
             }
             const sidewalkHalfWidth = 1.2; const vertices = []; const indices = []; const normals = new Array(count);
@@ -1032,7 +1026,6 @@
             sidewalkSolidGeoms.push(swGeom); renderedPedestrianList.push({ points: points, isCrosswalk: false });
         }
 
-        // PHYSICAL REJECTION COMPILATION LAYER
         function isPositionInsideAnyBuilding(pos) {
             const totalHulls = renderedBuildingsList.length;
             for (let i = 0; i < totalHulls; i++) {
@@ -1053,8 +1046,6 @@
 
             const totalTargetUnits = 11;
             let terminalsCreated = 1;
-            
-            // Rejection Filter: Instant elimination of coordinates that overlap solid interior volumes
             const validTrafficNodes = globalTrafficNodes.filter(node => !isPositionInsideAnyBuilding(node));
             
             if (validTrafficNodes.length > 0) {
@@ -1541,18 +1532,12 @@
             const totalActiveAgentsInSector = Object.keys(connectedAgentsMap).length + 1;
             document.getElementById('live-agent-counter').innerText = totalActiveAgentsInSector;
 
+            // ABSOLUTE TRACKING PROTOCOL: Snaps camera directly to incoming matrix with zero filters or dampening
             if (mapLoadedForAnchor && !matrixOverloadActive) {
-                if (Math.abs(playerVelocityX) > 0.001 || Math.abs(playerVelocityZ) > 0.001) {
-                    gpsTargetPosition.x += playerVelocityX * 0.016; 
-                    gpsTargetPosition.z += playerVelocityZ * 0.016;
-                }
-
-                if (!initialSnapCompleted) { camera.position.x = gpsTargetPosition.x; camera.position.z = gpsTargetPosition.z; initialSnapCompleted = true; } 
-                else {
-                    camera.position.x += (gpsTargetPosition.x - camera.position.x) * 0.85;
-                    camera.position.z += (gpsTargetPosition.z - camera.position.z) * 0.85;
-                }
+                camera.position.x = gpsTargetPosition.x;
+                camera.position.z = gpsTargetPosition.z;
                 camera.position.y = 1.7;
+                initialSnapCompleted = true; 
             }
             updateVisorFeedbackHUD(timestamp);
         }
@@ -1579,7 +1564,6 @@
             const statusLabel = document.getElementById('main-hud-status'); const trackerContainer = document.getElementById('threat-tracker-display'); const cracksCanvas = document.getElementById('cracks-canvas'); const reticle = document.getElementById('targeting-matrix'); const ctx = cracksCanvas.getContext('2d');
             if (!sensorsEngaged) return; 
             
-            // HOT-COUNTER CONTROL LOGIC LAYER: Tracks network states and outputs automated ticks
             if (matrixOverloadActive) { 
                 statusLabel.innerHTML = `<div class="matrix-overload-title" style="color: #ff0055; text-shadow: 0 0 15px #ff0055;">Matrix Overloaded</div><div class="matrix-overload-sub" style="font-size: 14px; margin-top: 5px;">retry in ${Math.max(0, matrixOverloadCountdown)}</div>`; 
                 statusLabel.classList.remove('pulse-animation'); 
@@ -1702,7 +1686,6 @@
         }
 
         function updatePlayerPositionFromGps(latitude, longitude, accuracy) {
-            const currentTime = Date.now();
             lastRawCoords.lat = latitude; lastRawCoords.lon = longitude;
             let calibratedLat = latitude + geoTelemetryOffset.lat; let calibratedLon = longitude + geoTelemetryOffset.lon;
             currentCoordinates.lat = calibratedLat; currentCoordinates.lon = calibratedLon;
@@ -1712,17 +1695,9 @@
             if (!hasLockedInitialAnchor) {
                 anchorCoordinates.lat = calibratedLat; anchorCoordinates.lon = calibratedLon; initialBestAccuracy = accuracy || 10; hasLockedInitialAnchor = true; initialSnapCompleted = false; 
                 gpsTargetPosition.set(0, 1.7, 0); camera.position.set(0, 1.7, 0);
-                lastGpsTimestamp = currentTime;
                 fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
-                if (lastGpsTimestamp > 0) {
-                    const elapsedSeconds = (currentTime - lastGpsTimestamp) / 1000.0;
-                    if (elapsedSeconds > 0.1 && elapsedSeconds < 4.0) {
-                        playerVelocityX = (local.x - gpsTargetPosition.x) / elapsedSeconds;
-                        playerVelocityZ = (local.z - gpsTargetPosition.z) / elapsedSeconds;
-                    }
-                }
-                lastGpsTimestamp = currentTime;
+                // ABSOLUTE SNASTER BOUNDING TETHER: Strip smoothing variables to drop telemetry drift entirely
                 gpsTargetPosition.x = local.x;
                 gpsTargetPosition.z = local.z;
             }
@@ -1855,7 +1830,6 @@
                 requestAnimationFrame(frameLoopEngine); const t = Date.now();
                 spatialAnomaliesCollection.forEach(a => { if (!a.collected) { a.mesh.rotation.x += 0.01; a.mesh.rotation.y += 0.02; } });
                 
-                // AUTOMATED RETRY DECREMENT ENGINE: Checks timestamp offsets to fire queries at zero boundaries
                 if (matrixOverloadActive && matrixOverloadCountdown >= 0) {
                     if (t - lastCountdownTickTime >= 1000) {
                         matrixOverloadCountdown--;
