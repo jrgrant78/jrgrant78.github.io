@@ -172,7 +172,7 @@
     <div id="hud-visor-container">
         <div id="targeting-matrix"></div>
         <div id="central-hud-alerts">
-            <div id="main-hud-status" class="hud-banner-text pulse-animation">Jacking into neural network...</div>
+            <div id="main-hud-status" class="hud-banner-text"></div>
             <div id="threat-tracker-display">TARGET ACQUIRED</div>
         </div>
         <div id="minimap-container">
@@ -217,6 +217,11 @@
 
         let matrixOverloadCountdown = -1;
         let lastCountdownTickTime = 0;
+
+        // HUD TYPEWRITER AND STATE MACHINE REGISTERS
+        let currentHUDState = "";
+        let jackingCharsRevealed = 0;
+        let lastTypewriterTick = 0;
 
         const MAP_RADIUS_METERS = 1609;
         let isMinimapEnlarged = false;
@@ -1010,7 +1015,7 @@
         function buildPedestrianConduits(points, tags) {
             const count = points.length; const isCrosswalk = tags && (tags.footway === 'crosswalk' || tags.highway === 'crossing');
             if (isCrosswalk) {
-                for(let i=0; i < count - 1; i++) { crosswalkGeoms.push(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(points[i].x, 0.018, points[i+1].z), new THREE.Vector3(points[i+1].x, 0.018, points[i+1].z)])); }
+                for(let i=0; i < count - 1; i++) { crosswalkGeoms.push(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(points[i].x, 0.018, points[i].z), new THREE.Vector3(points[i+1].x, 0.018, points[i+1].z)])); }
                 renderedPedestrianList.push({ points: points, isCrosswalk: true }); return;
             }
             const sidewalkHalfWidth = 1.2; const vertices = []; const indices = []; const normals = new Array(count);
@@ -1532,7 +1537,6 @@
             const totalActiveAgentsInSector = Object.keys(connectedAgentsMap).length + 1;
             document.getElementById('live-agent-counter').innerText = totalActiveAgentsInSector;
 
-            // ABSOLUTE TRACKING PROTOCOL: Snaps camera directly to incoming matrix with zero filters or dampening
             if (mapLoadedForAnchor && !matrixOverloadActive) {
                 camera.position.x = gpsTargetPosition.x;
                 camera.position.z = gpsTargetPosition.z;
@@ -1560,21 +1564,54 @@
             }
         }
 
+        // DYNAMIC RESPONSIVE STRING SPLITTING GENERATOR
+        function getJackingHTML(count) {
+            let line1 = "Jacking into";
+            let line2 = "neural network...";
+            let isPortrait = window.innerHeight > window.innerWidth;
+            let currentVisible = "";
+            if (count <= line1.length) {
+                currentVisible = line1.substring(0, count);
+            } else {
+                let revealedLine2 = line2.substring(0, count - line1.length);
+                if (isPortrait) {
+                    currentVisible = line1 + "<br>" + revealedLine2;
+                } else {
+                    currentVisible = line1 + " " + revealedLine2;
+                }
+            }
+            return `<span style="color: #ffffff; text-shadow: 0 0 15px #ffffff, 0 0 30px rgba(255, 255, 255, 0.4);">${currentVisible}</span>`;
+        }
+
         function updateVisorFeedbackHUD(timestamp) {
             const statusLabel = document.getElementById('main-hud-status'); const trackerContainer = document.getElementById('threat-tracker-display'); const cracksCanvas = document.getElementById('cracks-canvas'); const reticle = document.getElementById('targeting-matrix'); const ctx = cracksCanvas.getContext('2d');
             if (!sensorsEngaged) return; 
             
             if (matrixOverloadActive) { 
+                currentHUDState = "overload";
                 statusLabel.innerHTML = `<div class="matrix-overload-title" style="color: #ff0055; text-shadow: 0 0 15px #ff0055;">Matrix Overloaded</div><div class="matrix-overload-sub" style="font-size: 14px; margin-top: 5px;">retry in ${Math.max(0, matrixOverloadCountdown)}</div>`; 
-                statusLabel.classList.remove('pulse-animation'); 
             }
             else if (!mapLoadedForAnchor) { 
-                statusLabel.innerHTML = "Jacking into neural network..."; 
-                statusLabel.classList.add('pulse-animation'); 
+                // TRACK STREAMS ATOMICALLY: Direct text updates coupled with a 50ms character reveal delta
+                if (currentHUDState !== "jacking") {
+                    currentHUDState = "jacking";
+                    jackingCharsRevealed = 0;
+                    lastTypewriterTick = Date.now();
+                }
+                let now = Date.now();
+                if (jackingCharsRevealed < 30) {
+                    let elapsed = now - lastTypewriterTick;
+                    if (elapsed > 50) {
+                        let charsToAdd = Math.floor(elapsed / 50);
+                        jackingCharsRevealed = Math.min(30, jackingCharsRevealed + charsToAdd);
+                        lastTypewriterTick = now;
+                    }
+                }
+                statusLabel.innerHTML = getJackingHTML(jackingCharsRevealed);
             }
             else if (!globalShutdownTriggered) { 
+                currentHUDState = "clear";
                 statusLabel.innerHTML = ""; 
-                statusLabel.classList.remove('pulse-animation'); 
             }
             
             if (!matrixOverloadActive) reticle.style.display = 'block'; else reticle.style.display = 'none';
@@ -1697,7 +1734,6 @@
                 gpsTargetPosition.set(0, 1.7, 0); camera.position.set(0, 1.7, 0);
                 fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
-                // ABSOLUTE SNASTER BOUNDING TETHER: Strip smoothing variables to drop telemetry drift entirely
                 gpsTargetPosition.x = local.x;
                 gpsTargetPosition.z = local.z;
             }
