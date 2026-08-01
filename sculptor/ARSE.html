@@ -95,17 +95,6 @@
         #marker-e { right: 4px; top: 50%; transform: translateY(-50%); }
         #marker-w { left: 4px; top: 50%; transform: translateY(-50%); }
 
-        #targeting-matrix {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: 60px; height: 60px; border: 2px solid rgba(0, 255, 204, 0.2);
-            border-radius: 50%; pointer-events: none; z-index: 1000; display: none;
-        }
-        #targeting-matrix::before {
-            content: ''; position: absolute; top: 50%; left: 50%; width: 6px; height: 6px;
-            background: #ff0055; border-radius: 50%; transform: translate(-50%, -50%);
-            box-shadow: 0 0 8px #ff0055;
-        }
-
         #fine-tune-dock {
             position: absolute; bottom: 20px; right: 20px; z-index: 110;
             display: flex; align-items: center; gap: 10px;
@@ -243,12 +232,9 @@
         let gpsTargetPosition = new THREE.Vector3(0, 1.7, 0);
         let initialSnapCompleted = false; 
 
-        // DEAD-RECKONING VECTOR REGISTERS
         let playerVelocityX = 0;
         let playerVelocityZ = 0;
         let lastGpsTimestamp = 0;
-
-        // BUCKETED AGENT SCHEDULING REGISTER
         let agentUpdateFrameToken = 0;
 
         let playerHealth = 100.0;
@@ -715,6 +701,8 @@
             mapContainer.addEventListener('pointerdown', (e) => {
                 if (!isMinimapEnlarged) return;
                 e.stopPropagation(); 
+                // UNBROKEN INERTIAL CAPTURE LAYER: Bind the tracking id to stop border displacement drops
+                try { mapContainer.setPointerCapture(e.pointerId); } catch(err){}
                 activeMapPointers.push(e);
                 if (activeMapPointers.length === 2) {
                     previousPinchDist = Math.hypot(
@@ -812,6 +800,7 @@
             });
 
             const flushActiveMapPointers = (e) => {
+                try { mapContainer.releasePointerCapture(e.pointerId); } catch(err){}
                 const ptrIndex = activeMapPointers.findIndex(p => p.pointerId === e.pointerId);
                 if (ptrIndex !== -1) activeMapPointers.splice(ptrIndex, 1);
                 if (activeMapPointers.length < 2) previousPinchDist = 0;
@@ -1260,7 +1249,6 @@
                     return; 
                 }
 
-                // DYNAMIC BRAIN TIME-SLICING: Alternate logic updates across frames to preserve thread bandwidth
                 const belongsToActiveBucket = ((drone.id % 3) === (agentUpdateFrameToken % 3));
 
                 let tx = 0, tz = 0; let targetAngle = drone.meshElement.rotation.y;
@@ -1487,7 +1475,6 @@
                 const alternateCycle = Math.sin(timestamp * 0.008 * bot.velocity); bot.armL.rotation.x = -alternateCycle * 0.3; bot.armR.rotation.x = THREE.MathUtils.lerp(alternateCycle * 0.3, -Math.PI / 2, bot.aimProgress); bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
             });
 
-            // Increment scheduler step reference index
             agentUpdateFrameToken++;
 
             for (let i = activeLasersCollection.length - 1; i >= 0; i--) {
@@ -1518,15 +1505,13 @@
             document.getElementById('live-agent-counter').innerText = totalActiveAgentsInSector;
 
             if (mapLoadedForAnchor && !matrixOverloadActive) {
-                // REAL-TIME ACCELERATION DEAD-RECKONING: Extrapolate coordinates between hardware cycles to lock positions 1:1
                 if (Math.abs(playerVelocityX) > 0.001 || Math.abs(playerVelocityZ) > 0.001) {
-                    gpsTargetPosition.x += playerVelocityX * 0.016; // Project position based on 60Hz physics step slices
+                    gpsTargetPosition.x += playerVelocityX * 0.016; 
                     gpsTargetPosition.z += playerVelocityZ * 0.016;
                 }
 
                 if (!initialSnapCompleted) { camera.position.x = gpsTargetPosition.x; camera.position.z = gpsTargetPosition.z; initialSnapCompleted = true; } 
                 else {
-                    // Eliminate dual elastic drag layer for instant latency response
                     camera.position.x += (gpsTargetPosition.x - camera.position.x) * 0.85;
                     camera.position.z += (gpsTargetPosition.z - camera.position.z) * 0.85;
                 }
@@ -1629,7 +1614,10 @@
             }
             tacticalDronesCollection.forEach(d => {
                 inlineTransformWorldToMapCoords(d.meshElement.position.x, d.meshElement.position.z, mapCenterX, mapCenterZ, scale);
-                minimapCtx.save(); minimapCtx.fillStyle = globalShutdownShutdownTriggered ? '#555555' : '#ff0000'; minimapCtx.strokeStyle = '#ff3333'; minimapCtx.lineWidth = 1; minimapCtx.translate(_scratchMapTransform.x, _scratchMapTransform.y); minimapCtx.rotate(d.meshElement.rotation.y);
+                minimapCtx.save(); 
+                // CRITICAL CORRECTION: Restored global state evaluation to repair rendering stream breakdown
+                minimapCtx.fillStyle = globalShutdownTriggered ? '#555555' : '#ff0000';
+                minimapCtx.strokeStyle = '#ff3333'; minimapCtx.lineWidth = 1; minimapCtx.translate(_scratchMapTransform.x, _scratchMapTransform.y); minimapCtx.rotate(d.meshElement.rotation.y);
                 const itemSize = Math.max(4.0, 6.0 * scale); minimapCtx.beginPath(); minimapCtx.moveTo(0, -itemSize); minimapCtx.lineTo(-itemSize * 0.7, itemSize * 0.7); minimapCtx.lineTo(itemSize * 0.7, itemSize * 0.7); minimapCtx.closePath(); minimapCtx.fill(); minimapCtx.stroke(); minimapCtx.restore();
             });
             humanoidBotsCollection.forEach(b => {
@@ -1671,7 +1659,6 @@
                 lastGpsTimestamp = currentTime;
                 fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
-                // HIGH-FREQUENCY INERTIAL VELOCITY DERIVATION: Infers real-time steps between ticks
                 if (lastGpsTimestamp > 0) {
                     const elapsedSeconds = (currentTime - lastGpsTimestamp) / 1000.0;
                     if (elapsedSeconds > 0.1 && elapsedSeconds < 4.0) {
