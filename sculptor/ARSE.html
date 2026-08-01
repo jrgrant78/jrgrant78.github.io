@@ -243,6 +243,14 @@
         let gpsTargetPosition = new THREE.Vector3(0, 1.7, 0);
         let initialSnapCompleted = false; 
 
+        // DEAD-RECKONING VECTOR REGISTERS
+        let playerVelocityX = 0;
+        let playerVelocityZ = 0;
+        let lastGpsTimestamp = 0;
+
+        // BUCKETED AGENT SCHEDULING REGISTER
+        let agentUpdateFrameToken = 0;
+
         let playerHealth = 100.0;
         let timeLastSeenByThreat = 0; 
         let isCurrentlyDetected = false; 
@@ -281,9 +289,6 @@
         const CONE_SEMI_ANGLE = Math.atan(CONE_RADIUS / CONE_HEIGHT); 
 
         const visionRaycaster = new THREE.Raycaster();
-
-        // RUNTIME TRACKING FRAME COUNTER
-        let simulationFrameSequenceId = 0;
 
         // POOLED VECTOR SCRATCH REGISTERS
         const _scratchVToP = new THREE.Vector3();
@@ -384,17 +389,6 @@
             const x = (lon - anchorLon) * (Math.PI / 180) * R_EARTH * Math.cos(radLat);
             const z = -(lat - anchorLat) * (Math.PI / 180) * R_EARTH;
             return { x: x, z: z };
-        }
-
-        function applyGeospatialNudge(deltaLat, deltaLon) {
-            geoTelemetryOffset.lat += deltaLat; geoTelemetryOffset.lon += deltaLon;
-            if (hasLockedInitialAnchor) {
-                let calibratedLat = lastRawCoords.lat + geoTelemetryOffset.lat;
-                let calibratedLon = lastRawCoords.lon + geoTelemetryOffset.lon;
-                currentCoordinates.lat = calibratedLat; currentCoordinates.lon = calibratedLon;
-                const local = latLonToLocalMeters(calibratedLat, calibratedLon, anchorCoordinates.lat, anchorCoordinates.lon);
-                gpsTargetPosition.set(local.x, 1.7, local.z);
-            }
         }
 
         function compileHumanoidAgentModel() {
@@ -1153,7 +1147,7 @@
                 const spawnPoint = street.points[startNodeIdx];
                 const d = compileTacticalPatrolDrone(); d.coreAsset.position.set(spawnPoint.x, 25.0, spawnPoint.z); scene.add(d.coreAsset);
                 tacticalDronesCollection.push({
-                    id: i, meshElement: d.coreAsset, scannerBeamGroup: d.dynamicScannerBeam, leftArmAsset: d.leftArm, rightArmAsset: d.rightArm, routeCoordinates: street.points, currentNodeIndex: startNodeIdx, patrolDirectionFactor: Math.random() > 0.5 ? 1 : -1, movementVelocityFactor: 0.09 + Math.random() * 0.04, isChasingPlayer: false, isGrounded: false, lastPosX: spawnPoint.x, lastPosZ: spawnPoint.z, stuckFrames: 0, lastSightCheckTime: 0, isOccluded: false, cachedDeltaX: 0, cachedDeltaZ: 0
+                    id: i, meshElement: d.coreAsset, scannerBeamGroup: d.dynamicScannerBeam, leftArmAsset: d.leftArm, rightArmAsset: d.rightArm, routeCoordinates: street.points, currentNodeIndex: startNodeIdx, patrolDirectionFactor: Math.random() > 0.5 ? 1 : -1, movementVelocityFactor: 0.09 + Math.random() * 0.04, isChasingPlayer: false, isGrounded: false, lastPosX: spawnPoint.x, lastPosZ: spawnPoint.z, stuckFrames: 0, lastSightCheckTime: 0, isOccluded: false
                 });
             }
         }
@@ -1209,7 +1203,7 @@
 
                 const botRef = compileHumanoidCombatBot(); botRef.model.position.set(pathData[0].x, 0.02, pathData[0].z); scene.add(botRef.model);
                 humanoidBotsCollection.push({
-                    id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0, lastPosX: pathData[0].x, lastPosZ: pathData[0].z, stuckFrames: 0, lastSightCheckTime: 0, isOccluded: false, cachedDeltaX: 0, cachedDeltaZ: 0
+                    id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.5 + Math.random() * 0.3, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0, lastPosX: pathData[0].x, lastPosZ: pathData[0].z, stuckFrames: 0, lastSightCheckTime: 0, isOccluded: false
                 });
             }
         }
@@ -1266,16 +1260,19 @@
                     return; 
                 }
 
-                let targetAngle = drone.meshElement.rotation.y;
+                // DYNAMIC BRAIN TIME-SLICING: Alternate logic updates across frames to preserve thread bandwidth
+                const belongsToActiveBucket = ((drone.id % 3) === (agentUpdateFrameToken % 3));
 
-                // TIME-SLICED PATROL SCHEDULING: Alternates updates between odd and even frames to split vector math load
-                if ((drone.id + simulationFrameSequenceId) % 2 === 0) {
+                let tx = 0, tz = 0; let targetAngle = drone.meshElement.rotation.y;
+                let isDirectlySpottingPlayer = drone.wasSpottingPlayer || false;
+
+                if (belongsToActiveBucket) {
                     _scratchVToP.copy(camera.position).sub(pos); 
                     const dToP = _scratchVToP.length();
                     _scratchBeamDir.set(0, -1, 0).applyQuaternion(drone.scannerBeamGroup.quaternion).applyQuaternion(drone.meshElement.quaternion).normalize(); 
                     _scratchVToP.normalize();
                     
-                    let isDirectlySpottingPlayer = (Math.acos(_scratchBeamDir.dot(_scratchVToP)) <= CONE_SEMI_ANGLE && dToP <= CONE_HEIGHT);
+                    isDirectlySpottingPlayer = (Math.acos(_scratchBeamDir.dot(_scratchVToP)) <= CONE_SEMI_ANGLE && dToP <= CONE_HEIGHT);
 
                     if (isDirectlySpottingPlayer && combinedBuildingMesh) {
                         if (curSystemTime - drone.lastSightCheckTime > 150) {
@@ -1289,81 +1286,77 @@
                         }
                         if (drone.isOccluded) isDirectlySpottingPlayer = false;
                     }
-
-                    if (isDirectlySpottingPlayer) { droneDetectedFlag = true; drone.isChasingPlayer = true; lastSeenPlayerPosition.copy(camera.position); }
-
-                    let closestLocalAlarm = null;
-                    for (let alarm of activeTerminalAlarms) {
-                        if (pos.distanceTo(alarm.pos) < 80.0) { 
-                            closestLocalAlarm = alarm;
-                            break;
-                        }
-                    }
-
-                    let moveX = 0, moveZ = 0;
-                    if (drone.isChasingPlayer || alertStateActive) {
-                        let tx = lastSeenPlayerPosition.x; let tz = lastSeenPlayerPosition.z; 
-                        const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
-                        if (dist > 1.0) { 
-                            targetAngle = Math.atan2(dx, dz); 
-                            moveX = (dx / dist) * drone.movementVelocityFactor * 1.4; 
-                            moveZ = (dz / dist) * drone.movementVelocityFactor * 1.4; 
-                        }
-                    } 
-                    else if (closestLocalAlarm) {
-                        let tx = closestLocalAlarm.pos.x; let tz = closestLocalAlarm.pos.z;
-                        const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
-                        if (dist > 1.0) { 
-                            targetAngle = Math.atan2(dx, dz); 
-                            moveX = (dx / dist) * drone.movementVelocityFactor * 1.2; 
-                            moveZ = (dz / dist) * drone.movementVelocityFactor * 1.2; 
-                        }
-                    } 
-                    else {
-                        let node = drone.routeCoordinates[drone.currentNodeIndex]; 
-                        let dx = node.x - pos.x; let dz = node.z - pos.z; let dist = Math.hypot(dx, dz);
-                        
-                        if (dist < 1.0) { 
-                            drone.currentNodeIndex += drone.patrolDirectionFactor;
-                            if (drone.currentNodeIndex >= drone.routeCoordinates.length || drone.currentNodeIndex < 0) {
-                                drone.patrolDirectionFactor *= -1; 
-                                drone.currentNodeIndex = Math.max(0, Math.min(drone.currentNodeIndex + drone.patrolDirectionFactor * 2, drone.routeCoordinates.length - 1));
-                            }
-                            node = drone.routeCoordinates[drone.currentNodeIndex];
-                            dx = node.x - pos.x; dz = node.z - pos.z; dist = Math.hypot(dx, dz) || 1;
-                        }
-                        targetAngle = Math.atan2(dx, dz);
-                        moveX = (dx / dist) * drone.movementVelocityFactor; 
-                        moveZ = (dz / dist) * drone.movementVelocityFactor; 
-                    }
-
-                    // Doubled stride caches step delta configurations safely across skipped frames
-                    drone.cachedDeltaX = moveX * 2.0;
-                    drone.cachedDeltaZ = moveZ * 2.0;
-                    drone.cachedTargetAngle = targetAngle;
-                } else {
-                    targetAngle = drone.cachedTargetAngle || targetAngle;
+                    drone.wasSpottingPlayer = isDirectlySpottingPlayer;
                 }
 
-                pos.x += drone.cachedDeltaX * 0.5;
-                pos.z += drone.cachedDeltaZ * 0.5;
-                handleAIBuildingCollision(pos, 1.5); 
+                if (isDirectlySpottingPlayer) { droneDetectedFlag = true; drone.isChasingPlayer = true; lastSeenPlayerPosition.copy(camera.position); }
 
-                let dActualDist = Math.hypot(pos.x - drone.lastPosX, pos.z - drone.lastPosZ);
-                drone.lastPosX = pos.x; drone.lastPosZ = pos.z;
-                if (dActualDist < 0.01) {
-                    drone.stuckFrames = (drone.stuckFrames || 0) + 1;
-                    if (drone.stuckFrames > 5) {
-                        pos.x += Math.sin(drone.meshElement.rotation.y + Math.PI / 2) * 0.15;
-                        pos.z += Math.cos(drone.meshElement.rotation.y + Math.PI / 2) * 0.15;
-                        if (drone.stuckFrames > 30) {
-                            drone.currentNodeIndex = (drone.currentNodeIndex + drone.patrolDirectionFactor + drone.routeCoordinates.length) % drone.routeCoordinates.length;
-                            drone.stuckFrames = 0;
-                        }
+                let closestLocalAlarm = null;
+                for (let alarm of activeTerminalAlarms) {
+                    if (pos.distanceTo(alarm.pos) < 80.0) { 
+                        closestLocalAlarm = alarm;
+                        break;
                     }
-                } else { drone.stuckFrames = 0; }
+                }
 
-                const currentConeColor = (drone.isChasingPlayer || alertStateActive) ? 0xff0000 : (closestLocalAlarm ? 0xffff00 : 0x00ff green profile state profile colors);
+                let moveX = 0, moveZ = 0;
+                if (drone.isChasingPlayer || alertStateActive) {
+                    tx = lastSeenPlayerPosition.x; tz = lastSeenPlayerPosition.z; 
+                    const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
+                    if (dist > 1.0) { 
+                        targetAngle = Math.atan2(dx, dz); 
+                        moveX = (dx / dist) * drone.movementVelocityFactor * 1.4; 
+                        moveZ = (dz / dist) * drone.movementVelocityFactor * 1.4; 
+                    }
+                } 
+                else if (closestLocalAlarm) {
+                    tx = closestLocalAlarm.pos.x; tz = closestLocalAlarm.pos.z;
+                    const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
+                    if (dist > 1.0) { 
+                        targetAngle = Math.atan2(dx, dz); 
+                        moveX = (dx / dist) * drone.movementVelocityFactor * 1.2; 
+                        moveZ = (dz / dist) * drone.movementVelocityFactor * 1.2; 
+                    }
+                } 
+                else {
+                    let node = drone.routeCoordinates[drone.currentNodeIndex]; 
+                    let dx = node.x - pos.x; let dz = node.z - pos.z; let dist = Math.hypot(dx, dz);
+                    
+                    if (dist < 1.0) { 
+                        drone.currentNodeIndex += drone.patrolDirectionFactor;
+                        if (drone.currentNodeIndex >= drone.routeCoordinates.length || drone.currentNodeIndex < 0) {
+                            drone.patrolDirectionFactor *= -1; 
+                            drone.currentNodeIndex = Math.max(0, Math.min(drone.currentNodeIndex + drone.patrolDirectionFactor * 2, drone.routeCoordinates.length - 1));
+                        }
+                        node = drone.routeCoordinates[drone.currentNodeIndex];
+                        dx = node.x - pos.x; dz = node.z - pos.z; dist = Math.hypot(dx, dz) || 1;
+                    }
+                    targetAngle = Math.atan2(dx, dz);
+                    moveX = (dx / dist) * drone.movementVelocityFactor; 
+                    moveZ = (dz / dist) * drone.movementVelocityFactor; 
+                }
+
+                pos.x += moveX;
+                pos.z += moveZ;
+
+                if (belongsToActiveBucket) {
+                    handleAIBuildingCollision(pos, 1.5); 
+                    let dActualDist = Math.hypot(pos.x - drone.lastPosX, pos.z - drone.lastPosZ);
+                    drone.lastPosX = pos.x; drone.lastPosZ = pos.z;
+                    if ((moveX !== 0 || moveZ !== 0) && dActualDist < 0.01) {
+                        drone.stuckFrames = (drone.stuckFrames || 0) + 1;
+                        if (drone.stuckFrames > 5) {
+                            pos.x += Math.sin(drone.meshElement.rotation.y + Math.PI / 2) * 0.15;
+                            pos.z += Math.cos(drone.meshElement.rotation.y + Math.PI / 2) * 0.15;
+                            if (drone.stuckFrames > 30) {
+                                drone.currentNodeIndex = (drone.currentNodeIndex + drone.patrolDirectionFactor + drone.routeCoordinates.length) % drone.routeCoordinates.length;
+                                drone.stuckFrames = 0;
+                            }
+                        }
+                    } else { drone.stuckFrames = 0; }
+                }
+
+                const currentConeColor = (drone.isChasingPlayer || alertStateActive) ? 0xff0000 : (closestLocalAlarm ? 0xffff00 : 0x00ff00);
                 drone.scannerBeamGroup.children[0].material.color.setHex(currentConeColor);
                 let angleDiff = targetAngle - drone.meshElement.rotation.y;
                 while (angleDiff < -Math.PI) angleDiff += Math.PI * 2; while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
@@ -1374,10 +1367,12 @@
             let botDetectedFlag = false;
             humanoidBotsCollection.forEach(bot => {
                 let pos = bot.meshElement.position; 
-                let canBotSeePlayerRightNow = false; 
+                const belongsToActiveBucket = ((bot.id % 3) === (agentUpdateFrameToken % 3));
+
+                let canBotSeePlayerRightNow = bot.wasSpottingPlayer || false;
                 let botTargetAngle = bot.meshElement.rotation.y;
                 
-                if ((bot.id + simulationFrameSequenceId) % 2 === 0) {
+                if (belongsToActiveBucket) {
                     _scratchBotHeading.copy(camera.position).sub(pos);
                     _scratchBotHeading.y = 0;
                     const distanceToPlayer = _scratchBotHeading.length();
@@ -1401,98 +1396,99 @@
                         }
                         if (bot.isOccluded) canBotSeePlayerRightNow = false;
                     }
-
-                    if (canBotSeePlayerRightNow) { botDetectedFlag = true; bot.isAlerted = true; lastSeenPlayerPosition.copy(camera.position); } else { bot.isAlerted = false; }
-                    
-                    let closestBotAlarm = null;
-                    for (let alarm of activeTerminalAlarms) {
-                        if (pos.distanceTo(alarm.pos) < 80.0) {
-                            closestBotAlarm = alarm;
-                            break;
-                        }
-                    }
-
-                    let bMoveX = 0, bMoveZ = 0;
-                    if (bot.isAlerted || alertStateActive) {
-                        bot.aimProgress = Math.min(1.0, bot.aimProgress + 0.07); const dx = lastSeenPlayerPosition.x - pos.x; const dz = lastSeenPlayerPosition.z - pos.z; const distToLastSeen = Math.hypot(dx, dz); botTargetAngle = Math.atan2(dx, dz);
-                        if (distToLastSeen > 2.0) { 
-                            const frameVelocityStride = Math.min(distToLastSeen, bot.velocity * 0.12 * 1.5); 
-                            bMoveX = (dx / distToLastSeen) * frameVelocityStride;
-                            bMoveZ = (dz / distToLastSeen) * frameVelocityStride;
-                        }
-                        if (canBotSeePlayerRightNow && distanceToPlayer <= 25.0 && timestamp - bot.lastFireTimestamp > 1200) {
-                            bot.lastFireTimestamp = timestamp; playerHealth = Math.max(0, playerHealth - 8.0); spaceOverlay.classList.add('flash-red-harm'); setTimeout(() => spaceOverlay.classList.remove('flash-red-harm'), 150);
-                            
-                            _scratchMuzzleOffset.set(0.9, 0.4, 1.6).applyMatrix4(bot.meshElement.matrixWorld);
-                            _scratchLaserTarget.copy(camera.position); 
-                            
-                            const laserMesh = new THREE.Mesh(sharedLaserGeometry, sharedLaserMaterial);
-                            laserMesh.position.copy(_scratchMuzzleOffset); 
-                            laserMesh.lookAt(_scratchLaserTarget); 
-                            laserMesh.rotation.x += Math.PI / 2; 
-                            scene.add(laserMesh);
-                            
-                            activeLasersCollection.push({ meshElement: laserMesh, directionVector: new THREE.Vector3().subVectors(_scratchLaserTarget, _scratchMuzzleOffset).normalize(), velocitySpeed: 5.5, distanceTraveled: 0, maxDistanceLimit: _scratchMuzzleOffset.distanceTo(_scratchLaserTarget) });
-                        }
-                    } 
-                    else if (closestBotAlarm) {
-                        bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07);
-                        const dx = closestBotAlarm.pos.x - pos.x; const dz = closestBotAlarm.pos.z - pos.z;
-                        const distToAlarm = Math.hypot(dx, dz); botTargetAngle = Math.atan2(dx, dz);
-                        if (distToAlarm > 1.5) { 
-                            const frameVelocityStride = Math.min(distToAlarm, bot.velocity * 0.12 * 1.2); 
-                            bMoveX = (dx / distToAlarm) * frameVelocityStride;
-                            bMoveZ = (dz / distToAlarm) * frameVelocityStride;
-                        }
-                    }
-                    else {
-                        bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07); 
-                        let targetNode = bot.routeCoordinates[bot.currentNodeIndex]; 
-                        let ndx = targetNode.x - pos.x; let ndz = targetNode.z - pos.z; let ndist = Math.hypot(ndx, ndz);
-                        
-                        if (ndist < 1.0) { 
-                            bot.currentNodeIndex += bot.patrolDirectionFactor; 
-                            if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { 
-                                bot.patrolDirectionFactor *= -1; 
-                                bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex + bot.patrolDirectionFactor * 2, bot.routeCoordinates.length - 1));
-                            } 
-                            targetNode = bot.routeCoordinates[bot.currentNodeIndex];
-                            ndx = targetNode.x - pos.x; ndz = targetNode.z - pos.z; ndist = Math.hypot(ndx, ndz) || 1;
-                        }
-                        botTargetAngle = Math.atan2(ndx, ndz);
-                        const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); 
-                        bMoveX = (ndx / ndist) * frameVelocityStride;
-                        bMoveZ = (ndz / ndist) * frameVelocityStride;
-                    }
-
-                    bot.cachedDeltaX = bMoveX * 2.0;
-                    bot.cachedDeltaZ = bMoveZ * 2.0;
-                    bot.cachedTargetAngle = botTargetAngle;
-                } else {
-                    botTargetAngle = bot.cachedTargetAngle || botTargetAngle;
+                    bot.wasSpottingPlayer = canBotSeePlayerRightNow;
+                    bot.lastDistanceToPlayer = distanceToPlayer;
                 }
 
-                pos.x += bot.cachedDeltaX * 0.5;
-                pos.z += bot.cachedDeltaZ * 0.5;
-                handleAIBuildingCollision(pos, 1.0); 
-
-                let bActualDist = Math.hypot(pos.x - bot.lastPosX, pos.z - bot.lastPosZ);
-                bot.lastPosX = pos.x; bot.lastPosZ = pos.z;
-                if (bActualDist < 0.01) {
-                    bot.stuckFrames = (bot.stuckFrames || 0) + 1;
-                    if (bot.stuckFrames > 5) {
-                        pos.x += Math.sin(bot.meshElement.rotation.y + Math.PI / 2) * 0.1;
-                        pos.z += Math.cos(bot.meshElement.rotation.y + Math.PI / 2) * 0.1;
-                        if (bot.stuckFrames > 30) {
-                            bot.currentNodeIndex = (bot.currentNodeIndex + bot.patrolDirectionFactor + bot.routeCoordinates.length) % bot.routeCoordinates.length;
-                            bot.stuckFrames = 0;
-                        }
+                if (canBotSeePlayerRightNow) { botDetectedFlag = true; bot.isAlerted = true; lastSeenPlayerPosition.copy(camera.position); } else { bot.isAlerted = false; }
+                
+                let closestBotAlarm = null;
+                for (let alarm of activeTerminalAlarms) {
+                    if (pos.distanceTo(alarm.pos) < 80.0) {
+                        closestBotAlarm = alarm;
+                        break;
                     }
-                } else { bot.stuckFrames = 0; }
+                }
+
+                let bMoveX = 0, bMoveZ = 0;
+                if (bot.isAlerted || alertStateActive) {
+                    bot.aimProgress = Math.min(1.0, bot.aimProgress + 0.07); const dx = lastSeenPlayerPosition.x - pos.x; const dz = lastSeenPlayerPosition.z - pos.z; const distToLastSeen = Math.hypot(dx, dz); botTargetAngle = Math.atan2(dx, dz);
+                    if (distToLastSeen > 2.0) { 
+                        const frameVelocityStride = Math.min(distToLastSeen, bot.velocity * 0.12 * 1.5); 
+                        bMoveX = (dx / distToLastSeen) * frameVelocityStride;
+                        bMoveZ = (dz / distToLastSeen) * frameVelocityStride;
+                    }
+                    if (canBotSeePlayerRightNow && bot.lastDistanceToPlayer <= 25.0 && timestamp - bot.lastFireTimestamp > 1200) {
+                        bot.lastFireTimestamp = timestamp; playerHealth = Math.max(0, playerHealth - 8.0); spaceOverlay.classList.add('flash-red-harm'); setTimeout(() => spaceOverlay.classList.remove('flash-red-harm'), 150);
+                        
+                        _scratchMuzzleOffset.set(0.9, 0.4, 1.6).applyMatrix4(bot.meshElement.matrixWorld);
+                        _scratchLaserTarget.copy(camera.position); 
+                        
+                        const laserMesh = new THREE.Mesh(sharedLaserGeometry, sharedLaserMaterial);
+                        laserMesh.position.copy(_scratchMuzzleOffset); 
+                        laserMesh.lookAt(_scratchLaserTarget); 
+                        laserMesh.rotation.x += Math.PI / 2; 
+                        scene.add(laserMesh);
+                        
+                        activeLasersCollection.push({ meshElement: laserMesh, directionVector: new THREE.Vector3().subVectors(_scratchLaserTarget, _scratchMuzzleOffset).normalize(), velocitySpeed: 5.5, distanceTraveled: 0, maxDistanceLimit: _scratchMuzzleOffset.distanceTo(_scratchLaserTarget) });
+                    }
+                } 
+                else if (closestBotAlarm) {
+                    bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07);
+                    const dx = closestBotAlarm.pos.x - pos.x; const dz = closestBotAlarm.pos.z - pos.z;
+                    const distToAlarm = Math.hypot(dx, dz); botTargetAngle = Math.atan2(dx, dz);
+                    if (distToAlarm > 1.5) { 
+                        const frameVelocityStride = Math.min(distToAlarm, bot.velocity * 0.12 * 1.2); 
+                        bMoveX = (dx / distToAlarm) * frameVelocityStride;
+                        bMoveZ = (dz / distToAlarm) * frameVelocityStride;
+                    }
+                }
+                else {
+                    bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07); 
+                    let targetNode = bot.routeCoordinates[bot.currentNodeIndex]; 
+                    let ndx = targetNode.x - pos.x; let ndz = targetNode.z - pos.z; let ndist = Math.hypot(ndx, ndz);
+                    
+                    if (ndist < 1.0) { 
+                        bot.currentNodeIndex += bot.patrolDirectionFactor; 
+                        if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { 
+                            bot.patrolDirectionFactor *= -1; 
+                            bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex + bot.patrolDirectionFactor * 2, bot.routeCoordinates.length - 1));
+                        } 
+                        targetNode = bot.routeCoordinates[bot.currentNodeIndex];
+                        ndx = targetNode.x - pos.x; ndz = targetNode.z - pos.z; ndist = Math.hypot(ndx, ndz) || 1;
+                    }
+                    botTargetAngle = Math.atan2(ndx, ndz);
+                    const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); 
+                    bMoveX = (ndx / ndist) * frameVelocityStride;
+                    bMoveZ = (ndz / ndist) * frameVelocityStride;
+                }
+
+                pos.x += bMoveX;
+                pos.z += bMoveZ;
+
+                if (belongsToActiveBucket) {
+                    handleAIBuildingCollision(pos, 1.0); 
+                    let bActualDist = Math.hypot(pos.x - bot.lastPosX, pos.z - bot.lastPosZ);
+                    bot.lastPosX = pos.x; bot.lastPosZ = pos.z;
+                    if ((bMoveX !== 0 || bMoveZ !== 0) && bActualDist < 0.01) {
+                        bot.stuckFrames = (bot.stuckFrames || 0) + 1;
+                        if (bot.stuckFrames > 5) {
+                            pos.x += Math.sin(bot.meshElement.rotation.y + Math.PI / 2) * 0.1;
+                            pos.z += Math.cos(bot.meshElement.rotation.y + Math.PI / 2) * 0.1;
+                            if (bot.stuckFrames > 30) {
+                                bot.currentNodeIndex = (bot.currentNodeIndex + bot.patrolDirectionFactor + bot.routeCoordinates.length) % bot.routeCoordinates.length;
+                                bot.stuckFrames = 0;
+                            }
+                        }
+                    } else { bot.stuckFrames = 0; }
+                }
 
                 let botAngleDiff = botTargetAngle - bot.meshElement.rotation.y; while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2; while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2; bot.meshElement.rotation.y += botAngleDiff * 0.08;
                 const alternateCycle = Math.sin(timestamp * 0.008 * bot.velocity); bot.armL.rotation.x = -alternateCycle * 0.3; bot.armR.rotation.x = THREE.MathUtils.lerp(alternateCycle * 0.3, -Math.PI / 2, bot.aimProgress); bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
             });
+
+            // Increment scheduler step reference index
+            agentUpdateFrameToken++;
 
             for (let i = activeLasersCollection.length - 1; i >= 0; i--) {
                 const bolt = activeLasersCollection[i]; bolt.meshElement.position.addScaledVector(bolt.directionVector, bolt.velocitySpeed); bolt.distanceTraveled += bolt.velocitySpeed;
@@ -1522,11 +1518,17 @@
             document.getElementById('live-agent-counter').innerText = totalActiveAgentsInSector;
 
             if (mapLoadedForAnchor && !matrixOverloadActive) {
+                // REAL-TIME ACCELERATION DEAD-RECKONING: Extrapolate coordinates between hardware cycles to lock positions 1:1
+                if (Math.abs(playerVelocityX) > 0.001 || Math.abs(playerVelocityZ) > 0.001) {
+                    gpsTargetPosition.x += playerVelocityX * 0.016; // Project position based on 60Hz physics step slices
+                    gpsTargetPosition.z += playerVelocityZ * 0.016;
+                }
+
                 if (!initialSnapCompleted) { camera.position.x = gpsTargetPosition.x; camera.position.z = gpsTargetPosition.z; initialSnapCompleted = true; } 
                 else {
-                    // SINGLE TUNED TRACKING INTERPOLATION LAYER: Snappy response coefficients eliminate telemetry lag completely
-                    camera.position.x += (gpsTargetPosition.x - camera.position.x) * 0.45;
-                    camera.position.z += (gpsTargetPosition.z - camera.position.z) * 0.45;
+                    // Eliminate dual elastic drag layer for instant latency response
+                    camera.position.x += (gpsTargetPosition.x - camera.position.x) * 0.85;
+                    camera.position.z += (gpsTargetPosition.z - camera.position.z) * 0.85;
                 }
                 camera.position.y = 1.7;
             }
@@ -1627,7 +1629,7 @@
             }
             tacticalDronesCollection.forEach(d => {
                 inlineTransformWorldToMapCoords(d.meshElement.position.x, d.meshElement.position.z, mapCenterX, mapCenterZ, scale);
-                minimapCtx.save(); minimapCtx.fillStyle = globalShutdownTriggered ? '#555555' : '#ff0000'; minimapCtx.strokeStyle = '#ff3333'; minimapCtx.lineWidth = 1; minimapCtx.translate(_scratchMapTransform.x, _scratchMapTransform.y); minimapCtx.rotate(d.meshElement.rotation.y);
+                minimapCtx.save(); minimapCtx.fillStyle = globalShutdownShutdownTriggered ? '#555555' : '#ff0000'; minimapCtx.strokeStyle = '#ff3333'; minimapCtx.lineWidth = 1; minimapCtx.translate(_scratchMapTransform.x, _scratchMapTransform.y); minimapCtx.rotate(d.meshElement.rotation.y);
                 const itemSize = Math.max(4.0, 6.0 * scale); minimapCtx.beginPath(); minimapCtx.moveTo(0, -itemSize); minimapCtx.lineTo(-itemSize * 0.7, itemSize * 0.7); minimapCtx.lineTo(itemSize * 0.7, itemSize * 0.7); minimapCtx.closePath(); minimapCtx.fill(); minimapCtx.stroke(); minimapCtx.restore();
             });
             humanoidBotsCollection.forEach(b => {
@@ -1656,19 +1658,30 @@
         }
 
         function updatePlayerPositionFromGps(latitude, longitude, accuracy) {
+            const currentTime = Date.now();
             lastRawCoords.lat = latitude; lastRawCoords.lon = longitude;
             let calibratedLat = latitude + geoTelemetryOffset.lat; let calibratedLon = longitude + geoTelemetryOffset.lon;
             currentCoordinates.lat = calibratedLat; currentCoordinates.lon = calibratedLon;
-            
-            if (hasLockedInitialAnchor) {
-                const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
-                // ZERO-LATENCY DATA RECEPTION: Raw spatial coordinates update directly to resolve the double-smoothing delay
-                gpsTargetPosition.x = local.x; 
-                gpsTargetPosition.z = local.z;
-            } else {
-                anchorCoordinates.lat = calibratedLat; anchorCoordinates.lon = calibratedLon; initialBestAccuracy = accuracy || 999; hasLockedInitialAnchor = true; initialSnapCompleted = false; 
+
+            const local = latLonToLocalMeters(currentCoordinates.lat, currentCoordinates.lon, anchorCoordinates.lat, anchorCoordinates.lon);
+
+            if (!hasLockedInitialAnchor) {
+                anchorCoordinates.lat = calibratedLat; anchorCoordinates.lon = calibratedLon; initialBestAccuracy = accuracy || 10; hasLockedInitialAnchor = true; initialSnapCompleted = false; 
                 gpsTargetPosition.set(0, 1.7, 0); camera.position.set(0, 1.7, 0);
+                lastGpsTimestamp = currentTime;
                 fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
+            } else {
+                // HIGH-FREQUENCY INERTIAL VELOCITY DERIVATION: Infers real-time steps between ticks
+                if (lastGpsTimestamp > 0) {
+                    const elapsedSeconds = (currentTime - lastGpsTimestamp) / 1000.0;
+                    if (elapsedSeconds > 0.1 && elapsedSeconds < 4.0) {
+                        playerVelocityX = (local.x - gpsTargetPosition.x) / elapsedSeconds;
+                        playerVelocityZ = (local.z - gpsTargetPosition.z) / elapsedSeconds;
+                    }
+                }
+                lastGpsTimestamp = currentTime;
+                gpsTargetPosition.x = local.x;
+                gpsTargetPosition.z = local.z;
             }
         }
 
@@ -1797,8 +1810,6 @@
 
             function frameLoopEngine() {
                 requestAnimationFrame(frameLoopEngine); const t = Date.now();
-                simulationFrameSequenceId++; // Increment step sequences cleanly
-
                 spatialAnomaliesCollection.forEach(a => { if (!a.collected) { a.mesh.rotation.x += 0.01; a.mesh.rotation.y += 0.02; } });
                 
                 hackingTerminalsCollection.forEach(tNode => {
