@@ -95,6 +95,34 @@
         #marker-e { right: 4px; top: 50%; transform: translateY(-50%); }
         #marker-w { left: 4px; top: 50%; transform: translateY(-50%); }
 
+        /* HORIZONTAL ALIGNMENT COMPRESSION LAYER */
+        #map-geo-metadata {
+            position: absolute;
+            left: 0;
+            width: 100vw;
+            top: min(calc(50% + 42.5vmin + 15px), 91vh);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 105;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: min(3.5vw, 13px);
+            font-weight: bold;
+            letter-spacing: 1px;
+            color: #00ffcc;
+            text-shadow: 0 0 8px rgba(0, 255, 204, 0.6);
+            pointer-events: none;
+        }
+        #map-geo-metadata.visible {
+            display: flex;
+        }
+        .metadata-inner {
+            display: inline-block;
+            text-align: left;
+            white-space: nowrap;
+            line-height: 1.5;
+        }
+
         #fine-tune-dock {
             position: absolute; bottom: 20px; right: 20px; z-index: 110;
             display: flex; align-items: center; gap: 10px;
@@ -184,6 +212,13 @@
                 <span id="marker-w" class="compass-marker">W</span>
             </div>
         </div>
+        <div id="map-geo-metadata">
+            <div class="metadata-inner">
+                <div id="meta-city-state">Detroit, Michigan</div>
+                <div id="meta-country">United States</div>
+                <div id="meta-lat-lon">LAT: 42.33140 | LON: -83.04580</div>
+            </div>
+        </div>
     </div>
 
     <div id="fine-tune-dock">
@@ -203,9 +238,9 @@
         let previousPointerX = 0; let previousPointerY = 0;
         let gyroSignalDetected = false;
 
-        let currentCoordinates = { lat: 40.7580, lon: -73.9855 };
-        let anchorCoordinates = { lat: 40.7580, lon: -73.9855 };
-        let lastRawCoords = { lat: 40.7580, lon: -73.9855 }; 
+        let currentCoordinates = { lat: 42.3314, lon: -83.0458 };
+        let anchorCoordinates = { lat: 42.3314, lon: -83.0458 };
+        let lastRawCoords = { lat: 42.3314, lon: -83.0458 }; 
         let hasLockedInitialAnchor = false;
         let initialBestAccuracy = 999999; 
         let mapLoadedForAnchor = false;
@@ -218,10 +253,13 @@
         let matrixOverloadCountdown = -1;
         let lastCountdownTickTime = 0;
 
-        // HUD TYPEWRITER AND STATE MACHINE REGISTERS
         let currentHUDState = "";
         let jackingCharsRevealed = 0;
         let lastTypewriterTick = 0;
+
+        // GEOSPATIAL NAMING REGISTERS
+        let geoDisplayCityState = "Detroit, Michigan";
+        let geoDisplayCountry = "United States";
 
         const MAP_RADIUS_METERS = 1609;
         let isMinimapEnlarged = false;
@@ -684,6 +722,35 @@
             stellarDomeSystem.material.opacity = stellarOpacityValue;
         }
 
+        // ASYNCHRONOUS GEOSPATIAL DATA CONVERSION ROUTINE
+        async function fetchReverseGeocodeLocation(lat, lon) {
+            try {
+                const response = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`, {
+                    headers: { 'User-Agent': 'ProjectARSE/2.0' }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data && data.address) {
+                        let city = data.address.city || data.address.town || data.address.village || data.address.suburb || "Detroit";
+                        let state = data.address.state || "Michigan";
+                        let country = data.address.country || "United States";
+                        geoDisplayCityState = `${city}, ${state}`;
+                        geoDisplayCountry = country;
+                        updateMetadataUI();
+                    }
+                }
+            } catch(e) {}
+        }
+
+        function updateMetadataUI() {
+            const cityEl = document.getElementById('meta-city-state');
+            const countryEl = document.getElementById('meta-country');
+            const latLonEl = document.getElementById('meta-lat-lon');
+            if (cityEl) cityEl.innerText = geoDisplayCityState;
+            if (countryEl) countryEl.innerText = geoDisplayCountry;
+            if (latLonEl) latLonEl.innerText = `LAT: ${currentCoordinates.lat.toFixed(5)} | LON: ${currentCoordinates.lon.toFixed(5)}`;
+        }
+
         function autoInitializeSensors() {
             const viewportCanvas = document.getElementById('canvas3d');
             viewportCanvas.addEventListener('pointerdown', (e) => {
@@ -831,10 +898,12 @@
             window.addEventListener('click', (e) => {
                 if (!sensorsEngaged || e.target.closest('#fine-tune-dock')) return; 
                 
+                const metaDiv = document.getElementById('map-geo-metadata');
                 if (isMinimapEnlarged) {
                     if (!e.target.closest('#minimap-container')) {
                         isMinimapEnlarged = false;
                         mapContainer.classList.remove('enlarged');
+                        if (metaDiv) metaDiv.classList.remove('visible');
                         minimapZoomScale = 1.0;
                         minimapPanOffset.set(0, 0, 0);
                     }
@@ -842,6 +911,7 @@
                     if (e.target.closest('#minimap-container')) {
                         isMinimapEnlarged = true;
                         mapContainer.classList.add('enlarged');
+                        if (metaDiv) metaDiv.classList.add('visible');
                     }
                 }
             });
@@ -894,6 +964,7 @@
             isFetchingMap = false; 
             if (success && data) { 
                 setTimeout(() => { parseAndBuildOSMWorld(data, anchorCoordinates.lat, anchorCoordinates.lon); }, 50);
+                fetchReverseGeocodeLocation(lat, lon);
             }
             else { triggerMatrixOverloadErrorState(); }
         }
@@ -1561,10 +1632,11 @@
                 currentCoordinates.lat = calibratedLat; currentCoordinates.lon = calibratedLon;
                 const local = latLonToLocalMeters(calibratedLat, calibratedLon, anchorCoordinates.lat, anchorCoordinates.lon);
                 gpsTargetPosition.set(local.x, 1.7, local.z);
+                updateMetadataUI();
+                fetchReverseGeocodeLocation(calibratedLat, calibratedLon);
             }
         }
 
-        // DYNAMIC RESPONSIVE STRING SPLITTING GENERATOR
         function getJackingHTML(count) {
             let line1 = "Jacking into";
             let line2 = "neural network...";
@@ -1592,7 +1664,6 @@
                 statusLabel.innerHTML = `<div class="matrix-overload-title" style="color: #ff0055; text-shadow: 0 0 15px #ff0055;">Matrix Overloaded</div><div class="matrix-overload-sub" style="font-size: 14px; margin-top: 5px;">retry in ${Math.max(0, matrixOverloadCountdown)}</div>`; 
             }
             else if (!mapLoadedForAnchor) { 
-                // TRACK STREAMS ATOMICALLY: Direct text updates coupled with a 50ms character reveal delta
                 if (currentHUDState !== "jacking") {
                     currentHUDState = "jacking";
                     jackingCharsRevealed = 0;
@@ -1736,6 +1807,7 @@
             } else {
                 gpsTargetPosition.x = local.x;
                 gpsTargetPosition.z = local.z;
+                updateMetadataUI();
             }
         }
 
