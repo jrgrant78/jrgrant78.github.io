@@ -701,7 +701,6 @@
             mapContainer.addEventListener('pointerdown', (e) => {
                 if (!isMinimapEnlarged) return;
                 e.stopPropagation(); 
-                // UNBROKEN INERTIAL CAPTURE LAYER: Bind the tracking id to stop border displacement drops
                 try { mapContainer.setPointerCapture(e.pointerId); } catch(err){}
                 activeMapPointers.push(e);
                 if (activeMapPointers.length === 2) {
@@ -850,8 +849,8 @@
                 e.stopPropagation(); e.preventDefault();
                 panel.classList.toggle('open');
             };
-            triggerBtn.addEventListener('pointerdown', runToggleAction);
-            triggerBtn.addEventListener('touchstart', runToggleAction);
+            // UNIFIED CLICK GATE: Fixed input lock by eliminating competing dual touch/pointer micro-streams
+            triggerBtn.addEventListener('click', runToggleAction);
         }
 
         function bindAbsoluteCompassListeners() {
@@ -1527,6 +1526,18 @@
             scene.add(sparkLine); setTimeout(() => { scene.remove(sparkLine); sparkGeo.dispose(); }, 60 + Math.random() * 60);
         }
 
+        // GEOSPATIAL TELEMETRY MANUAL OFFSET CALIBRATION ENGINE
+        function applyGeospatialNudge(deltaLat, deltaLon) {
+            geoTelemetryOffset.lat += deltaLat; geoTelemetryOffset.lon += deltaLon;
+            if (hasLockedInitialAnchor) {
+                let calibratedLat = lastRawCoords.lat + geoTelemetryOffset.lat;
+                let calibratedLon = lastRawCoords.lon + geoTelemetryOffset.lon;
+                currentCoordinates.lat = calibratedLat; currentCoordinates.lon = calibratedLon;
+                const local = latLonToLocalMeters(calibratedLat, calibratedLon, anchorCoordinates.lat, anchorCoordinates.lon);
+                gpsTargetPosition.set(local.x, 1.7, local.z);
+            }
+        }
+
         function updateVisorFeedbackHUD(timestamp) {
             const statusLabel = document.getElementById('main-hud-status'); const trackerContainer = document.getElementById('threat-tracker-display'); const cracksCanvas = document.getElementById('cracks-canvas'); const reticle = document.getElementById('targeting-matrix'); const ctx = cracksCanvas.getContext('2d');
             if (!sensorsEngaged) return; 
@@ -1614,10 +1625,7 @@
             }
             tacticalDronesCollection.forEach(d => {
                 inlineTransformWorldToMapCoords(d.meshElement.position.x, d.meshElement.position.z, mapCenterX, mapCenterZ, scale);
-                minimapCtx.save(); 
-                // CRITICAL CORRECTION: Restored global state evaluation to repair rendering stream breakdown
-                minimapCtx.fillStyle = globalShutdownTriggered ? '#555555' : '#ff0000';
-                minimapCtx.strokeStyle = '#ff3333'; minimapCtx.lineWidth = 1; minimapCtx.translate(_scratchMapTransform.x, _scratchMapTransform.y); minimapCtx.rotate(d.meshElement.rotation.y);
+                minimapCtx.save(); minimapCtx.fillStyle = globalShutdownTriggered ? '#555555' : '#ff0000'; minimapCtx.strokeStyle = '#ff3333'; minimapCtx.lineWidth = 1; minimapCtx.translate(_scratchMapTransform.x, _scratchMapTransform.y); minimapCtx.rotate(d.meshElement.rotation.y);
                 const itemSize = Math.max(4.0, 6.0 * scale); minimapCtx.beginPath(); minimapCtx.moveTo(0, -itemSize); minimapCtx.lineTo(-itemSize * 0.7, itemSize * 0.7); minimapCtx.lineTo(itemSize * 0.7, itemSize * 0.7); minimapCtx.closePath(); minimapCtx.fill(); minimapCtx.stroke(); minimapCtx.restore();
             });
             humanoidBotsCollection.forEach(b => {
