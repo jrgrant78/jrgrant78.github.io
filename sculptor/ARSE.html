@@ -129,7 +129,6 @@
         .shape-a { width: 8px; height: 8px; background: #bd00ff; border-radius: 50%; display: inline-block; }
         .shape-g { width: 8px; height: 8px; background: #ff7700; border: 1px solid #ffffff; border-radius: 50%; display: inline-block; }
 
-        /* PORTRAIT OVERRIDE: Splits legend items into exactly two rows of three */
         @media (orientation: portrait) {
             .legend-inner {
                 display: grid !important;
@@ -372,13 +371,11 @@
         let biometricInferenceLock = false;
         let lastMinimapUpdateTime = 0;
 
-        // ADAPTIVE DUTY FRAME CALIBRATION
         let handStabilityCounter = 0;
         let handLostFrames = 0; 
         const HYSTERESIS_VISIBLE_STRIKE = 3; 
         let biometricDynamicThrottle = 200; 
 
-        // VOLUMETRIC SOLID BIOMETRIC HAND REGISTERS
         let handVisualizerGroup;
         let palmMesh, palmGeometry;
         const structuralJointMeshes = [];
@@ -398,15 +395,14 @@
 
         let sharedLaserGeometry, sharedLaserMaterial;
 
-        // VISUAL MATERIAL COMPILATION: Updated colors for high contrast real-time rendering
         const sharedMaterials = {
-            grass: new THREE.MeshLambertMaterial({ color: 0x1b5e20, depthWrite: true }), // Balanced tactical green
+            grass: new THREE.MeshLambertMaterial({ color: 0x1b5e20, depthWrite: true }), 
             buildingSolid: new THREE.MeshLambertMaterial({ color: 0x01020a, depthWrite: true }),
             buildingWire: new THREE.LineBasicMaterial({ color: 0x00ffff }),
             roadSolid: new THREE.MeshLambertMaterial({ color: 0x020202, side: THREE.DoubleSide }),
             roadCurb: new THREE.LineBasicMaterial({ color: 0xffff00 }),
             roadCenter: new THREE.LineBasicMaterial({ color: 0xffffff }),
-            sidewalkSolid: new THREE.MeshLambertMaterial({ color: 0x777777, side: THREE.DoubleSide }), // Neutral medium gray
+            sidewalkSolid: new THREE.MeshLambertMaterial({ color: 0x777777, side: THREE.DoubleSide }), 
             crosswalk: new THREE.LineBasicMaterial({ color: 0xfffa9e }),
             terminalActive: new THREE.MeshLambertMaterial({ color: 0x00ff55, wireframe: true }),
             terminalHacked: new THREE.MeshLambertMaterial({ color: 0x555555, wireframe: true }),
@@ -1225,25 +1221,6 @@
             terminalGroup.updateMatrixWorld(true);
             consoleMesh.updateMatrixWorld(true);
             
-            activeSubButtons.forEach(btn => {
-                btn.userData.worldPos = new THREE.Vector3();
-                btn.getWorldPosition(btn.userData.worldPos);
-            });
-
-            let trackStartWorld = new THREE.Vector3();
-            let trackEndWorld = new THREE.Vector3();
-            
-            handleMesh.position.x = -0.26;
-            handleMesh.updateMatrixWorld(true);
-            handleMesh.getWorldPosition(trackStartWorld);
-            
-            handleMesh.position.x = 0.26;
-            handleMesh.updateMatrixWorld(true);
-            handleMesh.getWorldPosition(trackEndWorld);
-            
-            handleMesh.position.x = -0.26;
-            handleMesh.updateMatrixWorld(true);
-            
             hackingTerminalsCollection.push({
                 id: indexId,
                 pos: terminalGroup.position, 
@@ -1251,9 +1228,6 @@
                 consoleScreen: consoleMesh,
                 buttons: activeSubButtons,
                 slideHandle: handleMesh,
-                trackStartWorldPos: trackStartWorld,
-                trackEndWorldPos: trackEndWorld,
-                handleWorldPos: new THREE.Vector3().copy(trackStartWorld),
                 hacked: false,
                 lowering: false
             });
@@ -2021,27 +1995,33 @@
                         _scratchHandCheckVec.copy(structuralJointMeshes[8].position); 
                         _scratchHandCheckVec.applyMatrix4(camera.matrixWorld); 
 
+                        // ADVANCED SPACIAL RAYCASTER ACTIVATION LAYER
+                        _scratchRaySource.copy(camera.position);
+                        _scratchRayDir.subVectors(_scratchHandCheckVec, _scratchRaySource).normalize();
+                        visionRaycaster.set(_scratchRaySource, _scratchRayDir);
+
                         hackingTerminalsCollection.forEach(tNode => {
                             if (tNode.hacked) return;
 
                             const flatDistanceToUnit = camera.position.distanceTo(tNode.group.position);
-                            if (flatDistanceToUnit < 3.5) { 
+                            if (flatDistanceToUnit < 6.0) { 
                                 
-                                tNode.buttons.forEach(btn => {
-                                    if (!btn.userData.clicked) {
-                                        if (_scratchHandCheckVec.distanceTo(btn.userData.worldPos) < 0.14) {
-                                            btn.userData.clicked = true;
-                                            btn.material.color.setHex(0x00ff55); 
-                                            generateLocalElectricSpark(btn.userData.worldPos);
-                                        }
+                                // 1. Click Button Validation via Projective Raycast
+                                const buttonIntersects = visionRaycaster.intersectObjects(tNode.buttons);
+                                if (buttonIntersects.length > 0) {
+                                    const hitBtn = buttonIntersects[0].object;
+                                    if (!hitBtn.userData.clicked) {
+                                        hitBtn.userData.clicked = true;
+                                        hitBtn.material.color.setHex(0x00ff55);
+                                        generateLocalElectricSpark(buttonIntersects[0].point);
                                     }
-                                });
+                                }
 
+                                // 2. Slider Handle Progress Translation via Projective Raycast
                                 if (tNode.slideHandle.userData.progress < 1.0) {
-                                    tNode.handleWorldPos.lerpVectors(tNode.trackStartWorldPos, tNode.trackEndWorldPos, tNode.slideHandle.userData.progress);
-                                    
-                                    if (_scratchHandCheckVec.distanceTo(tNode.handleWorldPos) < 0.18) {
-                                        tNode.slideHandle.userData.progress = Math.min(1.0, tNode.slideHandle.userData.progress + 0.025);
+                                    const handleIntersects = visionRaycaster.intersectObject(tNode.slideHandle);
+                                    if (handleIntersects.length > 0) {
+                                        tNode.slideHandle.userData.progress = Math.min(1.0, tNode.slideHandle.userData.progress + 0.015);
                                         tNode.slideHandle.position.x = -0.26 + (tNode.slideHandle.userData.progress * 0.52);
                                         
                                         if (tNode.slideHandle.userData.progress >= 1.0) {
@@ -2050,6 +2030,7 @@
                                     }
                                 }
 
+                                // 3. Structural Condition Check Loop
                                 const formsCompleted = tNode.buttons.every(b => b.userData.clicked);
                                 const trackCompleted = tNode.slideHandle.userData.progress >= 1.0;
                                 
