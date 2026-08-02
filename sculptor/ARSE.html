@@ -1211,6 +1211,21 @@
             handleMesh.position.set(-0.26, 0, 0.02); 
             handleMesh.userData = { type: 'handle', progress: 0.0 };
             runnerMesh.add(handleMesh);
+
+            // VOLUMETRIC SKELETAL HAND PRINT GRAPHIC
+            const handPrintGroup = new THREE.Group();
+            handPrintGroup.position.set(0, 0, 0.06);
+            handPrintGroup.visible = false;
+
+            const palmPrint = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.01), new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true }));
+            handPrintGroup.add(palmPrint);
+
+            for (let f = 0; f < 5; f++) {
+                const fingerPrint = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.12, 0.01), new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true }));
+                fingerPrint.position.set(-0.08 + f * 0.04, 0.14 - Math.abs(f - 2) * 0.02, 0);
+                handPrintGroup.add(fingerPrint);
+            }
+            consoleMesh.add(handPrintGroup);
             
             terminalGroup.lookAt(0, 0, 0);
             terminalGroup.rotation.x = 0;
@@ -1228,7 +1243,11 @@
                 consoleScreen: consoleMesh,
                 buttons: activeSubButtons,
                 slideHandle: handleMesh,
+                runnerBar: runnerMesh,
+                handPrintTarget: handPrintGroup,
                 hacked: false,
+                verifying: false,
+                verifyProgress: 0.0,
                 lowering: false
             });
         }
@@ -1995,7 +2014,6 @@
                         _scratchHandCheckVec.copy(structuralJointMeshes[8].position); 
                         _scratchHandCheckVec.applyMatrix4(camera.matrixWorld); 
 
-                        // ADVANCED SPACIAL RAYCASTER ACTIVATION LAYER
                         _scratchRaySource.copy(camera.position);
                         _scratchRayDir.subVectors(_scratchHandCheckVec, _scratchRaySource).normalize();
                         visionRaycaster.set(_scratchRaySource, _scratchRayDir);
@@ -2006,45 +2024,77 @@
                             const flatDistanceToUnit = camera.position.distanceTo(tNode.group.position);
                             if (flatDistanceToUnit < 6.0) { 
                                 
-                                // 1. Click Button Validation via Projective Raycast
-                                const buttonIntersects = visionRaycaster.intersectObjects(tNode.buttons);
-                                if (buttonIntersects.length > 0) {
-                                    const hitBtn = buttonIntersects[0].object;
-                                    if (!hitBtn.userData.clicked) {
-                                        hitBtn.userData.clicked = true;
-                                        hitBtn.material.color.setHex(0x00ff55);
-                                        generateLocalElectricSpark(buttonIntersects[0].point);
-                                    }
-                                }
-
-                                // 2. Slider Handle Progress Translation via Projective Raycast
-                                if (tNode.slideHandle.userData.progress < 1.0) {
-                                    const handleIntersects = visionRaycaster.intersectObject(tNode.slideHandle);
-                                    if (handleIntersects.length > 0) {
-                                        tNode.slideHandle.userData.progress = Math.min(1.0, tNode.slideHandle.userData.progress + 0.015);
-                                        tNode.slideHandle.position.x = -0.26 + (tNode.slideHandle.userData.progress * 0.52);
-                                        
-                                        if (tNode.slideHandle.userData.progress >= 1.0) {
-                                            tNode.slideHandle.material.color.setHex(0x00ffff); 
+                                if (!tNode.verifying) {
+                                    // 1. Click Button Validation via Projective Raycast
+                                    const buttonIntersects = visionRaycaster.intersectObjects(tNode.buttons);
+                                    if (buttonIntersects.length > 0) {
+                                        const hitBtn = buttonIntersects[0].object;
+                                        if (!hitBtn.userData.clicked) {
+                                            hitBtn.userData.clicked = true;
+                                            hitBtn.material.color.setHex(0x00ff55);
+                                            generateLocalElectricSpark(buttonIntersects[0].point);
                                         }
                                     }
-                                }
 
-                                // 3. Structural Condition Check Loop
-                                const formsCompleted = tNode.buttons.every(b => b.userData.clicked);
-                                const trackCompleted = tNode.slideHandle.userData.progress >= 1.0;
-                                
-                                if (formsCompleted && trackCompleted) {
-                                    tNode.hacked = true;
-                                    tNode.lowering = true;
+                                    // 2. Slider Handle Progress Translation via Projective Raycast
+                                    if (tNode.slideHandle.userData.progress < 1.0) {
+                                        const handleIntersects = visionRaycaster.intersectObject(tNode.slideHandle);
+                                        if (handleIntersects.length > 0) {
+                                            tNode.slideHandle.userData.progress = Math.min(1.0, tNode.slideHandle.userData.progress + 0.015);
+                                            tNode.slideHandle.position.x = -0.26 + (tNode.slideHandle.userData.progress * 0.52);
+                                            
+                                            if (tNode.slideHandle.userData.progress >= 1.0) {
+                                                tNode.slideHandle.material.color.setHex(0x00ffff); 
+                                            }
+                                        }
+                                    }
 
-                                    activeTerminalAlarms.push({
-                                        pos: tNode.group.position.clone(),
-                                        expiresAt: Date.now() + 20000
-                                    });
+                                    // 3. Structural Condition Check Loop
+                                    const formsCompleted = tNode.buttons.every(b => b.userData.clicked);
+                                    const trackCompleted = tNode.slideHandle.userData.progress >= 1.0;
+                                    
+                                    if (formsCompleted && trackCompleted) {
+                                        tNode.verifying = true;
 
-                                    totalTerminalsHacked++;
-                                    document.getElementById('hacked-terminal-counter').innerText = `${totalTerminalsHacked} / ${hackingTerminalsCollection.length}`;
+                                        // Start alarm immediately before lowering
+                                        activeTerminalAlarms.push({
+                                            pos: tNode.group.position.clone(),
+                                            expiresAt: Date.now() + 25000
+                                        });
+
+                                        // Switch display to single hand print
+                                        tNode.buttons.forEach(b => b.visible = false);
+                                        tNode.slideHandle.visible = false;
+                                        tNode.runnerBar.visible = false;
+                                        tNode.handPrintTarget.visible = true;
+                                    }
+                                } else {
+                                    // 4. Verification Hand Alignment Phase
+                                    const handPrintIntersects = visionRaycaster.intersectObject(tNode.handPrintTarget, true);
+                                    if (handPrintIntersects.length > 0) {
+                                        tNode.verifyProgress = Math.min(1.0, tNode.verifyProgress + 0.02);
+                                        
+                                        // Dynamically morph color to signify tracking feedback lock
+                                        tNode.handPrintTarget.children.forEach(mesh => {
+                                            mesh.material.color.setHex(0x00ff55);
+                                        });
+
+                                        if (tNode.verifyProgress >= 1.0) {
+                                            tNode.hacked = true;
+                                            tNode.verifying = false;
+                                            tNode.lowering = true;
+                                            tNode.handPrintTarget.visible = false;
+
+                                            totalTerminalsHacked++;
+                                            document.getElementById('hacked-terminal-counter').innerText = `${totalTerminalsHacked} / ${hackingTerminalsCollection.length}`;
+                                        }
+                                    } else {
+                                        // Decay progress slightly if player drifts off target alignment zone
+                                        tNode.verifyProgress = Math.max(0.0, tNode.verifyProgress - 0.01);
+                                        tNode.handPrintTarget.children.forEach(mesh => {
+                                            mesh.material.color.setHex(0x00ffcc);
+                                        });
+                                    }
                                 }
                             }
                         });
