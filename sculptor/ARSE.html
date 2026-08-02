@@ -1358,6 +1358,35 @@
             return baseTargetAngle;
         }
 
+        // INTELLIGENT NAVIGATION REALIGNMENT CONTROLLER
+        function reanchorBotToNearestSidewalkConduit(bot) {
+            let pos = bot.meshElement.position;
+            let closestPointsSequence = bot.routeCoordinates;
+            let matchedIndex = 0;
+            let lowerDistLimit = Infinity;
+
+            // Enforce visual rotation artifact flip (90 to 180 degrees)
+            bot.meshElement.rotation.y += Math.PI * (0.5 + Math.random() * 0.5);
+
+            if (renderedPedestrianList.length > 0) {
+                renderedPedestrianList.forEach(pathSegment => {
+                    pathSegment.points.forEach((nodePt, nodeIdx) => {
+                        let groundRange = Math.hypot(nodePt.x - pos.x, nodePt.z - pos.z);
+                        if (groundRange < lowerDistLimit) {
+                            lowerDistLimit = groundRange;
+                            closestPointsSequence = pathSegment.points;
+                            matchedIndex = nodeIdx;
+                        }
+                    });
+                });
+            }
+
+            bot.routeCoordinates = [...closestPointsSequence];
+            bot.currentNodeIndex = matchedIndex;
+            bot.patrolDirectionFactor = (matchedIndex >= bot.routeCoordinates.length - 1) ? -1 : 1;
+            bot.stuckFrames = 0;
+        }
+
         function handleAIBuildingCollision(pos, radius) {
             if (!mapLoadedForAnchor) return;
             const size = renderedBuildingsList.length;
@@ -1467,28 +1496,18 @@
 
                 pos.x += moveX; pos.z += moveZ;
 
-                // DRONE PLATFORM STUCK DETECTOR
-                let dActualDist = Math.hypot(pos.x - drone.lastPosX, pos.z - drone.lastPosZ);
-                drone.lastPosX = pos.x; drone.lastPosZ = pos.z;
-                if ((moveX !== 0 || moveZ !== 0) && dActualDist < 0.02) {
-                    drone.stuckFrames = (drone.stuckFrames || 0) + 1;
-                    if (drone.stuckFrames > 15) {
-                        let panTurnAngle = Math.PI / 2 + Math.random() * Math.PI / 2;
-                        drone.meshElement.rotation.y += panTurnAngle;
-                        
-                        let minVal = Infinity; let selectIdx = drone.currentNodeIndex;
-                        for (let n = 0; n < drone.routeCoordinates.length; n++) {
-                            let dCheck = Math.hypot(pos.x - drone.routeCoordinates[n].x, pos.z - drone.routeCoordinates[n].z);
-                            if (dCheck < minVal) { minVal = dCheck; selectIdx = n; }
+                if (belongsToActiveBucket) {
+                    handleAIBuildingCollision(pos, 1.5); 
+                    let dActualDist = Math.hypot(pos.x - drone.lastPosX, pos.z - drone.lastPosZ);
+                    drone.lastPosX = pos.x; drone.lastPosZ = pos.z;
+                    if ((moveX !== 0 || moveZ !== 0) && dActualDist < 0.01) {
+                        drone.stuckFrames = (drone.stuckFrames || 0) + 1;
+                        if (drone.stuckFrames > 5) {
+                            pos.x += Math.sin(drone.meshElement.rotation.y + Math.PI / 2) * 0.15; pos.z += Math.cos(drone.meshElement.rotation.y + Math.PI / 2) * 0.15;
+                            if (drone.stuckFrames > 30) { drone.currentNodeIndex = (drone.currentNodeIndex + drone.patrolDirectionFactor + drone.routeCoordinates.length) % drone.routeCoordinates.length; drone.stuckFrames = 0; }
                         }
-                        drone.currentNodeIndex = selectIdx;
-                        pos.x += Math.sin(drone.meshElement.rotation.y) * 2.5;
-                        pos.z += Math.cos(drone.meshElement.rotation.y) * 2.5;
-                        drone.stuckFrames = 0;
-                    }
-                } else { drone.stuckFrames = 0; }
-
-                if (belongsToActiveBucket) { handleAIBuildingCollision(pos, 1.5); }
+                    } else { drone.stuckFrames = 0; }
+                }
 
                 const currentConeColor = (drone.isChasingPlayer || terminalAlarmOverridingActive) ? 0xff0000 : 0x00ff00;
                 drone.scannerBeamGroup.children[0].material.color.setHex(currentConeColor);
@@ -1548,10 +1567,18 @@
                 } else {
                     bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07); 
                     let targetNode = bot.routeCoordinates[bot.currentNodeIndex]; 
+                    if (!targetNode) {
+                        reanchorBotToNearestSidewalkConduit(bot);
+                        targetNode = bot.routeCoordinates[bot.currentNodeIndex];
+                    }
                     let ndx = targetNode.x - pos.x; let ndz = targetNode.z - pos.z; let ndist = Math.hypot(ndx, ndz);
-                    if (ndist < 1.0) { 
+                    
+                    if (ndist < 1.3) { 
                         bot.currentNodeIndex += bot.patrolDirectionFactor; 
-                        if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { bot.patrolDirectionFactor *= -1; bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex + bot.patrolDirectionFactor * 2, bot.routeCoordinates.length - 1)); } 
+                        if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { 
+                            // Reached an absolute path extreme/junction: run intelligent search snap
+                            reanchorBotToNearestSidewalkConduit(bot);
+                        } 
                         targetNode = bot.routeCoordinates[bot.currentNodeIndex]; ndx = targetNode.x - pos.x; ndz = targetNode.z - pos.z; ndist = Math.hypot(ndx, ndz) || 1;
                     }
                     botTargetAngle = Math.atan2(ndx, ndz); 
@@ -1562,28 +1589,19 @@
 
                 pos.x += bMoveX; pos.z += bMoveZ;
 
-                // INFANTRY BOT STUCK PANIC SEQUENCER
-                let bActualDist = Math.hypot(pos.x - bot.lastPosX, pos.z - bot.lastPosZ);
-                bot.lastPosX = pos.x; bot.lastPosZ = pos.z;
-                if ((bMoveX !== 0 || bMoveZ !== 0) && bActualDist < 0.02) {
-                    bot.stuckFrames = (bot.stuckFrames || 0) + 1;
-                    if (bot.stuckFrames > 15) {
-                        let escapeTurnAngle = Math.PI / 2 + Math.random() * Math.PI / 2;
-                        bot.meshElement.rotation.y += escapeTurnAngle;
-                        
-                        let minVal = Infinity; let selectIdx = bot.currentNodeIndex;
-                        for (let n = 0; n < bot.routeCoordinates.length; n++) {
-                            let dCheck = Math.hypot(pos.x - bot.routeCoordinates[n].x, pos.z - bot.routeCoordinates[n].z);
-                            if (dCheck < minVal) { minVal = dCheck; selectIdx = n; }
+                if (belongsToActiveBucket) {
+                    handleAIBuildingCollision(pos, 1.0); 
+                    let bActualDist = Math.hypot(pos.x - bot.lastPosX, pos.z - bot.lastPosZ);
+                    bot.lastPosX = pos.x; bot.lastPosZ = pos.z;
+                    
+                    // VELOCITY STAGNATION MONITORING: Resets mapping array on zero forward migration vectors
+                    if ((bMoveX !== 0 || bMoveZ !== 0) && bActualDist < 0.02) {
+                        bot.stuckFrames = (bot.stuckFrames || 0) + 1;
+                        if (bot.stuckFrames > 15) {
+                            reanchorBotToNearestSidewalkConduit(bot);
                         }
-                        bot.currentNodeIndex = selectIdx;
-                        pos.x += Math.sin(bot.meshElement.rotation.y) * 2.0;
-                        pos.z += Math.cos(bot.meshElement.rotation.y) * 2.0;
-                        bot.stuckFrames = 0;
-                    }
-                } else { bot.stuckFrames = 0; }
-
-                if (belongsToActiveBucket) { handleAIBuildingCollision(pos, 1.0); }
+                    } else { bot.stuckFrames = 0; }
+                }
 
                 let botAngleDiff = botTargetAngle - bot.meshElement.rotation.y; while (botAngleDiff < -Math.PI) botAngleDiff += Math.PI * 2; while (botAngleDiff > Math.PI) botAngleDiff -= Math.PI * 2; bot.meshElement.rotation.y += botAngleDiff * 0.08;
                 const alternateCycle = Math.sin(timestamp * 0.008 * bot.velocity); bot.armL.rotation.x = -alternateCycle * 0.3; bot.armR.rotation.x = THREE.MathUtils.lerp(alternateCycle * 0.3, -Math.PI / 2, bot.aimProgress); bot.legL.rotation.x = alternateCycle * 0.4; bot.legR.rotation.x = -alternateCycle * 0.4;
