@@ -1323,6 +1323,43 @@
             }
         }
 
+        // ANTICIPATORY WALL-NORMAL STEERING FORCE CALCULATOR
+        function computeObstacleAvoidanceSteering(pos, baseTargetAngle, lookAheadDist) {
+            let sampleAngle = baseTargetAngle;
+            let checkX = pos.x + Math.sin(sampleAngle) * lookAheadDist;
+            let checkZ = pos.z + Math.cos(sampleAngle) * lookAheadDist;
+            
+            for (let i = 0; i < renderedBuildingsList.length; i++) {
+                let b = renderedBuildingsList[i].box;
+                if (checkX >= b.minX && checkX <= b.maxX && checkZ >= b.minZ && checkZ <= b.maxZ) {
+                    let distToLeft = Math.abs(checkX - b.minX);
+                    let distToRight = Math.abs(checkX - b.maxX);
+                    let distToTop = Math.abs(checkZ - b.minZ);
+                    let distToBottom = Math.abs(checkZ - b.maxZ);
+                    let mDist = Math.min(distToLeft, distToRight, distToTop, distToBottom);
+                    
+                    let nX = 0, nZ = 0;
+                    if (mDist === distToLeft) nX = -1;
+                    else if (mDist === distToRight) nX = 1;
+                    else if (mDist === distToTop) nZ = -1;
+                    else nZ = 1;
+
+                    // Produce tangential wall alignment pathing scalars
+                    let tangX = -nZ;
+                    let tangZ = nX;
+                    let curDirX = Math.sin(baseTargetAngle);
+                    let curDirZ = Math.cos(baseTargetAngle);
+
+                    if (curDirX * tangX + curDirZ * tangZ < 0) {
+                        tangX = -tangX;
+                        tangZ = -tangZ;
+                    }
+                    return Math.atan2(curDirX + tangX * 1.8, curDirZ + tangZ * 1.8);
+                }
+            }
+            return baseTargetAngle;
+        }
+
         function handleAIBuildingCollision(pos, radius) {
             if (!mapLoadedForAnchor) return;
             const size = renderedBuildingsList.length;
@@ -1408,8 +1445,9 @@
                     const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
                     if (dist > 1.0) { 
                         targetAngle = Math.atan2(dx, dz); 
-                        moveX = (dx / dist) * drone.movementVelocityFactor * 1.5; 
-                        moveZ = (dz / dist) * drone.movementVelocityFactor * 1.5; 
+                        targetAngle = computeObstacleAvoidanceSteering(pos, targetAngle, 4.0);
+                        moveX = Math.sin(targetAngle) * drone.movementVelocityFactor * 1.5;
+                        moveZ = Math.cos(targetAngle) * drone.movementVelocityFactor * 1.5;
                     }
                 } else {
                     let node = drone.routeCoordinates[drone.currentNodeIndex]; 
@@ -1423,7 +1461,10 @@
                         node = drone.routeCoordinates[drone.currentNodeIndex];
                         dx = node.x - pos.x; dz = node.z - pos.z; dist = Math.hypot(dx, dz) || 1;
                     }
-                    targetAngle = Math.atan2(dx, dz); moveX = (dx / dist) * drone.movementVelocityFactor; moveZ = (dz / dist) * drone.movementVelocityFactor; 
+                    targetAngle = Math.atan2(dx, dz); 
+                    targetAngle = computeObstacleAvoidanceSteering(pos, targetAngle, 4.0);
+                    moveX = Math.sin(targetAngle) * drone.movementVelocityFactor; 
+                    moveZ = Math.cos(targetAngle) * drone.movementVelocityFactor; 
                 }
 
                 pos.x += moveX; pos.z += moveZ;
@@ -1483,10 +1524,12 @@
                 
                 let bMoveX = 0, bMoveZ = 0;
                 if (bot.isAlerted || alertStateActive) {
-                    bot.aimProgress = Math.min(1.0, bot.aimProgress + 0.07); const dx = lastSeenPlayerPosition.x - pos.x; const dz = lastSeenPlayerPosition.z - pos.z; const distToLastSeen = Math.hypot(dx, dz); botTargetAngle = Math.atan2(dx, dz);
+                    bot.aimProgress = Math.min(1.0, bot.aimProgress + 0.07); const dx = lastSeenPlayerPosition.x - pos.x; const dz = lastSeenPlayerPosition.z - pos.z; const distToLastSeen = Math.hypot(dx, dz); 
+                    botTargetAngle = Math.atan2(dx, dz);
+                    botTargetAngle = computeObstacleAvoidanceSteering(pos, botTargetAngle, 4.0);
                     if (distToLastSeen > 2.0) { 
-                        const frameVelocityStride = Math.min(distToLastSeen, bot.velocity * 0.12 * 1.6); 
-                        bMoveX = (dx / distToLastSeen) * frameVelocityStride; bMoveZ = (dz / distToLastSeen) * frameVelocityStride;
+                        bMoveX = Math.sin(botTargetAngle) * bot.velocity * 0.12 * 1.6;
+                        bMoveZ = Math.cos(botTargetAngle) * bot.velocity * 0.12 * 1.6;
                     }
                     if (canBotSeePlayerRightNow && bot.lastDistanceToPlayer <= 25.0 && timestamp - bot.lastFireTimestamp > 1200) {
                         bot.lastFireTimestamp = timestamp; playerHealth = Math.max(0, playerHealth - 8.0); spaceOverlay.classList.add('flash-red-harm'); setTimeout(() => spaceOverlay.classList.remove('flash-red-harm'), 150);
@@ -1503,7 +1546,10 @@
                         if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { bot.patrolDirectionFactor *= -1; bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex + bot.patrolDirectionFactor * 2, bot.routeCoordinates.length - 1)); } 
                         targetNode = bot.routeCoordinates[bot.currentNodeIndex]; ndx = targetNode.x - pos.x; ndz = targetNode.z - pos.z; ndist = Math.hypot(ndx, ndz) || 1;
                     }
-                    botTargetAngle = Math.atan2(ndx, ndz); const frameVelocityStride = Math.min(ndist, bot.velocity * 0.12); bMoveX = (ndx / ndist) * frameVelocityStride; bMoveZ = (ndz / ndist) * frameVelocityStride;
+                    botTargetAngle = Math.atan2(ndx, ndz); 
+                    botTargetAngle = computeObstacleAvoidanceSteering(pos, botTargetAngle, 4.0);
+                    bMoveX = Math.sin(botTargetAngle) * bot.velocity * 0.12;
+                    bMoveZ = Math.cos(botTargetAngle) * bot.velocity * 0.12;
                 }
 
                 pos.x += bMoveX; pos.z += bMoveZ;
@@ -1538,24 +1584,6 @@
             
             if (alertStateActive) spaceOverlay.classList.add('pulse-yellow-alert'); else spaceOverlay.classList.remove('pulse-yellow-alert');
 
-            const currentSystemTime = Date.now();
-            for (const key in connectedAgentsMap) {
-                const activeAgent = connectedAgentsMap[key];
-                if (currentSystemTime - activeAgent.lastTransmissionPacketTime > 7000) { scene.remove(activeAgent.joints.rootMesh); delete connectedAgentsMap[key]; continue; }
-                const previousX = activeAgent.joints.rootMesh.position.x; const previousZ = activeAgent.joints.rootMesh.position.z;
-                activeAgent.joints.rootMesh.position.lerp(activeAgent.targetPos, 0.1);
-                let rawRotationDiff = activeAgent.targetYaw - activeAgent.joints.rootMesh.rotation.y;
-                while (rawRotationDiff < -Math.PI) rawRotationDiff += Math.PI * 2; while (rawRotationDiff > Math.PI) rawRotationDiff -= Math.PI * 2;
-                activeAgent.joints.rootMesh.rotation.y += rawRotationDiff * 0.12;
-                const currentDeltaSpeed = Math.hypot(activeAgent.joints.rootMesh.position.x - previousX, activeAgent.joints.rootMesh.position.z - previousZ);
-                activeAgent.smoothedSpeed = THREE.MathUtils.lerp(activeAgent.smoothedSpeed, currentDeltaSpeed, 0.2);
-                executeAgentLimbAnimations(activeAgent, timestamp);
-            }
-
-            const totalActiveAgentsInSector = Object.keys(connectedAgentsMap).length + 1;
-            document.getElementById('live-agent-counter').innerText = totalActiveAgentsInSector;
-
-            // EXPONENTIAL FRAMERATE LOW-PASS CAMERA SMOOTHING FILTER
             if (mapLoadedForAnchor && !matrixOverloadActive) {
                 if (!initialSnapCompleted) {
                     camera.position.x = gpsTargetPosition.x;
@@ -1583,11 +1611,8 @@
                 let calibratedLat = lastRawCoords.lat + geoTelemetryOffset.lat; let calibratedLon = lastRawCoords.lon + geoTelemetryOffset.lon;
                 currentCoordinates.lat = calibratedLat; currentCoordinates.lon = calibratedLon;
                 const local = latLonToLocalMeters(calibratedLat, calibratedLon, anchorCoordinates.lat, anchorCoordinates.lon);
-                
-                // Nudges intentionally override the threshold filter gate to provide instant manual calibration response
                 gpsTargetPosition.set(local.x, 1.7, local.z); 
-                updateMetadataUI(); 
-                fetchReverseGeocodeLocation(calibratedLat, calibratedLon);
+                updateMetadataUI(); fetchReverseGeocodeLocation(calibratedLat, calibratedLon);
             }
         }
 
@@ -1742,7 +1767,6 @@
                 gpsTargetPosition.set(local.x, 1.7, local.z); camera.position.set(local.x, 1.7, local.z);
                 fetchLiveOpenStreetMapData(anchorCoordinates.lat, anchorCoordinates.lon);
             } else {
-                // INGRESS LAYER HYSTERESIS GATE: Rejects localized telemetry adjustments smaller than 1.5 meters
                 let absoluteJitterDistance = Math.hypot(local.x - gpsTargetPosition.x, local.z - gpsTargetPosition.z);
                 if (absoluteJitterDistance > 1.5) {
                     gpsTargetPosition.x = local.x;
