@@ -1062,7 +1062,7 @@
         }
 
         function buildNeonStructuralHulls(points, tags) {
-            if (points.length < 3) return; const shape = new THREE.Shape(); shape.moveTo(points[0].x, -points[0].z);
+            if (points.length < 3) return; const shape = THREE.Shape(); shape.moveTo(points[0].x, -points[0].z);
             for (let i = 1; i < points.length; i++) shape.lineTo(points[i].x, -points[i].z); shape.closePath();
             let h = (tags && tags.height) ? parseFloat(tags.height) : (12 + Math.random() * 20);
             if (tags && tags["building:levels"]) h = parseInt(tags["building:levels"]) * 3.5; h = Math.min(h, 60);
@@ -1114,7 +1114,6 @@
                 for(let i=0; i < count - 1; i++) { crosswalkGeoms.push(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(points[i].x, 0.018, points[i].z), new THREE.Vector3(points[i+1].x, 0.018, points[i+1].z)])); }
                 renderedPedestrianList.push({ points: points, isCrosswalk: true }); return;
             }
-            // EXPANDED BOUNDARY CORRIDOR FROM 1.2 TO 3.5 TO ACCELERATE AI TRANSIT SUCCESS
             const sidewalkHalfWidth = 3.5; const vertices = []; const indices = []; const normals = new Array(count);
             for (let i = 0; i < count; i++) {
                 let dx, dz; if (i === 0) { dx = points[1].x - points[0].x; dz = points[1].z - points[0].z; } else if (i === count - 1) { dx = points[count-1].x - points[count-2].x; dz = points[count-1].z - points[count-2].z; } else { dx = (points[i+1].x - points[i-1].x)/2; dz = (points[i+1].z - points[i-1].z)/2; }
@@ -1278,30 +1277,53 @@
             }
         }
 
+        // UPGRADED SPATIAL-POISSON DISPERSION GARRISON ENGINE
         function deployHumanoidGarrison() {
             humanoidBotsCollection.forEach(b => scene.remove(b.meshElement)); humanoidBotsCollection.length = 0;
             const validSidewalkTracks = renderedPedestrianList.filter(p => !p.isCrosswalk && p.points.length >= 2);
-            
-            // Fallback safety filter: Route maps straight to street links if sidewalk features are missing
             let pathSourcePool = validSidewalkTracks.length > 0 ? validSidewalkTracks : renderedStreetsList;
             if (pathSourcePool.length === 0) return;
 
             const targetCount = Math.min(48, pathSourcePool.length * 3);
+            const trackedSpawnsList = [];
+
             for(let i = 0; i < targetCount; i++) {
-                let track = pathSourcePool[i % pathSourcePool.length];
-                let pathData = [...track.points];
-                
-                if (pathData.length < 4) {
-                    let origPoints = [...pathData];
-                    for (let m = origPoints.length - 2; m >= 0; m--) pathData.push(origPoints[m]);
+                let selectedTrack = null; let designatedPoint = null; let verifiedIndex = 0; let safetyCheckAttempts = 0;
+                let candidatePathData = [];
+
+                while (safetyCheckAttempts < 20) {
+                    selectedTrack = pathSourcePool[Math.floor(Math.random() * pathSourcePool.length)];
+                    candidatePathData = [...selectedTrack.points];
+                    verifiedIndex = Math.floor(Math.random() * candidatePathData.length);
+                    let testPos = candidatePathData[verifiedIndex];
+                    
+                    let proximityViolation = false;
+                    for (let spawnedPoint of trackedSpawnsList) {
+                        if (Math.hypot(testPos.x - spawnedPoint.x, testPos.z - spawnedPoint.z) < 22.0) {
+                            proximityViolation = true; break;
+                        }
+                    }
+                    if (!proximityViolation) { designatedPoint = testPos; break; }
+                    safetyCheckAttempts++;
+                }
+
+                if (!designatedPoint && candidatePathData.length > 0) {
+                    verifiedIndex = Math.floor(Math.random() * candidatePathData.length); designatedPoint = candidatePathData[verifiedIndex];
+                }
+                if (!designatedPoint) continue;
+                trackedSpawnsList.push(designatedPoint);
+
+                let cyclicallyShiftedPatrolNodes = [];
+                for (let k = 0; k < candidatePathData.length; k++) {
+                    cyclicallyShiftedPatrolNodes.push(candidatePathData[(verifiedIndex + k) % candidatePathData.length]);
                 }
 
                 const botRef = compileHumanoidCombatBot(); 
-                botRef.model.position.set(pathData[0].x, 0.02, pathData[0].z); 
+                botRef.model.position.set(designatedPoint.x, 0.02, designatedPoint.z); 
                 scene.add(botRef.model);
 
                 humanoidBotsCollection.push({
-                    id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.8 + Math.random() * 0.4, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0, lastPosX: pathData[0].x, lastPosZ: pathData[0].z, stuckFrames: 0, lastSightCheckTime: 0, isOccluded: false
+                    id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: cyclicallyShiftedPatrolNodes, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.8 + Math.random() * 0.4, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0, lastPosX: designatedPoint.x, lastPosZ: designatedPoint.z, stuckFrames: 0, lastSightCheckTime: 0, isOccluded: false
                 });
             }
         }
@@ -1495,14 +1517,12 @@
                     if (!targetNode) { bot.currentNodeIndex = 0; targetNode = bot.routeCoordinates[0] || new THREE.Vector3(0,0,0); }
                     let ndx = targetNode.x - pos.x; let ndz = targetNode.z - pos.z; let ndist = Math.hypot(ndx, ndz);
                     
-                    // INTELLIGENT CONJUNCTION AND DEAD-END RAIL ROUTING ENGINE
                     if (ndist < 1.5) { 
                         bot.currentNodeIndex += bot.patrolDirectionFactor; 
                         if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { 
                             bot.patrolDirectionFactor *= -1; 
                             bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex + bot.patrolDirectionFactor * 2, bot.routeCoordinates.length - 1));
                             
-                            // Query localized node arrays to hop vector tracks dynamically at intersections
                             if (globalTrafficNodes.length > 0 && Math.random() < 0.6) {
                                 let targetJunction = globalTrafficNodes[Math.floor(Math.random() * globalTrafficNodes.length)];
                                 if (pos.distanceTo(targetJunction) < 40.0) {
@@ -1523,11 +1543,9 @@
                     let bActualDist = Math.hypot(pos.x - bot.lastPosX, pos.z - bot.lastPosZ);
                     bot.lastPosX = pos.x; bot.lastPosZ = pos.z;
                     
-                    // VELOCITY DRIFT TRAP DETECTION ENGINE
                     if ((bMoveX !== 0 || bMoveZ !== 0) && bActualDist < 0.005) {
                         bot.stuckFrames = (bot.stuckFrames || 0) + 1;
                         if (bot.stuckFrames > 15) {
-                            // Turn 90-180 degrees outwards and jump directly to alternative network tracking node
                             botTargetAngle += Math.PI * (0.5 + Math.random() * 0.5);
                             bot.meshElement.rotation.y = botTargetAngle;
                             if (globalTrafficNodes.length > 0) {
