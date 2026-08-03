@@ -3,18 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // NEON ARENA</title>
+    <title>CYBER-STRIKE 2077 // ENHANCED</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
         
         #gameCanvas { width: 100%; height: 100%; display: block; }
 
-        /* UI OVERLAY */
         #ui-layer {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; p: 20px;
-            box-shadow: inset 0 0 100px rgba(0, 255, 255, 0.2);
+            pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 20px;
+            box-shadow: inset 0 0 100px rgba(0, 255, 255, 0.15);
         }
 
         #crosshair {
@@ -23,40 +22,34 @@
             border: 2px solid #ff007f; border-radius: 50%;
             box-shadow: 0 0 10px #ff007f;
         }
-        #crosshair::after {
-            content: ''; position: absolute; top: 3px; left: 3px; width: 0px; height: 0px;
-            background: #00ffff; border-radius: 50%;
-        }
 
         .hud-panel {
-            background: rgba(10, 10, 20, 0.75); border: 1px solid #00ffff;
+            background: rgba(10, 10, 20, 0.85); border: 1px solid #00ffff;
             padding: 12px 20px; border-radius: 4px; box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
             text-shadow: 0 0 5px #00ffff;
         }
 
-        #top-hud { position: absolute; top: 20px; left: 20px; right: 20px; display: flex; justify-content: space-between; align-items: flex-start; }
+        #top-hud { position: absolute; top: 20px; left: 20px; right: 20px; display: flex; justify-content: space-between; }
         #bottom-hud { position: absolute; bottom: 20px; left: 20px; right: 20px; display: flex; justify-content: space-between; align-items: flex-end; }
 
-        .bar-container { width: 200px; height: 12px; background: rgba(255,255,255,0.1); border: 1px solid #00ffff; margin-top: 5px; position: relative; }
+        .bar-container { width: 200px; height: 12px; background: rgba(255,255,255,0.1); border: 1px solid #00ffff; margin-top: 5px; }
         .bar-fill { height: 100%; width: 100%; background: #00ffff; transition: width 0.1s; box-shadow: 0 0 10px #00ffff; }
         #jetpack-bar .bar-fill { background: #ff007f; box-shadow: 0 0 10px #ff007f; }
 
-        #kill-feed { position: absolute; top: 70px; right: 20px; text-align: right; font-size: 12px; color: #ff007f; text-shadow: 0 0 5px #ff007f; }
+        #kill-feed { position: absolute; top: 80px; right: 20px; text-align: right; font-size: 13px; color: #ff007f; text-shadow: 0 0 5px #ff007f; }
         #interact-prompt { position: absolute; top: 60%; left: 50%; transform: translate(-50%, -50%); font-size: 16px; color: #ffe600; text-shadow: 0 0 10px #ffe600; display: none; }
 
         #start-screen {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(5, 5, 10, 0.9); display: flex; flex-direction: column;
+            background: rgba(5, 5, 10, 0.95); display: flex; flex-direction: column;
             justify-content: center; align-items: center; z-index: 100; cursor: pointer;
         }
         #start-screen h1 { font-size: 48px; color: #ff007f; text-shadow: 0 0 20px #ff007f; margin-bottom: 10px; }
         #start-screen p { font-size: 18px; color: #00ffff; text-shadow: 0 0 10px #00ffff; }
 
-        #leaderboard {
-            position: absolute; top: 70px; left: 20px; font-size: 12px; line-height: 1.5;
-        }
+        #leaderboard { position: absolute; top: 80px; left: 20px; font-size: 12px; line-height: 1.5; }
+        #stance-indicator { font-size: 12px; color: #ffe600; margin-top: 4px; }
     </style>
-    <!-- Three.js Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
@@ -64,7 +57,9 @@
     <div id="start-screen">
         <h1>CYBER-STRIKE 2077</h1>
         <p>[ CLICK TO ENTER NEON ARENA ]</p>
-        <p style="font-size: 12px; margin-top: 20px; color: #888;">WASD: Move | SHIFT: Run | C: Slide | SPACE: Jump/Double-Jump/Jetpack | E: Interact | G: Grenade | 1-3 / Wheel: Switch Weapon</p>
+        <p style="font-size: 12px; margin-top: 20px; color: #aaa;">
+            WASD: Move | SHIFT: Run | C: Slide (when running) / Crouch | SPACE: Jump/Jetpack | E: Interact | G: Grenade | 1-3 / Wheel: Switch Weapon
+        </p>
     </div>
 
     <div id="ui-layer">
@@ -73,11 +68,11 @@
 
         <div id="top-hud">
             <div class="hud-panel">
-                <div>FIRST TO 60 KILLS</div>
+                <div>SCORE LIMIT: 60</div>
                 <div id="score-display" style="font-size: 20px; font-weight: bold; color: #ff007f;">0 / 60 KILLS</div>
             </div>
             <div class="hud-panel" id="leaderboard">
-                <div style="text-decoration: underline; margin-bottom: 4px;">TOP COMBATANTS</div>
+                <div style="text-decoration: underline; margin-bottom: 4px;">COMBAT LEADERBOARD</div>
                 <div id="leaderboard-list"></div>
             </div>
         </div>
@@ -88,11 +83,12 @@
             <div class="hud-panel">
                 <div>HEALTH</div>
                 <div class="bar-container"><div id="health-bar" class="bar-fill"></div></div>
-                <div style="margin-top: 8px;">JETPACK / ENERGY</div>
+                <div style="margin-top: 8px;">JETPACK ENERGY</div>
                 <div class="bar-container" id="jetpack-bar"><div id="jetpack-fill" class="bar-fill"></div></div>
             </div>
 
             <div class="hud-panel" style="text-align: right;">
+                <div id="stance-indicator">STANCE: STANDING</div>
                 <div id="weapon-slot" style="font-size: 12px; color: #ffe600;">[PRIMARY]</div>
                 <div id="weapon-name" style="font-size: 20px; font-weight: bold; color: #00ffff;">NEON RIFLE</div>
                 <div id="ammo-display" style="font-size: 16px; margin-top: 4px;">30 / ∞</div>
@@ -101,106 +97,110 @@
     </div>
 
     <script>
-        // --- GAME CONSTANTS & CONFIG ---
         const SCORE_LIMIT = 60;
         const TOTAL_COMBATANTS = 10;
         const WEAPON_COUNT = 60;
-        
-        // --- THREE.JS INITIALIZATION ---
+        const EYE_HEIGHT_STAND = 1.8;
+        const EYE_HEIGHT_CROUCH = 0.9;
+        const SLIDE_DURATION = 0.75; // seconds
+
+        // --- THREE.JS SCENE SETUP ---
         const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x05050d, 0.015);
+        scene.fog = new THREE.FogExp2(0x05050d, 0.012);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        scene.add(camera); // Added camera to scene to hold viewmodel
+
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         document.body.appendChild(renderer.domElement);
 
-        // Ambient & Directional Cyber Lighting
-        const ambientLight = new THREE.AmbientLight(0x221133, 1.5);
+        const ambientLight = new THREE.AmbientLight(0x332244, 1.5);
         scene.add(ambientLight);
 
         const dirLight = new THREE.DirectionalLight(0x00ffff, 0.8);
-        dirLight.position.set(20, 40, 20);
+        dirLight.position.set(20, 50, 20);
         scene.add(dirLight);
 
-        // --- GLOBAL GAME STATE ---
+        // --- FIRST PERSON VIEWMODEL ---
+        const viewmodelGroup = new THREE.Group();
+        camera.add(viewmodelGroup);
+        viewmodelGroup.position.set(0.3, -0.3, -0.6); // Right-handed FP hold position
+
         let gameStarted = false;
         let kills = 0;
-        const players = []; // Stores human + bots
+        const players = [];
         const projectiles = [];
         const interactables = [];
         const spawnPoints = [];
+        const colliders = []; // Ramps, floors, walls for ground/slope collision
         const weaponsDatabase = [];
 
-        // --- PROCEDURAL WEAPONS GENERATOR (60 WEAPONS) ---
+        // --- PROCEDURAL WEAPONS ---
         const weaponTypes = ['PRIMARY', 'SECONDARY', 'MELEE'];
         const weaponNamesPrefix = ['Neon', 'Cyber', 'Plasma', 'Quantum', 'Vortex', 'Hyper', 'Thermal', 'Arc', 'Void', 'Pulse'];
         const weaponNamesSuffix = ['Rifle', 'Blaster', 'Saber', 'Cannon', 'Edge', 'SMG', 'Shotgun', 'Disruptor', 'Striker', 'Revolver'];
 
         function generateWeapons() {
             for (let i = 0; i < WEAPON_COUNT; i++) {
-                const typeIndex = i < 25 ? 0 : (i < 45 ? 1 : 2); // 25 Primaries, 20 Secondaries, 15 Melees
+                const typeIndex = i < 25 ? 0 : (i < 45 ? 1 : 2);
                 const category = weaponTypes[typeIndex];
                 const colorHex = category === 'PRIMARY' ? 0x00ffff : (category === 'SECONDARY' ? 0xff007f : 0xffe600);
-                
                 const name = `${weaponNamesPrefix[Math.floor(Math.random() * weaponNamesPrefix.length)]} ${weaponNamesSuffix[Math.floor(Math.random() * weaponNamesSuffix.length)]} #${i+1}`;
                 
                 weaponsDatabase.push({
                     id: i,
                     name: name,
                     category: category,
-                    damage: category === 'MELEE' ? 60 + Math.random()*40 : 12 + Math.random()*25,
-                    fireRate: category === 'MELEE' ? 400 : 80 + Math.random()*250, // ms cooldown
-                    ammoMax: category === 'MELEE' ? Infinity : Math.floor(10 + Math.random()*40),
+                    damage: category === 'MELEE' ? 70 : 14 + Math.random()*22,
+                    fireRate: category === 'MELEE' ? 350 : 90 + Math.random()*200,
+                    ammoMax: category === 'MELEE' ? Infinity : Math.floor(15 + Math.random()*30),
                     ammo: category === 'MELEE' ? Infinity : 30,
                     color: colorHex,
-                    range: category === 'MELEE' ? 4 : 200,
-                    mesh: createWeaponMesh(category, colorHex)
+                    range: category === 'MELEE' ? 3.5 : 200,
                 });
             }
         }
+        generateWeapons();
 
-        function createWeaponMesh(category, colorHex) {
+        function buildWeaponMesh(category, colorHex, isViewmodel = false) {
             const group = new THREE.Group();
-            const mat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3, metalness: 0.8 });
+            const mat = new THREE.MeshStandardMaterial({ color: 0x151520, roughness: 0.3, metalness: 0.8 });
             const glowMat = new THREE.MeshBasicMaterial({ color: colorHex });
 
-            if (category === 'MELEE') {
-                const bladeGeom = new THREE.BoxGeometry(0.08, 1.2, 0.02);
-                const blade = new THREE.Mesh(bladeGeom, glowMat);
-                blade.position.set(0, 0.6, 0);
-                group.add(blade);
+            const scale = isViewmodel ? 0.7 : 0.8;
 
-                const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.3), mat);
+            if (category === 'MELEE') {
+                const blade = new THREE.Mesh(new THREE.BoxGeometry(0.06 * scale, 1.2 * scale, 0.02 * scale), glowMat);
+                blade.position.set(0, 0.5 * scale, 0);
+                group.add(blade);
+                const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.03 * scale, 0.03 * scale, 0.3 * scale), mat);
                 group.add(handle);
             } else {
-                const body = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.18, 0.6), mat);
+                const body = new THREE.Mesh(new THREE.BoxGeometry(0.12 * scale, 0.18 * scale, 0.6 * scale), mat);
                 group.add(body);
-
-                const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.5), mat);
+                const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03 * scale, 0.03 * scale, 0.5 * scale), mat);
                 barrel.rotation.x = Math.PI / 2;
-                barrel.position.set(0, 0.04, -0.4);
+                barrel.position.set(0, 0.04 * scale, -0.4 * scale);
                 group.add(barrel);
 
-                const neonStrip = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.02, 0.5), glowMat);
-                neonStrip.position.set(0, 0.08, -0.1);
-                group.add(neonStrip);
+                const strip = new THREE.Mesh(new THREE.BoxGeometry(0.13 * scale, 0.02 * scale, 0.5 * scale), glowMat);
+                strip.position.set(0, 0.08 * scale, -0.1 * scale);
+                group.add(strip);
             }
             return group;
         }
 
-        generateWeapons();
-
-        // --- PROCEDURAL ARENA GENERATION ---
+        // --- PROCEDURAL ARENA WITH WALKABLE RAMPS ---
         function generateProceduralArena() {
-            const gridWidth = 5;
-            const gridDepth = 5;
-            const tileSize = 25;
+            const gridWidth = 4;
+            const gridDepth = 4;
+            const tileSize = 24;
 
-            const floorMat = new THREE.MeshStandardMaterial({ color: 0x080812, roughness: 0.8, metalness: 0.2 });
-            const wallMat = new THREE.MeshStandardMaterial({ color: 0x101020, roughness: 0.5, metalness: 0.5 });
+            const floorMat = new THREE.MeshStandardMaterial({ color: 0x0a0a14, roughness: 0.7, metalness: 0.3 });
+            const wallMat = new THREE.MeshStandardMaterial({ color: 0x121225, roughness: 0.5, metalness: 0.5 });
             const gridLineMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true });
 
             for (let x = -gridWidth; x <= gridWidth; x++) {
@@ -208,118 +208,80 @@
                     const posX = x * tileSize;
                     const posZ = z * tileSize;
 
-                    // Floor tile
-                    const floor = new THREE.Mesh(new THREE.BoxGeometry(tileSize, 1, tileSize), floorMat);
-                    floor.position.set(posX, -0.5, posZ);
-                    floor.receiveShadow = true;
+                    // Floor Ground
+                    const floor = new THREE.Mesh(new THREE.BoxGeometry(tileSize, 0.5, tileSize), floorMat);
+                    floor.position.set(posX, -0.25, posZ);
                     scene.add(floor);
+                    colliders.push(floor);
 
-                    // Grid accent
-                    const gridWire = new THREE.Mesh(new THREE.PlaneGeometry(tileSize, tileSize, 4, 4), gridLineMat);
+                    const gridWire = new THREE.Mesh(new THREE.PlaneGeometry(tileSize, tileSize, 2, 2), gridLineMat);
                     gridWire.rotation.x = -Math.PI / 2;
                     gridWire.position.set(posX, 0.02, posZ);
                     scene.add(gridWire);
 
-                    // Procedural multi-level structure / pillars / walls
                     const rand = Math.random();
-                    if (rand > 0.6) {
-                        // Pillar/Wall Block
-                        const height = 8 + Math.floor(Math.random() * 3) * 6; // Multi-level heights
-                        const wall = new THREE.Mesh(new THREE.BoxGeometry(4, height, 4), wallMat);
-                        wall.position.set(posX, height / 2, posZ);
-                        wall.castShadow = true;
-                        wall.receiveShadow = true;
-                        scene.add(wall);
-
-                        // Neon Trim on structures
-                        const trimMat = new THREE.MeshBasicMaterial({ color: Math.random() > 0.5 ? 0x00ffff : 0xff007f });
-                        const trim = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.3, 4.2), trimMat);
-                        trim.position.set(posX, height, posZ);
-                        scene.add(trim);
+                    if (rand > 0.65) {
+                        // Multi-level Pillar / Elevated Floor
+                        const height = 6;
+                        const pillar = new THREE.Mesh(new THREE.BoxGeometry(8, height, 8), wallMat);
+                        pillar.position.set(posX, height / 2, posZ);
+                        scene.add(pillar);
+                        colliders.push(pillar);
                     } else if (rand > 0.35) {
-                        // Elevated Platform / Second Floor
-                        const platHeight = 6;
-                        const platform = new THREE.Mesh(new THREE.BoxGeometry(tileSize*0.8, 0.8, tileSize*0.8), floorMat);
+                        // Walkable Platform with RAMP
+                        const platHeight = 5;
+                        const platform = new THREE.Mesh(new THREE.BoxGeometry(16, 0.5, 16), floorMat);
                         platform.position.set(posX, platHeight, posZ);
                         scene.add(platform);
+                        colliders.push(platform);
 
-                        // Ramp leading to platform
-                        const ramp = new THREE.Mesh(new THREE.BoxGeometry(4, 0.5, 12), floorMat);
-                        ramp.position.set(posX, platHeight / 2, posZ + 8);
-                        ramp.rotation.x = Math.PI / 6;
+                        // Walkable Ramp leading up to platform
+                        const rampLength = 12;
+                        const rampAngle = Math.atan2(platHeight, rampLength);
+                        const ramp = new THREE.Mesh(new THREE.BoxGeometry(5, 0.4, Math.hypot(platHeight, rampLength)), floorMat);
+                        ramp.position.set(posX, platHeight / 2, posZ + rampLength / 2 + 3);
+                        ramp.rotation.x = rampAngle;
                         scene.add(ramp);
+                        colliders.push(ramp); // Ramps added to colliders array!
                     }
 
-                    // Save Spawns
-                    if (Math.random() > 0.7) {
-                        spawnPoints.push(new THREE.Vector3(posX, 2, posZ));
+                    if (Math.random() > 0.6) {
+                        spawnPoints.push(new THREE.Vector3(posX, 1, posZ));
                     }
                 }
             }
 
-            // Outer Boundary Walls
-            const boundarySize = (gridWidth + 0.5) * tileSize * 2;
-            const wallHeight = 30;
-            const bWallMat = new THREE.MeshStandardMaterial({ color: 0x03030a, opacity: 0.8, transparent: true });
+            // Boundary Walls
+            const boundSize = (gridWidth + 0.5) * tileSize * 2;
+            const w1 = new THREE.Mesh(new THREE.BoxGeometry(boundSize, 30, 2), wallMat);
+            w1.position.set(0, 15, -(gridDepth + 0.5) * tileSize);
+            scene.add(w1); colliders.push(w1);
 
-            const northWall = new THREE.Mesh(new THREE.BoxGeometry(boundarySize, wallHeight, 2), bWallMat);
-            northWall.position.set(0, wallHeight/2, -(gridDepth + 0.5) * tileSize);
-            scene.add(northWall);
+            const w2 = w1.clone();
+            w2.position.z = (gridDepth + 0.5) * tileSize;
+            scene.add(w2); colliders.push(w2);
 
-            const southWall = northWall.clone();
-            southWall.position.z = (gridDepth + 0.5) * tileSize;
-            scene.add(southWall);
-
-            const eastWall = new THREE.Mesh(new THREE.BoxGeometry(2, wallHeight, boundarySize), bWallMat);
-            eastWall.position.set((gridWidth + 0.5) * tileSize, wallHeight/2, 0);
-            scene.add(eastWall);
-
-            const westWall = eastWall.clone();
-            westWall.position.x = -(gridWidth + 0.5) * tileSize;
-            scene.add(westWall);
-
-            // Spawn Interactive Environment Objects (Doors, Levers, Chests)
             spawnInteractiveObjects();
         }
 
-        // --- INTERACTIVE OBJECTS (Chests, Levers, Doors) ---
         function spawnInteractiveObjects() {
             spawnPoints.forEach((sp, idx) => {
                 if (idx % 3 === 0) {
-                    // Chest
-                    const chestGroup = new THREE.Group();
-                    const base = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1, 1), new THREE.MeshStandardMaterial({ color: 0x222222 }));
-                    const lid = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.3, 1.1), new THREE.MeshBasicMaterial({ color: 0xffe600 }));
-                    lid.position.y = 0.6;
-                    chestGroup.add(base, lid);
-                    chestGroup.position.copy(sp);
-                    scene.add(chestGroup);
+                    const chest = new THREE.Group();
+                    const base = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 0.8), new THREE.MeshStandardMaterial({ color: 0x222222 }));
+                    const top = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.2, 0.9), new THREE.MeshBasicMaterial({ color: 0xffe600 }));
+                    top.position.y = 0.5;
+                    chest.add(base, top);
+                    chest.position.copy(sp);
+                    scene.add(chest);
 
                     interactables.push({
-                        mesh: chestGroup,
-                        type: 'CHEST',
+                        mesh: chest,
+                        type: 'SUPPLY CHEST',
                         action: () => {
-                            player.jetpackFuel = Math.min(100, player.jetpackFuel + 50);
-                            player.health = Math.min(100, player.health + 30);
-                            showKillFeed("CHEST OPENED: Refilled Health & Jetpack!");
-                        }
-                    });
-                } else if (idx % 4 === 0) {
-                    // Switch / Lever
-                    const leverGroup = new THREE.Group();
-                    const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 2), new THREE.MeshStandardMaterial({ color: 0x444444 }));
-                    const handle = new THREE.Mesh(new THREE.SphereGeometry(0.3), new THREE.MeshBasicMaterial({ color: 0x00ffff }));
-                    handle.position.y = 1;
-                    leverGroup.add(stand, handle);
-                    leverGroup.position.copy(sp);
-                    scene.add(leverGroup);
-
-                    interactables.push({
-                        mesh: leverGroup,
-                        type: 'SWITCH',
-                        action: () => {
-                            ambientLight.color.setHex(Math.random() * 0xffffff);
-                            showKillFeed("SWITCH ACTIVATED: Global Lighting Shifted!");
+                            player.jetpackFuel = 100;
+                            player.health = 100;
+                            showKillFeed("CHEST CLAIMED: Health & Jetpack Restored!");
                         }
                     });
                 }
@@ -328,86 +290,141 @@
 
         generateProceduralArena();
 
-        // --- HUMAN SKELEATAL MODEL GENERATOR ---
+        // --- GROUND RAYCASTING FOR RAMPS & ELEVATIONS ---
+        const raycasterDown = new THREE.Raycaster();
+        const downVector = new THREE.Vector3(0, -1, 0);
+
+        function getGroundY(position) {
+            raycasterDown.set(new THREE.Vector3(position.x, position.y + 2.0, position.z), downVector);
+            const hits = raycasterDown.intersectObjects(colliders, false);
+            if (hits.length > 0) {
+                return hits[0].point.y;
+            }
+            return 0; // Fallback ground level
+        }
+
+        // --- RIGGED HUMAN SKELETAL BOT CHARACTER MODEL ---
         function createSkeletalCharacterModel(colorHex = 0xff007f) {
-            const character = new THREE.Group();
-            const mat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4 });
+            const character = new THREE.Group(); // Origin at FEET (Y=0)
+            const mat = new THREE.MeshStandardMaterial({ color: 0x111118, roughness: 0.4 });
             const glowMat = new THREE.MeshBasicMaterial({ color: colorHex });
 
-            // Torso
-            const torso = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 0.4), mat);
-            torso.position.y = 1.6;
-            torso.castShadow = true;
+            // Torso (Y: 0.9 -> 1.7)
+            const torso = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.8, 0.35), mat);
+            torso.position.y = 1.3;
             character.add(torso);
 
-            // Head
-            const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), mat);
-            head.position.y = 2.5;
-            const visor = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.12, 0.2), glowMat);
-            visor.position.set(0, 2.5, -0.15);
-            character.add(head, visor);
+            // Head & Visor (Eye height at ~1.8)
+            const headGroup = new THREE.Group();
+            headGroup.position.set(0, 1.8, 0);
+            const head = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, 0.35), mat);
+            const visor = new THREE.Mesh(new THREE.BoxGeometry(0.37, 0.1, 0.2), glowMat);
+            visor.position.set(0, 0, -0.12);
+            headGroup.add(head, visor);
+            character.add(headGroup);
 
-            // Left / Right Arms
-            const armGeom = new THREE.BoxGeometry(0.2, 0.9, 0.2);
-            const leftArm = new THREE.Mesh(armGeom, mat);
-            leftArm.position.set(0.55, 1.6, 0);
-            const rightArm = new THREE.Mesh(armGeom, mat);
-            rightArm.position.set(-0.55, 1.6, 0);
-            character.add(leftArm, rightArm);
+            // Left Leg Pivot (at hip Y: 0.9)
+            const leftLegPivot = new THREE.Group();
+            leftLegPivot.position.set(0.2, 0.9, 0);
+            const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.9, 0.22), mat);
+            leftLeg.position.y = -0.45;
+            leftLegPivot.add(leftLeg);
+            character.add(leftLegPivot);
 
-            // Left / Right Legs
-            const legGeom = new THREE.BoxGeometry(0.25, 1.0, 0.25);
-            const leftLeg = new THREE.Mesh(legGeom, mat);
-            leftLeg.position.set(0.25, 0.5, 0);
-            const rightLeg = new THREE.Mesh(legGeom, mat);
-            rightLeg.position.set(-0.25, 0.5, 0);
-            character.add(leftLeg, rightLeg);
+            // Right Leg Pivot
+            const rightLegPivot = new THREE.Group();
+            rightLegPivot.position.set(-0.2, 0.9, 0);
+            const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.9, 0.22), mat);
+            rightLeg.position.y = -0.45;
+            rightLegPivot.add(rightLeg);
+            character.add(rightLegPivot);
 
-            // Attach Joint references for animation
-            character.userData = { leftArm, rightArm, leftLeg, rightLeg, torso, head, animTimer: 0 };
+            // Left Arm Pivot (at shoulder Y: 1.6)
+            const leftArmPivot = new THREE.Group();
+            leftArmPivot.position.set(0.48, 1.6, 0);
+            const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.75, 0.18), mat);
+            leftArm.position.y = -0.35;
+            leftArmPivot.add(leftArm);
+            character.add(leftArmPivot);
+
+            // Right Arm Pivot (Holding Weapon & Aiming)
+            const rightArmPivot = new THREE.Group();
+            rightArmPivot.position.set(-0.48, 1.6, 0);
+            const rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.75, 0.18), mat);
+            rightArm.position.y = -0.35;
+            rightArmPivot.add(rightArm);
+
+            // Weapon Container attached to Right Arm
+            const weaponHolder = new THREE.Group();
+            weaponHolder.position.set(0, -0.6, -0.2);
+            rightArmPivot.add(weaponHolder);
+
+            character.add(rightArmPivot);
+
+            character.userData = {
+                leftLegPivot, rightLegPivot, leftArmPivot, rightArmPivot,
+                headGroup, weaponHolder, animTimer: 0, recoilTimer: 0
+            };
             return character;
         }
 
-        // --- PLAYER CONTROLLER SETUP ---
+        // --- PLAYER CONTROLLER ---
         const player = {
-            position: new THREE.Vector3(0, 3, 0),
+            position: new THREE.Vector3(0, 0, 0),
             velocity: new THREE.Vector3(),
             rotation: new THREE.Euler(0, 0, 0, 'YXZ'),
             health: 100,
             score: 0,
-            name: "PLAYER (YOU)",
+            name: "YOU",
             isGrounded: false,
+            isSprinting: false,
             isSliding: false,
-            isWallRunning: false,
+            isCrouching: false,
+            slideTimer: 0,
+            slideDir: new THREE.Vector3(),
             canDoubleJump: true,
             jetpackFuel: 100,
-            activeSlot: 0, // 0: Primary, 1: Secondary, 2: Melee
+            currentEyeHeight: EYE_HEIGHT_STAND,
+            activeSlot: 0,
             inventory: [weaponsDatabase[0], weaponsDatabase[25], weaponsDatabase[45]],
             lastFired: 0,
             grenadeCookTime: 0,
-            isCookingGrenade: false
+            isCookingGrenade: false,
+            recoilAmount: 0
         };
 
-        // Bind Player Camera
         camera.rotation.order = 'YXZ';
 
-        // --- BOT MANAGER (MAINTAINS 10 PLAYERS) ---
+        // Update First Person Gun Visuals
+        function updatePlayerViewmodel() {
+            while(viewmodelGroup.children.length > 0) viewmodelGroup.remove(viewmodelGroup.children[0]);
+            const currentWpn = player.inventory[player.activeSlot];
+            const vm = buildWeaponMesh(currentWpn.category, currentWpn.color, true);
+            viewmodelGroup.add(vm);
+        }
+        updatePlayerViewmodel();
+
+        // --- BOTS MANAGEMENT ---
         function createBot(id) {
-            const spawnPos = spawnPoints[Math.floor(Math.random() * spawnPoints.length)] || new THREE.Vector3(0, 2, 0);
+            const spawnPos = spawnPoints[Math.floor(Math.random() * spawnPoints.length)] || new THREE.Vector3(0, 0, 0);
             const mesh = createSkeletalCharacterModel(Math.random() > 0.5 ? 0x00ffff : 0xff0055);
             mesh.position.copy(spawnPos);
             scene.add(mesh);
 
+            const botWpn = weaponsDatabase[Math.floor(Math.random() * weaponsDatabase.length)];
+            const botWpnMesh = buildWeaponMesh(botWpn.category, botWpn.color, false);
+            mesh.userData.weaponHolder.add(botWpnMesh);
+
             return {
                 id: id,
-                name: `BOT_${id}_CYBER`,
+                name: `CYBER_BOT_${id}`,
                 health: 100,
                 score: 0,
                 mesh: mesh,
                 velocity: new THREE.Vector3(),
-                targetPos: spawnPos.clone(),
                 lastShoot: 0,
-                weapon: weaponsDatabase[Math.floor(Math.random() * weaponsDatabase.length)]
+                weapon: botWpn,
+                isFiring: false
             };
         }
 
@@ -415,32 +432,42 @@
             players.push(createBot(i));
         }
 
-        // --- INPUT HANDLING ---
+        // --- CONTROLS INPUT ---
         const keys = {};
-        let mouseX = 0, mouseY = 0;
 
         document.addEventListener('keydown', (e) => {
             keys[e.code] = true;
 
-            // Weapon switching
             if (e.code === 'Digit1') switchWeapon(0);
             if (e.code === 'Digit2') switchWeapon(1);
             if (e.code === 'Digit3') switchWeapon(2);
 
-            // Grenade cooking start
+            // SLIDE vs CROUCH LOGIC
+            if (e.code === 'KeyC') {
+                if (player.isSprinting && player.isGrounded && !player.isSliding) {
+                    // Trigger Slide (Set length)
+                    player.isSliding = true;
+                    player.slideTimer = SLIDE_DURATION;
+                    const camDir = new THREE.Vector3();
+                    camera.getWorldDirection(camDir);
+                    camDir.y = 0;
+                    player.slideDir.copy(camDir.normalize());
+                } else if (!player.isSliding) {
+                    // Toggle Crouch
+                    player.isCrouching = !player.isCrouching;
+                }
+            }
+
             if (e.code === 'KeyG' && !player.isCookingGrenade) {
                 player.isCookingGrenade = true;
                 player.grenadeCookTime = Date.now();
             }
 
-            // Interact Key E
             if (e.code === 'KeyE') performInteraction();
         });
 
         document.addEventListener('keyup', (e) => {
             keys[e.code] = false;
-
-            // Grenade launch on release
             if (e.code === 'KeyG' && player.isCookingGrenade) {
                 throwGrenade();
                 player.isCookingGrenade = false;
@@ -474,6 +501,7 @@
 
         function switchWeapon(slotIndex) {
             player.activeSlot = slotIndex;
+            updatePlayerViewmodel();
             const currentWpn = player.inventory[slotIndex];
             document.getElementById('weapon-slot').innerText = `[${currentWpn.category}]`;
             document.getElementById('weapon-name').innerText = currentWpn.name;
@@ -486,9 +514,14 @@
             document.getElementById('ammo-display').innerText = currentWpn.category === 'MELEE' ? '∞ / ∞' : `${currentWpn.ammo} / ${currentWpn.ammoMax}`;
         }
 
-        // --- MOVEMENT & PARKOUR PHYSICS ---
+        // --- PLAYER PHYSICS & MOVEMENT ENGINE ---
         function updatePlayerMovement(delta) {
-            const moveSpeed = keys['ShiftLeft'] ? 18 : (player.isSliding ? 22 : 11);
+            player.isSprinting = keys['ShiftLeft'] && !player.isCrouching;
+
+            // Un-crouch if sprinting starts
+            if (player.isSprinting) player.isCrouching = false;
+
+            const baseSpeed = player.isSprinting ? 18 : (player.isCrouching ? 6 : 11);
             const moveVector = new THREE.Vector3();
 
             if (keys['KeyW']) moveVector.z -= 1;
@@ -499,134 +532,139 @@
             moveVector.normalize();
             moveVector.applyEuler(new THREE.Euler(0, player.rotation.y, 0));
 
-            // Sliding Logic
-            if (keys['KeyC'] && !player.isSliding && player.isGrounded) {
-                player.isSliding = true;
-                camera.position.y -= 0.6; // Crouch view
-                setTimeout(() => { player.isSliding = false; camera.position.y += 0.6; }, 800);
-            }
+            // SLIDE PROCESSING (Limited Set Duration)
+            if (player.isSliding) {
+                player.slideTimer -= delta;
+                const slideSpeed = 24 * (player.slideTimer / SLIDE_DURATION); // Decelerating slide impulse
+                player.velocity.x = player.slideDir.x * slideSpeed;
+                player.velocity.z = player.slideDir.z * slideSpeed;
 
-            // Apply horizontal velocity
-            player.velocity.x = moveVector.x * moveSpeed;
-            player.velocity.z = moveVector.z * moveSpeed;
-
-            // Gravity & Ground Check
-            player.velocity.y -= 32 * delta;
-
-            // Wall Running Check (Raycast to sides)
-            let wallNormal = null;
-            if (!player.isGrounded && Math.abs(player.velocity.y) < 5) {
-                const rayLeft = new THREE.Raycaster(player.position, new THREE.Vector3(-1, 0, 0).applyEuler(player.rotation), 0, 1.5);
-                const rayRight = new THREE.Raycaster(player.position, new THREE.Vector3(1, 0, 0).applyEuler(player.rotation), 0, 1.5);
-                
-                if (rayLeft.intersectObjects(scene.children).length > 0 || rayRight.intersectObjects(scene.children).length > 0) {
-                    player.isWallRunning = true;
-                    player.velocity.y = -2; // Slow glide wall run
-                } else {
-                    player.isWallRunning = false;
+                if (player.slideTimer <= 0) {
+                    player.isSliding = false; // Smooth transition back to running/walking
                 }
             } else {
-                player.isWallRunning = false;
+                player.velocity.x = moveVector.x * baseSpeed;
+                player.velocity.z = moveVector.z * baseSpeed;
             }
 
-            // Jumping / Double Jump / Jetpack
+            // Ground & Walkable Ramp Height Calculations
+            const groundY = getGroundY(player.position);
+
+            // Gravity & Vertical Physics
+            player.velocity.y -= 32 * delta;
+            player.position.addScaledVector(player.velocity, delta);
+
+            // Snap feet to floor / ramp slope
+            if (player.position.y <= groundY) {
+                player.position.y = groundY;
+                player.velocity.y = 0;
+                player.isGrounded = true;
+                player.canDoubleJump = true;
+            } else {
+                player.isGrounded = false;
+            }
+
+            // Jump / Jetpack
             if (keys['Space']) {
                 if (player.isGrounded) {
                     player.velocity.y = 12;
                     player.isGrounded = false;
-                    player.canDoubleJump = true;
-                    keys['Space'] = false; // Prevent hold trigger
-                } else if (player.isWallRunning || player.canDoubleJump) {
+                    keys['Space'] = false;
+                } else if (player.canDoubleJump) {
                     player.velocity.y = 12;
                     player.canDoubleJump = false;
-                    player.isWallRunning = false;
                     keys['Space'] = false;
                 } else if (player.jetpackFuel > 0) {
-                    player.velocity.y += 20 * delta; // Jetpack thrust
-                    player.jetpackFuel -= 40 * delta;
+                    player.velocity.y += 22 * delta;
+                    player.jetpackFuel -= 45 * delta;
                 }
-            } else {
-                // Jetpack Recharge
-                if (player.jetpackFuel < 100) player.jetpackFuel += 15 * delta;
+            } else if (player.jetpackFuel < 100) {
+                player.jetpackFuel += 18 * delta;
             }
 
-            // Position Integration
-            player.position.addScaledVector(player.velocity, delta);
+            // Smooth Stance Transition (Lerp camera height for slide/crouch/stand)
+            const targetEyeHeight = (player.isSliding || player.isCrouching) ? EYE_HEIGHT_CROUCH : EYE_HEIGHT_STAND;
+            player.currentEyeHeight = THREE.MathUtils.lerp(player.currentEyeHeight, targetEyeHeight, delta * 12);
 
-            // Ground Floor Collision Simple Check
-            if (player.position.y <= 1.6) {
-                player.position.y = 1.6;
-                player.velocity.y = 0;
-                player.isGrounded = true;
-            }
-
-            // Camera Sync
+            // Set Eye-Level Camera Position
             camera.position.x = player.position.x;
             camera.position.z = player.position.z;
-            camera.position.y = player.position.y + (player.isSliding ? -0.4 : 0.6);
+            camera.position.y = player.position.y + player.currentEyeHeight;
             camera.rotation.copy(player.rotation);
 
-            // Update Jetpack HUD
+            // Viewmodel Bobbing & Recoil Recovery Animation
+            player.recoilAmount = THREE.MathUtils.lerp(player.recoilAmount, 0, delta * 10);
+            viewmodelGroup.position.z = -0.6 + player.recoilAmount * 0.15;
+            viewmodelGroup.rotation.x = player.recoilAmount * 0.2;
+
+            if (moveVector.lengthSq() > 0 && player.isGrounded) {
+                const bob = Math.sin(performance.now() * 0.012) * 0.02;
+                viewmodelGroup.position.y = -0.3 + bob;
+            }
+
+            // HUD Stance Text Update
+            const stanceEl = document.getElementById('stance-indicator');
+            stanceEl.innerText = player.isSliding ? "STANCE: SLIDING" : (player.isCrouching ? "STANCE: CROUCHING" : "STANCE: STANDING");
+
             document.getElementById('jetpack-fill').style.width = `${Math.max(0, player.jetpackFuel)}%`;
             document.getElementById('health-bar').style.width = `${Math.max(0, player.health)}%`;
         }
 
-        // --- WEAPONS & COMBAT SYSTEM ---
+        // --- WEAPONS & SHOOTING ---
         function fireActiveWeapon(shooter, direction) {
             const now = Date.now();
             const wpn = shooter === player ? player.inventory[player.activeSlot] : shooter.weapon;
 
             if (now - shooter.lastFired < wpn.fireRate) return;
             if (shooter === player && wpn.category !== 'MELEE' && wpn.ammo <= 0) {
-                // Auto Reload
                 wpn.ammo = wpn.ammoMax;
                 updateAmmoHUD();
                 return;
             }
 
             shooter.lastFired = now;
-            if (shooter === player && wpn.category !== 'MELEE') {
-                wpn.ammo--;
+            if (shooter === player) {
+                if (wpn.category !== 'MELEE') wpn.ammo--;
+                player.recoilAmount = 1.0; // Trigger First Person recoil animation
                 updateAmmoHUD();
+            } else {
+                shooter.isFiring = true;
+                shooter.mesh.userData.recoilTimer = 0.15; // Trigger Bot recoil animation
             }
 
-            // Raycast Shot / Melee hit detection
-            const origin = shooter === player ? camera.position.clone() : shooter.mesh.position.clone().add(new THREE.Vector3(0, 1.5, 0));
+            const origin = shooter === player ? camera.position.clone() : shooter.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
             const raycaster = new THREE.Raycaster(origin, direction, 0, wpn.range);
 
-            // Render Laser Tracer Beam
+            // Laser Tracer Visual
             const tracerGeom = new THREE.BufferGeometry().setFromPoints([
                 origin.clone().add(new THREE.Vector3(0, -0.2, 0)),
                 origin.clone().add(direction.clone().multiplyScalar(wpn.range))
             ]);
-            const tracerMat = new THREE.LineBasicMaterial({ color: wpn.color, linewidth: 3 });
+            const tracerMat = new THREE.LineBasicMaterial({ color: wpn.color, linewidth: 2 });
             const tracer = new THREE.Line(tracerGeom, tracerMat);
             scene.add(tracer);
-            setTimeout(() => scene.remove(tracer), 60);
+            setTimeout(() => scene.remove(tracer), 50);
 
-            // Check Hit Targets
+            // Hit Detection
             players.forEach(target => {
                 if (target === shooter) return;
 
                 let hit = false;
                 if (target === player) {
-                    // Check hit against player camera position
-                    hit = origin.distanceTo(player.position) < wpn.range && direction.angleTo(player.position.clone().sub(origin)) < 0.25;
+                    const playerHeadPos = player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0));
+                    hit = origin.distanceTo(playerHeadPos) < wpn.range && direction.angleTo(playerHeadPos.clone().sub(origin)) < 0.22;
                 } else {
                     const intersects = raycaster.intersectObject(target.mesh, true);
                     hit = intersects.length > 0;
                 }
 
-                if (hit) {
-                    damageEntity(target, wpn.damage, shooter);
-                }
+                if (hit) damageEntity(target, wpn.damage, shooter);
             });
         }
 
         function damageEntity(target, damage, attacker) {
             target.health -= damage;
             if (target.health <= 0) {
-                // Kill registration
                 attacker.score++;
                 showKillFeed(`${attacker.name} [ELIMINATED] ${target.name}`);
 
@@ -634,20 +672,17 @@
                     kills++;
                     document.getElementById('score-display').innerText = `${kills} / ${SCORE_LIMIT} KILLS`;
                     if (kills >= SCORE_LIMIT) {
-                        alert("VICTORY! YOU DOMINATED THE NEON ARENA!");
+                        alert("VICTORY! CHAMPION OF THE NEON ARENA!");
                         location.reload();
                     }
                 }
-
-                // Respawn Target
                 respawnEntity(target);
             }
         }
 
         function respawnEntity(entity) {
-            const randSpawn = spawnPoints[Math.floor(Math.random() * spawnPoints.length)] || new THREE.Vector3(0, 2, 0);
+            const randSpawn = spawnPoints[Math.floor(Math.random() * spawnPoints.length)] || new THREE.Vector3(0, 0, 0);
             entity.health = 100;
-
             if (entity === player) {
                 player.position.copy(randSpawn);
             } else {
@@ -655,51 +690,45 @@
             }
         }
 
-        // --- GRENADE COOKING & THROWING ---
+        // --- GRENADES ---
         function throwGrenade() {
             const cookDuration = (Date.now() - player.grenadeCookTime) / 1000;
-            const throwPower = Math.min(30, 10 + cookDuration * 10);
+            const throwPower = Math.min(28, 12 + cookDuration * 10);
 
-            const grenadeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-            const grenadeMesh = new THREE.Mesh(new THREE.SphereGeometry(0.25), grenadeMat);
+            const grenadeMesh = new THREE.Mesh(new THREE.SphereGeometry(0.2), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
             grenadeMesh.position.copy(camera.position);
 
             const dir = camera.getWorldDirection(new THREE.Vector3());
             const vel = dir.multiplyScalar(throwPower);
-            vel.y += 3; // Arc
+            vel.y += 4;
 
             scene.add(grenadeMesh);
             projectiles.push({
                 mesh: grenadeMesh,
                 velocity: vel,
                 spawnTime: Date.now(),
-                fuse: Math.max(0.5, 3.0 - cookDuration)
+                fuse: Math.max(0.4, 3.0 - cookDuration)
             });
         }
 
         function updateProjectiles(delta) {
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 const p = projectiles[i];
-                p.velocity.y -= 20 * delta; // Gravity
+                p.velocity.y -= 22 * delta;
                 p.mesh.position.addScaledVector(p.velocity, delta);
 
-                // Grenade Explosion
                 if ((Date.now() - p.spawnTime) / 1000 >= p.fuse) {
-                    // AOE Explosion
                     const expPos = p.mesh.position;
-                    
-                    // Explosion Flash Light
-                    const flash = new THREE.PointLight(0xff0000, 10, 15);
+                    const flash = new THREE.PointLight(0xff0055, 12, 18);
                     flash.position.copy(expPos);
                     scene.add(flash);
-                    setTimeout(() => scene.remove(flash), 150);
+                    setTimeout(() => scene.remove(flash), 120);
 
-                    // AOE Damage
                     players.concat([player]).forEach(ent => {
                         const entPos = ent === player ? player.position : ent.mesh.position;
                         const dist = entPos.distanceTo(expPos);
-                        if (dist < 8) {
-                            damageEntity(ent, Math.floor((1 - dist / 8) * 90), player);
+                        if (dist < 9) {
+                            damageEntity(ent, Math.floor((1 - dist / 9) * 95), player);
                         }
                     });
 
@@ -709,67 +738,83 @@
             }
         }
 
-        // --- INTERACTION PROMPT & LOGIC ---
-        function checkInteractions() {
-            let closeObject = null;
-            interactables.forEach(obj => {
-                const dist = player.position.distanceTo(obj.mesh.position);
-                if (dist < 3) closeObject = obj;
-            });
-
-            const promptEl = document.getElementById('interact-prompt');
-            if (closeObject) {
-                promptEl.style.display = 'block';
-                promptEl.innerText = `[E] INTERACT WITH ${closeObject.type}`;
-            } else {
-                promptEl.style.display = 'none';
-            }
-        }
-
-        function performInteraction() {
-            interactables.forEach(obj => {
-                if (player.position.distanceTo(obj.mesh.position) < 3) {
-                    obj.action();
-                }
-            });
-        }
-
-        // --- BOT AI & SKELEATAL ANIMATION ENGINE ---
+        // --- BOT AI & SKELETAL ANIMATIONS ---
         function updateBots(delta) {
             players.forEach(bot => {
                 if (bot === player) return;
 
-                // Move Bot towards Target / Player
-                const distToPlayer = bot.mesh.position.distanceTo(player.position);
-                const dir = new THREE.Vector3().subVectors(player.position, bot.mesh.position).normalize();
+                const ud = bot.mesh.userData;
+                const playerEyePos = player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0));
 
-                if (distToPlayer > 5) {
-                    bot.mesh.position.addScaledVector(dir, 6 * delta);
-                    bot.mesh.lookAt(player.position.x, bot.mesh.position.y, player.position.z);
+                // 1. FLOOR & RAMP SNAP (BOT FEET ON GROUND)
+                const groundY = getGroundY(bot.mesh.position);
+                bot.mesh.position.y = groundY; // Exact feet contact with floor/ramp
+
+                // 2. BOT MOVEMENT & AI
+                const distToPlayer = bot.mesh.position.distanceTo(player.position);
+                const dirToPlayer = new THREE.Vector3().subVectors(playerEyePos, bot.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0))).normalize();
+
+                let isMoving = false;
+                if (distToPlayer > 6) {
+                    isMoving = true;
+                    const moveDir = new THREE.Vector3(dirToPlayer.x, 0, dirToPlayer.z).normalize();
+                    bot.mesh.position.addScaledVector(moveDir, 7.5 * delta);
+                    bot.mesh.rotation.y = Math.atan2(moveDir.x, moveDir.z);
+                } else {
+                    // Face player when stationary
+                    bot.mesh.rotation.y = Math.atan2(dirToPlayer.x, dirToPlayer.z);
                 }
 
-                // Skeletal Limb Swing Animation
-                const ud = bot.mesh.userData;
-                ud.animTimer += delta * 10;
-                ud.leftArm.rotation.x = Math.sin(ud.animTimer) * 0.6;
-                ud.rightArm.rotation.x = -Math.sin(ud.animTimer) * 0.6;
-                ud.leftLeg.rotation.x = -Math.sin(ud.animTimer) * 0.6;
-                ud.rightLeg.rotation.x = Math.sin(ud.animTimer) * 0.6;
+                // 3. SKELETAL MOVEMENT ANIMATIONS (Walking Leg & Arm Swing)
+                if (isMoving) {
+                    ud.animTimer += delta * 10;
+                    ud.leftLegPivot.rotation.x = Math.sin(ud.animTimer) * 0.6;
+                    ud.rightLegPivot.rotation.x = -Math.sin(ud.animTimer) * 0.6;
+                    ud.leftArmPivot.rotation.x = -Math.sin(ud.animTimer) * 0.5;
+                } else {
+                    ud.leftLegPivot.rotation.x = THREE.MathUtils.lerp(ud.leftLegPivot.rotation.x, 0, delta * 8);
+                    ud.rightLegPivot.rotation.x = THREE.MathUtils.lerp(ud.rightLegPivot.rotation.x, 0, delta * 8);
+                    ud.leftArmPivot.rotation.x = THREE.MathUtils.lerp(ud.leftArmPivot.rotation.x, 0, delta * 8);
+                }
 
-                // Bot Shooting Logic
-                if (distToPlayer < 30 && Math.random() < 0.03) {
-                    fireActiveWeapon(bot, dir);
+                // 4. AIMING & SHOOTING ANIMATION (Right Arm pointing at target pitch)
+                const pitchAngle = Math.asin(dirToPlayer.y);
+                ud.rightArmPivot.rotation.x = -Math.PI / 2 + pitchAngle; // Aim gun at target eye-level
+
+                // Recoil animation handling
+                if (ud.recoilTimer > 0) {
+                    ud.recoilTimer -= delta;
+                    ud.rightArmPivot.rotation.x -= 0.2; // Kick up on fire
+                }
+
+                // Shoot at player
+                if (distToPlayer < 35 && Math.random() < 0.035) {
+                    fireActiveWeapon(bot, dirToPlayer);
                 }
             });
         }
 
-        // --- UI & LEADERBOARD HUD ---
+        // --- INTERACTION & HUD ---
+        function performInteraction() {
+            interactables.forEach(obj => {
+                if (player.position.distanceTo(obj.mesh.position) < 3) obj.action();
+            });
+        }
+
+        function checkInteractions() {
+            let near = false;
+            interactables.forEach(obj => {
+                if (player.position.distanceTo(obj.mesh.position) < 3) near = true;
+            });
+            document.getElementById('interact-prompt').style.display = near ? 'block' : 'none';
+        }
+
         function showKillFeed(msg) {
             const feed = document.getElementById('kill-feed');
             const item = document.createElement('div');
             item.innerText = msg;
             feed.appendChild(item);
-            setTimeout(() => item.remove(), 4000);
+            setTimeout(() => item.remove(), 3500);
         }
 
         function updateLeaderboard() {
@@ -784,7 +829,7 @@
             });
         }
 
-        // --- MAIN GAME LOOP ---
+        // --- MAIN LOOP ---
         let lastTime = performance.now();
         function gameLoop() {
             requestAnimationFrame(gameLoop);
@@ -804,14 +849,12 @@
             renderer.render(scene, camera);
         }
 
-        // Resize Listener
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
-        // Start Loop
         gameLoop();
     </script>
 </body>
