@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // UNBREAKABLE PHYSICS</title>
+    <title>CYBER-STRIKE 2077 // TEST MODE (BOT FIRE DISABLED)</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -56,7 +56,8 @@
 
     <div id="start-screen">
         <h1>CYBER-STRIKE 2077</h1>
-        <p>[ CLICK TO ENTER ARENA ]</p>
+        <p>[ CLICK TO ENTER TEST ARENA ]</p>
+        <p style="font-size: 14px; margin-top: 10px; color: #ffe600;">(BOT FIRING IS CURRENTLY DISABLED FOR TESTING)</p>
         <p style="font-size: 12px; margin-top: 20px; color: #aaa;">
             WASD: Move | SHIFT: Run | C: Slide (when running) / Crouch | SPACE: Jump/Jetpack | E: Interact | G: Grenade | 1-3 / Wheel: Switch Weapon
         </p>
@@ -349,21 +350,19 @@
 
         generateProceduralArena();
 
-        // --- BULLETPROOF GROUND & SLOPE RAYCASTER ---
+        // --- GROUND & SLOPE RAYCASTER ---
         const raycasterDown = new THREE.Raycaster();
         const downVector = new THREE.Vector3(0, -1, 0);
 
         function getGroundY(position) {
-            let maxFloorY = 0.0; // Hard global minimum floor at Y = 0.0
+            let maxFloorY = 0.0;
             
-            // Cast down from 20.0 units high above the entity so the ray origin NEVER drops below geometry
             const rayOrigin = new THREE.Vector3(position.x, position.y + 20.0, position.z);
             raycasterDown.set(rayOrigin, downVector);
             const hits = raycasterDown.intersectObjects(colliders, false);
 
             for (let i = 0; i < hits.length; i++) {
                 const hit = hits[i];
-                // Ground surface candidate must be below or within reasonable step height (0.8 units) of entity feet
                 if (hit.point.y <= position.y + 0.8) {
                     if (hit.point.y > maxFloorY) {
                         maxFloorY = hit.point.y;
@@ -569,7 +568,7 @@
             document.getElementById('ammo-display').innerText = currentWpn.category === 'MELEE' ? '∞ / ∞' : `${currentWpn.ammo} / ${currentWpn.ammoMax}`;
         }
 
-        // --- UNBREAKABLE PLAYER MOVEMENT & FLOOR CLAMP ENGINE ---
+        // --- PLAYER MOVEMENT & PHYSICS ENGINE ---
         function updatePlayerMovement(delta) {
             player.isSprinting = keys['ShiftLeft'] && !player.isCrouching;
             if (player.isSprinting) player.isCrouching = false;
@@ -596,7 +595,7 @@
                 player.velocity.z = moveVector.z * baseSpeed;
             }
 
-            // Solid Horizontal Wall Collisions (Axis-Separated)
+            // Solid Horizontal Wall Collisions
             const oldX = player.position.x;
             player.position.x += player.velocity.x * delta;
             if (checkWallCollision(player.position, 0.45, player.currentEyeHeight)) {
@@ -616,13 +615,12 @@
                 player.velocity.y = 0;
             }
 
-            // --- VERTICAL PHYSICS WITH PRE-MOVEMENT FLOOR CLAMPING ---
+            // Vertical Movement & Pre-Floor Clamping
             player.velocity.y -= 32 * delta;
             const proposedY = player.position.y + player.velocity.y * delta;
             const groundY = getGroundY(player.position);
 
             if (proposedY <= groundY) {
-                // Instantly lock feet to floor surface
                 player.position.y = groundY;
                 player.velocity.y = 0;
                 player.isGrounded = true;
@@ -854,7 +852,7 @@
             }
         }
 
-        // --- BOT AI & COLLISION ENFORCEMENT ---
+        // --- BOT AI & MOVEMENT ENGINE ---
         function updateBots(delta) {
             players.forEach(bot => {
                 if (bot === player) return;
@@ -916,9 +914,10 @@
                     }
                 }
 
-                if (distToPlayer < bot.weapon.range && Math.random() < 0.04) {
-                    fireActiveWeapon(bot, dirToPlayer);
-                }
+                // --- BOT SHOOTING DISABLED FOR TESTING ---
+                // if (distToPlayer < bot.weapon.range && Math.random() < 0.04) {
+                //     fireActiveWeapon(bot, dirToPlayer);
+                // }
             });
         }
 
