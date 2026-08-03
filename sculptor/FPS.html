@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // OPTIMIZED MULTI-MODE ARENA</title>
+    <title>CYBER-STRIKE 2077 // OPTIMIZED & FIXED CONTROLS</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -114,7 +114,7 @@
             </div>
         </div>
 
-        <p id="voting-status-text" style="font-size: 13px; color: #ffe600; margin-bottom: 0;">SELECT A MODE TO BEGIN MATCH</p>
+        <p id="voting-status-text" style="font-size: 13px; color: #ffe600; margin-bottom: 0;">CLICK A MODE TO START</p>
     </div>
 
     <!-- HUD Flag Markers -->
@@ -215,8 +215,8 @@
         const slidingDoors = [];
         const elevatorCars = [];
         
-        const colliders = [];       // All physical colliders (includes floor tiles)
-        const wallColliders = [];   // Dedicated structural wall/door colliders for fast AI LoS raycasting
+        const colliders = [];       // Physical colliders
+        const wallColliders = [];   // AI LoS raycast colliders
         const staticBoxes = [];  
         const weaponsDatabase = [];
 
@@ -480,7 +480,7 @@
 
             const registerStaticBox = (mesh, isWall = true) => {
                 colliders.push(mesh);
-                if (isWall) wallColliders.push(mesh); // Fast list for AI raycasting
+                if (isWall) wallColliders.push(mesh);
 
                 const bObj = { box: new THREE.Box3().setFromObject(mesh), active: true, mesh: mesh };
                 staticBoxes.push(bObj);
@@ -507,7 +507,7 @@
                     const mainFloor = new THREE.Mesh(new THREE.BoxGeometry(facilitySize, 1.0, facilitySize), floorMat);
                     mainFloor.position.set(0, fY - 0.5, 0);
                     scene.add(mainFloor);
-                    registerStaticBox(mainFloor, false); // Floor slabs excluded from wall raycasts
+                    registerStaticBox(mainFloor, false);
                 } else {
                     const tileSize = 20;
                     for (let x = -half + tileSize/2; x < half; x += tileSize) {
@@ -643,7 +643,6 @@
                 }
             };
 
-            // Room Spanning Partition Walls with Inset Doors
             floors.forEach((fY) => {
                 const roomGrid = [
                     { type: 'COMPUTER_LAB', x: -75, z: -75 },
@@ -679,7 +678,7 @@
 
                 roomGrid.forEach(r => {
                     buildRoomProps(r.type, r.x, fY, r.z);
-                    spawnPoints.push(new THREE.Vector3(r.x + (Math.random()-0.5)*18, fY + 0.1, r.z + (Math.random()-0.5)*18));
+                    spawnPoints.push(new THREE.Vector3(r.x + (Math.random()-0.5)*12, fY + 0.1, r.z + (Math.random()-0.5)*12));
                 });
             });
 
@@ -736,6 +735,17 @@
             spawnWorldWeapons();
         }
 
+        // --- SAFE COLLISION-PRE-CHECKED SPAWN SYSTEM ---
+        function getSafeSpawnPoint() {
+            for (let i = 0; i < 40; i++) {
+                const candidate = spawnPoints[Math.floor(Math.random() * spawnPoints.length)];
+                if (candidate && !checkWallCollision(candidate, 0.5, EYE_HEIGHT_STAND)) {
+                    return candidate.clone();
+                }
+            }
+            return new THREE.Vector3(0, 0.1, 0); // Guaranteed open center floor fallback
+        }
+
         // --- CTF FLAG BASES & LIGHT BEACONS ---
         const cyanBasePos = new THREE.Vector3(-75, 0.1, -75);
         const pinkBasePos = new THREE.Vector3(75, 0.1, 75);
@@ -745,7 +755,7 @@
             const bannerGeom = new THREE.BoxGeometry(1.2, 1.8, 0.08);
             const beaconGeom = new THREE.CylinderGeometry(1.8, 1.8, 60, 16);
 
-            // Cyan Flag & Beacon
+            // Cyan Flag
             cyanFlagObj = new THREE.Group();
             const cyanPole = new THREE.Mesh(flagGeom, new THREE.MeshBasicMaterial({ color: 0x00ffff }));
             const cyanBanner = new THREE.Mesh(bannerGeom, new THREE.MeshBasicMaterial({ color: 0x00ffff }));
@@ -758,7 +768,7 @@
             cyanFlagBeacon.position.copy(cyanBasePos).add(new THREE.Vector3(0, 30, 0));
             scene.add(cyanFlagBeacon);
 
-            // Pink Flag & Beacon
+            // Pink Flag
             pinkFlagObj = new THREE.Group();
             const pinkPole = new THREE.Mesh(flagGeom, new THREE.MeshBasicMaterial({ color: 0xff007f }));
             const pinkBanner = new THREE.Mesh(bannerGeom, new THREE.MeshBasicMaterial({ color: 0xff007f }));
@@ -777,7 +787,7 @@
             pinkFlagBeacon.visible = false;
         }
 
-        // --- 3D FLOATING WEAPON PICKUPS SYSTEM ---
+        // --- WEAPON PICKUPS SYSTEM ---
         function setPickupWeapon(sp, newWpnData) {
             sp.weapon = newWpnData;
             while(sp.modelHolder.children.length > 0) sp.modelHolder.remove(sp.modelHolder.children[0]);
@@ -902,15 +912,23 @@
         // --- INSTANT MODE SELECTION & START ---
         function castPlayerVote(modeKey) {
             currentMode = modeKey;
-            
-            // Synchronously request pointer lock within direct click gesture
-            document.body.requestPointerLock();
-            
-            initGameMode();
-            document.getElementById('start-screen').style.display = 'none';
             gameStarted = true;
+
+            for (let k in keys) keys[k] = false;
+
+            document.getElementById('start-screen').style.display = 'none';
+            initGameMode();
             respawnEntity(player);
+
+            document.body.requestPointerLock();
         }
+
+        // Global document click listener ensures pointer lock re-locks seamlessly
+        document.addEventListener('click', (e) => {
+            if (gameStarted && document.pointerLockElement !== document.body) {
+                document.body.requestPointerLock();
+            }
+        });
 
         function initGameMode() {
             document.getElementById('mode-title-display').innerText = `MODE: ${getModeFullName(currentMode)}`;
@@ -1034,7 +1052,7 @@
         // --- PLAYER CONTROLLER STATE & HITBOX ---
         const player = {
             position: new THREE.Vector3(0, 0, 0),
-            velocity: new THREE.Vector3(),
+            velocity: new THREE.Vector3(0, 0, 0),
             rotation: new THREE.Euler(0, 0, 0, 'YXZ'),
             health: 100, score: 0, name: "YOU", team: 'CYAN',
             isGrounded: true, isSprinting: false, isSliding: false, isCrouching: false,
@@ -1062,9 +1080,9 @@
         }
         updatePlayerViewmodel();
 
-        // --- BOTS MANAGEMENT (29 ACTIVE BOTS WITH THROTTLED SCANNING) ---
+        // --- BOTS MANAGEMENT ---
         function createBot(id) {
-            const spawnPos = spawnPoints[Math.floor(Math.random() * spawnPoints.length)] || new THREE.Vector3(0, 0, 0);
+            const spawnPos = getSafeSpawnPoint();
             const archetype = BOT_ARCHETYPES[id % BOT_ARCHETYPES.length];
             const colorHex = Math.random() > 0.5 ? 0x00ffff : 0xff0055;
 
@@ -1085,7 +1103,7 @@
                 isGrounded: true, canDoubleJump: true,
                 isSprinting: false, isSliding: false, isCrouching: false, slideTimer: 0, slideDir: new THREE.Vector3(),
                 jumpCooldown: 0, grenadeCooldown: 0, target: null, patrolTarget: null,
-                scanTimer: (id % 10) * 0.03 // Stagger initial AI scans across frames
+                scanTimer: (id % 10) * 0.03
             };
 
             updateBotHeldWeaponMesh(botObj);
@@ -1776,17 +1794,19 @@
         }
 
         function respawnEntity(entity) {
-            const randSpawn = spawnPoints[Math.floor(Math.random() * spawnPoints.length)] || new THREE.Vector3(0, 0, 0);
+            const safeSpawn = getSafeSpawnPoint();
             entity.health = 100;
             if (entity === player) {
-                player.position.copy(randSpawn);
+                player.position.copy(safeSpawn);
+                player.velocity.set(0, 0, 0);
                 player.grenades = 2;
                 player.inventory[0].ammo = player.inventory[0].ammoMax;
                 player.inventory[1].ammo = player.inventory[1].ammoMax;
                 updateGrenadeHUD();
-                updateAmmoHUD();
+                updateWeaponHUD();
             } else {
-                entity.mesh.position.copy(randSpawn);
+                entity.mesh.position.copy(safeSpawn);
+                entity.velocity.set(0, 0, 0);
                 entity.inventory.forEach(w => w.ammo = w.ammoMax);
                 entity.patrolTarget = null;
             }
@@ -1856,11 +1876,10 @@
 
                 const botEyePos = bot.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
-                // Throttled target scanning (runs every ~0.25s per bot instead of 60 FPS)
                 if (bot.scanTimer <= 0) {
                     bot.scanTimer = 0.2 + Math.random() * 0.1;
                     let bestTarget = null;
-                    let minDist = 65.0; // Max visual scan range
+                    let minDist = 65.0;
 
                     allEntities.forEach(ent => {
                         if (ent === bot || ent.health <= 0) return;
@@ -1872,7 +1891,6 @@
 
                         const d = botEyePos.distanceTo(entEyePos);
                         if (d < minDist) {
-                            // Raycast against structural wall Colliders only (excluding floor tiles)
                             if (checkLineOfSight(botEyePos, entEyePos, wallColliders)) {
                                 minDist = d;
                                 bestTarget = ent;
