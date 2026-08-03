@@ -1114,9 +1114,8 @@
                 for(let i=0; i < count - 1; i++) { crosswalkGeoms.push(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(points[i].x, 0.018, points[i].z), new THREE.Vector3(points[i+1].x, 0.018, points[i+1].z)])); }
                 renderedPedestrianList.push({ points: points, isCrosswalk: true }); return;
             }
-            // INCREASE SIDEWALK BOUNDS PADDING MECHANICALLY
-            const sidewalkHalfWidth = 2.4; 
-            const vertices = []; const indices = []; const normals = new Array(count);
+            // EXPANDED BOUNDARY CORRIDOR FROM 1.2 TO 3.5 TO ACCELERATE AI TRANSIT SUCCESS
+            const sidewalkHalfWidth = 3.5; const vertices = []; const indices = []; const normals = new Array(count);
             for (let i = 0; i < count; i++) {
                 let dx, dz; if (i === 0) { dx = points[1].x - points[0].x; dz = points[1].z - points[0].z; } else if (i === count - 1) { dx = points[count-1].x - points[count-2].x; dz = points[count-1].z - points[count-2].z; } else { dx = (points[i+1].x - points[i-1].x)/2; dz = (points[i+1].z - points[i-1].z)/2; }
                 const len = Math.hypot(dx, dz) || 1; normals[i] = { x: -dz / len, z: dx / len };
@@ -1124,9 +1123,187 @@
             for (let i = 0; i < count; i++) {
                 const pt = points[i]; const norm = normals[i]; const lx = pt.x + norm.x * sidewalkHalfWidth; const lz = pt.z + norm.z * sidewalkHalfWidth; const rx = pt.x - norm.x * sidewalkHalfWidth; const rz = pt.z - norm.z * sidewalkHalfWidth;
                 vertices.push(lx, 0.02, lz, rx, 0.02, rz); if (i < count - 1) indices.push(i*2, i*2+1, (i+1)*2, i*2+1, (i+1)*2+1, (i+1)*2);
+                globalTrafficNodes.push(new THREE.Vector3(pt.x, 0.01, pt.z));
             }
             const swGeom = new THREE.BufferGeometry(); swGeom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3)); swGeom.setIndex(indices); swGeom.computeVertexNormals();
             sidewalkSolidGeoms.push(swGeom); renderedPedestrianList.push({ points: points, isCrosswalk: false });
+        }
+
+        function isPositionInsideAnyBuilding(pos) {
+            const totalHulls = renderedBuildingsList.length;
+            for (let i = 0; i < totalHulls; i++) {
+                const b = renderedBuildingsList[i].box;
+                if (pos.x >= b.minX && pos.x <= b.maxX && pos.z >= b.minZ && pos.z <= b.maxZ) {
+                    return true; 
+                }
+            }
+            return false;
+        }
+
+        function generateHackingTerminalGrid() {
+            let startNodePos = new THREE.Vector3(0, 0, -12);
+            if (isPositionInsideAnyBuilding(startNodePos)) {
+                startNodePos.z -= 15; 
+            }
+            createTerminalEntity(startNodePos, 0);
+
+            const totalTargetUnits = 11;
+            let terminalsCreated = 1;
+            const validTrafficNodes = globalTrafficNodes.filter(node => !isPositionInsideAnyBuilding(node));
+            
+            if (validTrafficNodes.length > 0) {
+                const stepIncrement = Math.floor(validTrafficNodes.length / (totalTargetUnits - 1)) || 1;
+                for (let i = 1; i < totalTargetUnits; i++) {
+                    const nodeIdx = Math.min(validTrafficNodes.length - 1, i * stepIncrement - Math.floor(Math.random() * 3));
+                    if (nodeIdx < 0 || !validTrafficNodes[nodeIdx]) continue;
+                    const nodePos = validTrafficNodes[nodeIdx].clone();
+                    nodePos.y = 0; 
+                    createTerminalEntity(nodePos, terminalsCreated);
+                    terminalsCreated++;
+                }
+            } else {
+                for (let i = 1; i < totalTargetUnits; i++) {
+                    let fallbackPos = new THREE.Vector3((Math.random() - 0.5) * 120, 0, (Math.random() - 0.5) * 120);
+                    while (isPositionInsideAnyBuilding(fallbackPos)) {
+                        fallbackPos.set((Math.random() - 0.5) * 120, 0, (Math.random() - 0.5) * 120);
+                    }
+                    createTerminalEntity(fallbackPos, terminalsCreated);
+                    terminalsCreated++;
+                }
+            }
+            document.getElementById('hacked-terminal-counter').innerText = `0 / ${hackingTerminalsCollection.length}`;
+        }
+
+        function createTerminalEntity(positionVector, indexId) {
+            const terminalGroup = new THREE.Group();
+            terminalGroup.position.copy(positionVector);
+            
+            const pillarGeo = new THREE.CylinderGeometry(0.25, 0.35, 1.3, 8);
+            const pillarMesh = new THREE.Mesh(pillarGeo, sharedMaterials.terminalActive);
+            pillarMesh.position.y = 0.65;
+            terminalGroup.add(pillarMesh);
+            
+            const consoleFrameGeo = new THREE.BoxGeometry(0.9, 0.6, 0.08);
+            const consoleMesh = new THREE.Mesh(consoleFrameGeo, new THREE.MeshBasicMaterial({ color: 0x030714 }));
+            consoleMesh.position.y = 1.7;
+            consoleMesh.rotation.x = -Math.PI / 6; 
+            
+            const outerGlowWire = new THREE.LineSegments(new THREE.EdgesGeometry(consoleFrameGeo), new THREE.LineBasicMaterial({ color: 0x00ffcc }));
+            consoleMesh.add(outerGlowWire);
+            terminalGroup.add(consoleMesh);
+            
+            const keyGeo = new THREE.BoxGeometry(0.12, 0.12, 0.04);
+            const activeSubButtons = [];
+            for (let i = 0; i < 3; i++) {
+                const keyMat = new THREE.MeshBasicMaterial({ color: 0xff0055 }); 
+                const keyMesh = new THREE.Mesh(keyGeo, keyMat);
+                keyMesh.position.set(-0.24 + i * 0.24, 0.12, 0.041);
+                keyMesh.userData = { type: 'button', clicked: false, subId: i };
+                consoleMesh.add(keyMesh);
+                activeSubButtons.push(keyMesh);
+            }
+            
+            const runnerGeo = new THREE.BoxGeometry(0.6, 0.03, 0.02);
+            const runnerMesh = new THREE.Mesh(runnerGeo, new THREE.MeshBasicMaterial({ color: 0x444444 }));
+            runnerMesh.position.set(0, -0.12, 0.03);
+            consoleMesh.add(runnerMesh);
+            
+            const handleMesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.05), new THREE.MeshBasicMaterial({ color: 0x00ffcc }));
+            handleMesh.position.set(-0.26, 0, 0.02); 
+            handleMesh.userData = { type: 'handle', progress: 0.0 };
+            runnerMesh.add(handleMesh);
+
+            const handPrintGroup = new THREE.Group();
+            handPrintGroup.position.set(0, 0, 0.06);
+            handPrintGroup.visible = false;
+
+            const palmBaseMesh = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.01), new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true }));
+            palmBaseMesh.position.set(0, -0.04, 0);
+            handPrintGroup.add(palmBaseMesh);
+
+            const fingerSpreads = [
+                [-0.11, -0.01, 0.10, 0.65],   
+                [-0.06, 0.08, 0.13, 0.18],    
+                [0.00, 0.11, 0.15, 0.00],     
+                [0.06, 0.08, 0.14, -0.16],    
+                [0.12, 0.01, 0.11, -0.45]     
+            ];
+
+            fingerSpreads.forEach(param => {
+                const fingerSegment = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, param[2], 5), new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true }));
+                fingerSegment.position.set(param[0], param[1], 0);
+                fingerSegment.rotation.z = param[3];
+                handPrintGroup.add(fingerSegment);
+            });
+            consoleMesh.add(handPrintGroup);
+            
+            terminalGroup.lookAt(0, 0, 0);
+            terminalGroup.rotation.x = 0;
+            terminalGroup.rotation.z = 0;
+            
+            scene.add(terminalGroup);
+            terminalGroup.updateMatrixWorld(true);
+            consoleMesh.updateMatrixWorld(true);
+            
+            hackingTerminalsCollection.push({
+                id: indexId,
+                pos: terminalGroup.position, 
+                group: terminalGroup,
+                consoleScreen: consoleMesh,
+                buttons: activeSubButtons,
+                slideHandle: handleMesh,
+                runnerBar: runnerMesh,
+                handPrintTarget: handPrintGroup,
+                hacked: false,
+                verifying: false,
+                verifyProgress: 0.0,
+                alarmExpireTime: 0,
+                lowering: false
+            });
+        }
+
+        function deployTacticalDronePlatoon() {
+            tacticalDronesCollection.forEach(d => scene.remove(d.meshElement)); tacticalDronesCollection.length = 0;
+            if (renderedStreetsList.length === 0) return; 
+            const targetCount = Math.min(72, renderedStreetsList.length * 4); 
+            for (let i = 0; i < targetCount; i++) {
+                const streetIdx = i % renderedStreetsList.length;
+                const street = renderedStreetsList[streetIdx]; if (!street || street.points.length < 2) continue;
+                const startNodeIdx = Math.floor(Math.random() * street.points.length);
+                const spawnPoint = street.points[startNodeIdx];
+                const d = compileTacticalPatrolDrone(); d.coreAsset.position.set(spawnPoint.x, 25.0, spawnPoint.z); scene.add(d.coreAsset);
+                tacticalDronesCollection.push({
+                    id: i, meshElement: d.coreAsset, scannerBeamGroup: d.dynamicScannerBeam, leftArmAsset: d.leftArm, rightArmAsset: d.rightArm, routeCoordinates: street.points, currentNodeIndex: startNodeIdx, patrolDirectionFactor: Math.random() > 0.5 ? 1 : -1, movementVelocityFactor: 0.09 + Math.random() * 0.04, isChasingPlayer: false, isGrounded: false, lastPosX: spawnPoint.x, lastPosZ: spawnPoint.z, stuckFrames: 0, lastSightCheckTime: 0, isOccluded: false
+                });
+            }
+        }
+
+        function deployHumanoidGarrison() {
+            humanoidBotsCollection.forEach(b => scene.remove(b.meshElement)); humanoidBotsCollection.length = 0;
+            const validSidewalkTracks = renderedPedestrianList.filter(p => !p.isCrosswalk && p.points.length >= 2);
+            
+            // Fallback safety filter: Route maps straight to street links if sidewalk features are missing
+            let pathSourcePool = validSidewalkTracks.length > 0 ? validSidewalkTracks : renderedStreetsList;
+            if (pathSourcePool.length === 0) return;
+
+            const targetCount = Math.min(48, pathSourcePool.length * 3);
+            for(let i = 0; i < targetCount; i++) {
+                let track = pathSourcePool[i % pathSourcePool.length];
+                let pathData = [...track.points];
+                
+                if (pathData.length < 4) {
+                    let origPoints = [...pathData];
+                    for (let m = origPoints.length - 2; m >= 0; m--) pathData.push(origPoints[m]);
+                }
+
+                const botRef = compileHumanoidCombatBot(); 
+                botRef.model.position.set(pathData[0].x, 0.02, pathData[0].z); 
+                scene.add(botRef.model);
+
+                humanoidBotsCollection.push({
+                    id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.8 + Math.random() * 0.4, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0, lastPosX: pathData[0].x, lastPosZ: pathData[0].z, stuckFrames: 0, lastSightCheckTime: 0, isOccluded: false
+                });
+            }
         }
 
         function computeObstacleAvoidanceSteering(pos, baseTargetAngle, lookAheadDist) {
@@ -1137,17 +1314,12 @@
             for (let i = 0; i < renderedBuildingsList.length; i++) {
                 let b = renderedBuildingsList[i].box;
                 if (checkX >= b.minX && checkX <= b.maxX && checkZ >= b.minZ && checkZ <= b.maxZ) {
-                    let distToLeft = Math.abs(checkX - b.minX);
-                    let distToRight = Math.abs(checkX - b.maxX);
-                    let distToTop = Math.abs(checkZ - b.minZ);
-                    let distToBottom = Math.abs(checkZ - b.maxZ);
+                    let distToLeft = Math.abs(checkX - b.minX); let distToRight = Math.abs(checkX - b.maxX);
+                    let distToTop = Math.abs(checkZ - b.minZ); let distToBottom = Math.abs(checkZ - b.maxZ);
                     let mDist = Math.min(distToLeft, distToRight, distToTop, distToBottom);
                     
                     let nX = 0, nZ = 0;
-                    if (mDist === distToLeft) nX = -1;
-                    else if (mDist === distToRight) nX = 1;
-                    else if (mDist === distToTop) nZ = -1;
-                    else nZ = 1;
+                    if (mDist === distToLeft) nX = -1; else if (mDist === distToRight) nX = 1; else if (mDist === distToTop) nZ = -1; else nZ = 1;
 
                     let tangX = -nZ; let tangZ = nX;
                     let curDirX = Math.sin(baseTargetAngle); let curDirZ = Math.cos(baseTargetAngle);
@@ -1157,45 +1329,6 @@
                 }
             }
             return baseTargetAngle;
-        }
-
-        function deployHumanoidGarrison() {
-            humanoidBotsCollection.forEach(b => scene.remove(b.meshElement)); humanoidBotsCollection.length = 0;
-            
-            const validSidewalkTracks = renderedPedestrianList.filter(p => p.points && p.points.length >= 2);
-            // GUARANTEE PLATFORM DATA FALLBACK POPULATION
-            const sourceTracks = validSidewalkTracks.length > 0 ? validSidewalkTracks : renderedStreetsList;
-            
-            if (sourceTracks.length === 0) return;
-            const targetCount = Math.min(45, sourceTracks.length * 2);
-            
-            for(let i = 0; i < targetCount; i++) {
-                let track = sourceTracks[Math.floor(Math.random() * sourceTracks.length)];
-                let pathData = [...track.points];
-                
-                if (pathData.length < 3) {
-                    let origPoints = [...pathData];
-                    for (let m = origPoints.length - 2; m >= 0; m--) pathData.push(origPoints[m]);
-                }
-
-                const botRef = compileHumanoidCombatBot(); 
-                botRef.model.position.set(pathData[0].x, 0.02, pathData[0].z); 
-                scene.add(botRef.model);
-                
-                humanoidBotsCollection.push({
-                    id: i, 
-                    meshElement: botRef.model, 
-                    legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, 
-                    routeCoordinates: pathData, 
-                    currentTrack: track,
-                    currentNodeIndex: 0, 
-                    patrolDirectionFactor: 1, 
-                    velocity: 0.8 + Math.random() * 0.4, 
-                    isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0, 
-                    lastPosX: pathData[0].x, lastPosZ: pathData[0].z, 
-                    stuckFrames: 0, lastSightCheckTime: 0, isOccluded: false
-                });
-            }
         }
 
         function handleAIBuildingCollision(pos, radius) {
@@ -1274,18 +1407,49 @@
 
                 let moveX = 0, moveZ = 0;
                 if (drone.isChasingPlayer || alertStateActive) {
-                    tx = lastSeenPlayerPosition.x; tz = lastSeenPlayerPosition.z; const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
-                    if (dist > 1.0) { targetAngle = Math.atan2(dx, dz); targetAngle = computeObstacleAvoidanceSteering(pos, targetAngle, 4.0); moveX = Math.sin(targetAngle) * drone.movementVelocityFactor * 1.5; moveZ = Math.cos(targetAngle) * drone.movementVelocityFactor * 1.5; }
+                    tx = lastSeenPlayerPosition.x; tz = lastSeenPlayerPosition.z; 
+                    const dx = tx - pos.x; const dz = tz - pos.z; const dist = Math.hypot(dx, dz);
+                    if (dist > 1.0) { 
+                        targetAngle = Math.atan2(dx, dz); targetAngle = computeObstacleAvoidanceSteering(pos, targetAngle, 4.0);
+                        moveX = Math.sin(targetAngle) * drone.movementVelocityFactor * 1.5; moveZ = Math.cos(targetAngle) * drone.movementVelocityFactor * 1.5;
+                    }
                 } else {
-                    let node = drone.routeCoordinates[drone.currentNodeIndex]; let dx = node.x - pos.x; let dz = node.z - pos.z; let dist = Math.hypot(dx, dz);
-                    if (dist < 1.0) { 
+                    let node = drone.routeCoordinates[drone.currentNodeIndex]; 
+                    if (!node) { drone.currentNodeIndex = 0; node = drone.routeCoordinates[0]; }
+                    let dx = node.x - pos.x; let dz = node.z - pos.z; let dist = Math.hypot(dx, dz);
+                    if (dist < 1.5) { 
                         drone.currentNodeIndex += drone.patrolDirectionFactor;
-                        if (drone.currentNodeIndex >= drone.routeCoordinates.length || drone.currentNodeIndex < 0) { drone.patrolDirectionFactor *= -1; drone.currentNodeIndex = Math.max(0, Math.min(drone.currentNodeIndex + drone.patrolDirectionFactor * 2, drone.routeCoordinates.length - 1)); }
+                        if (drone.currentNodeIndex >= drone.routeCoordinates.length || drone.currentNodeIndex < 0) {
+                            drone.patrolDirectionFactor *= -1; drone.currentNodeIndex = Math.max(0, Math.min(drone.currentNodeIndex + drone.patrolDirectionFactor * 2, drone.routeCoordinates.length - 1));
+                        }
                         node = drone.routeCoordinates[drone.currentNodeIndex]; dx = node.x - pos.x; dz = node.z - pos.z; dist = Math.hypot(dx, dz) || 1;
                     }
-                    targetAngle = Math.atan2(dx, dz); targetAngle = computeObstacleAvoidanceSteering(pos, targetAngle, 4.0); moveX = Math.sin(targetAngle) * drone.movementVelocityFactor; moveZ = Math.cos(targetAngle) * drone.movementVelocityFactor; 
+                    targetAngle = Math.atan2(dx, dz); targetAngle = computeObstacleAvoidanceSteering(pos, targetAngle, 4.0);
+                    moveX = Math.sin(targetAngle) * drone.movementVelocityFactor; moveZ = Math.cos(targetAngle) * drone.movementVelocityFactor; 
                 }
+
                 pos.x += moveX; pos.z += moveZ;
+
+                if (belongsToActiveBucket) {
+                    handleAIBuildingCollision(pos, 1.5); 
+                    let dActualDist = Math.hypot(pos.x - drone.lastPosX, pos.z - drone.lastPosZ);
+                    drone.lastPosX = pos.x; drone.lastPosZ = pos.z;
+                    if ((moveX !== 0 || moveZ !== 0) && dActualDist < 0.01) {
+                        drone.stuckFrames = (drone.stuckFrames || 0) + 1;
+                        if (drone.stuckFrames > 15) {
+                            drone.meshElement.rotation.y += Math.PI * (0.5 + Math.random() * 0.5);
+                            drone.currentNodeIndex = Math.floor(Math.random() * drone.routeCoordinates.length);
+                            drone.stuckFrames = 0;
+                        }
+                    } else { drone.stuckFrames = 0; }
+                }
+
+                const currentConeColor = (drone.isChasingPlayer || terminalAlarmOverridingActive) ? 0xff0000 : 0x00ff00;
+                drone.scannerBeamGroup.children[0].material.color.setHex(currentConeColor);
+                let angleDiff = targetAngle - drone.meshElement.rotation.y;
+                while (angleDiff < -Math.PI) angleDiff += Math.PI * 2; while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+                drone.meshElement.rotation.y += angleDiff * 0.08;
+                pos.y = 25.0 + Math.sin(timestamp * 0.0012 + drone.id) * 0.4; drone.leftArmAsset.rotation.x = Math.sin(timestamp * 0.0018 + drone.id) * 0.18; drone.rightArmAsset.rotation.x = Math.cos(timestamp * 0.0022 + drone.id) * 0.15; drone.scannerBeamGroup.rotation.z = Math.sin(timestamp * 0.0008 + drone.id * 1.5) * 0.35;
             });
 
             let botDetectedFlag = false;
@@ -1322,92 +1486,53 @@
                 if (bot.isAlerted || alertStateActive) {
                     bot.aimProgress = Math.min(1.0, bot.aimProgress + 0.07); const dx = lastSeenPlayerPosition.x - pos.x; const dz = lastSeenPlayerPosition.z - pos.z; const distToLastSeen = Math.hypot(dx, dz); 
                     botTargetAngle = Math.atan2(dx, dz); botTargetAngle = computeObstacleAvoidanceSteering(pos, botTargetAngle, 4.0);
-                    if (distToLastSeen > 2.0) { bMoveX = Math.sin(botTargetAngle) * bot.velocity * 0.12 * 1.6; bMoveZ = Math.cos(botTargetAngle) * bot.velocity * 0.12 * 1.6; }
-                    if (canBotSeePlayerRightNow && bot.lastDistanceToPlayer <= 25.0 && timestamp - bot.lastFireTimestamp > 1200) {
-                        bot.lastFireTimestamp = timestamp; playerHealth = Math.max(0, playerHealth - 8.0); spaceOverlay.classList.add('flash-red-harm'); setTimeout(() => spaceOverlay.classList.remove('flash-red-harm'), 150);
-                        _scratchMuzzleOffset.set(0.9, 0.4, 1.6).applyMatrix4(bot.meshElement.matrixWorld); _scratchLaserTarget.copy(camera.position); 
-                        const laserMesh = new THREE.Mesh(sharedLaserGeometry, sharedLaserMaterial); laserMesh.position.copy(_scratchMuzzleOffset); laserMesh.lookAt(_scratchLaserTarget); laserMesh.rotation.x += Math.PI / 2; scene.add(laserMesh);
-                        activeLasersCollection.push({ meshElement: laserMesh, directionVector: new THREE.Vector3().subVectors(_scratchLaserTarget, _scratchMuzzleOffset).normalize(), velocitySpeed: 5.5, distanceTraveled: 0, maxDistanceLimit: _scratchMuzzleOffset.distanceTo(_scratchLaserTarget) });
+                    if (distToLastSeen > 2.0) { 
+                        bMoveX = Math.sin(botTargetAngle) * bot.velocity * 0.12 * 1.6; bMoveZ = Math.cos(botTargetAngle) * bot.velocity * 0.12 * 1.6;
                     }
                 } else {
                     bot.aimProgress = Math.max(0.0, bot.aimProgress - 0.07); 
-                    let targetNode = bot.routeCoordinates ? bot.routeCoordinates[bot.currentNodeIndex] : null;
+                    let targetNode = bot.routeCoordinates[bot.currentNodeIndex]; 
+                    if (!targetNode) { bot.currentNodeIndex = 0; targetNode = bot.routeCoordinates[0] || new THREE.Vector3(0,0,0); }
+                    let ndx = targetNode.x - pos.x; let ndz = targetNode.z - pos.z; let ndist = Math.hypot(ndx, ndz);
                     
-                    if (!targetNode && bot.currentTrack) {
-                        bot.routeCoordinates = bot.currentTrack.points;
-                        targetNode = bot.routeCoordinates[bot.currentNodeIndex];
-                    }
-
-                    if (targetNode) {
-                        let ndx = targetNode.x - pos.x; let ndz = targetNode.z - pos.z; let ndist = Math.hypot(ndx, ndz);
-                        
-                        // EXPANDED TARGET NODE REACH ARRAYS RADIUS
-                        if (ndist < 3.0) { 
-                            let validSidewalkTracks = renderedPedestrianList.filter(p => p.points && p.points.length >= 2);
-                            let pool = validSidewalkTracks.length > 0 ? validSidewalkTracks : renderedStreetsList;
-                            let nearbyTracks = [];
+                    // INTELLIGENT CONJUNCTION AND DEAD-END RAIL ROUTING ENGINE
+                    if (ndist < 1.5) { 
+                        bot.currentNodeIndex += bot.patrolDirectionFactor; 
+                        if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) { 
+                            bot.patrolDirectionFactor *= -1; 
+                            bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex + bot.patrolDirectionFactor * 2, bot.routeCoordinates.length - 1));
                             
-                            // DYNAMIC INTERSECTION REDIRECTION ALGORITHM
-                            pool.forEach(t => {
-                                if (t !== bot.currentTrack && t.points) {
-                                    for (let pt of t.points) {
-                                        if (Math.hypot(pt.x - targetNode.x, pt.z - targetNode.z) < 6.0) {
-                                            nearbyTracks.push(t); break;
-                                        }
-                                    }
-                                }
-                            });
-
-                            if (nearbyTracks.length > 0 && Math.random() < 0.65) {
-                                bot.currentTrack = nearbyTracks[Math.floor(Math.random() * nearbyTracks.length)];
-                                bot.routeCoordinates = bot.currentTrack.points;
-                                bot.currentNodeIndex = Math.random() > 0.5 ? 0 : bot.routeCoordinates.length - 1;
-                                bot.patrolDirectionFactor = bot.currentNodeIndex === 0 ? 1 : -1;
-                            } else {
-                                bot.currentNodeIndex += bot.patrolDirectionFactor;
-                                if (bot.currentNodeIndex >= bot.routeCoordinates.length || bot.currentNodeIndex < 0) {
-                                    bot.patrolDirectionFactor *= -1;
-                                    bot.currentNodeIndex = Math.max(0, Math.min(bot.currentNodeIndex + bot.patrolDirectionFactor * 2, bot.routeCoordinates.length - 1));
+                            // Query localized node arrays to hop vector tracks dynamically at intersections
+                            if (globalTrafficNodes.length > 0 && Math.random() < 0.6) {
+                                let targetJunction = globalTrafficNodes[Math.floor(Math.random() * globalTrafficNodes.length)];
+                                if (pos.distanceTo(targetJunction) < 40.0) {
+                                    bot.routeCoordinates = [targetJunction.clone()]; bot.currentNodeIndex = 0;
                                 }
                             }
-                            targetNode = bot.routeCoordinates[bot.currentNodeIndex];
-                            ndx = targetNode.x - pos.x; ndz = targetNode.z - pos.z; ndist = Math.hypot(ndx, ndz) || 1;
-                        }
-                        botTargetAngle = Math.atan2(ndx, ndz);
-                        botTargetAngle = computeObstacleAvoidanceSteering(pos, botTargetAngle, 4.0);
-                        bMoveX = Math.sin(botTargetAngle) * bot.velocity * 0.12;
-                        bMoveZ = Math.cos(botTargetAngle) * bot.velocity * 0.12;
+                        } 
+                        targetNode = bot.routeCoordinates[bot.currentNodeIndex]; ndx = targetNode.x - pos.x; ndz = targetNode.z - pos.z; ndist = Math.hypot(ndx, ndz) || 1;
                     }
+                    botTargetAngle = Math.atan2(ndx, ndz); botTargetAngle = computeObstacleAvoidanceSteering(pos, botTargetAngle, 4.0);
+                    bMoveX = Math.sin(botTargetAngle) * bot.velocity * 0.12; bMoveZ = Math.cos(botTargetAngle) * bot.velocity * 0.12;
                 }
 
                 pos.x += bMoveX; pos.z += bMoveZ;
 
                 if (belongsToActiveBucket) {
-                    handleAIBuildingCollision(pos, 1.2); 
+                    handleAIBuildingCollision(pos, 1.0); 
                     let bActualDist = Math.hypot(pos.x - bot.lastPosX, pos.z - bot.lastPosZ);
                     bot.lastPosX = pos.x; bot.lastPosZ = pos.z;
                     
-                    // HYSTERESIS STUCK RECOVERY ROTATION SCHEMA
-                    if (bActualDist < 0.015 && (bMoveX !== 0 || bMoveZ !== 0)) {
+                    // VELOCITY DRIFT TRAP DETECTION ENGINE
+                    if ((bMoveX !== 0 || bMoveZ !== 0) && bActualDist < 0.005) {
                         bot.stuckFrames = (bot.stuckFrames || 0) + 1;
-                        if (bot.stuckFrames > 12) {
-                            let alternativeEscapeAngle = Math.PI / 2 + Math.random() * Math.PI / 2;
-                            bot.meshElement.rotation.y += alternativeEscapeAngle;
-                            
-                            let validSidewalkTracks = renderedPedestrianList.filter(p => p.points && p.points.length >= 2);
-                            let pool = validSidewalkTracks.length > 0 ? validSidewalkTracks : renderedStreetsList;
-                            let closestEscapePt = null; let minDistanceValue = Infinity;
-                            
-                            pool.forEach(trackLine => {
-                                trackLine.points.forEach(pPoint => {
-                                    let d = Math.hypot(pPoint.x - pos.x, pPoint.z - pos.z);
-                                    if (d < minDistanceValue && d > 2.0) { minDistanceValue = d; closestEscapePt = pPoint; }
-                                });
-                            });
-
-                            if (closestEscapePt) {
-                                bot.routeCoordinates = [closestEscapePt];
-                                bot.currentNodeIndex = 0; bot.patrolDirectionFactor = 1;
+                        if (bot.stuckFrames > 15) {
+                            // Turn 90-180 degrees outwards and jump directly to alternative network tracking node
+                            botTargetAngle += Math.PI * (0.5 + Math.random() * 0.5);
+                            bot.meshElement.rotation.y = botTargetAngle;
+                            if (globalTrafficNodes.length > 0) {
+                                let escapeWaypoint = globalTrafficNodes[Math.floor(Math.random() * globalTrafficNodes.length)];
+                                bot.routeCoordinates = [escapeWaypoint.clone()]; bot.currentNodeIndex = 0;
                             }
                             bot.stuckFrames = 0;
                         }
@@ -1491,8 +1616,7 @@
                 hackingTerminalsCollection.forEach(tNode => { if (tNode.verifying) activeVerificationRunning = true; });
 
                 if (activeVerificationRunning) {
-                    currentHUDState = "verifying";
-                    statusLabel.innerHTML = `<span style="color: #ff0055; text-shadow: 0 0 15px #ff0055;">ALIGN HAND BIOMETRICS</span>`;
+                    currentHUDState = "verifying"; statusLabel.innerHTML = `<span style="color: #ff0055; text-shadow: 0 0 15px #ff0055;">ALIGN HAND BIOMETRICS</span>`;
                 } else {
                     currentHUDState = "clear"; statusLabel.innerHTML = ""; 
                 }
@@ -1505,7 +1629,8 @@
                 trackerContainer.style.display = 'block'; trackerContainer.innerHTML = activeVerificationRunning ? "SECURITY RECON SYSTEM TRIPPED" : "WARNING: POSITION EXPOSED"; 
             }
             else if (alertStateActive && !matrixOverloadActive && !globalShutdownTriggered) { 
-                trackerContainer.style.display = 'block'; const secondsRemaining = Math.max(0, (ALERT_COOLDOWN_MS - (timestamp - timeLastSeenByThreat)) / 1000); trackerContainer.innerHTML = `EVADING THREAT: ${secondsRemaining.toFixed(1)}s`; 
+                trackerContainer.style.display = 'block'; const secondsRemaining = Math.max(0, (ALERT_COOLDOWN_MS - (timestamp - timeLastSeenByThreat)) / 1000); 
+                trackerContainer.innerHTML = `EVADING THREAT: ${secondsRemaining.toFixed(1)}s`; 
             }
             else trackerContainer.style.display = 'none';
 
@@ -1698,8 +1823,11 @@
             }
 
             palmGeometry = new THREE.BufferGeometry();
-            const palmPositionsArray = new Float32Array(7 * 3); palmGeometry.setAttribute('position', new THREE.BufferAttribute(palmPositionsArray, 3));
-            const palmIndices = [ 0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5, 0, 5, 6 ]; palmGeometry.setIndex(palmIndices);
+            const palmPositionsArray = new Float32Array(7 * 3); 
+            palmGeometry.setAttribute('position', new THREE.BufferAttribute(palmPositionsArray, 3));
+            
+            const palmIndices = [ 0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5, 0, 5, 6 ];
+            palmGeometry.setIndex(palmIndices);
 
             const palmMaterial = new THREE.MeshBasicMaterial({
                 color: 0xff5500, side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false
@@ -1707,7 +1835,9 @@
 
             palmMesh = new THREE.Mesh(palmGeometry, palmMaterial);
             palmMesh.matrixAutoUpdate = false; handVisualizerGroup.add(palmMesh);
-            camera.add(handVisualizerGroup); scene.add(camera);
+            
+            camera.add(handVisualizerGroup);
+            scene.add(camera);
 
             function frameLoopEngine() {
                 requestAnimationFrame(frameLoopEngine); const t = Date.now();
@@ -1728,12 +1858,19 @@
                 });
 
                 if (sensorsEngaged) { 
-                    advanceDayNightCycleSimulation(); advanceDronePatrolSimulation(t); evaluateGameplayState(); 
+                    advanceDayNightCycleSimulation();
+                    advanceDronePatrolSimulation(t); 
+                    evaluateGameplayState(); 
 
                     if (handVisualizerGroup.visible) {
-                        for (let i = 0; i < 21; i++) { structuralJointMeshes[i].position.lerp(kinematicTargetCoordinates[i], 0.35); structuralJointMeshes[i].updateMatrix(); }
+                        for (let i = 0; i < 21; i++) {
+                            structuralJointMeshes[i].position.lerp(kinematicTargetCoordinates[i], 0.35);
+                            structuralJointMeshes[i].updateMatrix();
+                        }
                         for (let i = 0; i < BIOMETRIC_BONES_MAP.length; i++) {
-                            const connection = BIOMETRIC_BONES_MAP[i]; orientVolumetricBoneCylinder(volumetricBoneMeshes[i], structuralJointMeshes[connection[0]].position, structuralJointMeshes[connection[1]].position); volumetricBoneMeshes[i].updateMatrix();
+                            const connection = BIOMETRIC_BONES_MAP[i];
+                            orientVolumetricBoneCylinder(volumetricBoneMeshes[i], structuralJointMeshes[connection[0]].position, structuralJointMeshes[connection[1]].position);
+                            volumetricBoneMeshes[i].updateMatrix();
                         }
 
                         const palmVertices = palmGeometry.attributes.position.array;
@@ -1742,43 +1879,67 @@
                             const currentJointPos = structuralJointMeshes[boundNodes[idx]].position;
                             const stride = idx * 3; palmVertices[stride] = currentJointPos.x; palmVertices[stride + 1] = currentJointPos.y; palmVertices[stride + 2] = currentJointPos.z;
                         }
-                        palmGeometry.attributes.position.needsUpdate = true; palmMesh.updateMatrix();
+                        palmGeometry.attributes.position.needsUpdate = true;
+                        palmMesh.updateMatrix();
 
-                        _scratchHandCheckVec.copy(structuralJointMeshes[8].position); _scratchHandCheckVec.applyMatrix4(camera.matrixWorld); 
-                        _scratchRaySource.copy(camera.position); _scratchRayDir.subVectors(_scratchHandCheckVec, _scratchRaySource).normalize();
+                        _scratchHandCheckVec.copy(structuralJointMeshes[8].position); 
+                        _scratchHandCheckVec.applyMatrix4(camera.matrixWorld); 
+
+                        _scratchRaySource.copy(camera.position);
+                        _scratchRayDir.subVectors(_scratchHandCheckVec, _scratchRaySource).normalize();
                         visionRaycaster.set(_scratchRaySource, _scratchRayDir);
 
                         hackingTerminalsCollection.forEach(tNode => {
                             if (tNode.hacked) return;
+
                             const flatDistanceToUnit = camera.position.distanceTo(tNode.group.position);
                             if (flatDistanceToUnit < 6.0) { 
+                                
                                 if (!tNode.verifying) {
                                     const buttonIntersects = visionRaycaster.intersectObjects(tNode.buttons);
                                     if (buttonIntersects.length > 0) {
                                         const hitBtn = buttonIntersects[0].object;
-                                        if (!hitBtn.userData.clicked) { hitBtn.userData.clicked = true; hitBtn.material.color.setHex(0x00ff55); generateLocalElectricSpark(buttonIntersects[0].point); }
+                                        if (!hitBtn.userData.clicked) {
+                                            hitBtn.userData.clicked = true; hitBtn.material.color.setHex(0x00ff55);
+                                            generateLocalElectricSpark(buttonIntersects[0].point);
+                                        }
                                     }
+
                                     if (tNode.slideHandle.userData.progress < 1.0) {
                                         const handleIntersects = visionRaycaster.intersectObject(tNode.slideHandle);
                                         if (handleIntersects.length > 0) {
-                                            tNode.slideHandle.userData.progress = Math.min(1.0, tNode.slideHandle.userData.progress + 0.015); tNode.slideHandle.position.x = -0.26 + (tNode.slideHandle.userData.progress * 0.52);
+                                            tNode.slideHandle.userData.progress = Math.min(1.0, tNode.slideHandle.userData.progress + 0.015);
+                                            tNode.slideHandle.position.x = -0.26 + (tNode.slideHandle.userData.progress * 0.52);
                                             if (tNode.slideHandle.userData.progress >= 1.0) { tNode.slideHandle.material.color.setHex(0x00ffff); }
                                         }
                                     }
-                                    const formsCompleted = tNode.buttons.every(b => b.userData.clicked); const trackCompleted = tNode.slideHandle.userData.progress >= 1.0;
+
+                                    const formsCompleted = tNode.buttons.every(b => b.userData.clicked);
+                                    const trackCompleted = tNode.slideHandle.userData.progress >= 1.0;
+                                    
                                     if (formsCompleted && trackCompleted) {
-                                        tNode.verifying = true; tNode.alarmExpireTime = Date.now() + 20000; tNode.buttons.forEach(b => b.visible = false); tNode.slideHandle.visible = false; tNode.runnerBar.visible = false; tNode.handPrintTarget.visible = true;
+                                        tNode.verifying = true;
+                                        tNode.alarmExpireTime = Date.now() + 20000; 
+
+                                        tNode.buttons.forEach(b => b.visible = false);
+                                        tNode.slideHandle.visible = false;
+                                        tNode.runnerBar.visible = false;
+                                        tNode.handPrintTarget.visible = true;
                                     }
                                 } else {
                                     const handPrintIntersects = visionRaycaster.intersectObject(tNode.handPrintTarget, true);
                                     if (handPrintIntersects.length > 0 && Date.now() < tNode.alarmExpireTime) {
-                                        tNode.verifyProgress = Math.min(1.0, tNode.verifyProgress + 0.02); tNode.handPrintTarget.children.forEach(mesh => { mesh.material.color.setHex(0x00ff55); });
+                                        tNode.verifyProgress = Math.min(1.0, tNode.verifyProgress + 0.02);
+                                        tNode.handPrintTarget.children.forEach(mesh => { mesh.material.color.setHex(0x00ff55); });
+
                                         if (tNode.verifyProgress >= 1.0) {
-                                            tNode.hacked = true; tNode.verifying = false; tNode.lowering = true; tNode.handPrintTarget.visible = false; totalTerminalsHacked++;
+                                            tNode.hacked = true; tNode.verifying = false; tNode.lowering = true; tNode.handPrintTarget.visible = false;
+                                            totalTerminalsHacked++;
                                             document.getElementById('hacked-terminal-counter').innerText = `${totalTerminalsHacked} / ${hackingTerminalsCollection.length}`;
                                         }
                                     } else {
-                                        tNode.verifyProgress = Math.max(0.0, tNode.verifyProgress - 0.01); tNode.handPrintTarget.children.forEach(mesh => { mesh.material.color.setHex(0xff0055); });
+                                        tNode.verifyProgress = Math.max(0.0, tNode.verifyProgress - 0.01);
+                                        tNode.handPrintTarget.children.forEach(mesh => { mesh.material.color.setHex(0xff0055); });
                                     }
                                 }
                             }
@@ -1787,10 +1948,13 @@
                 }
                 
                 renderer.render(scene, camera); 
+
                 let mapDelayThreshold = 66; 
                 if (isMinimapEnlarged) {
-                    let normalizedZoomRatio = (minimapZoomScale - 1.0) / 11.0; mapDelayThreshold = THREE.MathUtils.lerp(500, 16, normalizedZoomRatio);
+                    let normalizedZoomRatio = (minimapZoomScale - 1.0) / 11.0; 
+                    mapDelayThreshold = THREE.MathUtils.lerp(500, 16, normalizedZoomRatio);
                 }
+
                 if (t - lastMinimapUpdateTime > mapDelayThreshold) {
                     update2DMinimapSystem(); lastMinimapUpdateTime = t;
                 }
