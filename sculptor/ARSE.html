@@ -1264,70 +1264,71 @@
         function deployTacticalDronePlatoon() {
             tacticalDronesCollection.forEach(d => scene.remove(d.meshElement)); tacticalDronesCollection.length = 0;
             if (renderedStreetsList.length === 0) return; 
-            const targetCount = Math.min(72, renderedStreetsList.length * 4); 
-            for (let i = 0; i < targetCount; i++) {
-                const streetIdx = i % renderedStreetsList.length;
-                const street = renderedStreetsList[streetIdx]; if (!street || street.points.length < 2) continue;
+    
+            // Shuffle street network array to disperse tracking initializations evenly
+            let shuffledStreets = [...renderedStreetsList].sort(() => Math.random() - 0.5);
+            const targetCount = Math.min(30, shuffledStreets.length);
+            const spawnedPositions = [];
+            const MIN_DRONE_SPACING = 30.0; // Enforce 30-meter radial clearance for aerial coverage
+
+            for (let i = 0; i < shuffledStreets.length; i++) {
+                if (tacticalDronesCollection.length >= targetCount) break;
+                const street = shuffledStreets[i];
+                if (!street || street.points.length < 2) continue;
+        
                 const startNodeIdx = Math.floor(Math.random() * street.points.length);
                 const spawnPoint = street.points[startNodeIdx];
+
+                let tooClose = spawnedPositions.some(pos => Math.hypot(pos.x - spawnPoint.x, pos.z - spawnPoint.z) < MIN_DRONE_SPACING);
+                if (tooClose) continue; // Reject clumping constraints
+
                 const d = compileTacticalPatrolDrone(); d.coreAsset.position.set(spawnPoint.x, 25.0, spawnPoint.z); scene.add(d.coreAsset);
+                spawnedPositions.push({ x: spawnPoint.x, z: spawnPoint.z });
+        
                 tacticalDronesCollection.push({
-                    id: i, meshElement: d.coreAsset, scannerBeamGroup: d.dynamicScannerBeam, leftArmAsset: d.leftArm, rightArmAsset: d.rightArm, routeCoordinates: street.points, currentNodeIndex: startNodeIdx, patrolDirectionFactor: Math.random() > 0.5 ? 1 : -1, movementVelocityFactor: 0.09 + Math.random() * 0.04, isChasingPlayer: false, isGrounded: false, lastPosX: spawnPoint.x, lastPosZ: spawnPoint.z, stuckFrames: 0, lastSightCheckTime: 0, isOccluded: false
+                    id: tacticalDronesCollection.length, meshElement: d.coreAsset, scannerBeamGroup: d.dynamicScannerBeam, leftArmAsset: d.leftArm, rightArmAsset: d.rightArm, routeCoordinates: street.points, currentNodeIndex: startNodeIdx, patrolDirectionFactor: Math.random() > 0.5 ? 1 : -1, movementVelocityFactor: 0.09 + Math.random() * 0.04, isChasingPlayer: false, isGrounded: false, lastPosX: spawnPoint.x, lastPosZ: spawnPoint.z, stuckFrames: 0, lastSightCheckTime: 0, isOccluded: false
                 });
             }
         }
 
-        // UPGRADED SPATIAL-POISSON DISPERSION GARRISON ENGINE
         function deployHumanoidGarrison() {
             humanoidBotsCollection.forEach(b => scene.remove(b.meshElement)); humanoidBotsCollection.length = 0;
             const validSidewalkTracks = renderedPedestrianList.filter(p => !p.isCrosswalk && p.points.length >= 2);
+    
             let pathSourcePool = validSidewalkTracks.length > 0 ? validSidewalkTracks : renderedStreetsList;
             if (pathSourcePool.length === 0) return;
 
-            const targetCount = Math.min(48, pathSourcePool.length * 3);
-            const trackedSpawnsList = [];
+            // Shuffle deployment lanes pool to prevent initial indexing stacking artifacts
+            let shuffledPool = [...pathSourcePool].sort(() => Math.random() - 0.5);
+            const targetCount = Math.min(24, shuffledPool.length);
+            const spawnedPositions = [];
+            const MIN_BOT_SPACING = 25.0; // Enforce 25-meter linear perimeter spacing constraint
 
-            for(let i = 0; i < targetCount; i++) {
-                let selectedTrack = null; let designatedPoint = null; let verifiedIndex = 0; let safetyCheckAttempts = 0;
-                let candidatePathData = [];
+            for (let i = 0; i < shuffledPool.length; i++) {
+                if (humanoidBotsCollection.length >= targetCount) break;
+                let track = shuffledPool[i];
+                let pathData = [...track.points];
+                let spawnPt = pathData[0];
 
-                while (safetyCheckAttempts < 20) {
-                    selectedTrack = pathSourcePool[Math.floor(Math.random() * pathSourcePool.length)];
-                    candidatePathData = [...selectedTrack.points];
-                    verifiedIndex = Math.floor(Math.random() * candidatePathData.length);
-                    let testPos = candidatePathData[verifiedIndex];
-                    
-                    let proximityViolation = false;
-                    for (let spawnedPoint of trackedSpawnsList) {
-                        if (Math.hypot(testPos.x - spawnedPoint.x, testPos.z - spawnedPoint.z) < 22.0) {
-                            proximityViolation = true; break;
-                        }
-                    }
-                    if (!proximityViolation) { designatedPoint = testPos; break; }
-                    safetyCheckAttempts++;
-                }
+                let tooClose = spawnedPositions.some(pos => Math.hypot(pos.x - spawnPt.x, pos.z - spawnPt.z) < MIN_BOT_SPACING);
+                if (tooClose) continue; // Skip to find next spatially clear transit path
 
-                if (!designatedPoint && candidatePathData.length > 0) {
-                    verifiedIndex = Math.floor(Math.random() * candidatePathData.length); designatedPoint = candidatePathData[verifiedIndex];
-                }
-                if (!designatedPoint) continue;
-                trackedSpawnsList.push(designatedPoint);
-
-                let cyclicallyShiftedPatrolNodes = [];
-                for (let k = 0; k < candidatePathData.length; k++) {
-                    cyclicallyShiftedPatrolNodes.push(candidatePathData[(verifiedIndex + k) % candidatePathData.length]);
+                if (pathData.length < 4) {
+                    let origPoints = [...pathData];
+                    for (let m = origPoints.length - 2; m >= 0; m--) pathData.push(origPoints[m]);
                 }
 
                 const botRef = compileHumanoidCombatBot(); 
-                botRef.model.position.set(designatedPoint.x, 0.02, designatedPoint.z); 
+                botRef.model.position.set(spawnPt.x, 0.02, spawnPt.z); 
                 scene.add(botRef.model);
+                spawnedPositions.push({ x: spawnPt.x, z: spawnPt.z });
 
                 humanoidBotsCollection.push({
-                    id: i, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: cyclicallyShiftedPatrolNodes, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.8 + Math.random() * 0.4, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0, lastPosX: designatedPoint.x, lastPosZ: designatedPoint.z, stuckFrames: 0, lastSightCheckTime: 0, isOccluded: false
+                    id: humanoidBotsCollection.length, meshElement: botRef.model, legL: botRef.leftLeg, legR: botRef.rightLeg, armL: botRef.leftArm, armR: botRef.rightArm, routeCoordinates: pathData, currentNodeIndex: 0, patrolDirectionFactor: 1, velocity: 0.8 + Math.random() * 0.4, isAlerted: false, lastFireTimestamp: 0, aimProgress: 0.0, lastPosX: spawnPt.x, lastPosZ: spawnPt.z, stuckFrames: 0, lastSightCheckTime: 0, isOccluded: false
                 });
             }
         }
-
+        
         function computeObstacleAvoidanceSteering(pos, baseTargetAngle, lookAheadDist) {
             let sampleAngle = baseTargetAngle;
             let checkX = pos.x + Math.sin(sampleAngle) * lookAheadDist;
