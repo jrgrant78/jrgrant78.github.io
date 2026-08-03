@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // 50-PLAYER ARENA & FIXED SPECTATOR POV</title>
+    <title>CYBER-STRIKE 2077 // AUTO-JOIN MULTIPLAYER & SPECTATOR POV</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -123,7 +123,7 @@
             </div>
         </div>
 
-        <p id="voting-status-text" style="font-size: 13px; color: #ffe600; margin-bottom: 0;">CLICK A MODE TO START OR WAIT FOR HOST</p>
+        <p id="voting-status-text" style="font-size: 13px; color: #ffe600; margin-bottom: 0;">SEARCHING FOR ACTIVE ARENA HOST...</p>
     </div>
 
     <!-- HUD SVG Flag Markers -->
@@ -152,7 +152,7 @@
                 <div id="mode-title-display">MODE: FREE-FOR-ALL</div>
                 <div id="score-display" style="font-size: 20px; font-weight: bold; color: #ff007f;">0 / 60 KILLS</div>
                 <div id="mode-status-hud">CYAN: 0 | PINK: 0</div>
-                <div id="network-status">NETWORK: SINGLEPLAYER / HOST</div>
+                <div id="network-status">NETWORK: INITIALIZING...</div>
             </div>
             <div class="hud-panel" id="leaderboard">
                 <div style="text-decoration: underline; margin-bottom: 4px;">FACILITY COMBATANTS</div>
@@ -183,7 +183,7 @@
     <script>
         // --- CONFIG & TOGGLES ---
         const BOTS_CAN_FIRE = true;
-        const TOTAL_COMBATANTS = 50; // Expanded to 50 Total Combatants
+        const TOTAL_COMBATANTS = 50; 
         const WEAPON_COUNT = 60;
         const EYE_HEIGHT_STAND = 1.8;
         const EYE_HEIGHT_CROUCH = 0.9;
@@ -205,6 +205,7 @@
         let spectatorIndex = 0;
 
         // --- NETWORK MULTIPLAYER SETUP ---
+        const GLOBAL_ROOM_ID = "cyberstrike2077-global-room";
         const localClientId = "CS2077_" + Math.random().toString(36).substring(2, 7);
         const broadcastChan = new BroadcastChannel("cyberstrike_lobby");
         let peer = null;
@@ -978,39 +979,129 @@
 
         // --- AUTOMATIC MULTIPLAYER NETWORKING (PEERJS & BROADCASTCHANNEL) ---
         function initMultiplayerNetworking() {
-            broadcastChan.onmessage = (msg) => {
-                const data = msg.data;
-                if (data.type === 'HEARTBEAT_HOST') {
-                    if (isHost && localClientId > data.sender) {
-                        isHost = false; 
-                        updateNetworkStatusUI();
-                    }
+            // 1. BroadcastChannel Auto-Discovery for same-origin tabs
+            broadcastChan.onmessage = (event) => {
+                const data = event.data;
+                if (!data || data.sender === localClientId) return;
+
+                if (data.type === 'DISCOVER_HOST_REQUEST' && isHost && gameStarted) {
+                    broadcastChan.postMessage({
+                        type: 'HOST_WELCOME',
+                        sender: localClientId,
+                        mode: currentMode,
+                        teamCyanScore: teamCyanScore,
+                        teamPinkScore: teamPinkScore,
+                        kills: kills
+                    });
+                } else if (data.type === 'HOST_WELCOME' && !gameStarted) {
+                    joinMatchFromHost(data);
                 } else if (data.type === 'STATE_SYNC') {
                     handleRemotePlayerState(data);
                 }
             };
 
-            setInterval(() => {
-                if (isHost) {
-                    broadcastChan.postMessage({ type: 'HEARTBEAT_HOST', sender: localClientId, mode: currentMode });
-                }
-            }, 1000);
+            // Solicit host immediately on page load
+            broadcastChan.postMessage({ type: 'DISCOVER_HOST_REQUEST', sender: localClientId });
 
-            try {
-                peer = new Peer(localClientId);
-                peer.on('open', (id) => { updateNetworkStatusUI(); });
-                peer.on('connection', (conn) => {
-                    connectedPeers.push(conn);
-                    conn.on('data', (data) => handleRemotePlayerState(data));
-                });
-            } catch(e) {
-                console.log("PeerJS fallback to BroadcastChannel");
-            }
+            // 2. PeerJS Matchmaking for cross-device / cross-network
+            initPeerJSMatchmaking();
         }
 
-        function updateNetworkStatusUI() {
-            const el = document.getElementById('network-status');
-            el.innerText = `NETWORK: ${isHost ? 'HOST / SINGLEPLAYER' : 'CONNECTED TO MATCH'}`;
+        function initPeerJSMatchmaking() {
+            peer = new Peer(); // Create client peer with random ID
+
+            peer.on('open', (id) => {
+                updateNetworkStatusUI("CONNECTING...");
+                const conn = peer.connect(GLOBAL_ROOM_ID, { reliable: true });
+                let connectedToHost = false;
+
+                conn.on('open', () => {
+                    connectedToHost = true;
+                    isHost = false;
+                    conn.send({ type: 'DISCOVER_HOST_REQUEST', sender: localClientId });
+                    updateNetworkStatusUI("CLIENT (CONNECTED)");
+                });
+
+                conn.on('data', (data) => {
+                    if (data.type === 'HOST_WELCOME' && !gameStarted) {
+                        joinMatchFromHost(data);
+                    } else if (data.type === 'STATE_SYNC') {
+                        handleRemotePlayerState(data);
+                    }
+                });
+
+                // Fallback to become Host if no existing server host responds within 1.2s
+                setTimeout(() => {
+                    if (!connectedToHost && isHost && !gameStarted) {
+                        tryBecomeHost();
+                    }
+                }, 1200);
+            });
+
+            peer.on('error', (err) => {
+                if (isHost && !gameStarted) tryBecomeHost();
+            });
+        }
+
+        function tryBecomeHost() {
+            if (peer && !peer.destroyed) peer.destroy();
+            peer = new Peer(GLOBAL_ROOM_ID);
+
+            peer.on('open', () => {
+                isHost = true;
+                updateNetworkStatusUI("SINGLEPLAYER / HOST");
+                document.getElementById('voting-status-text').innerText = "CLICK A MODE BELOW TO START MATCH AS HOST";
+            });
+
+            peer.on('connection', (conn) => {
+                connectedPeers.push(conn);
+                conn.on('data', (data) => {
+                    if (data.type === 'DISCOVER_HOST_REQUEST') {
+                        conn.send({
+                            type: 'HOST_WELCOME',
+                            sender: localClientId,
+                            mode: currentMode,
+                            teamCyanScore: teamCyanScore,
+                            teamPinkScore: teamPinkScore,
+                            kills: kills
+                        });
+                    } else if (data.type === 'STATE_SYNC') {
+                        handleRemotePlayerState(data);
+                        connectedPeers.forEach(c => { if(c !== conn && c.open) c.send(data); });
+                    }
+                });
+            });
+
+            peer.on('error', (err) => {
+                isHost = false;
+                updateNetworkStatusUI("CLIENT (MATCH JOINED)");
+            });
+        }
+
+        function joinMatchFromHost(data) {
+            if (gameStarted) return;
+            isHost = false;
+            currentMode = data.mode;
+            teamCyanScore = data.teamCyanScore || 0;
+            teamPinkScore = data.teamPinkScore || 0;
+            
+            gameStarted = true;
+            isSpectating = false;
+
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('spectator-bar').style.display = 'none';
+            viewmodelGroup.visible = true;
+
+            players.forEach(p => { if (p.mesh) p.mesh.visible = true; });
+
+            initGameMode();
+            respawnEntity(player);
+            updateNetworkStatusUI("CLIENT (MATCH JOINED)");
+            showPickupPrompt(`AUTO-JOINED MATCH [${getModeFullName(currentMode)}]`);
+        }
+
+        function updateNetworkStatusUI(txt) {
+            document.getElementById('network-status').innerText = `NETWORK: ${txt}`;
         }
 
         function broadcastLocalPlayerState() {
@@ -1032,11 +1123,6 @@
 
         function handleRemotePlayerState(data) {
             if (data.sender === localClientId) return;
-
-            if (!gameStarted && data.mode) {
-                currentMode = data.mode;
-                castPlayerVote(currentMode);
-            }
 
             let remoteBot = players.find(p => p.isNetworkPlayer && p.networkId === data.sender);
             if (!remoteBot) {
