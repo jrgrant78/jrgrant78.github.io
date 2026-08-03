@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // OPTIMIZED & FIXED CONTROLS</title>
+    <title>CYBER-STRIKE 2077 // SPECTATOR & TEAM SPAWNS</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -43,7 +43,7 @@
         #jetpack-bar .bar-fill { background: #ff007f; box-shadow: 0 0 10px #ff007f; }
 
         #kill-feed { position: absolute; top: 90px; right: 20px; text-align: right; font-size: 13px; color: #ff007f; text-shadow: 0 0 5px #ff007f; }
-        #pickup-prompt { position: absolute; top: 58%; left: 50%; transform: translate(-50%, -50%); font-size: 15px; color: #ffe600; text-shadow: 0 0 10px #ffe600; display: none; }
+        #pickup-prompt { position: absolute; top: 58%; left: 50%; transform: translate(-50%, -50%); font-size: 15px; color: #ffe600; text-shadow: 0 0 10px #ffe600; display: none; text-align: center; }
 
         #start-screen {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -79,6 +79,13 @@
         }
         #cyan-flag-marker { background: rgba(0, 255, 255, 0.9); color: #000; border: 1px solid #00ffff; box-shadow: 0 0 12px #00ffff; }
         #pink-flag-marker { background: rgba(255, 0, 127, 0.9); color: #fff; border: 1px solid #ff007f; box-shadow: 0 0 12px #ff007f; }
+
+        #spectator-bar {
+            position: absolute; bottom: 85px; left: 50%; transform: translateX(-50%);
+            background: rgba(10, 10, 20, 0.9); border: 1px solid #ffe600;
+            padding: 8px 18px; border-radius: 4px; color: #ffe600; font-size: 13px;
+            font-weight: bold; display: none; text-shadow: 0 0 8px #ffe600; z-index: 70;
+        }
 
         #leaderboard { position: absolute; top: 90px; left: 20px; font-size: 12px; line-height: 1.5; }
         #stance-indicator { font-size: 12px; color: #ffe600; margin-top: 4px; }
@@ -117,9 +124,10 @@
         <p id="voting-status-text" style="font-size: 13px; color: #ffe600; margin-bottom: 0;">CLICK A MODE TO START</p>
     </div>
 
-    <!-- HUD Flag Markers -->
+    <!-- HUD Flag Markers & Spectator Banner -->
     <div id="cyan-flag-marker" class="flag-marker">CYAN BASE</div>
     <div id="pink-flag-marker" class="flag-marker">PINK BASE</div>
+    <div id="spectator-bar">SPECTATING MODE // [A/D or LEFT/RIGHT ARROWS] SWITCH POV</div>
 
     <div id="ui-layer">
         <div id="crosshair"></div>
@@ -167,7 +175,7 @@
         const SLIDE_DURATION = 0.75;
         const WALL_RUN_DURATION = 0.75;
 
-        // --- GAME MODE STATES ---
+        // --- GAME MODE & SPECTATOR STATES ---
         let currentMode = 'FFA'; 
         let teamCyanScore = 0;
         let teamPinkScore = 0;
@@ -177,6 +185,9 @@
         let pinkFlagBeacon = null;
         let cyanFlagCarrier = null;
         let pinkFlagCarrier = null;
+
+        let isSpectating = false;
+        let spectatorIndex = 0;
 
         // --- THREE.JS SETUP ---
         const scene = new THREE.Scene();
@@ -735,15 +746,45 @@
             spawnWorldWeapons();
         }
 
-        // --- SAFE COLLISION-PRE-CHECKED SPAWN SYSTEM ---
-        function getSafeSpawnPoint() {
-            for (let i = 0; i < 40; i++) {
-                const candidate = spawnPoints[Math.floor(Math.random() * spawnPoints.length)];
-                if (candidate && !checkWallCollision(candidate, 0.5, EYE_HEIGHT_STAND)) {
-                    return candidate.clone();
+        // --- ENHANCED MODE & TEAM BIASED SAFE SPAWN SYSTEM ---
+        function getSafeSpawnPoint(entity = null) {
+            let candidateList = spawnPoints;
+
+            // 1. TDM & CTF: Spawn strictly on team's starting side / near flag base
+            if (currentMode === 'TDM' || currentMode === 'CTF') {
+                const team = entity ? entity.team : 'CYAN';
+                if (team === 'CYAN') {
+                    candidateList = spawnPoints.filter(sp => sp.x <= 10 && sp.z <= 10);
+                } else {
+                    candidateList = spawnPoints.filter(sp => sp.x >= -10 && sp.z >= -10);
                 }
             }
-            return new THREE.Vector3(0, 0.1, 0); // Guaranteed open center floor fallback
+
+            if (!candidateList || candidateList.length === 0) candidateList = spawnPoints;
+
+            const allActivePos = [player, ...players]
+                .filter(e => e.health > 0 && e !== entity)
+                .map(e => e === player ? player.position : e.mesh.position);
+
+            const MIN_SPAWN_DIST = 8.0; // Distance buffer to prevent overlapping spawns in FFA / LOS
+
+            for (let i = 0; i < 50; i++) {
+                const candidate = candidateList[Math.floor(Math.random() * candidateList.length)];
+                if (!candidate) continue;
+
+                // Wall Collision Safety Check
+                if (checkWallCollision(candidate, 0.5, EYE_HEIGHT_STAND)) continue;
+
+                // FFA & LOS Proximity Check: Never spawn on top of another spawned combatant
+                if (currentMode === 'FFA' || currentMode === 'LOS') {
+                    const tooClose = allActivePos.some(pos => pos.distanceTo(candidate) < MIN_SPAWN_DIST);
+                    if (tooClose && i < 40) continue;
+                }
+
+                return candidate.clone();
+            }
+
+            return (entity && entity.team === 'PINK') ? pinkBasePos.clone() : cyanBasePos.clone();
         }
 
         // --- CTF FLAG BASES & LIGHT BEACONS ---
@@ -828,6 +869,8 @@
         }
 
         function updateWorldWeapons(delta) {
+            if (isSpectating) return;
+
             worldWeaponSpawns.forEach(sp => {
                 if (sp.active) {
                     sp.group.rotation.y += delta * 1.8;
@@ -864,11 +907,11 @@
             const el = document.getElementById('pickup-prompt');
             el.innerText = txt;
             el.style.display = 'block';
-            setTimeout(() => el.style.display = 'none', 2000);
+            setTimeout(() => el.style.display = 'none', 2500);
         }
 
         function updateFacilityMechanics(delta) {
-            const allEntities = [player, ...players];
+            const allEntities = [player, ...players].filter(e => e.health > 0);
 
             slidingDoors.forEach(d => {
                 let nearby = false;
@@ -913,17 +956,20 @@
         function castPlayerVote(modeKey) {
             currentMode = modeKey;
             gameStarted = true;
+            isSpectating = false;
 
             for (let k in keys) keys[k] = false;
 
             document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('spectator-bar').style.display = 'none';
+            viewmodelGroup.visible = true;
+
             initGameMode();
             respawnEntity(player);
 
             document.body.requestPointerLock();
         }
 
-        // Global document click listener ensures pointer lock re-locks seamlessly
         document.addEventListener('click', (e) => {
             if (gameStarted && document.pointerLockElement !== document.body) {
                 document.body.requestPointerLock();
@@ -1124,10 +1170,24 @@
 
         for (let i = 1; i < TOTAL_COMBATANTS; i++) players.push(createBot(i));
 
+        // --- SPECTATOR POV SWITCHER ---
+        function switchSpectatorTarget(direction) {
+            const survivors = players.filter(p => p.health > 0);
+            if (survivors.length === 0) return;
+            spectatorIndex = (spectatorIndex + direction + survivors.length) % survivors.length;
+            showPickupPrompt(`SPECTATING: ${survivors[spectatorIndex].name}`);
+        }
+
         // --- INPUT HANDLING ---
         const keys = {};
 
         document.addEventListener('keydown', (e) => {
+            if (isSpectating) {
+                if (e.code === 'ArrowLeft' || e.code === 'KeyA') switchSpectatorTarget(-1);
+                if (e.code === 'ArrowRight' || e.code === 'KeyD') switchSpectatorTarget(1);
+                return;
+            }
+
             if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight', 'KeyC', 'KeyG', 'Digit1', 'Digit2', 'Digit3'].includes(e.code)) {
                 if (e.code === 'Space' || e.code === 'KeyC') e.preventDefault();
             }
@@ -1166,7 +1226,7 @@
 
         document.addEventListener('keyup', (e) => {
             keys[e.code] = false;
-            if (e.code === 'KeyG' && player.isCookingGrenade) {
+            if (e.code === 'KeyG' && player.isCookingGrenade && !isSpectating) {
                 throwGrenade(player);
                 player.grenades--;
                 updateGrenadeHUD();
@@ -1180,7 +1240,7 @@
         });
 
         document.addEventListener('mousemove', (e) => {
-            if (document.pointerLockElement === document.body) {
+            if (document.pointerLockElement === document.body && !isSpectating) {
                 const sensitivity = 0.0022;
                 player.rotation.y -= e.movementX * sensitivity;
                 player.rotation.x -= e.movementY * sensitivity;
@@ -1189,6 +1249,7 @@
         });
 
         document.addEventListener('wheel', (e) => {
+            if (isSpectating) return;
             if (e.deltaY > 0) switchWeapon((player.activeSlot + 1) % 3);
             else switchWeapon((player.activeSlot + 2) % 3);
         });
@@ -1257,6 +1318,19 @@
         }
 
         function updatePlayerMovement(delta) {
+            if (isSpectating) {
+                const survivors = players.filter(p => p.health > 0);
+                if (survivors.length > 0) {
+                    spectatorIndex = spectatorIndex % survivors.length;
+                    const specTarget = survivors[spectatorIndex];
+                    
+                    camera.position.copy(specTarget.mesh.position).add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
+                    camera.rotation.y = specTarget.mesh.rotation.y;
+                    camera.rotation.x = 0;
+                }
+                return;
+            }
+
             if (currentMode === 'LOS' && player.health <= 0) return;
 
             player.isSprinting = (keys['ShiftLeft'] || keys['ShiftRight']) && !player.isCrouching;
@@ -1459,7 +1533,7 @@
             const cyanMarker = document.getElementById('cyan-flag-marker');
             const pinkMarker = document.getElementById('pink-flag-marker');
 
-            if (currentMode !== 'CTF' || !gameStarted) {
+            if (currentMode !== 'CTF' || !gameStarted || isSpectating) {
                 cyanMarker.style.display = 'none';
                 pinkMarker.style.display = 'none';
                 return;
@@ -1612,7 +1686,7 @@
             glassPanels.forEach(g => { if (!g.isBroken) targets.push(g.mesh); });
             slidingDoors.forEach(d => { if (d.slideProgress < 0.85) targets.push(d.panel); });
             
-            if (!isHuman) targets.push(playerHitMesh);
+            if (!isHuman && player.health > 0) targets.push(playerHitMesh);
             players.forEach(bot => {
                 if (bot !== shooter && bot.health > 0) {
                     bot.mesh.traverse(child => {
@@ -1736,6 +1810,7 @@
         }
 
         function damageEntity(target, damage, attacker, hitDirection) {
+            if (target.health <= 0) return;
             target.health -= damage;
 
             if (target === player) {
@@ -1777,11 +1852,24 @@
                         alert(`${teamCyanScore >= 100 ? 'CYAN' : 'PINK'} TEAM VICTORY! ARENA DOMINATED!`); location.reload();
                     }
                 } else if (currentMode === 'LOS') {
-                    if (target !== player) scene.remove(target.mesh);
+                    // LOS Elimination Logic
+                    if (target === player) {
+                        isSpectating = true;
+                        spectatorIndex = 0;
+                        viewmodelGroup.visible = false;
+                        document.getElementById('spectator-bar').style.display = 'block';
+                        showPickupPrompt("ELIMINATED! ENTERING SPECTATOR MODE");
+                    } else {
+                        scene.remove(target.mesh);
+                    }
+
                     const survivors = [player, ...players].filter(p => p.health > 0);
                     if (survivors.length <= 1) {
                         const winner = survivors[0] ? survivors[0].name : "NO ONE";
-                        alert(`LAST ONE STANDING SURVIVOR: ${winner}! ARENA CLEARED!`); location.reload();
+                        setTimeout(() => {
+                            alert(`LAST ONE STANDING SURVIVOR: ${winner}! ARENA CLEARED!`); 
+                            location.reload();
+                        }, 500);
                     }
                 }
 
@@ -1794,7 +1882,7 @@
         }
 
         function respawnEntity(entity) {
-            const safeSpawn = getSafeSpawnPoint();
+            const safeSpawn = getSafeSpawnPoint(entity);
             entity.health = 100;
             if (entity === player) {
                 player.position.copy(safeSpawn);
@@ -1864,7 +1952,7 @@
 
         // --- OPTIMIZED BOT AI WITH STAGGERED LINE-OF-SIGHT SCANNING ---
         function updateBots(delta) {
-            const allEntities = [player, ...players];
+            const allEntities = [player, ...players].filter(e => e.health > 0);
 
             players.forEach(bot => {
                 if (bot === player || bot.health <= 0) return;
@@ -2110,7 +2198,7 @@
                 updateFacilityMechanics(delta);
                 updatePlayerMovement(delta);
 
-                if (isMouseDown && document.pointerLockElement === document.body) {
+                if (isMouseDown && document.pointerLockElement === document.body && !isSpectating) {
                     fireActiveWeapon(player, camera.getWorldDirection(new THREE.Vector3()));
                 }
 
