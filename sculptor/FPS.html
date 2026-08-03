@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // MULTIPLAYER ARENA & TRUE POV SPECTATOR</title>
+    <title>CYBER-STRIKE 2077 // 50-PLAYER ARENA & FIXED SPECTATOR POV</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -87,10 +87,7 @@
             font-weight: bold; display: none; text-shadow: 0 0 8px #ffe600; z-index: 70;
         }
 
-        #network-status {
-            font-size: 12px; color: #00ffaa; margin-top: 4px; font-weight: bold;
-        }
-
+        #network-status { font-size: 12px; color: #00ffaa; margin-top: 4px; font-weight: bold; }
         #leaderboard { position: absolute; top: 90px; left: 20px; font-size: 12px; line-height: 1.5; }
         #stance-indicator { font-size: 12px; color: #ffe600; margin-top: 4px; }
         #grenade-display { font-size: 12px; color: #ff007f; margin-top: 6px; font-weight: bold; }
@@ -110,11 +107,11 @@
         <div class="vote-container">
             <div class="vote-card" onclick="castPlayerVote('FFA')">
                 <h3>FREE-FOR-ALL</h3>
-                <div class="desc">30 Combatants. Total Chaos. First to 60 kills wins.</div>
+                <div class="desc">50 Combatants. Total Chaos. First to 60 kills wins.</div>
             </div>
             <div class="vote-card" onclick="castPlayerVote('TDM')">
                 <h3>TEAM DEATHMATCH</h3>
-                <div class="desc">15v15 Cyan vs Pink. First team to 100 kills wins.</div>
+                <div class="desc">25v25 Cyan vs Pink. First team to 100 kills wins.</div>
             </div>
             <div class="vote-card" onclick="castPlayerVote('CTF')">
                 <h3>CAPTURE THE FLAG</h3>
@@ -186,7 +183,7 @@
     <script>
         // --- CONFIG & TOGGLES ---
         const BOTS_CAN_FIRE = true;
-        const TOTAL_COMBATANTS = 30; // 1 Player + 29 Active Bots/Network Players
+        const TOTAL_COMBATANTS = 50; // Expanded to 50 Total Combatants
         const WEAPON_COUNT = 60;
         const EYE_HEIGHT_STAND = 1.8;
         const EYE_HEIGHT_CROUCH = 0.9;
@@ -985,7 +982,7 @@
                 const data = msg.data;
                 if (data.type === 'HEARTBEAT_HOST') {
                     if (isHost && localClientId > data.sender) {
-                        isHost = false; // Step down if older host exists
+                        isHost = false; 
                         updateNetworkStatusUI();
                     }
                 } else if (data.type === 'STATE_SYNC') {
@@ -993,19 +990,15 @@
                 }
             };
 
-            // Periodically ping network status
             setInterval(() => {
                 if (isHost) {
                     broadcastChan.postMessage({ type: 'HEARTBEAT_HOST', sender: localClientId, mode: currentMode });
                 }
             }, 1000);
 
-            // Create P2P PeerJS connection
             try {
                 peer = new Peer(localClientId);
-                peer.on('open', (id) => {
-                    updateNetworkStatusUI();
-                });
+                peer.on('open', (id) => { updateNetworkStatusUI(); });
                 peer.on('connection', (conn) => {
                     connectedPeers.push(conn);
                     conn.on('data', (data) => handleRemotePlayerState(data));
@@ -1040,13 +1033,11 @@
         function handleRemotePlayerState(data) {
             if (data.sender === localClientId) return;
 
-            // Automatically hide start screen if joining an active host match
             if (!gameStarted && data.mode) {
                 currentMode = data.mode;
                 castPlayerVote(currentMode);
             }
 
-            // Sync remote player into active bot slot
             let remoteBot = players.find(p => p.isNetworkPlayer && p.networkId === data.sender);
             if (!remoteBot) {
                 const botSlot = players.find(p => !p.isNetworkPlayer);
@@ -1056,7 +1047,6 @@
                     remoteBot.networkId = data.sender;
                     remoteBot.name = "PLAYER_" + data.sender.substring(7);
                     
-                    // Update Rig to Human Armor Suite
                     scene.remove(remoteBot.mesh);
                     const newRig = create60BoneHumanoidRig(0x00ffaa, true);
                     remoteBot.mesh = newRig.group;
@@ -1087,6 +1077,8 @@
             document.getElementById('start-screen').style.display = 'none';
             document.getElementById('spectator-bar').style.display = 'none';
             viewmodelGroup.visible = true;
+
+            players.forEach(p => { if (p.mesh) p.mesh.visible = true; });
 
             initGameMode();
             respawnEntity(player);
@@ -1282,7 +1274,7 @@
                 isGrounded: true, canDoubleJump: true,
                 isSprinting: false, isSliding: false, isCrouching: false, slideTimer: 0, slideDir: new THREE.Vector3(),
                 jumpCooldown: 0, grenadeCooldown: 0, target: null, patrolTarget: null,
-                scanTimer: (id % 10) * 0.03
+                scanTimer: (id % 15) * 0.02
             };
 
             updateBotHeldWeaponMesh(botObj);
@@ -1451,6 +1443,7 @@
         }
 
         function updatePlayerMovement(delta) {
+            // FIXED SPECTATOR POV LOGIC
             if (isSpectating) {
                 const survivors = players.filter(p => p.health > 0);
                 if (survivors.length > 0) {
@@ -1461,25 +1454,25 @@
                     });
 
                     const specTarget = survivors[spectatorIndex];
+                    const specEye = specTarget.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
-                    let aimPitch = 0;
-                    let aimYaw = specTarget.mesh.rotation.y;
+                    camera.position.copy(specEye);
 
-                    if (specTarget.target) {
-                        const targetPos = specTarget.target === player ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0)) : specTarget.target.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
-                        const aimDir = new THREE.Vector3().subVectors(targetPos, specTarget.mesh.position).normalize();
-                        aimPitch = Math.asin(aimDir.y);
-                        aimYaw = Math.atan2(aimDir.x, aimDir.z);
+                    if (specTarget.target && specTarget.target.health > 0) {
+                        const targetEyePos = (specTarget.target === player)
+                            ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0))
+                            : specTarget.target.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
+                        camera.lookAt(targetEyePos);
+                    } else {
+                        const facingAngle = specTarget.mesh.rotation.y;
+                        const forwardDir = new THREE.Vector3(Math.sin(facingAngle), 0, Math.cos(facingAngle));
+                        const lookTarget = specEye.clone().add(forwardDir);
+                        camera.lookAt(lookTarget);
                     }
 
-                    camera.rotation.set(aimPitch, aimYaw, 0, 'YXZ');
-                    const forwardDir = camera.getWorldDirection(new THREE.Vector3());
-                    
-                    camera.position.copy(specTarget.mesh.position)
-                        .add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0))
-                        .addScaledVector(forwardDir, 0.2);
-
                     updateSpectatedTargetViewmodel(specTarget.weapon);
+                } else {
+                    viewmodelGroup.visible = false;
                 }
                 return;
             }
@@ -2128,7 +2121,7 @@
                 const botEyePos = bot.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
                 if (bot.scanTimer <= 0) {
-                    bot.scanTimer = 0.2 + Math.random() * 0.1;
+                    bot.scanTimer = 0.25 + Math.random() * 0.1;
                     let bestTarget = null;
                     let minDist = 65.0;
 
