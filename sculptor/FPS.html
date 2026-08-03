@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // BALANCED PARKOUR & ARENA</title>
+    <title>CYBER-STRIKE 2077 // LINE OF SIGHT AI ARENA</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -14,6 +14,12 @@
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 20px;
             box-shadow: inset 0 0 100px rgba(0, 255, 255, 0.15);
+        }
+
+        #damage-flash {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 0, 50, 0.5); pointer-events: none; opacity: 0;
+            transition: opacity 0.08s ease-out; z-index: 50;
         }
 
         #crosshair {
@@ -56,6 +62,8 @@
 </head>
 <body>
 
+    <div id="damage-flash"></div>
+
     <div id="start-screen">
         <h1>CYBER-STRIKE 2077</h1>
         <p>[ CLICK TO ENTER FACILITY ]</p>
@@ -72,7 +80,7 @@
             <div class="hud-panel">
                 <div>SCORE LIMIT: 60</div>
                 <div id="score-display" style="font-size: 20px; font-weight: bold; color: #ff007f;">0 / 60 KILLS</div>
-                <div id="test-indicator">MODE: BALANCED PARKOUR & RESPONSIVE MOVEMENT</div>
+                <div id="test-indicator">MODE: LINE-OF-SIGHT OCCLUSION BOT VISION</div>
             </div>
             <div class="hud-panel" id="leaderboard">
                 <div style="text-decoration: underline; margin-bottom: 4px;">FACILITY COMBATANTS</div>
@@ -109,7 +117,7 @@
         const EYE_HEIGHT_STAND = 1.8;
         const EYE_HEIGHT_CROUCH = 0.9;
         const SLIDE_DURATION = 0.75;
-        const WALL_RUN_DURATION = 0.75; // Matched to slide duration
+        const WALL_RUN_DURATION = 0.75;
 
         // --- THREE.JS SETUP ---
         const scene = new THREE.Scene();
@@ -141,6 +149,7 @@
         let kills = 0;
         const players = [];
         const projectiles = [];
+        const activeDebris = [];
         const worldWeaponSpawns = [];
         const spawnPoints = [];
         const glassPanels = [];
@@ -258,7 +267,7 @@
             return group;
         }
 
-        // --- ARTICULATED 60-BONE RIG BUILDER WITH VISIBLE BENDING JOINTS ---
+        // --- ARTICULATED 60-BONE RIG BUILDER ---
         function create60BoneHumanoidRig(colorHex) {
             const bones = [];
             const boneMap = {};
@@ -282,7 +291,6 @@
                 return b;
             }
 
-            // --- 60-BONE HIERARCHY ---
             const root = addBone('Root', null, 0, 0, 0);                 
             const pelvis = addBone('Pelvis', root, 0, 0.9, 0);           
             const spine1 = addBone('Spine1', pelvis, 0, 0.22, 0);        
@@ -304,7 +312,6 @@
             visor.position.set(0, 0.02, -0.1);
             head.add(headMesh, visor, createJointSphere(0.08));
 
-            // Arms (38 Bones Total: 19 Per Side)
             ['L', 'R'].forEach(side => {
                 const s = side === 'L' ? 1 : -1;
                 const clavicle = addBone(`${side}_Clavicle`, chest, 0.22 * s, 0.08, 0);
@@ -340,7 +347,6 @@
                 });
             });
 
-            // Legs (14 Bones Total: 7 Per Side)
             ['L', 'R'].forEach(side => {
                 const s = side === 'L' ? 1 : -1;
                 const hip = addBone(`${side}_Hip`, pelvis, 0.16 * s, -0.08, 0);
@@ -742,6 +748,22 @@
             return false;
         }
 
+        // --- LINE OF SIGHT (LoS) RAYCAST CHECK ---
+        const losRaycaster = new THREE.Raycaster();
+
+        function checkLineOfSight(fromPos, toPos, blockingObjects) {
+            const dir = new THREE.Vector3().subVectors(toPos, fromPos);
+            const dist = dir.length();
+            if (dist <= 0.001) return true;
+            dir.normalize();
+
+            losRaycaster.set(fromPos, dir);
+            losRaycaster.far = dist - 0.3; // Stop just short of target center
+
+            const hits = losRaycaster.intersectObjects(blockingObjects, false);
+            return hits.length === 0;
+        }
+
         // --- PLAYER CONTROLLER STATE & HITBOX ---
         const player = {
             position: new THREE.Vector3(0, 0, 0),
@@ -938,7 +960,6 @@
             document.getElementById('grenade-display').innerText = `GRENADES: ${player.grenades} / 2`;
         }
 
-        // --- WALL RUN SYSTEM (Requires SHIFT + W in air near wall, lasts 0.75s) ---
         function updateWallRun(delta) {
             if (player.isGrounded || !player.isSprinting || !keys['KeyW']) {
                 player.isWallRunning = false;
@@ -965,7 +986,6 @@
             }
         }
 
-        // --- RESPONSIVE PLAYER MOVEMENT ENGINE ---
         function updatePlayerMovement(delta) {
             player.isSprinting = (keys['ShiftLeft'] || keys['ShiftRight']) && !player.isCrouching;
 
@@ -1029,7 +1049,6 @@
                 player.isGrounded = false;
             }
 
-            // Jump Actions (Ground, Wall-Jump, Double-Jump, Jetpack)
             if (keys['Space']) {
                 if (player.isGrounded) {
                     player.velocity.y = 12;
@@ -1122,8 +1141,9 @@
                         (Math.random()-0.5)*0.15, (Math.random()-0.5)*0.15, (Math.random()-0.5)*0.15
                     )).normalize();
 
+                    const maxDist = origin.distanceTo(targetPoint);
                     const tracerGeom = new THREE.BufferGeometry().setFromPoints([
-                        origin, origin.clone().addScaledVector(spreadDir, weapon.range * 0.4)
+                        origin, origin.clone().addScaledVector(spreadDir, Math.min(weapon.range * 0.4, maxDist))
                     ]);
                     const tracer = new THREE.Line(tracerGeom, new THREE.LineBasicMaterial({ color: 0xffe600, linewidth: 2 }));
                     scene.add(tracer);
@@ -1150,7 +1170,7 @@
 
                 const ringMat = new THREE.MeshBasicMaterial({ color: 0xff007f, wireframe: true });
                 const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.05, 8, 16), ringMat);
-                ring.position.copy(origin).addScaledVector(direction, 2);
+                ring.position.copy(origin).addScaledVector(direction, Math.min(2.0, origin.distanceTo(targetPoint)));
                 ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction);
                 scene.add(ring);
 
@@ -1179,7 +1199,7 @@
             }
         }
 
-        // --- OCCLUSION WEAPON FIRING ENGINE ---
+        // --- OCCLUSION WEAPON FIRING ENGINE (NO WALL PASS-THROUGH) ---
         function fireActiveWeapon(shooter, direction) {
             const now = Date.now();
             const isHuman = shooter === player;
@@ -1212,8 +1232,22 @@
                 ? camera.position.clone() 
                 : shooter.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
+            const targets = [];
+            colliders.forEach(c => targets.push(c));
+            glassPanels.forEach(g => { if (!g.isBroken) targets.push(g.mesh); });
+            slidingDoors.forEach(d => { if (d.slideProgress < 0.85) targets.push(d.panel); });
+            
+            if (!isHuman) targets.push(playerHitMesh);
+            players.forEach(bot => {
+                if (bot !== shooter && bot.health > 0) {
+                    bot.mesh.traverse(child => {
+                        if (child.isMesh) targets.push(child);
+                    });
+                }
+            });
+
             const raycaster = new THREE.Raycaster(origin, direction, 0, wpn.range);
-            const hits = raycaster.intersectObjects(scene.children, true);
+            const hits = raycaster.intersectObjects(targets, false);
 
             const validHits = hits.filter(hit => {
                 let curr = hit.object;
@@ -1253,18 +1287,101 @@
                 }
 
                 if (hitTarget) {
-                    damageEntity(hitTarget, wpn.damage, shooter);
+                    damageEntity(hitTarget, wpn.damage, shooter, direction);
                 }
             }
 
             spawnBlastVisual(origin, direction, targetPoint, wpn);
         }
 
-        function damageEntity(target, damage, attacker) {
+        // --- ENEMY DESTRUCTION EXPLOSION & DEBRIS SYSTEM ---
+        function spawnDebrisExplosion(pos, pushDir, accentColor) {
+            const expLight = new THREE.PointLight(accentColor, 15, 20);
+            expLight.position.copy(pos);
+            scene.add(expLight);
+            setTimeout(() => scene.remove(expLight), 150);
+
+            const debrisCount = 40;
+            const geomTypes = [
+                new THREE.BoxGeometry(0.25, 0.25, 0.25),
+                new THREE.BoxGeometry(0.15, 0.35, 0.15),
+                new THREE.TetrahedronGeometry(0.2)
+            ];
+            const mats = [
+                new THREE.MeshStandardMaterial({ color: 0x222233, roughness: 0.3, metalness: 0.8 }),
+                new THREE.MeshBasicMaterial({ color: accentColor }),
+                new THREE.MeshBasicMaterial({ color: 0xffe600 })
+            ];
+
+            for (let i = 0; i < debrisCount; i++) {
+                const geom = geomTypes[i % geomTypes.length];
+                const mat = mats[i % mats.length];
+                const p = new THREE.Mesh(geom, mat);
+                p.position.copy(pos).add(new THREE.Vector3((Math.random()-0.5)*0.8, (Math.random()-0.5)*1.2, (Math.random()-0.5)*0.8));
+
+                const vel = pushDir.clone().multiplyScalar(6 + Math.random() * 12);
+                vel.x += (Math.random() - 0.5) * 10;
+                vel.y += Math.random() * 8 + 2;
+                vel.z += (Math.random() - 0.5) * 10;
+
+                const rotVel = new THREE.Vector3((Math.random()-0.5)*15, (Math.random()-0.5)*15, (Math.random()-0.5)*15);
+
+                scene.add(p);
+                activeDebris.push({
+                    mesh: p,
+                    velocity: vel,
+                    rotVelocity: rotVel,
+                    life: 1.2,
+                    maxLife: 1.2
+                });
+            }
+        }
+
+        function updateDebris(delta) {
+            for (let i = activeDebris.length - 1; i >= 0; i--) {
+                const d = activeDebris[i];
+                d.life -= delta;
+                if (d.life <= 0) {
+                    scene.remove(d.mesh);
+                    activeDebris.splice(i, 1);
+                    continue;
+                }
+                d.velocity.y -= 28 * delta;
+                d.mesh.position.addScaledVector(d.velocity, delta);
+                d.mesh.rotation.x += d.rotVelocity.x * delta;
+                d.mesh.rotation.y += d.rotVelocity.y * delta;
+                d.mesh.rotation.z += d.rotVelocity.z * delta;
+
+                const scale = Math.max(0.01, d.life / d.maxLife);
+                d.mesh.scale.set(scale, scale, scale);
+            }
+        }
+
+        function damageEntity(target, damage, attacker, hitDirection) {
             target.health -= damage;
+
+            if (target === player) {
+                const flash = document.getElementById('damage-flash');
+                flash.style.opacity = '0.7';
+                setTimeout(() => { flash.style.opacity = '0'; }, 120);
+            }
+
             if (target.health <= 0) {
                 attacker.score++;
                 showKillFeed(`${attacker.name} [ELIMINATED] ${target.name}`);
+
+                const pushDir = hitDirection ? hitDirection.clone().normalize() : new THREE.Vector3(0, 0.2, -1);
+                pushDir.y = Math.max(0.2, pushDir.y);
+
+                const deathPos = target === player 
+                    ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight/2, 0))
+                    : target.mesh.position.clone().add(new THREE.Vector3(0, 1.0, 0));
+
+                if (target !== player) {
+                    target.mesh.position.addScaledVector(pushDir, 1.5);
+                }
+
+                spawnDebrisExplosion(deathPos, pushDir, target === player ? 0x00ffff : 0xff0055);
 
                 if (attacker === player) {
                     kills++;
@@ -1331,7 +1448,7 @@
                     players.concat([player]).forEach(ent => {
                         const entPos = ent === player ? player.position : ent.mesh.position;
                         const dist = entPos.distanceTo(expPos);
-                        if (dist < 9) damageEntity(ent, Math.floor((1 - dist / 9) * 95), p.owner || player);
+                        if (dist < 9) damageEntity(ent, Math.floor((1 - dist / 9) * 95), p.owner || player, entPos.clone().sub(expPos).normalize());
                     });
 
                     scene.remove(p.mesh); projectiles.splice(i, 1);
@@ -1339,9 +1456,15 @@
             }
         }
 
-        // --- BOT AI & ARTICULATED SKELETON JOINT ANIMATIONS ---
+        // --- BOT AI WITH STRICT LINE-OF-SIGHT VISION & ANIMATIONS ---
         function updateBots(delta) {
             const allEntities = [player, ...players];
+
+            // Build list of physical vision obstacles (Walls, Floors, Ceilings, Closed Doors, Props)
+            const blockingObjects = [...colliders];
+            slidingDoors.forEach(d => {
+                if (d.slideProgress < 0.85) blockingObjects.push(d.panel);
+            });
 
             players.forEach(bot => {
                 if (bot === player) return;
@@ -1350,24 +1473,44 @@
                 bot.jumpCooldown = Math.max(0, bot.jumpCooldown - delta);
                 bot.grenadeCooldown = Math.max(0, bot.grenadeCooldown - delta);
 
+                const botEyePos = bot.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
+
                 let bestTarget = null;
                 let minDist = Infinity;
 
+                // Scan all entities for closest target IN DIRECT LINE OF SIGHT
                 allEntities.forEach(ent => {
                     if (ent === bot || ent.health <= 0) return;
-                    const entPos = ent === player ? player.position : ent.mesh.position;
-                    const d = bot.mesh.position.distanceTo(entPos);
+                    
+                    const entEyePos = (ent === player)
+                        ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0))
+                        : ent.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
+
+                    const d = botEyePos.distanceTo(entEyePos);
                     if (d < minDist) {
-                        minDist = d;
-                        bestTarget = ent;
+                        // Perform Line-of-Sight Raycast
+                        if (checkLineOfSight(botEyePos, entEyePos, blockingObjects)) {
+                            minDist = d;
+                            bestTarget = ent;
+                        }
                     }
                 });
 
                 bot.target = bestTarget;
-                if (!bestTarget) return;
+
+                // If target broke line of sight / is behind cover, relax into idle state!
+                if (!bestTarget) {
+                    b['L_Thigh'].rotation.x = THREE.MathUtils.lerp(b['L_Thigh'].rotation.x, 0, delta * 8);
+                    b['R_Thigh'].rotation.x = THREE.MathUtils.lerp(b['R_Thigh'].rotation.x, 0, delta * 8);
+                    b['L_Shin'].rotation.x = THREE.MathUtils.lerp(b['L_Shin'].rotation.x, 0, delta * 8);
+                    b['R_Shin'].rotation.x = THREE.MathUtils.lerp(b['R_Shin'].rotation.x, 0, delta * 8);
+                    b['L_Forearm'].rotation.x = THREE.MathUtils.lerp(b['L_Forearm'].rotation.x, -0.2, delta * 8);
+                    b['R_Forearm'].rotation.x = THREE.MathUtils.lerp(b['R_Forearm'].rotation.x, -0.2, delta * 8);
+                    return;
+                }
 
                 const targetPos = bestTarget === player ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0)) : bestTarget.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
-                const dirToTarget = new THREE.Vector3().subVectors(targetPos, bot.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0))).normalize();
+                const dirToTarget = new THREE.Vector3().subVectors(targetPos, botEyePos).normalize();
 
                 let desiredSlot = 0;
                 if (minDist <= 3.5) {
@@ -1475,6 +1618,7 @@
                     b['R_Forearm'].rotation.x = THREE.MathUtils.lerp(b['R_Forearm'].rotation.x, -0.2, delta * 8);
                 }
 
+                // Balanced Aim Inaccuracy
                 if (BOTS_CAN_FIRE && minDist < bot.weapon.range && Math.random() < 0.05) {
                     const inaccuracy = 0.22;
                     const inaccurateAimDir = dirToTarget.clone().add(new THREE.Vector3(
@@ -1526,6 +1670,7 @@
 
                 updateBots(delta);
                 updateProjectiles(delta);
+                updateDebris(delta);
                 updateWorldWeapons(delta);
                 updateLeaderboard();
             }
