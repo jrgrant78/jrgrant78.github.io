@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // SPECTATOR & TEAM SPAWNS</title>
+    <title>CYBER-STRIKE 2077 // STRICT WEAPON RAYCAST COLLISIONS</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -65,20 +65,21 @@
         .vote-card h3 { font-size: 18px; color: #fff; margin-bottom: 8px; }
         .vote-card .desc { font-size: 11px; color: #aaa; line-height: 1.3; }
 
+        /* World-Pinned Flag Icon Markers */
         .flag-marker {
             position: absolute;
-            padding: 4px 10px;
-            font-size: 11px;
-            font-weight: bold;
-            border-radius: 4px;
             pointer-events: none;
-            transform: translate(-50%, -50%);
+            transform: translate(-50%, -100%);
             display: none;
-            white-space: nowrap;
             z-index: 60;
+            text-align: center;
         }
-        #cyan-flag-marker { background: rgba(0, 255, 255, 0.9); color: #000; border: 1px solid #00ffff; box-shadow: 0 0 12px #00ffff; }
-        #pink-flag-marker { background: rgba(255, 0, 127, 0.9); color: #fff; border: 1px solid #ff007f; box-shadow: 0 0 12px #ff007f; }
+        .flag-marker svg { filter: drop-shadow(0 0 8px currentColor); }
+        .dist-tag {
+            font-size: 10px; font-weight: bold;
+            background: rgba(10, 10, 20, 0.85); border: 1px solid currentColor;
+            padding: 2px 6px; border-radius: 3px; margin-top: 2px; display: inline-block;
+        }
 
         #spectator-bar {
             position: absolute; bottom: 85px; left: 50%; transform: translateX(-50%);
@@ -124,9 +125,21 @@
         <p id="voting-status-text" style="font-size: 13px; color: #ffe600; margin-bottom: 0;">CLICK A MODE TO START</p>
     </div>
 
-    <!-- HUD Flag Markers & Spectator Banner -->
-    <div id="cyan-flag-marker" class="flag-marker">CYAN BASE</div>
-    <div id="pink-flag-marker" class="flag-marker">PINK BASE</div>
+    <!-- HUD SVG Flag Markers -->
+    <div id="cyan-flag-marker" class="flag-marker" style="color: #00ffff;">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+            <path d="M5 21V3M5 4L19 7.5L5 11" stroke="#00ffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="rgba(0,255,255,0.4)"/>
+        </svg>
+        <div class="dist-tag" id="cyan-flag-dist" style="color: #00ffff; border-color: #00ffff;">0m</div>
+    </div>
+
+    <div id="pink-flag-marker" class="flag-marker" style="color: #ff007f;">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+            <path d="M5 21V3M5 4L19 7.5L5 11" stroke="#ff007f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="rgba(255,0,127,0.4)"/>
+        </svg>
+        <div class="dist-tag" id="pink-flag-dist" style="color: #ff007f; border-color: #ff007f;">0m</div>
+    </div>
+
     <div id="spectator-bar">SPECTATING MODE // [A/D or LEFT/RIGHT ARROWS] SWITCH POV</div>
 
     <div id="ui-layer">
@@ -226,7 +239,7 @@
         const slidingDoors = [];
         const elevatorCars = [];
         
-        const colliders = [];       // Physical colliders
+        const colliders = [];       // Physical colliders (walls, floors, roof, stairs, elevators)
         const wallColliders = [];   // AI LoS raycast colliders
         const staticBoxes = [];  
         const weaponsDatabase = [];
@@ -512,6 +525,12 @@
             createStaticWall(-half, totalH/2, 0, 2, totalH, facilitySize);
             createStaticWall(half, totalH/2, 0, 2, totalH, facilitySize);
 
+            // Roof / Top Ceiling
+            const roof = new THREE.Mesh(new THREE.BoxGeometry(facilitySize, 1.0, facilitySize), floorMat);
+            roof.position.set(0, floorHeight * 3 + 0.5, 0);
+            scene.add(roof);
+            registerStaticBox(roof, true);
+
             // Floor Slabs
             floors.forEach((fY, fIdx) => {
                 if (fIdx === 0) {
@@ -555,8 +574,6 @@
                 doorGroup.add(doorPanel, strip);
                 scene.add(doorGroup);
 
-                colliders.push(doorPanel);
-                wallColliders.push(doorPanel);
                 const bObj = { box: new THREE.Box3().setFromObject(doorPanel), active: true, mesh: doorPanel };
                 staticBoxes.push(bObj);
 
@@ -600,7 +617,8 @@
 
                 scene.add(glassMesh, topFrame, botFrame);
 
-                const bObj = registerStaticBox(glassMesh, true);
+                const bObj = { box: new THREE.Box3().setFromObject(glassMesh), active: true, mesh: glassMesh };
+                staticBoxes.push(bObj);
 
                 glassPanels.push({
                     mesh: glassMesh,
@@ -750,7 +768,6 @@
         function getSafeSpawnPoint(entity = null) {
             let candidateList = spawnPoints;
 
-            // 1. TDM & CTF: Spawn strictly on team's starting side / near flag base
             if (currentMode === 'TDM' || currentMode === 'CTF') {
                 const team = entity ? entity.team : 'CYAN';
                 if (team === 'CYAN') {
@@ -766,16 +783,14 @@
                 .filter(e => e.health > 0 && e !== entity)
                 .map(e => e === player ? player.position : e.mesh.position);
 
-            const MIN_SPAWN_DIST = 8.0; // Distance buffer to prevent overlapping spawns in FFA / LOS
+            const MIN_SPAWN_DIST = 8.0;
 
             for (let i = 0; i < 50; i++) {
                 const candidate = candidateList[Math.floor(Math.random() * candidateList.length)];
                 if (!candidate) continue;
 
-                // Wall Collision Safety Check
                 if (checkWallCollision(candidate, 0.5, EYE_HEIGHT_STAND)) continue;
 
-                // FFA & LOS Proximity Check: Never spawn on top of another spawned combatant
                 if (currentMode === 'FFA' || currentMode === 'LOS') {
                     const tooClose = allActivePos.some(pos => pos.distanceTo(candidate) < MIN_SPAWN_DIST);
                     if (tooClose && i < 40) continue;
@@ -1532,6 +1547,8 @@
         function updateFlagHUDMarkers() {
             const cyanMarker = document.getElementById('cyan-flag-marker');
             const pinkMarker = document.getElementById('pink-flag-marker');
+            const cyanDist = document.getElementById('cyan-flag-dist');
+            const pinkDist = document.getElementById('pink-flag-dist');
 
             if (currentMode !== 'CTF' || !gameStarted || isSpectating) {
                 cyanMarker.style.display = 'none';
@@ -1539,33 +1556,27 @@
                 return;
             }
 
-            const cyanLabel = player.team === 'CYAN' ? (cyanFlagCarrier ? "CYAN FLAG STOLEN!" : "HOME BASE [CYAN]") : "ENEMY FLAG [CYAN]";
-            const pinkLabel = player.team === 'PINK' ? (pinkFlagCarrier ? "PINK FLAG STOLEN!" : "HOME BASE [PINK]") : "ENEMY FLAG [PINK]";
-
-            updateSingleMarker(cyanMarker, cyanFlagObj.position, cyanLabel);
-            updateSingleMarker(pinkMarker, pinkFlagObj.position, pinkLabel);
+            updateSingleMarker(cyanMarker, cyanDist, cyanFlagObj.position);
+            updateSingleMarker(pinkMarker, pinkDist, pinkFlagObj.position);
         }
 
-        function updateSingleMarker(element, worldPos, labelText) {
+        function updateSingleMarker(element, distElement, worldPos) {
             const projected = worldPos.clone().project(camera);
-            const isInFront = projected.z < 1;
-
-            const margin = 45;
-            let screenX = (projected.x * 0.5 + 0.5) * window.innerWidth;
-            let screenY = (-projected.y * 0.5 + 0.5) * window.innerHeight;
-
-            if (!isInFront) {
-                screenX = window.innerWidth - screenX;
-                screenY = window.innerHeight - screenY;
+            
+            // Strictly check if point is in front of camera AND within screen bounds
+            if (projected.z >= 1 || projected.x < -1 || projected.x > 1 || projected.y < -1 || projected.y > 1) {
+                element.style.display = 'none';
+                return;
             }
 
-            const clampedX = Math.max(margin, Math.min(window.innerWidth - margin, screenX));
-            const clampedY = Math.max(margin, Math.min(window.innerHeight - margin, screenY));
+            const screenX = (projected.x * 0.5 + 0.5) * window.innerWidth;
+            const screenY = (-projected.y * 0.5 + 0.5) * window.innerHeight;
 
             const dist = Math.round(player.position.distanceTo(worldPos));
-            element.innerText = `${labelText} [${dist}m]`;
-            element.style.left = `${clampedX}px`;
-            element.style.top = `${clampedY}px`;
+            if (distElement) distElement.innerText = `${dist}m`;
+
+            element.style.left = `${screenX}px`;
+            element.style.top = `${screenY}px`;
             element.style.display = 'block';
         }
 
@@ -1649,6 +1660,7 @@
             }
         }
 
+        // --- STRICT WEAPON RAYCASTING (INCLUDES FLOORS, CEILINGS, WALLS, CLOSED DOORS, UNBROKEN GLASS) ---
         function fireActiveWeapon(shooter, direction) {
             const now = Date.now();
             const isHuman = shooter === player;
@@ -1681,11 +1693,29 @@
                 ? camera.position.clone() 
                 : shooter.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
+            // Dynamically build solid target list for bullet raycast
             const targets = [];
-            wallColliders.forEach(c => targets.push(c));
-            glassPanels.forEach(g => { if (!g.isBroken) targets.push(g.mesh); });
-            slidingDoors.forEach(d => { if (d.slideProgress < 0.85) targets.push(d.panel); });
-            
+
+            // 1. All physical environment colliders (walls, floors, ceilings, roof, stairs, elevators)
+            colliders.forEach(c => {
+                if (c.parent) targets.push(c);
+            });
+
+            // 2. Closed / Closing doors (slideProgress < 0.85)
+            slidingDoors.forEach(d => {
+                if (d.slideProgress < 0.85 && d.panel.parent) {
+                    targets.push(d.panel);
+                }
+            });
+
+            // 3. Unbroken glass windows
+            glassPanels.forEach(g => {
+                if (!g.isBroken && g.mesh.parent) {
+                    targets.push(g.mesh);
+                }
+            });
+
+            // 4. Combatants
             if (!isHuman && player.health > 0) targets.push(playerHitMesh);
             players.forEach(bot => {
                 if (bot !== shooter && bot.health > 0) {
@@ -1708,6 +1738,7 @@
                 return true;
             });
 
+            // First solid impact along ray
             const firstHit = validHits.length > 0 ? validHits[0] : null;
             const targetPoint = firstHit ? firstHit.point : origin.clone().addScaledVector(direction, wpn.range);
 
@@ -1852,7 +1883,6 @@
                         alert(`${teamCyanScore >= 100 ? 'CYAN' : 'PINK'} TEAM VICTORY! ARENA DOMINATED!`); location.reload();
                     }
                 } else if (currentMode === 'LOS') {
-                    // LOS Elimination Logic
                     if (target === player) {
                         isSpectating = true;
                         spectatorIndex = 0;
@@ -1969,6 +1999,10 @@
                     let bestTarget = null;
                     let minDist = 65.0;
 
+                    const losObstacles = [...wallColliders];
+                    slidingDoors.forEach(d => { if (d.slideProgress < 0.85) losObstacles.push(d.panel); });
+                    glassPanels.forEach(g => { if (!g.isBroken) losObstacles.push(g.mesh); });
+
                     allEntities.forEach(ent => {
                         if (ent === bot || ent.health <= 0) return;
                         if ((currentMode === 'TDM' || currentMode === 'CTF') && ent.team === bot.team) return;
@@ -1979,7 +2013,7 @@
 
                         const d = botEyePos.distanceTo(entEyePos);
                         if (d < minDist) {
-                            if (checkLineOfSight(botEyePos, entEyePos, wallColliders)) {
+                            if (checkLineOfSight(botEyePos, entEyePos, losObstacles)) {
                                 minDist = d;
                                 bestTarget = ent;
                             }
