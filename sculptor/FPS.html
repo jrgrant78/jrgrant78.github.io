@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // LINE OF SIGHT AI ARENA</title>
+    <title>CYBER-STRIKE 2077 // RAMP TRAVERSAL ARENA</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -80,7 +80,7 @@
             <div class="hud-panel">
                 <div>SCORE LIMIT: 60</div>
                 <div id="score-display" style="font-size: 20px; font-weight: bold; color: #ff007f;">0 / 60 KILLS</div>
-                <div id="test-indicator">MODE: LINE-OF-SIGHT OCCLUSION BOT VISION</div>
+                <div id="test-indicator">MODE: SMOOTH RAMP TRAVERSAL & STAIRWELL PHYSICS</div>
             </div>
             <div class="hud-panel" id="leaderboard">
                 <div style="text-decoration: underline; margin-bottom: 4px;">FACILITY COMBATANTS</div>
@@ -578,6 +578,7 @@
             createElevatorShaft(-60, 0);
             createElevatorShaft(60, 0);
 
+            // STAIRWELL RAMP BUILDER (EXCLUDED FROM AABB WALL BOXES TO ALLOW SMOOTH WALKWAY)
             const createStairwell = (x, z) => {
                 for (let f = 0; f < 2; f++) {
                     const fY = floors[f];
@@ -588,7 +589,9 @@
                     ramp.position.set(x, fY + floorHeight / 2, z);
                     ramp.rotation.x = rampAngle;
                     scene.add(ramp);
-                    registerStaticBox(ramp);
+                    
+                    // Add to ground raycast colliders ONLY (not staticBoxes AABB)
+                    colliders.push(ramp);
                 }
                 addRoomLight(x, floorHeight, z, 0x00ffff, 2.0);
             };
@@ -716,7 +719,8 @@
 
             for (let i = 0; i < hits.length; i++) {
                 const hit = hits[i];
-                if (hit.point.y <= position.y + 0.8) {
+                // Allow step-up detection up to 2.0 units above feet for climbing ramps
+                if (hit.point.y <= position.y + 2.0) {
                     if (hit.point.y > maxFloorY) maxFloorY = hit.point.y;
                 }
             }
@@ -758,7 +762,7 @@
             dir.normalize();
 
             losRaycaster.set(fromPos, dir);
-            losRaycaster.far = dist - 0.3; // Stop just short of target center
+            losRaycaster.far = dist - 0.3;
 
             const hits = losRaycaster.intersectObjects(blockingObjects, false);
             return hits.length === 0;
@@ -1039,7 +1043,8 @@
             const proposedY = player.position.y + player.velocity.y * delta;
             const groundY = getGroundY(player.position);
 
-            if (proposedY <= groundY) {
+            // Slope Physics: Snap to ground level when climbing ramps OR walking down slopes while grounded
+            if (proposedY <= groundY || (player.isGrounded && Math.abs(player.position.y - groundY) < 1.8)) {
                 player.position.y = groundY;
                 player.velocity.y = 0;
                 player.isGrounded = true;
@@ -1199,7 +1204,6 @@
             }
         }
 
-        // --- OCCLUSION WEAPON FIRING ENGINE (NO WALL PASS-THROUGH) ---
         function fireActiveWeapon(shooter, direction) {
             const now = Date.now();
             const isHuman = shooter === player;
@@ -1294,7 +1298,6 @@
             spawnBlastVisual(origin, direction, targetPoint, wpn);
         }
 
-        // --- ENEMY DESTRUCTION EXPLOSION & DEBRIS SYSTEM ---
         function spawnDebrisExplosion(pos, pushDir, accentColor) {
             const expLight = new THREE.PointLight(accentColor, 15, 20);
             expLight.position.copy(pos);
@@ -1456,11 +1459,10 @@
             }
         }
 
-        // --- BOT AI WITH STRICT LINE-OF-SIGHT VISION & ANIMATIONS ---
+        // --- BOT AI WITH STRICT LINE-OF-SIGHT VISION & SLOPE PHYSICS ---
         function updateBots(delta) {
             const allEntities = [player, ...players];
 
-            // Build list of physical vision obstacles (Walls, Floors, Ceilings, Closed Doors, Props)
             const blockingObjects = [...colliders];
             slidingDoors.forEach(d => {
                 if (d.slideProgress < 0.85) blockingObjects.push(d.panel);
@@ -1478,7 +1480,6 @@
                 let bestTarget = null;
                 let minDist = Infinity;
 
-                // Scan all entities for closest target IN DIRECT LINE OF SIGHT
                 allEntities.forEach(ent => {
                     if (ent === bot || ent.health <= 0) return;
                     
@@ -1488,7 +1489,6 @@
 
                     const d = botEyePos.distanceTo(entEyePos);
                     if (d < minDist) {
-                        // Perform Line-of-Sight Raycast
                         if (checkLineOfSight(botEyePos, entEyePos, blockingObjects)) {
                             minDist = d;
                             bestTarget = ent;
@@ -1498,7 +1498,6 @@
 
                 bot.target = bestTarget;
 
-                // If target broke line of sight / is behind cover, relax into idle state!
                 if (!bestTarget) {
                     b['L_Thigh'].rotation.x = THREE.MathUtils.lerp(b['L_Thigh'].rotation.x, 0, delta * 8);
                     b['R_Thigh'].rotation.x = THREE.MathUtils.lerp(b['R_Thigh'].rotation.x, 0, delta * 8);
@@ -1580,7 +1579,8 @@
                 const proposedY = bot.mesh.position.y + bot.velocity.y * delta;
                 const groundY = getGroundY(bot.mesh.position);
 
-                if (proposedY <= groundY) {
+                // Bot Ramp Physics: Step up and snap down ramps
+                if (proposedY <= groundY || (bot.isGrounded && Math.abs(bot.mesh.position.y - groundY) < 1.8)) {
                     bot.mesh.position.y = groundY;
                     bot.velocity.y = 0;
                     bot.isGrounded = true;
@@ -1596,7 +1596,6 @@
                     bot.grenadeCooldown = 5.0;
                 }
 
-                // 60-Bone Joint-Bending Kinematics
                 if (isMoving) {
                     const animTime = performance.now() * (bot.isSprinting ? 0.016 : 0.012);
                     
@@ -1618,7 +1617,6 @@
                     b['R_Forearm'].rotation.x = THREE.MathUtils.lerp(b['R_Forearm'].rotation.x, -0.2, delta * 8);
                 }
 
-                // Balanced Aim Inaccuracy
                 if (BOTS_CAN_FIRE && minDist < bot.weapon.range && Math.random() < 0.05) {
                     const inaccuracy = 0.22;
                     const inaccurateAimDir = dirToTarget.clone().add(new THREE.Vector3(
