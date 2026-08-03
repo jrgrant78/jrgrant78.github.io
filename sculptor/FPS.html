@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // 3-FLOOR FACILITY</title>
+    <title>CYBER-STRIKE 2077 // ENFORCED COLLISION FACILITY</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -52,7 +52,6 @@
         #grenade-display { font-size: 12px; color: #ff007f; margin-top: 6px; font-weight: bold; }
         #test-indicator { font-size: 11px; color: #00ffff; margin-top: 4px; font-weight: bold; }
     </style>
-    <!-- Three.js CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
@@ -73,7 +72,7 @@
             <div class="hud-panel">
                 <div>SCORE LIMIT: 60</div>
                 <div id="score-display" style="font-size: 20px; font-weight: bold; color: #ff007f;">0 / 60 KILLS</div>
-                <div id="test-indicator">MODE: 3-FLOOR COMPLEX FACILITY</div>
+                <div id="test-indicator">MODE: STRICT COLLISION ARENA</div>
             </div>
             <div class="hud-panel" id="leaderboard">
                 <div style="text-decoration: underline; margin-bottom: 4px;">FACILITY COMBATANTS</div>
@@ -110,7 +109,7 @@
         const EYE_HEIGHT_STAND = 1.8;
         const EYE_HEIGHT_CROUCH = 0.9;
         const SLIDE_DURATION = 0.75;
-        const WALL_RUN_MAX_TIME = 3.5; // Extended wall-run duration
+        const WALL_RUN_MAX_TIME = 3.5;
 
         // --- THREE.JS SETUP ---
         const scene = new THREE.Scene();
@@ -144,9 +143,9 @@
         const projectiles = [];
         const worldWeaponSpawns = [];
         const spawnPoints = [];
-        const glassPanels = []; // Breakable glass windows
-        const slidingDoors = []; // Interactive proximity doors
-        const elevatorCars = []; // Moving elevators
+        const glassPanels = [];
+        const slidingDoors = [];
+        const elevatorCars = [];
         
         const colliders = [];    
         const staticBoxes = [];  
@@ -259,34 +258,77 @@
             return group;
         }
 
-        // --- 3-FLOOR FACILITY ARENA GENERATOR ---
+        // --- 3-FLOOR ARENA GENERATOR WITH AIRTIGHT COLLISION GEOMETRY ---
         function generateFacilityArena() {
             const floorMat = new THREE.MeshStandardMaterial({ color: 0x080812, roughness: 0.8, metalness: 0.3 });
             const wallMat = new THREE.MeshStandardMaterial({ color: 0x141428, roughness: 0.4, metalness: 0.6 });
             const glassMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.35 });
             const doorMat = new THREE.MeshStandardMaterial({ color: 0x223344, roughness: 0.2, metalness: 0.8 });
             const neonBlueMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
-            const neonRedMat = new THREE.MeshBasicMaterial({ color: 0xff0055 });
             const neonYellowMat = new THREE.MeshBasicMaterial({ color: 0xffe600 });
 
             const facilitySize = 150;
+            const half = facilitySize / 2;
             const floorHeight = 8.0;
             const floors = [0, floorHeight, floorHeight * 2]; // Y = 0, 8, 16
 
-            // Add Dynamic Point Lights to Facility Rooms & Corridors
             const addRoomLight = (x, y, z, colorHex, intensity = 2.0) => {
                 const light = new THREE.PointLight(colorHex, intensity, 25);
                 light.position.set(x, y + 5.0, z);
                 scene.add(light);
             };
 
-            // Build Floor Slabs with Shaft Cutouts
-            floors.forEach((fY, fIdx) => {
-                const mainFloor = new THREE.Mesh(new THREE.BoxGeometry(facilitySize, 1.0, facilitySize), floorMat);
-                mainFloor.position.set(0, fY - 0.5, 0);
-                scene.add(mainFloor);
-                colliders.push(mainFloor);
+            const registerStaticBox = (mesh) => {
+                colliders.push(mesh);
+                const bObj = { box: new THREE.Box3().setFromObject(mesh), active: true, mesh: mesh };
+                staticBoxes.push(bObj);
+                return bObj;
+            };
 
+            const createStaticWall = (x, y, z, w, h, d, mat = wallMat) => {
+                const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+                wall.position.set(x, y, z);
+                scene.add(wall);
+                return registerStaticBox(wall);
+            };
+
+            // Outer Boundary Perimeter Walls (Encloses all 3 levels)
+            const totalH = floorHeight * 3 + 2;
+            createStaticWall(0, totalH/2, -half, facilitySize, totalH, 2);
+            createStaticWall(0, totalH/2, half, facilitySize, totalH, 2);
+            createStaticWall(-half, totalH/2, 0, 2, totalH, facilitySize);
+            createStaticWall(half, totalH/2, 0, 2, totalH, facilitySize);
+
+            // Ceiling / Floor Slabs with Shaft & Stair Cutouts
+            floors.forEach((fY, fIdx) => {
+                if (fIdx === 0) {
+                    // Ground Floor: Solid Ground Slab
+                    const mainFloor = new THREE.Mesh(new THREE.BoxGeometry(facilitySize, 1.0, facilitySize), floorMat);
+                    mainFloor.position.set(0, fY - 0.5, 0);
+                    scene.add(mainFloor);
+                    registerStaticBox(mainFloor);
+                } else {
+                    // Upper Floor Slabs (Y = 8, 16): Tiled with Open Shaft/Stair Cutouts
+                    const tileSize = 15;
+                    for (let x = -half + tileSize/2; x < half; x += tileSize) {
+                        for (let z = -half + tileSize/2; z < half; z += tileSize) {
+                            // Check cutouts for Shafts & Stairwells
+                            const isElevator1 = (Math.abs(x - (-60)) < 10 && Math.abs(z - 0) < 10);
+                            const isElevator2 = (Math.abs(x - 60) < 10 && Math.abs(z - 0) < 10);
+                            const isStair1 = (Math.abs(x - 0) < 10 && Math.abs(z - (-35)) < 12);
+                            const isStair2 = (Math.abs(x - 0) < 10 && Math.abs(z - 35) < 12);
+
+                            if (isElevator1 || isElevator2 || isStair1 || isStair2) continue; // Leave Shaft Hole
+
+                            const tile = new THREE.Mesh(new THREE.BoxGeometry(tileSize, 1.0, tileSize), floorMat);
+                            tile.position.set(x, fY - 0.5, z);
+                            scene.add(tile);
+                            registerStaticBox(tile);
+                        }
+                    }
+                }
+
+                // Decorative Grid Overlay per Floor
                 const gridWire = new THREE.Mesh(new THREE.PlaneGeometry(facilitySize, facilitySize, 12, 12), 
                     new THREE.MeshBasicMaterial({ color: fIdx === 0 ? 0x00ffff : (fIdx === 1 ? 0xff007f : 0xffe600), wireframe: true }));
                 gridWire.rotation.x = -Math.PI / 2;
@@ -294,25 +336,7 @@
                 scene.add(gridWire);
             });
 
-            // Outer Perimeter Walls
-            const createStaticWall = (x, y, z, w, h, d, mat = wallMat) => {
-                const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-                wall.position.set(x, y, z);
-                scene.add(wall);
-                const bObj = { box: new THREE.Box3().setFromObject(wall), active: true };
-                staticBoxes.push(bObj);
-                colliders.push(wall);
-                return bObj;
-            };
-
-            const half = facilitySize / 2;
-            const totalH = floorHeight * 3 + 2;
-            createStaticWall(0, totalH/2, -half, facilitySize, totalH, 2);
-            createStaticWall(0, totalH/2, half, facilitySize, totalH, 2);
-            createStaticWall(-half, totalH/2, 0, 2, totalH, facilitySize);
-            createStaticWall(half, totalH/2, 0, 2, totalH, facilitySize);
-
-            // Door Generator
+            // Sliding Security Door Generator
             const createDoor = (x, y, z, width = 6.0, isX = true) => {
                 const doorGroup = new THREE.Group();
                 doorGroup.position.set(x, y + 3.0, z);
@@ -323,7 +347,8 @@
                 doorGroup.add(doorPanel, strip);
                 scene.add(doorGroup);
 
-                const bObj = { box: new THREE.Box3().setFromObject(doorPanel), active: true };
+                colliders.push(doorPanel);
+                const bObj = { box: new THREE.Box3().setFromObject(doorPanel), active: true, mesh: doorPanel };
                 staticBoxes.push(bObj);
 
                 slidingDoors.push({
@@ -331,7 +356,6 @@
                     panel: doorPanel,
                     boxObj: bObj,
                     basePos: doorGroup.position.clone(),
-                    isOpen: false,
                     isX: isX,
                     width: width,
                     slideProgress: 0.0
@@ -343,19 +367,16 @@
                 const glassMesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), glassMat);
                 glassMesh.position.set(x, y + h/2, z);
                 
-                // Neon Frame
                 const frame = new THREE.Mesh(new THREE.BoxGeometry(w + 0.2, 0.2, d + 0.1), neonBlueMat);
                 frame.position.set(x, y + h + 0.1, z);
                 scene.add(glassMesh, frame);
 
-                const bObj = { box: new THREE.Box3().setFromObject(glassMesh), active: true };
-                staticBoxes.push(bObj);
+                const bObj = registerStaticBox(glassMesh);
 
                 glassPanels.push({
                     mesh: glassMesh,
                     frame: frame,
                     boxObj: bObj,
-                    health: 1,
                     isBroken: false
                 });
             };
@@ -370,7 +391,7 @@
                         const glowStrip = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.1, 1.52), neonBlueMat);
                         glowStrip.position.set(cX + i, cY + 4.2, cZ - 6);
                         scene.add(rack, glowStrip);
-                        staticBoxes.push({ box: new THREE.Box3().setFromObject(rack), active: true });
+                        registerStaticBox(rack);
                     }
                 } else if (roomType === 'MEDIC_BAY') {
                     addRoomLight(cX, cY, cZ, 0xff007f, 2.5);
@@ -378,25 +399,25 @@
                         const bed = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.8, 4.0), wallMat);
                         bed.position.set(cX + i, cY + 0.4, cZ);
                         scene.add(bed);
-                        staticBoxes.push({ box: new THREE.Box3().setFromObject(bed), active: true });
+                        registerStaticBox(bed);
                     }
                 } else if (roomType === 'BRIEFING_ROOM') {
                     addRoomLight(cX, cY, cZ, 0xffe600, 2.5);
                     const table = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 3.5, 1.0, 12), wallMat);
                     table.position.set(cX, cY + 0.5, cZ);
                     scene.add(table);
-                    staticBoxes.push({ box: new THREE.Box3().setFromObject(table), active: true });
+                    registerStaticBox(table);
                 } else if (roomType === 'ARMORY') {
                     addRoomLight(cX, cY, cZ, 0x00ffaa, 2.5);
                     const rack = new THREE.Mesh(new THREE.BoxGeometry(10.0, 4.0, 0.8), wallMat);
                     rack.position.set(cX, cY + 2.0, cZ - 6);
                     scene.add(rack);
-                    staticBoxes.push({ box: new THREE.Box3().setFromObject(rack), active: true });
+                    registerStaticBox(rack);
                 }
             };
 
-            // Generate Room Layout across ALL 3 FLOORS
-            floors.forEach((fY, fIdx) => {
+            // Room & Partition Layout Across All 3 Floors
+            floors.forEach((fY) => {
                 const roomGrid = [
                     { type: 'COMPUTER_LAB', x: -40, z: -40 },
                     { type: 'MEDIC_BAY', x: 40, z: -40 },
@@ -405,26 +426,19 @@
                 ];
 
                 roomGrid.forEach(r => {
-                    // Interior Dividers
                     createStaticWall(r.x, fY + 3.5, r.z - 15, 30, 7.0, 1);
                     createStaticWall(r.x - 15, fY + 3.5, r.z, 1, 7.0, 30);
                     
-                    // Sliding Security Doors at Entrances
                     createDoor(r.x, fY, r.z - 15, 6.0, true);
-                    
-                    // Breakable Glass Windows in Partition Walls
                     createBreakableGlass(r.x + 8, fY, r.z - 15, 8.0, 4.0, 0.3);
 
                     buildRoomProps(r.type, r.x, fY, r.z);
-
-                    // Add Spawn Points per Floor & Room
                     spawnPoints.push(new THREE.Vector3(r.x + (Math.random()-0.5)*12, fY + 0.1, r.z + (Math.random()-0.5)*12));
                 });
             });
 
-            // --- FUNCTIONING MULTI-FLOOR ELEVATOR CAR SHAFTS ---
+            // Enclosed Vertical Elevator Shafts & Dynamic Car Platforms
             const createElevatorShaft = (x, z) => {
-                // Outer Shaft Enclosure
                 for (let f = 0; f < 3; f++) {
                     const fY = floors[f];
                     createStaticWall(x - 4, fY + 3.5, z, 1, 7.0, 8);
@@ -432,19 +446,19 @@
                     createStaticWall(x, fY + 3.5, z - 4, 8, 7.0, 1);
                 }
 
-                // Elevator Car Platform
                 const carMesh = new THREE.Mesh(new THREE.BoxGeometry(7.0, 0.5, 7.0), doorMat);
                 const carTrim = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.1, 7.2), neonYellowMat);
                 carMesh.add(carTrim);
                 carMesh.position.set(x, 0.25, z);
                 scene.add(carMesh);
-                colliders.push(carMesh);
+
+                const bObj = registerStaticBox(carMesh);
 
                 elevatorCars.push({
                     mesh: carMesh,
+                    boxObj: bObj,
                     x: x, z: z,
                     targetFloorIdx: 0,
-                    currentY: 0.25,
                     waitTimer: 2.0
                 });
 
@@ -454,18 +468,18 @@
             createElevatorShaft(-60, 0);
             createElevatorShaft(60, 0);
 
-            // --- MULTI-TURN STAIRWELLS ---
+            // Multi-Flight Stairwell Ramps
             const createStairwell = (x, z) => {
                 for (let f = 0; f < 2; f++) {
                     const fY = floors[f];
                     const rampLen = 14;
                     const rampAngle = Math.atan2(floorHeight, rampLen);
                     
-                    const ramp1 = new THREE.Mesh(new THREE.BoxGeometry(6, 0.5, Math.hypot(floorHeight, rampLen)), floorMat);
-                    ramp1.position.set(x, fY + floorHeight / 2, z);
-                    ramp1.rotation.x = rampAngle;
-                    scene.add(ramp1);
-                    colliders.push(ramp1);
+                    const ramp = new THREE.Mesh(new THREE.BoxGeometry(6, 0.5, Math.hypot(floorHeight, rampLen)), floorMat);
+                    ramp.position.set(x, fY + floorHeight / 2, z);
+                    ramp.rotation.x = rampAngle;
+                    scene.add(ramp);
+                    registerStaticBox(ramp);
                 }
                 addRoomLight(x, floorHeight, z, 0x00ffff, 2.0);
             };
@@ -539,10 +553,11 @@
             setTimeout(() => el.style.display = 'none', 2000);
         }
 
-        // --- UPDATE ELEVATORS & SLIDING DOORS ENGINE ---
+        // --- UPDATE ELEVATORS & SLIDING DOORS WITH REAL-TIME BOX3 SYNCHRONIZATION ---
         function updateFacilityMechanics(delta) {
-            // 1. Interactive Sliding Doors Proximity
             const allEntities = [player, ...players];
+
+            // 1. Sliding Security Doors Proximity & Bounding Box Updates
             slidingDoors.forEach(d => {
                 let nearby = false;
                 allEntities.forEach(ent => {
@@ -556,15 +571,15 @@
                     d.slideProgress = Math.max(0.0, d.slideProgress - delta * 3.0);
                 }
 
-                // Slide Door open sideways
                 d.panel.position.x = d.isX ? d.width * d.slideProgress : 0;
                 d.panel.position.z = !d.isX ? d.width * d.slideProgress : 0;
 
-                // Deactivate Door Collider Box when open!
-                d.boxObj.active = d.slideProgress < 0.5;
+                // Dynamically update real-time Box3 bounds & disable collision when almost fully retracted
+                d.boxObj.box.setFromObject(d.panel);
+                d.boxObj.active = d.slideProgress < 0.85;
             });
 
-            // 2. Elevator Shaft Movement Engine
+            // 2. Elevator Shaft Movement & Dynamic Platform Collision Sync
             const floorsY = [0.25, 8.25, 16.25];
             elevatorCars.forEach(e => {
                 e.waitTimer -= delta;
@@ -574,16 +589,18 @@
                         e.mesh.position.y += Math.sign(targetY - e.mesh.position.y) * delta * 6.0;
                     } else {
                         e.mesh.position.y = targetY;
-                        e.waitTimer = 3.5; // Pause at floor
+                        e.waitTimer = 3.5;
                         e.targetFloorIdx = (e.targetFloorIdx + 1) % 3;
                     }
                 }
+                // Keep Elevator Car Platform Box3 updated as it moves!
+                e.boxObj.box.setFromObject(e.mesh);
             });
         }
 
         generateFacilityArena();
 
-        // --- BULLETPROOF GROUND & WALL COLLISION ENGINE ---
+        // --- UNIFIED GROUND RAYCASTER & SOLID BOX3 COLLISION ENGINE ---
         const raycasterDown = new THREE.Raycaster();
         const downVector = new THREE.Vector3(0, -1, 0);
 
@@ -603,21 +620,21 @@
         }
 
         function checkWallCollision(pos, radius = 0.45, height = EYE_HEIGHT_STAND) {
-            const footOffset = 0.2;
-            const playerBox = new THREE.Box3(
+            const footOffset = 0.2; // Allows climbing small stairs thresholds
+            const box = new THREE.Box3(
                 new THREE.Vector3(pos.x - radius, pos.y + footOffset, pos.z - radius),
                 new THREE.Vector3(pos.x + radius, pos.y + height, pos.z + radius)
             );
 
             for (let i = 0; i < staticBoxes.length; i++) {
-                if (staticBoxes[i].active && playerBox.intersectsBox(staticBoxes[i].box)) return true;
+                if (staticBoxes[i].active && box.intersectsBox(staticBoxes[i].box)) return true;
             }
             return false;
         }
 
         function checkCeilingCollision(pos, radius = 0.45, height = EYE_HEIGHT_STAND) {
             const headBox = new THREE.Box3(
-                new THREE.Vector3(pos.x - radius, pos.y + height - 0.1, pos.z - radius),
+                new THREE.Vector3(pos.x - radius, pos.y + height - 0.2, pos.z - radius),
                 new THREE.Vector3(pos.x + radius, pos.y + height + 0.2, pos.z + radius)
             );
 
@@ -888,7 +905,6 @@
                 return;
             }
 
-            // Raycast left & right
             const rayLeft = new THREE.Raycaster(player.position, new THREE.Vector3(-1, 0, 0).applyEuler(player.rotation), 0, 1.2);
             const rayRight = new THREE.Raycaster(player.position, new THREE.Vector3(1, 0, 0).applyEuler(player.rotation), 0, 1.2);
             
@@ -898,14 +914,14 @@
             if ((hitL.length > 0 || hitR.length > 0) && keys['KeyW'] && player.wallRunTimer < WALL_RUN_MAX_TIME) {
                 player.isWallRunning = true;
                 player.wallRunTimer += delta;
-                player.velocity.y = -0.5; // Extended near-zero gravity drift during wall-run
+                player.velocity.y = -0.5;
                 player.canDoubleJump = true;
             } else {
                 player.isWallRunning = false;
             }
         }
 
-        // --- PLAYER MOVEMENT ENGINE ---
+        // --- PLAYER MOVEMENT & AIRTIGHT SOLID PHYSICS ---
         function updatePlayerMovement(delta) {
             player.isSprinting = (keys['ShiftLeft'] || keys['ShiftRight']) && !player.isCrouching;
 
@@ -934,7 +950,7 @@
                 player.velocity.z = moveVector.z * baseSpeed;
             }
 
-            // Wall Collisions
+            // Per-Axis Separated Wall Collisions (Prevents Clipping)
             const oldX = player.position.x;
             player.position.x += player.velocity.x * delta;
             if (checkWallCollision(player.position, 0.45, player.currentEyeHeight)) {
@@ -947,11 +963,11 @@
                 player.position.z = oldZ; player.velocity.z = 0;
             }
 
+            // Head Ceiling Collision
             if (player.velocity.y > 0 && checkCeilingCollision(player.position, 0.45, player.currentEyeHeight)) {
                 player.velocity.y = 0;
             }
 
-            // Extended Wall Run System Check
             updateWallRun(delta, moveVector);
 
             // Vertical Physics & Ground Clamping
@@ -972,7 +988,7 @@
                 player.isGrounded = false;
             }
 
-            // Jump / Wall-Jump / Jetpack
+            // Jump Controls
             if (keys['Space']) {
                 if (player.isGrounded) {
                     player.velocity.y = 12; player.isGrounded = false; keys['Space'] = false;
@@ -995,7 +1011,7 @@
             camera.position.y = player.position.y + player.currentEyeHeight;
             camera.rotation.copy(player.rotation);
 
-            // Viewmodel & Weapon Switch Animations
+            // Viewmodel Animations
             if (player.weaponSwitchTimer > 0) {
                 player.weaponSwitchTimer -= delta;
                 const norm = Math.max(0, player.weaponSwitchTimer / 0.24);
@@ -1103,10 +1119,9 @@
         function triggerGlassShatter(glassObj) {
             if (glassObj.isBroken) return;
             glassObj.isBroken = true;
-            glassObj.boxObj.active = false; // Permanently remove collision!
+            glassObj.boxObj.active = false; // Instantly remove collision box
             scene.remove(glassObj.mesh);
 
-            // Glass Shard Particle Explosion Effect
             for (let i = 0; i < 20; i++) {
                 const shard = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), new THREE.MeshBasicMaterial({ color: 0x00ffff }));
                 shard.position.copy(glassObj.mesh.position).add(new THREE.Vector3((Math.random()-0.5)*3, (Math.random()-0.5)*2, (Math.random()-0.5)*3));
@@ -1154,7 +1169,6 @@
             const hits = raycaster.intersectObjects(scene.children, true);
             const targetPoint = hits.length > 0 ? hits[0].point : origin.clone().addScaledVector(direction, wpn.range);
 
-            // Check if raycast hit Breakable Glass Windows
             if (hits.length > 0) {
                 const hitObj = hits[0].object;
                 glassPanels.forEach(g => {
@@ -1164,7 +1178,6 @@
 
             spawnBlastVisual(origin, direction, targetPoint, wpn);
 
-            // Damage Targets
             const allTargets = [player, ...players];
             allTargets.forEach(target => {
                 if (target === shooter) return;
@@ -1247,7 +1260,6 @@
                     flash.position.copy(expPos); scene.add(flash);
                     setTimeout(() => scene.remove(flash), 120);
 
-                    // Shatter glass windows near grenade blast
                     glassPanels.forEach(g => {
                         if (g.mesh.position.distanceTo(expPos) < 10) triggerGlassShatter(g);
                     });
@@ -1263,7 +1275,7 @@
             }
         }
 
-        // --- ADVANCED AUTONOMOUS FFA BOT AI ENGINE ---
+        // --- ADVANCED BOT AI WITH STRICT COLLISION HANDLING ---
         function updateBots(delta) {
             const allEntities = [player, ...players];
 
@@ -1330,19 +1342,21 @@
                         bot.velocity.z = moveDir.z * currentMoveSpeed;
                     }
 
+                    // Enforce Solid Wall Collision for Bots on X
                     const oldX = bot.mesh.position.x;
                     bot.mesh.position.x += bot.velocity.x * delta;
                     if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
-                        bot.mesh.position.x = oldX;
+                        bot.mesh.position.x = oldX; bot.velocity.x = 0;
                         if (bot.isGrounded && bot.jumpCooldown <= 0) {
                             bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
                         }
                     }
 
+                    // Enforce Solid Wall Collision for Bots on Z
                     const oldZ = bot.mesh.position.z;
                     bot.mesh.position.z += bot.velocity.z * delta;
                     if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
-                        bot.mesh.position.z = oldZ;
+                        bot.mesh.position.z = oldZ; bot.velocity.z = 0;
                         if (bot.isGrounded && bot.jumpCooldown <= 0) {
                             bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
                         }
@@ -1351,6 +1365,11 @@
                     bot.mesh.rotation.y = Math.atan2(moveDir.x, moveDir.z);
                 } else {
                     bot.mesh.rotation.y = Math.atan2(dirToTarget.x, dirToTarget.z);
+                }
+
+                // Bot Ceiling Collision Check
+                if (bot.velocity.y > 0 && checkCeilingCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
+                    bot.velocity.y = 0;
                 }
 
                 bot.velocity.y -= 32 * delta;
