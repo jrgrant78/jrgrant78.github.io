@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // RIGGED SKELETON ARENA</title>
+    <title>CYBER-STRIKE 2077 // ARTICULATED RIG ARENA</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -72,7 +72,7 @@
             <div class="hud-panel">
                 <div>SCORE LIMIT: 60</div>
                 <div id="score-display" style="font-size: 20px; font-weight: bold; color: #ff007f;">0 / 60 KILLS</div>
-                <div id="test-indicator">MODE: 60-BONE RIGGED CHARACTERS</div>
+                <div id="test-indicator">MODE: ARTICULATED BENDING RIGS & SOLID OCCLUSION</div>
             </div>
             <div class="hud-panel" id="leaderboard">
                 <div style="text-decoration: underline; margin-bottom: 4px;">FACILITY COMBATANTS</div>
@@ -258,10 +258,19 @@
             return group;
         }
 
-        // --- PROCEDURAL 60-BONE HUMANOID SKELETON BUILDER ---
+        // --- ARTICULATED 60-BONE RIG BUILDER WITH VISIBLE BENDING JOINTS ---
         function create60BoneHumanoidRig(colorHex) {
             const bones = [];
             const boneMap = {};
+            const rigGroup = new THREE.Group();
+
+            const armorMat = new THREE.MeshStandardMaterial({ color: 0x181824, roughness: 0.3, metalness: 0.8 });
+            const jointMat = new THREE.MeshStandardMaterial({ color: 0x444466, roughness: 0.2, metalness: 0.9 });
+            const glowMat = new THREE.MeshBasicMaterial({ color: colorHex });
+
+            function createJointSphere(radius = 0.07) {
+                return new THREE.Mesh(new THREE.SphereGeometry(radius, 8, 8), jointMat);
+            }
 
             function addBone(name, parent, x, y, z) {
                 const b = new THREE.Bone();
@@ -273,104 +282,95 @@
                 return b;
             }
 
-            // --- 60-BONE SKELETAL HIERARCHY SETUP ---
+            // --- 60-BONE HIERARCHY ---
             const root = addBone('Root', null, 0, 0, 0);                 // 1
             const pelvis = addBone('Pelvis', root, 0, 0.9, 0);           // 2
-            const spine1 = addBone('Spine1', pelvis, 0, 0.25, 0);        // 3
-            const spine2 = addBone('Spine2', spine1, 0, 0.25, 0);        // 4
-            const spine3 = addBone('Spine3', spine2, 0, 0.25, 0);        // 5
-            const chest = addBone('Chest', spine3, 0, 0.25, 0);          // 6
-            const neck = addBone('Neck', chest, 0, 0.25, 0);             // 7
+            const spine1 = addBone('Spine1', pelvis, 0, 0.22, 0);        // 3
+            const spine2 = addBone('Spine2', spine1, 0, 0.22, 0);        // 4
+            const spine3 = addBone('Spine3', spine2, 0, 0.22, 0);        // 5
+            const chest = addBone('Chest', spine3, 0, 0.22, 0);          // 6
+            const neck = addBone('Neck', chest, 0, 0.2, 0);              // 7
             const head = addBone('Head', neck, 0, 0.18, 0);              // 8
 
-            // Arms (38 Bones Total: 19 Per Side with 5 x 3 Finger Joints)
+            // Attach Pelvis & Torso Segment Meshes
+            const pelvisMesh = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.2, 0.26), armorMat);
+            pelvis.add(pelvisMesh, createJointSphere(0.09));
+
+            const chestMesh = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.28, 0.3), armorMat);
+            const chestGlow = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.08, 0.31), glowMat);
+            chest.add(chestMesh, chestGlow, createJointSphere(0.09));
+
+            const headMesh = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), armorMat);
+            const visor = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.18), glowMat);
+            visor.position.set(0, 0.02, -0.1);
+            head.add(headMesh, visor, createJointSphere(0.08));
+
+            // Arms (38 Bones Total: 19 Per Side with 5 x 3 Articulated Knuckles)
             ['L', 'R'].forEach(side => {
                 const s = side === 'L' ? 1 : -1;
-                const clavicle = addBone(`${side}_Clavicle`, chest, 0.15 * s, 0.1, 0);
-                const upperArm = addBone(`${side}_UpperArm`, clavicle, 0.25 * s, 0, 0);
-                const forearm = addBone(`${side}_Forearm`, upperArm, 0.35 * s, 0, 0);
-                const wrist = addBone(`${side}_Wrist`, forearm, 0.32 * s, 0, 0);
+                const clavicle = addBone(`${side}_Clavicle`, chest, 0.22 * s, 0.08, 0);
+                const upperArm = addBone(`${side}_UpperArm`, clavicle, 0.08 * s, -0.05, 0);
+                const forearm = addBone(`${side}_Forearm`, upperArm, 0, -0.38, 0);
+                const wrist = addBone(`${side}_Wrist`, forearm, 0, -0.35, 0);
+
+                // Upper Arm Limb Segment & Elbow Joint
+                const upperMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.35), armorMat);
+                upperMesh.position.y = -0.18;
+                upperArm.add(upperMesh, createJointSphere(0.07));
+
+                // Forearm Limb Segment & Wrist Joint
+                const foreMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.32), armorMat);
+                foreMesh.position.y = -0.16;
+                forearm.add(foreMesh, createJointSphere(0.06));
+
+                const handMesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.04), armorMat);
+                handMesh.position.y = -0.05;
+                wrist.add(handMesh, createJointSphere(0.05));
 
                 const fingerNames = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'];
                 fingerNames.forEach((f, fIdx) => {
                     let parentJoint = wrist;
-                    const offsetX = 0.08 * s;
-                    const offsetZ = (fIdx - 2) * 0.02;
+                    const offsetX = (fIdx - 2) * 0.02 * s;
 
                     for (let j = 1; j <= 3; j++) {
                         const jointName = `${side}_${f}_${j}`;
-                        parentJoint = addBone(jointName, parentJoint, j === 1 ? offsetX : 0.04 * s, j === 1 ? 0 : 0, j === 1 ? offsetZ : 0);
+                        parentJoint = addBone(jointName, parentJoint, j === 1 ? offsetX : 0, j === 1 ? -0.1 : -0.04, 0);
+
+                        const phalanxMesh = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.035, 0.015), glowMat);
+                        phalanxMesh.position.y = -0.018;
+                        parentJoint.add(phalanxMesh, createJointSphere(0.012));
                     }
                 });
             });
 
-            // Legs (14 Bones Total: 7 Per Side with Thighs, Shins, Ankles, Feet, Toes)
+            // Legs (14 Bones Total: 7 Per Side - Hips, Thighs, Shins, Ankles, Feet, Toes)
             ['L', 'R'].forEach(side => {
                 const s = side === 'L' ? 1 : -1;
-                const hip = addBone(`${side}_Hip`, pelvis, 0.18 * s, -0.05, 0);
-                const thigh = addBone(`${side}_Thigh`, hip, 0, -0.45, 0);
+                const hip = addBone(`${side}_Hip`, pelvis, 0.16 * s, -0.08, 0);
+                const thigh = addBone(`${side}_Thigh`, hip, 0, -0.05, 0);
                 const shin = addBone(`${side}_Shin`, thigh, 0, -0.45, 0);
-                const ankle = addBone(`${side}_Ankle`, shin, 0, -0.12, 0);
-                const foot = addBone(`${side}_Foot`, ankle, 0, -0.05, -0.15);
+                const ankle = addBone(`${side}_Ankle`, shin, 0, -0.42, 0);
+                const foot = addBone(`${side}_Foot`, ankle, 0, -0.08, -0.08);
                 const toe = addBone(`${side}_Toe`, foot, 0, 0, -0.12);
+
+                const thighMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.42), armorMat);
+                thighMesh.position.y = -0.21;
+                thigh.add(thighMesh, createJointSphere(0.085)); // Hip/Knee Joint
+
+                const shinMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.4), armorMat);
+                shinMesh.position.y = -0.2;
+                shin.add(shinMesh, createJointSphere(0.075)); // Knee/Ankle Joint
+
+                const footMesh = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.18), armorMat);
+                footMesh.position.set(0, -0.03, -0.06);
+                foot.add(footMesh, createJointSphere(0.05));
             });
 
             const skeleton = new THREE.Skeleton(bones);
-
-            // --- PROCEDURAL SUBDIVIDED GEOMETRY & SKIN WEIGHTING ---
-            const geometry = new THREE.CylinderGeometry(0.35, 0.25, 1.8, 12, 24);
-            const position = geometry.attributes.position;
-            const vertex = new THREE.Vector3();
-
-            const skinIndices = [];
-            const skinWeights = [];
-
-            // Calculate vertex bone weights based on Y-height thresholds
-            for (let i = 0; i < position.count; i++) {
-                vertex.fromBufferAttribute(position, i);
-                const y = vertex.y + 0.9;
-
-                let bIdx = 1; // Pelvis default
-                if (y < 0.45) bIdx = 52;      // Left/Right Leg
-                else if (y < 0.9) bIdx = 1;   // Pelvis
-                else if (y < 1.35) bIdx = 5;  // Spine
-                else if (y < 1.6) bIdx = 6;   // Chest
-                else bIdx = 7;                // Head
-
-                skinIndices.push(bIdx, 0, 0, 0);
-                skinWeights.push(1.0, 0, 0, 0);
-            }
-
-            geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndices, 4));
-            geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeights, 4));
-
-            const material = new THREE.MeshStandardMaterial({
-                color: 0x181824,
-                roughness: 0.3,
-                metalness: 0.8,
-                skinning: true
-            });
-
-            const skinnedMesh = new THREE.SkinnedMesh(geometry, material);
-            skinnedMesh.add(bones[0]); // Add Root bone to Mesh
-            skinnedMesh.bind(skeleton);
-
-            // Add Glowing Armor Strips
-            const armorGlow = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.1, 0.22), new THREE.MeshBasicMaterial({ color: colorHex }));
-            armorGlow.position.set(0, 0.4, 0.1);
-            boneMap['Chest'].add(armorGlow);
-
-            // Add Visor Helmet to Head Bone
-            const visor = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.12, 0.2), new THREE.MeshBasicMaterial({ color: colorHex }));
-            visor.position.set(0, 0.05, -0.15);
-            boneMap['Head'].add(visor);
-
-            const characterGroup = new THREE.Group();
-            characterGroup.add(skinnedMesh);
+            rigGroup.add(root);
 
             return {
-                group: characterGroup,
-                mesh: skinnedMesh,
+                group: rigGroup,
                 skeleton: skeleton,
                 bones: boneMap
             };
@@ -745,7 +745,7 @@
             return false;
         }
 
-        // --- PLAYER CONTROLLER STATE ---
+        // --- PLAYER CONTROLLER STATE & DEDICATED HITBOX ---
         const player = {
             position: new THREE.Vector3(0, 0, 0),
             velocity: new THREE.Vector3(),
@@ -765,6 +765,10 @@
 
         camera.rotation.order = 'YXZ';
 
+        // Invisible Target Hitbox mesh for player raycasting
+        const playerHitMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.8), new THREE.MeshBasicMaterial({ visible: false }));
+        scene.add(playerHitMesh);
+
         function updatePlayerViewmodel() {
             while(viewmodelGroup.children.length > 0) viewmodelGroup.remove(viewmodelGroup.children[0]);
             const currentWpn = player.inventory[player.activeSlot];
@@ -773,13 +777,12 @@
         }
         updatePlayerViewmodel();
 
-        // --- BOTS MANAGEMENT WITH 60-BONE RIGGED MODELS ---
+        // --- BOTS MANAGEMENT ---
         function createBot(id) {
             const spawnPos = spawnPoints[Math.floor(Math.random() * spawnPoints.length)] || new THREE.Vector3(0, 0, 0);
             const archetype = BOT_ARCHETYPES[id % BOT_ARCHETYPES.length];
             const colorHex = Math.random() > 0.5 ? 0x00ffff : 0xff0055;
 
-            // Instantiate 60-Bone Rigged Humanoid Model
             const rigObj = create60BoneHumanoidRig(colorHex);
             rigObj.group.position.copy(spawnPos);
             scene.add(rigObj.group);
@@ -802,6 +805,8 @@
             updateBotHeldWeaponMesh(botObj);
             return botObj;
         }
+
+        const BOT_ARCHETYPES = ['HEAVY_JUGGER', 'ASSASSIN_SPECTRE', 'ENFORCER', 'SCOUT'];
 
         function updateBotHeldWeaponMesh(bot) {
             const holder = bot.rig.bones['R_Wrist'];
@@ -1041,6 +1046,9 @@
             camera.position.y = player.position.y + player.currentEyeHeight;
             camera.rotation.copy(player.rotation);
 
+            // Update Player Hitbox position for bot raycasts
+            playerHitMesh.position.set(player.position.x, player.position.y + player.currentEyeHeight / 2, player.position.z);
+
             if (player.weaponSwitchTimer > 0) {
                 player.weaponSwitchTimer -= delta;
                 const norm = Math.max(0, player.weaponSwitchTimer / 0.24);
@@ -1158,6 +1166,7 @@
             }
         }
 
+        // --- OCCLUSION-BASED WEAPON FIRING ENGINE (NO WALL PASS-THROUGH) ---
         function fireActiveWeapon(shooter, direction) {
             const now = Date.now();
             const isHuman = shooter === player;
@@ -1192,32 +1201,53 @@
 
             const raycaster = new THREE.Raycaster(origin, direction, 0, wpn.range);
             const hits = raycaster.intersectObjects(scene.children, true);
-            const targetPoint = hits.length > 0 ? hits[0].point : origin.clone().addScaledVector(direction, wpn.range);
 
-            if (hits.length > 0) {
-                const hitObj = hits[0].object;
+            // Filter out shooter's own body & viewmodel parts
+            const validHits = hits.filter(hit => {
+                let curr = hit.object;
+                while (curr) {
+                    if (isHuman && (curr === viewmodelGroup || curr === camera || curr === playerHitMesh)) return false;
+                    if (!isHuman && curr === shooter.mesh) return false;
+                    curr = curr.parent;
+                }
+                return true;
+            });
+
+            const firstHit = validHits.length > 0 ? validHits[0] : null;
+            const targetPoint = firstHit ? firstHit.point : origin.clone().addScaledVector(direction, wpn.range);
+
+            if (firstHit) {
+                const hitObj = firstHit.object;
+
+                // Check Glass Break
                 glassPanels.forEach(g => {
                     if (g.mesh === hitObj) triggerGlassShatter(g);
                 });
+
+                // Determine if the FIRST obstacle hit is a entity target
+                let hitTarget = null;
+                if (hitObj === playerHitMesh) {
+                    hitTarget = player;
+                } else {
+                    players.forEach(bot => {
+                        if (bot === shooter) return;
+                        let curr = hitObj;
+                        while (curr) {
+                            if (curr === bot.mesh) {
+                                hitTarget = bot;
+                                break;
+                            }
+                            curr = curr.parent;
+                        }
+                    });
+                }
+
+                if (hitTarget) {
+                    damageEntity(hitTarget, wpn.damage, shooter);
+                }
             }
 
             spawnBlastVisual(origin, direction, targetPoint, wpn);
-
-            const allTargets = [player, ...players];
-            allTargets.forEach(target => {
-                if (target === shooter) return;
-                let hit = false;
-
-                if (target === player) {
-                    const playerHeadPos = player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0));
-                    hit = origin.distanceTo(playerHeadPos) < wpn.range && direction.angleTo(playerHeadPos.clone().sub(origin)) < 0.25;
-                } else {
-                    const intersects = raycaster.intersectObject(target.mesh, true);
-                    hit = intersects.length > 0;
-                }
-
-                if (hit) damageEntity(target, wpn.damage, shooter);
-            });
         }
 
         function damageEntity(target, damage, attacker) {
@@ -1299,7 +1329,7 @@
             }
         }
 
-        // --- BOT AI & 60-BONE SKELETAL ANIMATIONS ---
+        // --- BOT AI & ARTICULATED SKELETON JOINT ANIMATIONS ---
         function updateBots(delta) {
             const allEntities = [player, ...players];
 
@@ -1413,24 +1443,31 @@
                     bot.grenadeCooldown = 5.0;
                 }
 
-                // 60-Bone Procedural Walking/Sprinting Animation
+                // 60-Bone Joint-Bending Kinematics Animation
                 if (isMoving) {
-                    const animTime = performance.now() * 0.012;
-                    b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.7;
-                    b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.7;
-                    b['L_Shin'].rotation.x = Math.max(0, Math.sin(animTime)) * 0.5;
-                    b['R_Shin'].rotation.x = Math.max(0, -Math.sin(animTime)) * 0.5;
+                    const animTime = performance.now() * (bot.isSprinting ? 0.016 : 0.012);
+                    
+                    // Hip & Knee Joint Bending
+                    b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.75;
+                    b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.75;
+                    b['L_Shin'].rotation.x = Math.max(0, -Math.sin(animTime)) * 0.85; // Knee bends backward
+                    b['R_Shin'].rotation.x = Math.max(0, Math.sin(animTime)) * 0.85;
 
-                    b['L_UpperArm'].rotation.x = -Math.sin(animTime) * 0.5;
-                    b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.5;
+                    // Shoulder & Elbow Joint Bending
+                    b['L_UpperArm'].rotation.x = -Math.sin(animTime) * 0.6;
+                    b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.6;
+                    b['L_Forearm'].rotation.x = -0.4 - Math.abs(Math.sin(animTime)) * 0.3; // Forearm flex
+                    b['R_Forearm'].rotation.x = -0.4 - Math.abs(Math.cos(animTime)) * 0.3;
                 } else {
                     b['L_Thigh'].rotation.x = THREE.MathUtils.lerp(b['L_Thigh'].rotation.x, 0, delta * 8);
                     b['R_Thigh'].rotation.x = THREE.MathUtils.lerp(b['R_Thigh'].rotation.x, 0, delta * 8);
                     b['L_Shin'].rotation.x = THREE.MathUtils.lerp(b['L_Shin'].rotation.x, 0, delta * 8);
                     b['R_Shin'].rotation.x = THREE.MathUtils.lerp(b['R_Shin'].rotation.x, 0, delta * 8);
+                    b['L_Forearm'].rotation.x = THREE.MathUtils.lerp(b['L_Forearm'].rotation.x, -0.2, delta * 8);
+                    b['R_Forearm'].rotation.x = THREE.MathUtils.lerp(b['R_Forearm'].rotation.x, -0.2, delta * 8);
                 }
 
-                // Balanced Aiming Inaccuracy
+                // Balanced Aim Inaccuracy Spread
                 if (BOTS_CAN_FIRE && minDist < bot.weapon.range && Math.random() < 0.05) {
                     const inaccuracy = 0.22;
                     const inaccurateAimDir = dirToTarget.clone().add(new THREE.Vector3(
