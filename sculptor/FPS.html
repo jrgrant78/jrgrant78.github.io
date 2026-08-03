@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // 30-PLAYER ENCLOSED ARENA</title>
+    <title>CYBER-STRIKE 2077 // MULTI-MODE ARENA</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -42,21 +42,36 @@
         .bar-fill { height: 100%; width: 100%; background: #00ffff; transition: width 0.1s; box-shadow: 0 0 10px #00ffff; }
         #jetpack-bar .bar-fill { background: #ff007f; box-shadow: 0 0 10px #ff007f; }
 
-        #kill-feed { position: absolute; top: 80px; right: 20px; text-align: right; font-size: 13px; color: #ff007f; text-shadow: 0 0 5px #ff007f; }
+        #kill-feed { position: absolute; top: 90px; right: 20px; text-align: right; font-size: 13px; color: #ff007f; text-shadow: 0 0 5px #ff007f; }
         #pickup-prompt { position: absolute; top: 58%; left: 50%; transform: translate(-50%, -50%); font-size: 15px; color: #ffe600; text-shadow: 0 0 10px #ffe600; display: none; }
 
         #start-screen {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(5, 5, 10, 0.95); display: flex; flex-direction: column;
-            justify-content: center; align-items: center; z-index: 100; cursor: pointer;
+            justify-content: center; align-items: center; z-index: 100; padding: 20px;
         }
-        #start-screen h1 { font-size: 48px; color: #ff007f; text-shadow: 0 0 20px #ff007f; margin-bottom: 10px; }
-        #start-screen p { font-size: 18px; color: #00ffff; text-shadow: 0 0 10px #00ffff; }
+        #start-screen h1 { font-size: 42px; color: #ff007f; text-shadow: 0 0 20px #ff007f; margin-bottom: 5px; }
+        #start-screen p { font-size: 16px; color: #00ffff; text-shadow: 0 0 10px #00ffff; margin-bottom: 25px; }
 
-        #leaderboard { position: absolute; top: 80px; left: 20px; font-size: 12px; line-height: 1.5; }
+        .vote-container {
+            display: grid; grid-template-columns: repeat(2, 220px); gap: 15px; margin-bottom: 25px;
+        }
+        .vote-card {
+            background: rgba(15, 15, 30, 0.9); border: 2px solid #00ffff; border-radius: 6px;
+            padding: 15px; text-align: center; cursor: pointer; transition: all 0.2s;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.2);
+        }
+        .vote-card:hover { transform: translateY(-4px); border-color: #ff007f; box-shadow: 0 0 20px #ff007f; }
+        .vote-card.selected { border-color: #ffe600; background: rgba(255, 230, 0, 0.15); box-shadow: 0 0 25px #ffe600; }
+        .vote-card h3 { font-size: 18px; color: #fff; margin-bottom: 6px; }
+        .vote-card .desc { font-size: 11px; color: #aaa; margin-bottom: 10px; line-height: 1.3; }
+        .vote-card .count { font-size: 14px; font-weight: bold; color: #ff007f; }
+
+        #leaderboard { position: absolute; top: 90px; left: 20px; font-size: 12px; line-height: 1.5; }
         #stance-indicator { font-size: 12px; color: #ffe600; margin-top: 4px; }
         #grenade-display { font-size: 12px; color: #ff007f; margin-top: 6px; font-weight: bold; }
-        #test-indicator { font-size: 11px; color: #00ffff; margin-top: 4px; font-weight: bold; }
+        #test-indicator { font-size: 12px; color: #ffe600; margin-top: 4px; font-weight: bold; }
+        #mode-status-hud { font-size: 14px; font-weight: bold; color: #00ffff; margin-top: 4px; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
@@ -66,10 +81,32 @@
 
     <div id="start-screen">
         <h1>CYBER-STRIKE 2077</h1>
-        <p>[ CLICK TO ENTER FACILITY ]</p>
-        <p style="font-size: 12px; margin-top: 20px; color: #aaa;">
-            WASD: Move | SHIFT: Run | C: Slide / Crouch | SPACE: Jump / Double-Jump / Jetpack / Wall-Run (SHIFT + W near Wall) | G: Grenade | Left Click: Hold to Fire | 1-3 / Wheel: Switch Weapon
-        </p>
+        <p>[ VOTE MATCH MODE TO ENTER FACILITY ]</p>
+        
+        <div class="vote-container">
+            <div class="vote-card" onclick="castPlayerVote('FFA')" id="card-FFA">
+                <h3>FREE-FOR-ALL</h3>
+                <div class="desc">30 Combatants. Total Chaos. First to 60 kills wins.</div>
+                <div class="count" id="count-FFA">VOTES: 0</div>
+            </div>
+            <div class="vote-card" onclick="castPlayerVote('TDM')" id="card-TDM">
+                <h3>TEAM DEATHMATCH</h3>
+                <div class="desc">15v15 Cyan vs Pink. First team to 100 kills wins.</div>
+                <div class="count" id="count-TDM">VOTES: 0</div>
+            </div>
+            <div class="vote-card" onclick="castPlayerVote('CTF')" id="card-CTF">
+                <h3>CAPTURE THE FLAG</h3>
+                <div class="desc">Steal enemy flags & carry them back. First to 3 caps wins.</div>
+                <div class="count" id="count-CTF">VOTES: 0</div>
+            </div>
+            <div class="vote-card" onclick="castPlayerVote('LOS')" id="card-LOS">
+                <h3>LAST ONE STANDING</h3>
+                <div class="desc">1 Life. No Respawns. Battle Royale elimination.</div>
+                <div class="count" id="count-LOS">VOTES: 0</div>
+            </div>
+        </div>
+
+        <p id="voting-status-text" style="font-size: 13px; color: #ffe600; margin-bottom: 0;">CLICK A MODE CARD TO CAST YOUR VOTE</p>
     </div>
 
     <div id="ui-layer">
@@ -78,9 +115,9 @@
 
         <div id="top-hud">
             <div class="hud-panel">
-                <div>SCORE LIMIT: 60</div>
+                <div id="mode-title-display">MODE: FREE-FOR-ALL</div>
                 <div id="score-display" style="font-size: 20px; font-weight: bold; color: #ff007f;">0 / 60 KILLS</div>
-                <div id="test-indicator">MODE: 30 COMBATANTS // ENCLOSED FACILITY // PATROL AI</div>
+                <div id="mode-status-hud">CYAN: 0 | PINK: 0</div>
             </div>
             <div class="hud-panel" id="leaderboard">
                 <div style="text-decoration: underline; margin-bottom: 4px;">FACILITY COMBATANTS</div>
@@ -111,13 +148,21 @@
     <script>
         // --- CONFIG & TOGGLES ---
         const BOTS_CAN_FIRE = true;
-        const SCORE_LIMIT = 60;
         const TOTAL_COMBATANTS = 30; // 1 Player + 29 Active Bots
         const WEAPON_COUNT = 60;
         const EYE_HEIGHT_STAND = 1.8;
         const EYE_HEIGHT_CROUCH = 0.9;
         const SLIDE_DURATION = 0.75;
         const WALL_RUN_DURATION = 0.75;
+
+        // --- GAME MODE STATES ---
+        let currentMode = 'FFA'; // 'FFA', 'TDM', 'CTF', 'LOS'
+        let teamCyanScore = 0;
+        let teamPinkScore = 0;
+        let cyanFlagObj = null;
+        let pinkFlagObj = null;
+        let cyanFlagCarrier = null;
+        let pinkFlagCarrier = null;
 
         // --- THREE.JS SETUP ---
         const scene = new THREE.Scene();
@@ -375,7 +420,8 @@
             return {
                 group: rigGroup,
                 skeleton: skeleton,
-                bones: boneMap
+                bones: boneMap,
+                glowMat: glowMat
             };
         }
 
@@ -478,15 +524,32 @@
                 });
             };
 
-            const createBreakableGlassWindow = (x, y, z, w = 8.0, h = 4.0, isX = true) => {
-                const glassMesh = new THREE.Mesh(new THREE.BoxGeometry(isX ? w : 0.3, h, isX ? 0.3 : w), glassMat);
-                glassMesh.position.set(x, y + h/2 + 1.0, z);
-                
-                const topFrame = new THREE.Mesh(new THREE.BoxGeometry(isX ? w + 0.2 : 0.4, 0.2, isX ? 0.4 : w + 0.2), neonBlueMat);
-                topFrame.position.set(x, y + h + 1.1, z);
+            const createBreakableGlassWindow = (x, y, z, w = 10.0, h = 4.0, isX = true) => {
+                const wallThick = 1.5;
+                const sillH = 2.0;
+                const headerH = 1.0;
 
-                const botFrame = new THREE.Mesh(new THREE.BoxGeometry(isX ? w + 0.2 : 0.4, 0.2, isX ? 0.4 : w + 0.2), neonBlueMat);
-                botFrame.position.set(x, y + 0.9, z);
+                createStaticWall(
+                    x, y + sillH / 2, z,
+                    isX ? w : wallThick, sillH, isX ? wallThick : w
+                );
+
+                createStaticWall(
+                    x, y + sillH + h + headerH / 2, z,
+                    isX ? w : wallThick, headerH, isX ? wallThick : w
+                );
+
+                const glassMesh = new THREE.Mesh(
+                    new THREE.BoxGeometry(isX ? w : 0.25, h, isX ? 0.25 : w),
+                    glassMat
+                );
+                glassMesh.position.set(x, y + sillH + h / 2, z);
+
+                const topFrame = new THREE.Mesh(new THREE.BoxGeometry(isX ? w : 0.35, 0.15, isX ? 0.35 : w), neonBlueMat);
+                topFrame.position.set(x, y + sillH + h, z);
+
+                const botFrame = new THREE.Mesh(new THREE.BoxGeometry(isX ? w : 0.35, 0.15, isX ? 0.35 : w), neonBlueMat);
+                botFrame.position.set(x, y + sillH, z);
 
                 scene.add(glassMesh, topFrame, botFrame);
 
@@ -544,7 +607,6 @@
                 }
             };
 
-            // DENSE 9-SECTOR ROOM GRID PER FLOOR WITH SEPARATE WINDOW CUTOUTS
             floors.forEach((fY) => {
                 const roomGrid = [
                     { type: 'COMPUTER_LAB', x: -75, z: -75 },
@@ -558,9 +620,7 @@
                     { type: 'RESEARCH_LAB', x: 75, z: 75 }
                 ];
 
-                // Build Wall Segments with Cutouts for Doors and Windows along Partitions
                 [-37.5, 37.5].forEach(px => {
-                    // Segmented Vertical Walls along Z
                     createStaticWall(px, fY + 3.5, -100, 1.5, 7.0, 40);
                     createBreakableGlassWindow(px, fY, -65, 10.0, 4.0, false);
                     createStaticWall(px, fY + 3.5, -35, 1.5, 7.0, 30);
@@ -571,7 +631,6 @@
                 });
 
                 [-37.5, 37.5].forEach(pz => {
-                    // Segmented Horizontal Walls along X
                     createStaticWall(-100, fY + 3.5, pz, 40, 7.0, 1.5);
                     createBreakableGlassWindow(-65, fY, pz, 10.0, 4.0, true);
                     createStaticWall(-35, fY + 3.5, pz, 30, 7.0, 1.5);
@@ -635,32 +694,79 @@
             createStairwell(0, -60);
             createStairwell(0, 60);
 
+            // CTF FLAGS SETUP
+            setupCTFFlags();
+
             spawnWorldWeapons();
         }
 
+        // --- CTF FLAG BASES SETUP ---
+        const cyanBasePos = new THREE.Vector3(-75, 0.1, -75);
+        const pinkBasePos = new THREE.Vector3(75, 0.1, 75);
+
+        function setupCTFFlags() {
+            const flagGeom = new THREE.CylinderGeometry(0.1, 0.1, 3.5);
+            const bannerGeom = new THREE.BoxGeometry(1.2, 1.8, 0.08);
+
+            // Cyan Flag
+            cyanFlagObj = new THREE.Group();
+            const cyanPole = new THREE.Mesh(flagGeom, new THREE.MeshBasicMaterial({ color: 0x00ffff }));
+            const cyanBanner = new THREE.Mesh(bannerGeom, new THREE.MeshBasicMaterial({ color: 0x00ffff }));
+            cyanBanner.position.set(0.6, 0.8, 0);
+            cyanFlagObj.add(cyanPole, cyanBanner);
+            cyanFlagObj.position.copy(cyanBasePos);
+            scene.add(cyanFlagObj);
+
+            // Pink Flag
+            pinkFlagObj = new THREE.Group();
+            const pinkPole = new THREE.Mesh(flagGeom, new THREE.MeshBasicMaterial({ color: 0xff007f }));
+            const pinkBanner = new THREE.Mesh(bannerGeom, new THREE.MeshBasicMaterial({ color: 0xff007f }));
+            pinkBanner.position.set(0.6, 0.8, 0);
+            pinkFlagObj.add(pinkPole, pinkBanner);
+            pinkFlagObj.position.copy(pinkBasePos);
+            scene.add(pinkFlagObj);
+
+            cyanFlagObj.visible = false;
+            pinkFlagObj.visible = false;
+        }
+
         // --- 3D FLOATING WEAPON PICKUPS SYSTEM ---
+        function setPickupWeapon(sp, newWpnData) {
+            sp.weapon = newWpnData;
+            while(sp.modelHolder.children.length > 0) sp.modelHolder.remove(sp.modelHolder.children[0]);
+            
+            const model = buildWeaponMesh(newWpnData, false);
+            sp.modelHolder.add(model);
+            sp.ringMesh.material.color.setHex(newWpnData.color);
+        }
+
         function spawnWorldWeapons() {
-            spawnPoints.forEach((sp, idx) => {
-                const wpnData = weaponsDatabase[idx % weaponsDatabase.length];
+            spawnPoints.forEach((sp) => {
+                const randomWpn = weaponsDatabase[Math.floor(Math.random() * weaponsDatabase.length)];
                 const pickupGroup = new THREE.Group();
                 pickupGroup.position.copy(sp).add(new THREE.Vector3(0, 1.2, 0));
 
-                const ringMat = new THREE.MeshBasicMaterial({ color: wpnData.color, wireframe: true });
-                const ring = new THREE.Mesh(new THREE.TorusGeometry(0.8, 0.04, 8, 16), ringMat);
-                ring.rotation.x = Math.PI / 2;
-                pickupGroup.add(ring);
+                const ringMat = new THREE.MeshBasicMaterial({ color: randomWpn.color, wireframe: true });
+                const ringMesh = new THREE.Mesh(new THREE.TorusGeometry(0.8, 0.04, 8, 16), ringMat);
+                ringMesh.rotation.x = Math.PI / 2;
+                pickupGroup.add(ringMesh);
 
-                const model = buildWeaponMesh(wpnData, false);
-                pickupGroup.add(model);
+                const modelHolder = new THREE.Group();
+                pickupGroup.add(modelHolder);
 
                 scene.add(pickupGroup);
 
-                worldWeaponSpawns.push({
+                const spawnObj = {
                     group: pickupGroup,
-                    weapon: wpnData,
+                    modelHolder: modelHolder,
+                    ringMesh: ringMesh,
+                    weapon: randomWpn,
                     active: true,
                     respawnTimer: 0
-                });
+                };
+
+                setPickupWeapon(spawnObj, randomWpn);
+                worldWeaponSpawns.push(spawnObj);
             });
         }
 
@@ -687,6 +793,9 @@
                 } else {
                     sp.respawnTimer -= delta;
                     if (sp.respawnTimer <= 0) {
+                        const newRandomWpn = weaponsDatabase[Math.floor(Math.random() * weaponsDatabase.length)];
+                        setPickupWeapon(sp, newRandomWpn);
+
                         sp.active = true;
                         sp.group.visible = true;
                     }
@@ -742,6 +851,116 @@
         }
 
         generateFacilityArena();
+
+        // --- PRE-MATCH VOTING LOGIC ---
+        let playerVotedMode = null;
+        const voteTallies = { FFA: 0, TDM: 0, CTF: 0, LOS: 0 };
+
+        function castPlayerVote(modeKey) {
+            if (playerVotedMode) return;
+            playerVotedMode = modeKey;
+            
+            document.querySelectorAll('.vote-card').forEach(card => card.classList.remove('selected'));
+            document.getElementById(`card-${modeKey}`).classList.add('selected');
+            document.getElementById('voting-status-text').innerText = "VOTE CAST! FACILITY COMBATANTS VOTING...";
+
+            // Simulate live bot votes
+            voteTallies[modeKey]++;
+            updateVoteCountsUI();
+
+            let votesCast = 1;
+            const voteInterval = setInterval(() => {
+                const modes = ['FFA', 'TDM', 'CTF', 'LOS'];
+                const randomChoice = modes[Math.floor(Math.random() * modes.length)];
+                voteTallies[randomChoice]++;
+                votesCast++;
+                updateVoteCountsUI();
+
+                if (votesCast >= TOTAL_COMBATANTS) {
+                    clearInterval(voteInterval);
+                    
+                    let winningMode = 'FFA';
+                    let highestVotes = -1;
+                    for (let m in voteTallies) {
+                        if (voteTallies[m] > highestVotes) {
+                            highestVotes = voteTallies[m];
+                            winningMode = m;
+                        }
+                    }
+
+                    document.getElementById('voting-status-text').innerText = `WINNING MODE: ${winningMode}! ENTERING ARENA...`;
+                    setTimeout(() => {
+                        currentMode = winningMode;
+                        initGameMode();
+                        startScreen.style.display = 'none';
+                        document.body.requestPointerLock();
+                        gameStarted = true;
+                        respawnEntity(player);
+                    }, 1200);
+                }
+            }, 60);
+        }
+
+        function updateVoteCountsUI() {
+            for (let m in voteTallies) {
+                document.getElementById(`count-${m}`).innerText = `VOTES: ${voteTallies[m]}`;
+            }
+        }
+
+        function initGameMode() {
+            document.getElementById('mode-title-display').innerText = `MODE: ${getModeFullName(currentMode)}`;
+
+            if (currentMode === 'TDM' || currentMode === 'CTF') {
+                player.team = 'CYAN';
+                players.forEach((bot, idx) => {
+                    bot.team = idx % 2 === 0 ? 'CYAN' : 'PINK';
+                    const colorHex = bot.team === 'CYAN' ? 0x00ffff : 0xff007f;
+                    bot.rig.glowMat.color.setHex(colorHex);
+                });
+            } else {
+                player.team = 'NONE';
+                players.forEach(bot => {
+                    bot.team = 'NONE';
+                });
+            }
+
+            if (currentMode === 'CTF') {
+                cyanFlagObj.visible = true;
+                pinkFlagObj.visible = true;
+            } else {
+                cyanFlagObj.visible = false;
+                pinkFlagObj.visible = false;
+            }
+
+            updateModeHUD();
+        }
+
+        function getModeFullName(mKey) {
+            if (mKey === 'FFA') return 'FREE-FOR-ALL';
+            if (mKey === 'TDM') return 'TEAM DEATHMATCH';
+            if (mKey === 'CTF') return 'CAPTURE THE FLAG';
+            return 'LAST ONE STANDING';
+        }
+
+        function updateModeHUD() {
+            const statusEl = document.getElementById('mode-status-hud');
+            const scoreEl = document.getElementById('score-display');
+
+            if (currentMode === 'FFA') {
+                scoreEl.innerText = `${kills} / 60 KILLS`;
+                statusEl.innerText = `GOAL: 60 KILLS`;
+            } else if (currentMode === 'TDM') {
+                scoreEl.innerText = `TEAM SCORE`;
+                statusEl.innerText = `CYAN: ${teamCyanScore} | PINK: ${teamPinkScore} (GOAL: 100)`;
+            } else if (currentMode === 'CTF') {
+                scoreEl.innerText = `FLAG CAPTURES`;
+                statusEl.innerText = `CYAN: ${teamCyanScore} / 3 | PINK: ${teamPinkScore} / 3`;
+            } else if (currentMode === 'LOS') {
+                const survivors = [player, ...players].filter(p => p.health > 0).length;
+                scoreEl.innerText = `SURVIVORS`;
+                statusEl.innerText = `${survivors} / ${TOTAL_COMBATANTS} ALIVE`;
+            }
+        }
 
         // --- GROUND RAYCASTER & SOLID BOX3 COLLISION ENGINE ---
         const raycasterDown = new THREE.Raycaster();
@@ -808,7 +1027,7 @@
             position: new THREE.Vector3(0, 0, 0),
             velocity: new THREE.Vector3(),
             rotation: new THREE.Euler(0, 0, 0, 'YXZ'),
-            health: 100, score: 0, name: "YOU",
+            health: 100, score: 0, name: "YOU", team: 'CYAN',
             isGrounded: true, isSprinting: false, isSliding: false, isCrouching: false,
             isWallRunning: false, wallRunTimer: 0,
             slideTimer: 0, slideDir: new THREE.Vector3(),
@@ -849,7 +1068,7 @@
             const mWpn = weaponsDatabase[45 + Math.floor(Math.random() * 15)];
 
             const botObj = {
-                id, name: `BOT_${archetype}_${id}`, health: 100, score: 0,
+                id, name: `BOT_${archetype}_${id}`, health: 100, score: 0, team: 'NONE',
                 mesh: rigObj.group, rig: rigObj, velocity: new THREE.Vector3(),
                 inventory: [Object.assign({}, pWpn), Object.assign({}, sWpn), Object.assign({}, mWpn)],
                 activeSlot: 0, weapon: Object.assign({}, pWpn),
@@ -875,7 +1094,6 @@
             holder.add(mesh);
         }
 
-        // Spawn 29 Bots for 30 Total Combatants
         for (let i = 1; i < TOTAL_COMBATANTS; i++) players.push(createBot(i));
 
         // --- INPUT HANDLING ---
@@ -962,14 +1180,6 @@
         });
 
         const startScreen = document.getElementById('start-screen');
-        startScreen.addEventListener('click', () => {
-            document.body.requestPointerLock();
-            startScreen.style.display = 'none';
-            if (!gameStarted) {
-                gameStarted = true;
-                respawnEntity(player);
-            }
-        });
 
         renderer.domElement.addEventListener('click', () => {
             if (gameStarted && document.pointerLockElement !== document.body) {
@@ -1027,6 +1237,8 @@
         }
 
         function updatePlayerMovement(delta) {
+            if (currentMode === 'LOS' && player.health <= 0) return;
+
             player.isSprinting = (keys['ShiftLeft'] || keys['ShiftRight']) && !player.isCrouching;
 
             const baseSpeed = player.isSprinting ? 18 : (player.isCrouching ? 6 : 11);
@@ -1157,6 +1369,65 @@
             document.getElementById('stance-indicator').innerText = player.isWallRunning ? "STANCE: WALL-RUNNING" : (player.isSliding ? "STANCE: SLIDING" : (player.isCrouching ? "STANCE: CROUCHING" : "STANCE: STANDING"));
             document.getElementById('jetpack-fill').style.width = `${Math.max(0, player.jetpackFuel)}%`;
             document.getElementById('health-bar').style.width = `${Math.max(0, player.health)}%`;
+        }
+
+        function updateCTFMechanics() {
+            if (currentMode !== 'CTF') return;
+
+            const allEntities = [player, ...players];
+
+            // Update attached flag positions on carriers
+            if (cyanFlagCarrier) {
+                const cPos = cyanFlagCarrier === player ? player.position : cyanFlagCarrier.mesh.position;
+                cyanFlagObj.position.copy(cPos).add(new THREE.Vector3(0, 1.2, -0.5));
+            } else {
+                cyanFlagObj.position.copy(cyanBasePos);
+            }
+
+            if (pinkFlagCarrier) {
+                const pPos = pinkFlagCarrier === player ? player.position : pinkFlagCarrier.mesh.position;
+                pinkFlagObj.position.copy(pPos).add(new THREE.Vector3(0, 1.2, -0.5));
+            } else {
+                pinkFlagObj.position.copy(pinkBasePos);
+            }
+
+            // Flag Steal / Capture Triggers
+            allEntities.forEach(ent => {
+                if (ent.health <= 0) return;
+                const pos = ent === player ? player.position : ent.mesh.position;
+
+                // Pick up enemy Pink flag
+                if (ent.team === 'CYAN' && !pinkFlagCarrier && pos.distanceTo(pinkFlagObj.position) < 2.5) {
+                    pinkFlagCarrier = ent;
+                    showKillFeed(`${ent.name} STOLE THE PINK FLAG!`);
+                }
+                // Capture Pink flag at Cyan Base
+                if (ent === pinkFlagCarrier && pos.distanceTo(cyanBasePos) < 3.5) {
+                    teamCyanScore++;
+                    pinkFlagCarrier = null;
+                    showKillFeed(`CYAN TEAM CAPTURED THE PINK FLAG!`);
+                    updateModeHUD();
+                    if (teamCyanScore >= 3) {
+                        alert("CYAN TEAM VICTORY! ARENA DOMINATED!"); location.reload();
+                    }
+                }
+
+                // Pick up enemy Cyan flag
+                if (ent.team === 'PINK' && !cyanFlagCarrier && pos.distanceTo(cyanFlagObj.position) < 2.5) {
+                    cyanFlagCarrier = ent;
+                    showKillFeed(`${ent.name} STOLE THE CYAN FLAG!`);
+                }
+                // Capture Cyan flag at Pink Base
+                if (ent === cyanFlagCarrier && pos.distanceTo(pinkBasePos) < 3.5) {
+                    teamPinkScore++;
+                    cyanFlagCarrier = null;
+                    showKillFeed(`PINK TEAM CAPTURED THE CYAN FLAG!`);
+                    updateModeHUD();
+                    if (teamPinkScore >= 3) {
+                        alert("PINK TEAM VICTORY! ARENA DOMINATED!"); location.reload();
+                    }
+                }
+            });
         }
 
         function spawnBlastVisual(origin, direction, targetPoint, weapon) {
@@ -1326,7 +1597,12 @@
                 }
 
                 if (hitTarget) {
-                    damageEntity(hitTarget, wpn.damage, shooter, direction);
+                    // Check Friendly Fire in Team Modes
+                    if ((currentMode === 'TDM' || currentMode === 'CTF') && shooter.team === hitTarget.team) {
+                        // Friendly Fire Disabled
+                    } else {
+                        damageEntity(hitTarget, wpn.damage, shooter, direction);
+                    }
                 }
             }
 
@@ -1408,6 +1684,10 @@
                 attacker.score++;
                 showKillFeed(`${attacker.name} [ELIMINATED] ${target.name}`);
 
+                // Drop carried flags on death
+                if (target === cyanFlagCarrier) cyanFlagCarrier = null;
+                if (target === pinkFlagCarrier) pinkFlagCarrier = null;
+
                 const pushDir = hitDirection ? hitDirection.clone().normalize() : new THREE.Vector3(0, 0.2, -1);
                 pushDir.y = Math.max(0.2, pushDir.y);
 
@@ -1421,14 +1701,33 @@
 
                 spawnDebrisExplosion(deathPos, pushDir, target === player ? 0x00ffff : 0xff0055);
 
-                if (attacker === player) {
-                    kills++;
-                    document.getElementById('score-display').innerText = `${kills} / ${SCORE_LIMIT} KILLS`;
-                    if (kills >= SCORE_LIMIT) {
-                        alert("VICTORY! FACILITY DOMINATED!"); location.reload();
+                // Update Mode Specific Score Triggers
+                if (currentMode === 'FFA') {
+                    if (attacker === player) kills++;
+                    if (attacker.score >= 60) {
+                        alert(`${attacker.name} VICTORY! SCORE LIMIT REACHED!`); location.reload();
+                    }
+                } else if (currentMode === 'TDM') {
+                    if (attacker.team === 'CYAN') teamCyanScore++;
+                    else teamPinkScore++;
+
+                    if (teamCyanScore >= 100 || teamPinkScore >= 100) {
+                        alert(`${teamCyanScore >= 100 ? 'CYAN' : 'PINK'} TEAM VICTORY! ARENA DOMINATED!`); location.reload();
+                    }
+                } else if (currentMode === 'LOS') {
+                    if (target !== player) scene.remove(target.mesh);
+                    const survivors = [player, ...players].filter(p => p.health > 0);
+                    if (survivors.length <= 1) {
+                        const winner = survivors[0] ? survivors[0].name : "NO ONE";
+                        alert(`LAST ONE STANDING SURVIVOR: ${winner}! ARENA CLEARED!`); location.reload();
                     }
                 }
-                respawnEntity(target);
+
+                updateModeHUD();
+
+                if (currentMode !== 'LOS') {
+                    respawnEntity(target);
+                }
             }
         }
 
@@ -1485,9 +1784,13 @@
                     });
 
                     players.concat([player]).forEach(ent => {
+                        if (ent.health <= 0) return;
                         const entPos = ent === player ? player.position : ent.mesh.position;
                         const dist = entPos.distanceTo(expPos);
-                        if (dist < 9) damageEntity(ent, Math.floor((1 - dist / 9) * 95), p.owner || player, entPos.clone().sub(expPos).normalize());
+                        if (dist < 9) {
+                            if ((currentMode === 'TDM' || currentMode === 'CTF') && p.owner && p.owner.team === ent.team) return;
+                            damageEntity(ent, Math.floor((1 - dist / 9) * 95), p.owner || player, entPos.clone().sub(expPos).normalize());
+                        }
                     });
 
                     scene.remove(p.mesh); projectiles.splice(i, 1);
@@ -1495,7 +1798,7 @@
             }
         }
 
-        // --- BOT AI WITH ACTIVE PATROL & COMBAT BEHAVIOR ---
+        // --- BOT AI WITH ACTIVE PATROL & TEAM BEHAVIOR ---
         function updateBots(delta) {
             const allEntities = [player, ...players];
 
@@ -1505,7 +1808,7 @@
             });
 
             players.forEach(bot => {
-                if (bot === player) return;
+                if (bot === player || bot.health <= 0) return;
 
                 const b = bot.rig.bones;
                 bot.jumpCooldown = Math.max(0, bot.jumpCooldown - delta);
@@ -1516,9 +1819,10 @@
                 let bestTarget = null;
                 let minDist = Infinity;
 
-                // Scan all combatants for Line-of-Sight contact
+                // Scan combatants for Line-of-Sight contact
                 allEntities.forEach(ent => {
                     if (ent === bot || ent.health <= 0) return;
+                    if ((currentMode === 'TDM' || currentMode === 'CTF') && ent.team === bot.team) return;
                     
                     const entEyePos = (ent === player)
                         ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0))
@@ -1535,9 +1839,13 @@
 
                 bot.target = bestTarget;
 
-                // PATROL STATE: If no enemy is in visual range, active roaming AI takes over
+                // PATROL / CTF OBJECTIVE STATE
                 if (!bestTarget) {
-                    if (!bot.patrolTarget || bot.mesh.position.distanceTo(bot.patrolTarget) < 3.0) {
+                    if (currentMode === 'CTF') {
+                        // AI CTF Priority: Steal enemy flag or escort home base
+                        const targetFlagPos = bot.team === 'CYAN' ? pinkBasePos : cyanBasePos;
+                        bot.patrolTarget = targetFlagPos.clone();
+                    } else if (!bot.patrolTarget || bot.mesh.position.distanceTo(bot.patrolTarget) < 3.0) {
                         bot.patrolTarget = spawnPoints[Math.floor(Math.random() * spawnPoints.length)].clone();
                     }
 
@@ -1563,7 +1871,6 @@
 
                     bot.mesh.rotation.y = Math.atan2(patrolDir.x, patrolDir.z);
 
-                    // Gravity & Ground physics while patrolling
                     bot.velocity.y -= 32 * delta;
                     const propY = bot.mesh.position.y + bot.velocity.y * delta;
                     const grndY = getGroundY(bot.mesh.position);
@@ -1573,7 +1880,6 @@
                         bot.mesh.position.y = propY; bot.isGrounded = false;
                     }
 
-                    // Walking Joint Animation
                     const animTime = performance.now() * 0.012;
                     b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.6;
                     b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.6;
@@ -1748,6 +2054,7 @@
                 updateProjectiles(delta);
                 updateDebris(delta);
                 updateWorldWeapons(delta);
+                updateCTFMechanics();
                 updateLeaderboard();
             }
 
