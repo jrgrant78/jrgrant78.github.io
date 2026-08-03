@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // VISUAL & MELEE REMASTER</title>
+    <title>CYBER-STRIKE 2077 // SOLID PHYSICS REMASTER</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -135,7 +135,10 @@
         const projectiles = [];
         const interactables = [];
         const spawnPoints = [];
-        const colliders = [];
+        
+        // --- PHYSICS & COLLISION DATA STRUCTURES ---
+        const colliders = [];    // Meshes evaluated for ground/slope raycasting
+        const staticBoxes = [];  // THREE.Box3 objects evaluated for solid wall/pillar collision
         const weaponsDatabase = [];
 
         // --- SUBTYPES FOR DISTINCT LOOKS & BLAST EFFECTS ---
@@ -145,7 +148,6 @@
         };
 
         const weaponNamesPrefix = ['Neon', 'Cyber', 'Plasma', 'Quantum', 'Vortex', 'Hyper', 'Thermal', 'Arc', 'Void', 'Pulse'];
-        const weaponNamesSuffix = ['Rifle', 'Blaster', 'Saber', 'Cannon', 'Edge', 'SMG', 'Shotgun', 'Disruptor', 'Striker', 'Revolver'];
 
         function generateWeapons() {
             for (let i = 0; i < WEAPON_COUNT; i++) {
@@ -175,7 +177,6 @@
         }
         generateWeapons();
 
-        // --- ADVANCED PROCEDURAL WEAPON GEOMETRY GENERATOR ---
         function buildWeaponMesh(weapon, isViewmodel = false) {
             const group = new THREE.Group();
             const scale = isViewmodel ? 0.75 : 0.85;
@@ -202,13 +203,12 @@
                     const head = new THREE.Mesh(new THREE.BoxGeometry(0.35*scale, 0.3*scale, 0.35*scale), glowMat);
                     head.position.set(0, 0.85*scale, 0);
                     group.add(handle, head);
-                } else { // BATON / CLAWS
+                } else {
                     const core = new THREE.Mesh(new THREE.CylinderGeometry(0.05*scale, 0.03*scale, 1.0*scale), glowMat);
                     core.position.y = 0.4*scale;
                     group.add(core);
                 }
             } else {
-                // RANGED WEAPON ARCHETYPES
                 if (weapon.subType === 'SHOTGUN') {
                     const body = new THREE.Mesh(new THREE.BoxGeometry(0.18*scale, 0.2*scale, 0.5*scale), darkMat);
                     const barrel1 = new THREE.Mesh(new THREE.CylinderGeometry(0.035*scale, 0.035*scale, 0.6*scale), metallicMat);
@@ -232,7 +232,7 @@
                     topRail.position.set(0, 0.08*scale, -0.35*scale);
                     const botRail = topRail.clone(); botRail.position.y = -0.08*scale;
                     group.add(body, topRail, botRail);
-                } else { // RIFLE / SMG
+                } else {
                     const body = new THREE.Mesh(new THREE.BoxGeometry(0.1*scale, 0.15*scale, 0.55*scale), darkMat);
                     const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.025*scale, 0.025*scale, 0.5*scale), metallicMat);
                     barrel.rotation.x = Math.PI/2;
@@ -246,7 +246,7 @@
             return group;
         }
 
-        // --- PROCEDURAL ARENA WITH WALKABLE RAMPS ---
+        // --- PROCEDURAL ARENA WITH FULL SOLID COLLIDERS ---
         function generateProceduralArena() {
             const gridWidth = 4;
             const gridDepth = 4;
@@ -261,9 +261,11 @@
                     const posX = x * tileSize;
                     const posZ = z * tileSize;
 
-                    const floor = new THREE.Mesh(new THREE.BoxGeometry(tileSize, 0.5, tileSize), floorMat);
-                    floor.position.set(posX, -0.25, posZ);
-                    scene.add(floor); colliders.push(floor);
+                    // Base Floor Mesh
+                    const floor = new THREE.Mesh(new THREE.BoxGeometry(tileSize, 1.0, tileSize), floorMat);
+                    floor.position.set(posX, -0.5, posZ);
+                    scene.add(floor); 
+                    colliders.push(floor);
 
                     const gridWire = new THREE.Mesh(new THREE.PlaneGeometry(tileSize, tileSize, 2, 2), gridLineMat);
                     gridWire.rotation.x = -Math.PI / 2;
@@ -272,37 +274,59 @@
 
                     const rand = Math.random();
                     if (rand > 0.65) {
-                        const height = 6;
+                        // Solid Pillar Structure
+                        const height = 8;
                         const pillar = new THREE.Mesh(new THREE.BoxGeometry(8, height, 8), wallMat);
                         pillar.position.set(posX, height / 2, posZ);
-                        scene.add(pillar); colliders.push(pillar);
+                        scene.add(pillar);
+                        
+                        // Register Solid Box for Wall Collisions
+                        const pillarBox = new THREE.Box3().setFromObject(pillar);
+                        staticBoxes.push(pillarBox);
+                        colliders.push(pillar);
                     } else if (rand > 0.35) {
+                        // Solid Elevated Platform Block
                         const platHeight = 5;
-                        const platform = new THREE.Mesh(new THREE.BoxGeometry(16, 0.5, 16), floorMat);
+                        const platform = new THREE.Mesh(new THREE.BoxGeometry(16, 0.6, 16), floorMat);
                         platform.position.set(posX, platHeight, posZ);
-                        scene.add(platform); colliders.push(platform);
+                        scene.add(platform);
+                        colliders.push(platform);
 
+                        const platBox = new THREE.Box3().setFromObject(platform);
+                        staticBoxes.push(platBox);
+
+                        // Walkable Ramp
                         const rampLength = 12;
                         const rampAngle = Math.atan2(platHeight, rampLength);
                         const ramp = new THREE.Mesh(new THREE.BoxGeometry(5, 0.4, Math.hypot(platHeight, rampLength)), floorMat);
                         ramp.position.set(posX, platHeight / 2, posZ + rampLength / 2 + 3);
                         ramp.rotation.x = rampAngle;
-                        scene.add(ramp); colliders.push(ramp);
+                        scene.add(ramp);
+                        colliders.push(ramp);
                     }
 
-                    if (Math.random() > 0.6) {
-                        spawnPoints.push(new THREE.Vector3(posX, 1, posZ));
+                    if (Math.random() > 0.5) {
+                        // Safe spawn candidate point
+                        spawnPoints.push(new THREE.Vector3(posX, 0.5, posZ));
                     }
                 }
             }
 
+            // Boundary Walls & Registration
             const boundSize = (gridWidth + 0.5) * tileSize * 2;
-            const w1 = new THREE.Mesh(new THREE.BoxGeometry(boundSize, 30, 2), wallMat);
-            w1.position.set(0, 15, -(gridDepth + 0.5) * tileSize);
-            scene.add(w1); colliders.push(w1);
+            const createOuterWall = (x, z, w, d) => {
+                const wall = new THREE.Mesh(new THREE.BoxGeometry(w, 30, d), wallMat);
+                wall.position.set(x, 15, z);
+                scene.add(wall);
+                staticBoxes.push(new THREE.Box3().setFromObject(wall));
+                colliders.push(wall);
+            };
 
-            const w2 = w1.clone(); w2.position.z = (gridDepth + 0.5) * tileSize;
-            scene.add(w2); colliders.push(w2);
+            const edgePos = (gridDepth + 0.5) * tileSize;
+            createOuterWall(0, -edgePos, boundSize, 4);
+            createOuterWall(0, edgePos, boundSize, 4);
+            createOuterWall(-edgePos, 0, 4, boundSize);
+            createOuterWall(edgePos, 0, 4, boundSize);
 
             spawnInteractiveObjects();
         }
@@ -332,16 +356,67 @@
 
         generateProceduralArena();
 
+        // --- MULTI-RAY GROUND & SLOPE DETECTOR ---
         const raycasterDown = new THREE.Raycaster();
         const downVector = new THREE.Vector3(0, -1, 0);
 
         function getGroundY(position) {
-            raycasterDown.set(new THREE.Vector3(position.x, position.y + 2.0, position.z), downVector);
-            const hits = raycasterDown.intersectObjects(colliders, false);
-            return hits.length > 0 ? hits[0].point.y : 0;
+            let maxY = 0; // Baseline floor height
+            
+            // 5-Point Ray Sampling (Center, Front, Back, Left, Right)
+            const offsets = [
+                [0, 0], [0.3, 0], [-0.3, 0], [0, 0.3], [0, -0.3]
+            ];
+
+            for (let i = 0; i < offsets.length; i++) {
+                const ox = offsets[i][0];
+                const oz = offsets[i][1];
+                raycasterDown.set(new THREE.Vector3(position.x + ox, position.y + 1.5, position.z + oz), downVector);
+                const hits = raycasterDown.intersectObjects(colliders, false);
+
+                for (let j = 0; j < hits.length; j++) {
+                    const hit = hits[j];
+                    if (hit.face && hit.face.normal.y > 0.15) { // Ensure surface is upward-facing ground/ramp
+                        if (hit.point.y > maxY) {
+                            maxY = hit.point.y;
+                        }
+                    }
+                }
+            }
+            return maxY;
         }
 
-        // --- RIGGED CHARACTER MODEL WITH MELEE CAPABLE ARMS ---
+        // --- SOLID WALL & CEILING COLLISION ENGINE ---
+        function checkWallCollision(pos, radius = 0.45, height = EYE_HEIGHT_STAND) {
+            const footOffset = 0.2; // Allows stepping onto small edges/ramps
+            const playerBox = new THREE.Box3(
+                new THREE.Vector3(pos.x - radius, pos.y + footOffset, pos.z - radius),
+                new THREE.Vector3(pos.x + radius, pos.y + height, pos.z + radius)
+            );
+
+            for (let i = 0; i < staticBoxes.length; i++) {
+                if (playerBox.intersectsBox(staticBoxes[i])) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function checkCeilingCollision(pos, radius = 0.45, height = EYE_HEIGHT_STAND) {
+            const headBox = new THREE.Box3(
+                new THREE.Vector3(pos.x - radius, pos.y + height - 0.1, pos.z - radius),
+                new THREE.Vector3(pos.x + radius, pos.y + height + 0.2, pos.z + radius)
+            );
+
+            for (let i = 0; i < staticBoxes.length; i++) {
+                if (headBox.intersectsBox(staticBoxes[i])) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // --- RIGGED CHARACTER MODEL WITH ANIMATIONS ---
         function createSkeletalCharacterModel(colorHex = 0xff007f) {
             const character = new THREE.Group();
             const mat = new THREE.MeshStandardMaterial({ color: 0x111118, roughness: 0.4 });
@@ -390,7 +465,7 @@
 
         // --- PLAYER CONTROLLER STATE ---
         const player = {
-            position: new THREE.Vector3(0, 0, 0),
+            position: new THREE.Vector3(0, 1, 0),
             velocity: new THREE.Vector3(),
             rotation: new THREE.Euler(0, 0, 0, 'YXZ'),
             health: 100, score: 0, name: "YOU",
@@ -507,7 +582,7 @@
             document.getElementById('ammo-display').innerText = currentWpn.category === 'MELEE' ? '∞ / ∞' : `${currentWpn.ammo} / ${currentWpn.ammoMax}`;
         }
 
-        // --- PLAYER PHYSICS & ANIMATIONS ENGINE ---
+        // --- PLAYER MOVEMENT & COLLISION ENGINE ---
         function updatePlayerMovement(delta) {
             player.isSprinting = keys['ShiftLeft'] && !player.isCrouching;
             if (player.isSprinting) player.isCrouching = false;
@@ -534,9 +609,30 @@
                 player.velocity.z = moveVector.z * baseSpeed;
             }
 
+            // --- AXIS SEPARATED SOLID WALL COLLISION RESOLUTION ---
+            const oldX = player.position.x;
+            player.position.x += player.velocity.x * delta;
+            if (checkWallCollision(player.position, 0.45, player.currentEyeHeight)) {
+                player.position.x = oldX; // Revert X displacement on wall contact
+                player.velocity.x = 0;
+            }
+
+            const oldZ = player.position.z;
+            player.position.z += player.velocity.z * delta;
+            if (checkWallCollision(player.position, 0.45, player.currentEyeHeight)) {
+                player.position.z = oldZ; // Revert Z displacement on wall contact
+                player.velocity.z = 0;
+            }
+
+            // Ceiling Collision Check
+            if (player.velocity.y > 0 && checkCeilingCollision(player.position, 0.45, player.currentEyeHeight)) {
+                player.velocity.y = 0;
+            }
+
+            // --- GROUND RAYCASTING & GRAVITY ---
             const groundY = getGroundY(player.position);
             player.velocity.y -= 32 * delta;
-            player.position.addScaledVector(player.velocity, delta);
+            player.position.y += player.velocity.y * delta;
 
             if (player.position.y <= groundY) {
                 player.position.y = groundY;
@@ -545,6 +641,13 @@
                 player.canDoubleJump = true;
             } else {
                 player.isGrounded = false;
+            }
+
+            // Hard Safety Baseline Cap
+            if (player.position.y < 0) {
+                player.position.y = 0;
+                player.velocity.y = 0;
+                player.isGrounded = true;
             }
 
             if (keys['Space']) {
@@ -567,18 +670,16 @@
             camera.position.y = player.position.y + player.currentEyeHeight;
             camera.rotation.copy(player.rotation);
 
-            // --- VIEWMODEL & FULL-MOTION MELEE SWING ANIMATIONS ---
+            // Viewmodel & Melee Animations
             if (player.meleeSwingProgress > 0) {
-                player.meleeSwingProgress -= delta * 3.5; // Swing speed
+                player.meleeSwingProgress -= delta * 3.5;
                 const p = 1.0 - Math.max(0, player.meleeSwingProgress);
-                // Curvilinear Slash Trajectory Across Screen
                 viewmodelGroup.position.x = 0.35 - Math.sin(p * Math.PI) * 0.8;
                 viewmodelGroup.position.y = -0.35 + Math.sin(p * Math.PI) * 0.4;
                 viewmodelGroup.position.z = -0.55 - Math.cos(p * Math.PI) * 0.3;
                 viewmodelGroup.rotation.z = -Math.sin(p * Math.PI) * 2.2;
                 viewmodelGroup.rotation.x = Math.cos(p * Math.PI) * 1.5;
             } else {
-                // Ranged Recoil Recovery
                 player.recoilAmount = THREE.MathUtils.lerp(player.recoilAmount, 0, delta * 10);
                 viewmodelGroup.position.set(0.35, -0.35, -0.55 + player.recoilAmount * 0.15);
                 viewmodelGroup.rotation.set(player.recoilAmount * 0.2, 0, 0);
@@ -594,10 +695,9 @@
             document.getElementById('health-bar').style.width = `${Math.max(0, player.health)}%`;
         }
 
-        // --- DISTINCT FIRING & BLAST VISUALS SYSTEM ---
+        // --- BLAST VISUALS SYSTEM ---
         function spawnBlastVisual(origin, direction, targetPoint, weapon) {
             if (weapon.category === 'MELEE') {
-                // Full Energy Slash Wave Visual
                 const arcGeom = new THREE.RingGeometry(0.8, 1.3, 16, 1, 0, Math.PI * 0.8);
                 const arcMat = new THREE.MeshBasicMaterial({ color: weapon.color, side: THREE.DoubleSide, transparent: true, opacity: 0.9 });
                 const arcMesh = new THREE.Mesh(arcGeom, arcMat);
@@ -613,7 +713,6 @@
                     if (opacity <= 0) { scene.remove(arcMesh); clearInterval(fadeInterval); }
                 }, 30);
             } else if (weapon.subType === 'SHOTGUN') {
-                // Multi-Pellet Scatter Cones
                 for (let i = 0; i < 8; i++) {
                     const spreadDir = direction.clone().add(new THREE.Vector3(
                         (Math.random()-0.5)*0.15, (Math.random()-0.5)*0.15, (Math.random()-0.5)*0.15
@@ -627,7 +726,6 @@
                     setTimeout(() => scene.remove(tracer), 40);
                 }
             } else if (weapon.subType === 'PLASMA') {
-                // Flying Plasma Energy Bolt Ball
                 const plasmaMesh = new THREE.Mesh(new THREE.SphereGeometry(0.35), new THREE.MeshBasicMaterial({ color: weapon.color }));
                 plasmaMesh.position.copy(origin);
                 scene.add(plasmaMesh);
@@ -642,7 +740,6 @@
                 };
                 step();
             } else if (weapon.subType === 'RAILGUN') {
-                // Heavy Beam Core + Expanding Shockwave Ring
                 const tracerGeom = new THREE.BufferGeometry().setFromPoints([origin, targetPoint]);
                 const tracer = new THREE.Line(tracerGeom, new THREE.LineBasicMaterial({ color: weapon.color, linewidth: 5 }));
                 scene.add(tracer);
@@ -655,7 +752,6 @@
 
                 setTimeout(() => { scene.remove(tracer); scene.remove(ring); }, 80);
             } else {
-                // Standard Rifle/SMG High Velocity Tracer & Muzzle Flash
                 const tracerGeom = new THREE.BufferGeometry().setFromPoints([
                     origin.clone().add(new THREE.Vector3(0, -0.1, 0)), targetPoint
                 ]);
@@ -665,7 +761,7 @@
             }
         }
 
-        // --- WEAPON FIRING CONTROLLER ---
+        // --- WEAPON FIRING ---
         function fireActiveWeapon(shooter, direction) {
             const now = Date.now();
             const wpn = shooter === player ? player.inventory[player.activeSlot] : shooter.weapon;
@@ -681,7 +777,7 @@
                 if (wpn.category !== 'MELEE') {
                     wpn.ammo--; player.recoilAmount = 1.0; updateAmmoHUD();
                 } else {
-                    player.meleeSwingProgress = 1.0; // Trigger Full Arc Swing
+                    player.meleeSwingProgress = 1.0;
                 }
             } else {
                 if (wpn.category === 'MELEE') shooter.mesh.userData.meleeSwingTimer = 1.0;
@@ -696,10 +792,8 @@
             const hits = raycaster.intersectObjects(scene.children, true);
             const targetPoint = hits.length > 0 ? hits[0].point : origin.clone().addScaledVector(direction, wpn.range);
 
-            // Spawn Distinct Blast & Effect Graphics
             spawnBlastVisual(origin, direction, targetPoint, wpn);
 
-            // Damage Evaluation
             players.concat([player]).forEach(target => {
                 if (target === shooter) return;
                 let hit = false;
@@ -776,15 +870,13 @@
             }
         }
 
-        // --- BOT AI & FULL MELEE MOTION ENGINE ---
+        // --- BOT AI & COLLISION ENFORCEMENT ---
         function updateBots(delta) {
             players.forEach(bot => {
                 if (bot === player) return;
 
                 const ud = bot.mesh.userData;
                 const playerEyePos = player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0));
-
-                bot.mesh.position.y = getGroundY(bot.mesh.position);
 
                 const distToPlayer = bot.mesh.position.distanceTo(player.position);
                 const dirToPlayer = new THREE.Vector3().subVectors(playerEyePos, bot.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0))).normalize();
@@ -793,11 +885,27 @@
                 if (distToPlayer > (bot.weapon.category === 'MELEE' ? 2.5 : 6.0)) {
                     isMoving = true;
                     const moveDir = new THREE.Vector3(dirToPlayer.x, 0, dirToPlayer.z).normalize();
-                    bot.mesh.position.addScaledVector(moveDir, 7.5 * delta);
+                    
+                    // Bot Wall Collision Checks (Separated Axes)
+                    const oldBotX = bot.mesh.position.x;
+                    bot.mesh.position.x += moveDir.x * 7.5 * delta;
+                    if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
+                        bot.mesh.position.x = oldBotX;
+                    }
+
+                    const oldBotZ = bot.mesh.position.z;
+                    bot.mesh.position.z += moveDir.z * 7.5 * delta;
+                    if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
+                        bot.mesh.position.z = oldBotZ;
+                    }
+
                     bot.mesh.rotation.y = Math.atan2(moveDir.x, moveDir.z);
                 } else {
                     bot.mesh.rotation.y = Math.atan2(dirToPlayer.x, dirToPlayer.z);
                 }
+
+                // Snap Bot Feet to Floor/Ramp Slope
+                bot.mesh.position.y = Math.max(0, getGroundY(bot.mesh.position));
 
                 if (isMoving) {
                     ud.animTimer += delta * 10;
@@ -809,11 +917,10 @@
                     ud.rightLegPivot.rotation.x = THREE.MathUtils.lerp(ud.rightLegPivot.rotation.x, 0, delta * 8);
                 }
 
-                // --- BOT MELEE SLASH SWING vs RANGED AIM ANIMATIONS ---
+                // Bot Melee Swing vs Aim Animation
                 if (ud.meleeSwingTimer > 0) {
                     ud.meleeSwingTimer -= delta * 3.0;
                     const swingProg = 1.0 - Math.max(0, ud.meleeSwingTimer);
-                    // Full Right Arm Slash Across Body
                     ud.rightArmPivot.rotation.x = -Math.PI / 2 + Math.sin(swingProg * Math.PI) * 1.5;
                     ud.rightArmPivot.rotation.y = -Math.sin(swingProg * Math.PI) * 1.2;
                 } else {
