@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // ADVANCED FFA ARENA</title>
+    <title>CYBER-STRIKE 2077 // 3-FLOOR FACILITY</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -52,15 +52,16 @@
         #grenade-display { font-size: 12px; color: #ff007f; margin-top: 6px; font-weight: bold; }
         #test-indicator { font-size: 11px; color: #00ffff; margin-top: 4px; font-weight: bold; }
     </style>
+    <!-- Three.js CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
 
     <div id="start-screen">
         <h1>CYBER-STRIKE 2077</h1>
-        <p>[ CLICK TO ENTER FACILITY ]</p>
+        <p>[ CLICK TO ENTER 3-FLOOR FACILITY ]</p>
         <p style="font-size: 12px; margin-top: 20px; color: #aaa;">
-            WASD: Move | SHIFT: Run (Cancels Crouch/Slide) | C: Slide / Crouch | SPACE: Jump/Jetpack | G: Grenade | Left Click: Fire (Hold) | 1-3 / Wheel: Switch Weapon
+            WASD: Move | SHIFT: Run | C: Slide / Crouch | SPACE: Jump / Double-Jump / Jetpack / Wall-Run | G: Grenade | Left Click: Hold to Fire | 1-3 / Wheel: Switch Weapon
         </p>
     </div>
 
@@ -72,7 +73,7 @@
             <div class="hud-panel">
                 <div>SCORE LIMIT: 60</div>
                 <div id="score-display" style="font-size: 20px; font-weight: bold; color: #ff007f;">0 / 60 KILLS</div>
-                <div id="test-indicator">MODE: FULL FREE-FOR-ALL COMBAT</div>
+                <div id="test-indicator">MODE: 3-FLOOR COMPLEX FACILITY</div>
             </div>
             <div class="hud-panel" id="leaderboard">
                 <div style="text-decoration: underline; margin-bottom: 4px;">FACILITY COMBATANTS</div>
@@ -102,17 +103,18 @@
 
     <script>
         // --- CONFIG & TOGGLES ---
-        const BOTS_CAN_FIRE = true; // Set to true for full combat
+        const BOTS_CAN_FIRE = true;
         const SCORE_LIMIT = 60;
         const TOTAL_COMBATANTS = 10;
         const WEAPON_COUNT = 60;
         const EYE_HEIGHT_STAND = 1.8;
         const EYE_HEIGHT_CROUCH = 0.9;
         const SLIDE_DURATION = 0.75;
+        const WALL_RUN_MAX_TIME = 3.5; // Extended wall-run duration
 
         // --- THREE.JS SETUP ---
         const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x05050d, 0.010);
+        scene.fog = new THREE.FogExp2(0x05050d, 0.008);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         scene.add(camera);
@@ -123,11 +125,11 @@
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         document.body.appendChild(renderer.domElement);
 
-        const ambientLight = new THREE.AmbientLight(0x332244, 1.6);
+        const ambientLight = new THREE.AmbientLight(0x221133, 1.2);
         scene.add(ambientLight);
 
-        const dirLight = new THREE.DirectionalLight(0x00ffff, 0.9);
-        dirLight.position.set(30, 60, 30);
+        const dirLight = new THREE.DirectionalLight(0x00ffff, 0.6);
+        dirLight.position.set(40, 80, 40);
         scene.add(dirLight);
 
         // --- FIRST PERSON VIEWMODEL HOLDER ---
@@ -142,6 +144,9 @@
         const projectiles = [];
         const worldWeaponSpawns = [];
         const spawnPoints = [];
+        const glassPanels = []; // Breakable glass windows
+        const slidingDoors = []; // Interactive proximity doors
+        const elevatorCars = []; // Moving elevators
         
         const colliders = [];    
         const staticBoxes = [];  
@@ -154,7 +159,6 @@
         };
         const weaponNamesPrefix = ['Neon', 'Cyber', 'Plasma', 'Quantum', 'Vortex', 'Hyper', 'Thermal', 'Arc', 'Void', 'Pulse'];
 
-        // --- STARTING LOADOUT ---
         const defaultAssaultRifle = {
             id: 1000, name: 'Cyber Assault Rifle', category: 'PRIMARY', subType: 'RIFLE',
             damage: 22, fireRate: 110, ammoMax: 30, ammo: 30, color: 0x00ffff, range: 200
@@ -255,133 +259,219 @@
             return group;
         }
 
-        // --- COMPLEX MULTI-FLOOR FACILITY GENERATOR ---
+        // --- 3-FLOOR FACILITY ARENA GENERATOR ---
         function generateFacilityArena() {
             const floorMat = new THREE.MeshStandardMaterial({ color: 0x080812, roughness: 0.8, metalness: 0.3 });
             const wallMat = new THREE.MeshStandardMaterial({ color: 0x141428, roughness: 0.4, metalness: 0.6 });
-            const glassMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.25 });
+            const glassMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.35 });
+            const doorMat = new THREE.MeshStandardMaterial({ color: 0x223344, roughness: 0.2, metalness: 0.8 });
             const neonBlueMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+            const neonRedMat = new THREE.MeshBasicMaterial({ color: 0xff0055 });
             const neonYellowMat = new THREE.MeshBasicMaterial({ color: 0xffe600 });
 
-            const facilitySize = 100;
-            const floorHeight = 7.0;
-            const floors = [0, floorHeight];
+            const facilitySize = 150;
+            const floorHeight = 8.0;
+            const floors = [0, floorHeight, floorHeight * 2]; // Y = 0, 8, 16
 
+            // Add Dynamic Point Lights to Facility Rooms & Corridors
+            const addRoomLight = (x, y, z, colorHex, intensity = 2.0) => {
+                const light = new THREE.PointLight(colorHex, intensity, 25);
+                light.position.set(x, y + 5.0, z);
+                scene.add(light);
+            };
+
+            // Build Floor Slabs with Shaft Cutouts
             floors.forEach((fY, fIdx) => {
                 const mainFloor = new THREE.Mesh(new THREE.BoxGeometry(facilitySize, 1.0, facilitySize), floorMat);
                 mainFloor.position.set(0, fY - 0.5, 0);
                 scene.add(mainFloor);
                 colliders.push(mainFloor);
 
-                const gridWire = new THREE.Mesh(new THREE.PlaneGeometry(facilitySize, facilitySize, 10, 10), new THREE.MeshBasicMaterial({ color: fIdx === 0 ? 0x00ffff : 0xff007f, wireframe: true }));
+                const gridWire = new THREE.Mesh(new THREE.PlaneGeometry(facilitySize, facilitySize, 12, 12), 
+                    new THREE.MeshBasicMaterial({ color: fIdx === 0 ? 0x00ffff : (fIdx === 1 ? 0xff007f : 0xffe600), wireframe: true }));
                 gridWire.rotation.x = -Math.PI / 2;
                 gridWire.position.set(0, fY + 0.02, 0);
                 scene.add(gridWire);
             });
 
-            const createWall = (x, y, z, w, h, d, mat = wallMat) => {
+            // Outer Perimeter Walls
+            const createStaticWall = (x, y, z, w, h, d, mat = wallMat) => {
                 const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
                 wall.position.set(x, y, z);
                 scene.add(wall);
-                staticBoxes.push(new THREE.Box3().setFromObject(wall));
+                const bObj = { box: new THREE.Box3().setFromObject(wall), active: true };
+                staticBoxes.push(bObj);
                 colliders.push(wall);
-                return wall;
+                return bObj;
             };
 
             const half = facilitySize / 2;
-            const totalH = floorHeight * 2 + 2;
-            createWall(0, totalH/2, -half, facilitySize, totalH, 2);
-            createWall(0, totalH/2, half, facilitySize, totalH, 2);
-            createWall(-half, totalH/2, 0, 2, totalH, facilitySize);
-            createWall(half, totalH/2, 0, 2, totalH, facilitySize);
+            const totalH = floorHeight * 3 + 2;
+            createStaticWall(0, totalH/2, -half, facilitySize, totalH, 2);
+            createStaticWall(0, totalH/2, half, facilitySize, totalH, 2);
+            createStaticWall(-half, totalH/2, 0, 2, totalH, facilitySize);
+            createStaticWall(half, totalH/2, 0, 2, totalH, facilitySize);
 
+            // Door Generator
+            const createDoor = (x, y, z, width = 6.0, isX = true) => {
+                const doorGroup = new THREE.Group();
+                doorGroup.position.set(x, y + 3.0, z);
+
+                const doorPanel = new THREE.Mesh(new THREE.BoxGeometry(isX ? width : 0.4, 6.0, isX ? 0.4 : width), doorMat);
+                const strip = new THREE.Mesh(new THREE.BoxGeometry(isX ? width : 0.42, 0.15, isX ? 0.42 : width), neonBlueMat);
+                strip.position.y = 0.5;
+                doorGroup.add(doorPanel, strip);
+                scene.add(doorGroup);
+
+                const bObj = { box: new THREE.Box3().setFromObject(doorPanel), active: true };
+                staticBoxes.push(bObj);
+
+                slidingDoors.push({
+                    group: doorGroup,
+                    panel: doorPanel,
+                    boxObj: bObj,
+                    basePos: doorGroup.position.clone(),
+                    isOpen: false,
+                    isX: isX,
+                    width: width,
+                    slideProgress: 0.0
+                });
+            };
+
+            // Breakable Glass Window Generator
+            const createBreakableGlass = (x, y, z, w = 8.0, h = 4.0, d = 0.3) => {
+                const glassMesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), glassMat);
+                glassMesh.position.set(x, y + h/2, z);
+                
+                // Neon Frame
+                const frame = new THREE.Mesh(new THREE.BoxGeometry(w + 0.2, 0.2, d + 0.1), neonBlueMat);
+                frame.position.set(x, y + h + 0.1, z);
+                scene.add(glassMesh, frame);
+
+                const bObj = { box: new THREE.Box3().setFromObject(glassMesh), active: true };
+                staticBoxes.push(bObj);
+
+                glassPanels.push({
+                    mesh: glassMesh,
+                    frame: frame,
+                    boxObj: bObj,
+                    health: 1,
+                    isBroken: false
+                });
+            };
+
+            // Room Props Generator
             const buildRoomProps = (roomType, cX, cY, cZ) => {
                 if (roomType === 'COMPUTER_LAB') {
-                    for (let i = -6; i <= 6; i += 4) {
-                        const rack = new THREE.Mesh(new THREE.BoxGeometry(1.5, 4.0, 1.5), wallMat);
-                        rack.position.set(cX + i, cY + 2.0, cZ - 4);
+                    addRoomLight(cX, cY, cZ, 0x00ffff, 2.5);
+                    for (let i = -8; i <= 8; i += 4) {
+                        const rack = new THREE.Mesh(new THREE.BoxGeometry(1.5, 5.0, 1.5), wallMat);
+                        rack.position.set(cX + i, cY + 2.5, cZ - 6);
                         const glowStrip = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.1, 1.52), neonBlueMat);
-                        glowStrip.position.set(cX + i, cY + 3.2, cZ - 4);
+                        glowStrip.position.set(cX + i, cY + 4.2, cZ - 6);
                         scene.add(rack, glowStrip);
-                        staticBoxes.push(new THREE.Box3().setFromObject(rack));
+                        staticBoxes.push({ box: new THREE.Box3().setFromObject(rack), active: true });
                     }
                 } else if (roomType === 'MEDIC_BAY') {
-                    for (let i = -5; i <= 5; i += 5) {
+                    addRoomLight(cX, cY, cZ, 0xff007f, 2.5);
+                    for (let i = -6; i <= 6; i += 6) {
                         const bed = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.8, 4.0), wallMat);
                         bed.position.set(cX + i, cY + 0.4, cZ);
-                        const screen = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.2, 0.1), glassMat);
-                        screen.position.set(cX + i, cY + 1.4, cZ - 1.8);
-                        scene.add(bed, screen);
-                        staticBoxes.push(new THREE.Box3().setFromObject(bed));
+                        scene.add(bed);
+                        staticBoxes.push({ box: new THREE.Box3().setFromObject(bed), active: true });
                     }
                 } else if (roomType === 'BRIEFING_ROOM') {
-                    const table = new THREE.Mesh(new THREE.CylinderGeometry(3.0, 3.0, 1.0, 12), wallMat);
+                    addRoomLight(cX, cY, cZ, 0xffe600, 2.5);
+                    const table = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 3.5, 1.0, 12), wallMat);
                     table.position.set(cX, cY + 0.5, cZ);
-                    const holoCore = new THREE.Mesh(new THREE.ConeGeometry(2.5, 3.0, 12, 1, true), glassMat);
-                    holoCore.position.set(cX, cY + 2.5, cZ);
-                    scene.add(table, holoCore);
-                    staticBoxes.push(new THREE.Box3().setFromObject(table));
-                } else if (roomType === 'HOLDING_CELLS') {
-                    const glassWall = new THREE.Mesh(new THREE.BoxGeometry(12, 5.0, 0.3), glassMat);
-                    glassWall.position.set(cX, cY + 2.5, cZ);
-                    scene.add(glassWall);
-                    staticBoxes.push(new THREE.Box3().setFromObject(glassWall));
+                    scene.add(table);
+                    staticBoxes.push({ box: new THREE.Box3().setFromObject(table), active: true });
                 } else if (roomType === 'ARMORY') {
-                    const rack = new THREE.Mesh(new THREE.BoxGeometry(8.0, 3.5, 0.8), wallMat);
-                    rack.position.set(cX, cY + 1.75, cZ - 5);
+                    addRoomLight(cX, cY, cZ, 0x00ffaa, 2.5);
+                    const rack = new THREE.Mesh(new THREE.BoxGeometry(10.0, 4.0, 0.8), wallMat);
+                    rack.position.set(cX, cY + 2.0, cZ - 6);
                     scene.add(rack);
-                    staticBoxes.push(new THREE.Box3().setFromObject(rack));
-                } else if (roomType === 'AIR_FILTRATION') {
-                    const fan = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.5, 5.0, 16), wallMat);
-                    fan.position.set(cX, cY + 2.5, cZ);
-                    scene.add(fan);
-                    staticBoxes.push(new THREE.Box3().setFromObject(fan));
+                    staticBoxes.push({ box: new THREE.Box3().setFromObject(rack), active: true });
                 }
             };
 
-            const roomLayout = [
-                { type: 'COMPUTER_LAB', x: -25, y: 0, z: -25 },
-                { type: 'MEDIC_BAY', x: 25, y: 0, z: -25 },
-                { type: 'BRIEFING_ROOM', x: -25, y: 0, z: 25 },
-                { type: 'HOLDING_CELLS', x: 25, y: 0, z: 25 },
-                { type: 'ARMORY', x: -25, y: floorHeight, z: -25 },
-                { type: 'AIR_FILTRATION', x: 25, y: floorHeight, z: -25 },
-                { type: 'COMPUTER_LAB', x: -25, y: floorHeight, z: 25 },
-                { type: 'MEDIC_BAY', x: 25, y: floorHeight, z: 25 },
-            ];
+            // Generate Room Layout across ALL 3 FLOORS
+            floors.forEach((fY, fIdx) => {
+                const roomGrid = [
+                    { type: 'COMPUTER_LAB', x: -40, z: -40 },
+                    { type: 'MEDIC_BAY', x: 40, z: -40 },
+                    { type: 'BRIEFING_ROOM', x: -40, z: 40 },
+                    { type: 'ARMORY', x: 40, z: 40 }
+                ];
 
-            roomLayout.forEach(r => {
-                createWall(r.x, r.y + 3.0, r.z - 12, 24, 6.0, 1);
-                createWall(r.x - 12, r.y + 3.0, r.z, 1, 6.0, 24);
-                buildRoomProps(r.type, r.x, r.y, r.z);
-                spawnPoints.push(new THREE.Vector3(r.x + (Math.random()-0.5)*8, r.y + 0.1, r.z + (Math.random()-0.5)*8));
+                roomGrid.forEach(r => {
+                    // Interior Dividers
+                    createStaticWall(r.x, fY + 3.5, r.z - 15, 30, 7.0, 1);
+                    createStaticWall(r.x - 15, fY + 3.5, r.z, 1, 7.0, 30);
+                    
+                    // Sliding Security Doors at Entrances
+                    createDoor(r.x, fY, r.z - 15, 6.0, true);
+                    
+                    // Breakable Glass Windows in Partition Walls
+                    createBreakableGlass(r.x + 8, fY, r.z - 15, 8.0, 4.0, 0.3);
+
+                    buildRoomProps(r.type, r.x, fY, r.z);
+
+                    // Add Spawn Points per Floor & Room
+                    spawnPoints.push(new THREE.Vector3(r.x + (Math.random()-0.5)*12, fY + 0.1, r.z + (Math.random()-0.5)*12));
+                });
             });
 
-            // Stairwell Ramps
-            const createStairwell = (x, z) => {
-                const rampLen = 14;
-                const rampAngle = Math.atan2(floorHeight, rampLen);
-                const ramp = new THREE.Mesh(new THREE.BoxGeometry(6, 0.5, Math.hypot(floorHeight, rampLen)), floorMat);
-                ramp.position.set(x, floorHeight / 2, z);
-                ramp.rotation.x = rampAngle;
-                scene.add(ramp);
-                colliders.push(ramp);
-            };
-            createStairwell(0, -15);
-            createStairwell(0, 15);
+            // --- FUNCTIONING MULTI-FLOOR ELEVATOR CAR SHAFTS ---
+            const createElevatorShaft = (x, z) => {
+                // Outer Shaft Enclosure
+                for (let f = 0; f < 3; f++) {
+                    const fY = floors[f];
+                    createStaticWall(x - 4, fY + 3.5, z, 1, 7.0, 8);
+                    createStaticWall(x + 4, fY + 3.5, z, 1, 7.0, 8);
+                    createStaticWall(x, fY + 3.5, z - 4, 8, 7.0, 1);
+                }
 
-            // Power Elevators (Vertical Lift Pads)
-            const createElevatorPad = (x, z) => {
-                const pad = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.5, 0.4, 16), neonYellowMat);
-                pad.position.set(x, 0.2, z);
-                scene.add(pad);
-                const topFrame = new THREE.Mesh(new THREE.TorusGeometry(2.6, 0.15, 8, 16), neonYellowMat);
-                topFrame.position.set(x, floorHeight + 0.2, z);
-                topFrame.rotation.x = Math.PI / 2;
-                scene.add(topFrame);
+                // Elevator Car Platform
+                const carMesh = new THREE.Mesh(new THREE.BoxGeometry(7.0, 0.5, 7.0), doorMat);
+                const carTrim = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.1, 7.2), neonYellowMat);
+                carMesh.add(carTrim);
+                carMesh.position.set(x, 0.25, z);
+                scene.add(carMesh);
+                colliders.push(carMesh);
+
+                elevatorCars.push({
+                    mesh: carMesh,
+                    x: x, z: z,
+                    targetFloorIdx: 0,
+                    currentY: 0.25,
+                    waitTimer: 2.0
+                });
+
+                addRoomLight(x, floorHeight, z, 0xffe600, 3.0);
             };
-            createElevatorPad(-38, 0);
-            createElevatorPad(38, 0);
+
+            createElevatorShaft(-60, 0);
+            createElevatorShaft(60, 0);
+
+            // --- MULTI-TURN STAIRWELLS ---
+            const createStairwell = (x, z) => {
+                for (let f = 0; f < 2; f++) {
+                    const fY = floors[f];
+                    const rampLen = 14;
+                    const rampAngle = Math.atan2(floorHeight, rampLen);
+                    
+                    const ramp1 = new THREE.Mesh(new THREE.BoxGeometry(6, 0.5, Math.hypot(floorHeight, rampLen)), floorMat);
+                    ramp1.position.set(x, fY + floorHeight / 2, z);
+                    ramp1.rotation.x = rampAngle;
+                    scene.add(ramp1);
+                    colliders.push(ramp1);
+                }
+                addRoomLight(x, floorHeight, z, 0x00ffff, 2.0);
+            };
+
+            createStairwell(0, -35);
+            createStairwell(0, 35);
 
             spawnWorldWeapons();
         }
@@ -449,9 +539,51 @@
             setTimeout(() => el.style.display = 'none', 2000);
         }
 
+        // --- UPDATE ELEVATORS & SLIDING DOORS ENGINE ---
+        function updateFacilityMechanics(delta) {
+            // 1. Interactive Sliding Doors Proximity
+            const allEntities = [player, ...players];
+            slidingDoors.forEach(d => {
+                let nearby = false;
+                allEntities.forEach(ent => {
+                    const pos = ent === player ? player.position : ent.mesh.position;
+                    if (pos.distanceTo(d.basePos) < 5.5) nearby = true;
+                });
+
+                if (nearby) {
+                    d.slideProgress = Math.min(1.0, d.slideProgress + delta * 3.0);
+                } else {
+                    d.slideProgress = Math.max(0.0, d.slideProgress - delta * 3.0);
+                }
+
+                // Slide Door open sideways
+                d.panel.position.x = d.isX ? d.width * d.slideProgress : 0;
+                d.panel.position.z = !d.isX ? d.width * d.slideProgress : 0;
+
+                // Deactivate Door Collider Box when open!
+                d.boxObj.active = d.slideProgress < 0.5;
+            });
+
+            // 2. Elevator Shaft Movement Engine
+            const floorsY = [0.25, 8.25, 16.25];
+            elevatorCars.forEach(e => {
+                e.waitTimer -= delta;
+                if (e.waitTimer <= 0) {
+                    const targetY = floorsY[e.targetFloorIdx];
+                    if (Math.abs(e.mesh.position.y - targetY) > 0.1) {
+                        e.mesh.position.y += Math.sign(targetY - e.mesh.position.y) * delta * 6.0;
+                    } else {
+                        e.mesh.position.y = targetY;
+                        e.waitTimer = 3.5; // Pause at floor
+                        e.targetFloorIdx = (e.targetFloorIdx + 1) % 3;
+                    }
+                }
+            });
+        }
+
         generateFacilityArena();
 
-        // --- GROUND RAYCASTER & SOLID WALL COLLISION ENGINE ---
+        // --- BULLETPROOF GROUND & WALL COLLISION ENGINE ---
         const raycasterDown = new THREE.Raycaster();
         const downVector = new THREE.Vector3(0, -1, 0);
 
@@ -478,7 +610,7 @@
             );
 
             for (let i = 0; i < staticBoxes.length; i++) {
-                if (playerBox.intersectsBox(staticBoxes[i])) return true;
+                if (staticBoxes[i].active && playerBox.intersectsBox(staticBoxes[i].box)) return true;
             }
             return false;
         }
@@ -490,7 +622,7 @@
             );
 
             for (let i = 0; i < staticBoxes.length; i++) {
-                if (headBox.intersectsBox(staticBoxes[i])) return true;
+                if (staticBoxes[i].active && headBox.intersectsBox(staticBoxes[i].box)) return true;
             }
             return false;
         }
@@ -534,18 +666,6 @@
             }
             character.add(headGroup);
 
-            if (archetype === 'HEAVY_JUGGER') {
-                const shoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, 0.35), armorMat);
-                shoulderL.position.set(0.65, 1.6 * scaleY, 0);
-                const shoulderR = shoulderL.clone(); shoulderR.position.x = -0.65;
-                character.add(shoulderL, shoulderR);
-            } else if (archetype === 'ASSASSIN_SPECTRE') {
-                const wingL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.8, 0.3), glowMat);
-                wingL.position.set(0.3, 1.6 * scaleY, 0.25); wingL.rotation.z = -0.4;
-                const wingR = wingL.clone(); wingR.position.x = -0.3; wingR.rotation.z = 0.4;
-                character.add(wingL, wingR);
-            }
-
             const leftLegPivot = new THREE.Group(); leftLegPivot.position.set(0.2 * scaleX, 0.9 * scaleY, 0);
             const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.22 * scaleX, 0.9 * scaleY, 0.22 * scaleZ), mat); leftLeg.position.y = -0.45 * scaleY;
             leftLegPivot.add(leftLeg); character.add(leftLegPivot);
@@ -582,6 +702,7 @@
             rotation: new THREE.Euler(0, 0, 0, 'YXZ'),
             health: 100, score: 0, name: "YOU",
             isGrounded: true, isSprinting: false, isSliding: false, isCrouching: false,
+            isWallRunning: false, wallRunTimer: 0,
             slideTimer: 0, slideDir: new THREE.Vector3(),
             canDoubleJump: true, jetpackFuel: 100, currentEyeHeight: EYE_HEIGHT_STAND,
             activeSlot: 0,
@@ -602,7 +723,7 @@
         }
         updatePlayerViewmodel();
 
-        // --- BOTS MANAGEMENT WITH FULL STATE ENGINE ---
+        // --- BOTS MANAGEMENT ---
         function createBot(id) {
             const spawnPos = spawnPoints[Math.floor(Math.random() * spawnPoints.length)] || new THREE.Vector3(0, 0, 0);
             const archetype = BOT_ARCHETYPES[id % BOT_ARCHETYPES.length];
@@ -759,6 +880,31 @@
             document.getElementById('grenade-display').innerText = `GRENADES: ${player.grenades} / 2`;
         }
 
+        // --- EXTENDED WALL RUN DETECTION & PHYSICS ---
+        function updateWallRun(delta, moveVector) {
+            if (player.isGrounded) {
+                player.isWallRunning = false;
+                player.wallRunTimer = 0;
+                return;
+            }
+
+            // Raycast left & right
+            const rayLeft = new THREE.Raycaster(player.position, new THREE.Vector3(-1, 0, 0).applyEuler(player.rotation), 0, 1.2);
+            const rayRight = new THREE.Raycaster(player.position, new THREE.Vector3(1, 0, 0).applyEuler(player.rotation), 0, 1.2);
+            
+            const hitL = rayLeft.intersectObjects(scene.children, false);
+            const hitR = rayRight.intersectObjects(scene.children, false);
+
+            if ((hitL.length > 0 || hitR.length > 0) && keys['KeyW'] && player.wallRunTimer < WALL_RUN_MAX_TIME) {
+                player.isWallRunning = true;
+                player.wallRunTimer += delta;
+                player.velocity.y = -0.5; // Extended near-zero gravity drift during wall-run
+                player.canDoubleJump = true;
+            } else {
+                player.isWallRunning = false;
+            }
+        }
+
         // --- PLAYER MOVEMENT ENGINE ---
         function updatePlayerMovement(delta) {
             player.isSprinting = (keys['ShiftLeft'] || keys['ShiftRight']) && !player.isCrouching;
@@ -805,8 +951,14 @@
                 player.velocity.y = 0;
             }
 
+            // Extended Wall Run System Check
+            updateWallRun(delta, moveVector);
+
             // Vertical Physics & Ground Clamping
-            player.velocity.y -= 32 * delta;
+            if (!player.isWallRunning) {
+                player.velocity.y -= 32 * delta;
+            }
+
             const proposedY = player.position.y + player.velocity.y * delta;
             const groundY = getGroundY(player.position);
 
@@ -820,13 +972,12 @@
                 player.isGrounded = false;
             }
 
-            // Elevator Shaft Boost
-            if (Math.abs(player.position.x - 38) < 2.5 && Math.abs(player.position.z) < 2.5) player.velocity.y = 16;
-            if (Math.abs(player.position.x + 38) < 2.5 && Math.abs(player.position.z) < 2.5) player.velocity.y = 16;
-
+            // Jump / Wall-Jump / Jetpack
             if (keys['Space']) {
                 if (player.isGrounded) {
                     player.velocity.y = 12; player.isGrounded = false; keys['Space'] = false;
+                } else if (player.isWallRunning) {
+                    player.velocity.y = 13; player.isWallRunning = false; keys['Space'] = false;
                 } else if (player.canDoubleJump) {
                     player.velocity.y = 12; player.canDoubleJump = false; keys['Space'] = false;
                 } else if (player.jetpackFuel > 0) {
@@ -878,12 +1029,12 @@
                 }
             }
 
-            document.getElementById('stance-indicator').innerText = player.isSliding ? "STANCE: SLIDING" : (player.isCrouching ? "STANCE: CROUCHING" : "STANCE: STANDING");
+            document.getElementById('stance-indicator').innerText = player.isWallRunning ? "STANCE: WALL-RUNNING" : (player.isSliding ? "STANCE: SLIDING" : (player.isCrouching ? "STANCE: CROUCHING" : "STANCE: STANDING"));
             document.getElementById('jetpack-fill').style.width = `${Math.max(0, player.jetpackFuel)}%`;
             document.getElementById('health-bar').style.width = `${Math.max(0, player.health)}%`;
         }
 
-        // --- BLAST VISUALS SYSTEM ---
+        // --- BLAST VISUALS SYSTEM & GLASS SHATTERING ---
         function spawnBlastVisual(origin, direction, targetPoint, weapon) {
             if (weapon.category === 'MELEE') {
                 const arcGeom = new THREE.RingGeometry(0.8, 1.3, 16, 1, 0, Math.PI * 0.8);
@@ -949,6 +1100,21 @@
             }
         }
 
+        function triggerGlassShatter(glassObj) {
+            if (glassObj.isBroken) return;
+            glassObj.isBroken = true;
+            glassObj.boxObj.active = false; // Permanently remove collision!
+            scene.remove(glassObj.mesh);
+
+            // Glass Shard Particle Explosion Effect
+            for (let i = 0; i < 20; i++) {
+                const shard = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), new THREE.MeshBasicMaterial({ color: 0x00ffff }));
+                shard.position.copy(glassObj.mesh.position).add(new THREE.Vector3((Math.random()-0.5)*3, (Math.random()-0.5)*2, (Math.random()-0.5)*3));
+                scene.add(shard);
+                setTimeout(() => scene.remove(shard), 800);
+            }
+        }
+
         // --- WEAPON FIRING ---
         function fireActiveWeapon(shooter, direction) {
             const now = Date.now();
@@ -960,7 +1126,7 @@
                 wpn.ammo = wpn.ammoMax;
                 if (isHuman) updateAmmoHUD();
                 else if (shooter.inventory) {
-                    shooter.activeSlot = (shooter.activeSlot + 1) % 2; // Switch primary/secondary
+                    shooter.activeSlot = (shooter.activeSlot + 1) % 2;
                     updateBotHeldWeaponMesh(shooter);
                 }
                 return;
@@ -988,9 +1154,17 @@
             const hits = raycaster.intersectObjects(scene.children, true);
             const targetPoint = hits.length > 0 ? hits[0].point : origin.clone().addScaledVector(direction, wpn.range);
 
+            // Check if raycast hit Breakable Glass Windows
+            if (hits.length > 0) {
+                const hitObj = hits[0].object;
+                glassPanels.forEach(g => {
+                    if (g.mesh === hitObj) triggerGlassShatter(g);
+                });
+            }
+
             spawnBlastVisual(origin, direction, targetPoint, wpn);
 
-            // FFA Hit Detection (All Entities Can Hit All Other Entities)
+            // Damage Targets
             const allTargets = [player, ...players];
             allTargets.forEach(target => {
                 if (target === shooter) return;
@@ -1073,6 +1247,11 @@
                     flash.position.copy(expPos); scene.add(flash);
                     setTimeout(() => scene.remove(flash), 120);
 
+                    // Shatter glass windows near grenade blast
+                    glassPanels.forEach(g => {
+                        if (g.mesh.position.distanceTo(expPos) < 10) triggerGlassShatter(g);
+                    });
+
                     players.concat([player]).forEach(ent => {
                         const entPos = ent === player ? player.position : ent.mesh.position;
                         const dist = entPos.distanceTo(expPos);
@@ -1095,7 +1274,6 @@
                 bot.jumpCooldown = Math.max(0, bot.jumpCooldown - delta);
                 bot.grenadeCooldown = Math.max(0, bot.grenadeCooldown - delta);
 
-                // 1. DYNAMIC FFA TARGETING (Select closest living opponent)
                 let bestTarget = null;
                 let minDist = Infinity;
 
@@ -1115,12 +1293,11 @@
                 const targetPos = bestTarget === player ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0)) : bestTarget.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
                 const dirToTarget = new THREE.Vector3().subVectors(targetPos, bot.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0))).normalize();
 
-                // 2. TACTICAL WEAPON SELECTION & AUTOMATIC SWITCHING
-                let desiredSlot = 0; // Default Primary
+                let desiredSlot = 0;
                 if (minDist <= 3.5) {
-                    desiredSlot = 2; // Close quarters -> Melee
+                    desiredSlot = 2;
                 } else if (bot.inventory[0].ammo <= 0) {
-                    desiredSlot = 1; // Secondary
+                    desiredSlot = 1;
                 }
 
                 if (bot.activeSlot !== desiredSlot) {
@@ -1128,16 +1305,14 @@
                     updateBotHeldWeaponMesh(bot);
                 }
 
-                // 3. MOVEMENT & MATCHING SPEED ENGINE (Sprinting = 18, Walk = 11, Slide = 24)
                 let isMoving = false;
-                bot.isSprinting = minDist > 12; // Sprint to pursue distant enemies
+                bot.isSprinting = minDist > 12;
                 const currentMoveSpeed = bot.isSprinting ? 18 : (bot.isSliding ? 22 : 11);
 
                 if (minDist > (bot.weapon.category === 'MELEE' ? 1.8 : 5.0)) {
                     isMoving = true;
                     const moveDir = new THREE.Vector3(dirToTarget.x, 0, dirToTarget.z).normalize();
                     
-                    // Sliding decision when sprinting close
                     if (bot.isSprinting && minDist < 15 && Math.random() < 0.01 && !bot.isSliding) {
                         bot.isSliding = true;
                         bot.slideTimer = SLIDE_DURATION;
@@ -1155,12 +1330,10 @@
                         bot.velocity.z = moveDir.z * currentMoveSpeed;
                     }
 
-                    // Solid Axis-Separated Wall Collisions
                     const oldX = bot.mesh.position.x;
                     bot.mesh.position.x += bot.velocity.x * delta;
                     if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
                         bot.mesh.position.x = oldX;
-                        // Jump over obstacle if blocked!
                         if (bot.isGrounded && bot.jumpCooldown <= 0) {
                             bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
                         }
@@ -1180,7 +1353,6 @@
                     bot.mesh.rotation.y = Math.atan2(dirToTarget.x, dirToTarget.z);
                 }
 
-                // 4. VERTICAL PHYSICS, GROUND CLAMPING & ELEVATOR BOOST
                 bot.velocity.y -= 32 * delta;
                 const proposedY = bot.mesh.position.y + bot.velocity.y * delta;
                 const groundY = getGroundY(bot.mesh.position);
@@ -1195,18 +1367,12 @@
                     bot.isGrounded = false;
                 }
 
-                // Elevator Shaft Lift Pads for Bots
-                if (Math.abs(bot.mesh.position.x - 38) < 2.5 && Math.abs(bot.mesh.position.z) < 2.5) bot.velocity.y = 16;
-                if (Math.abs(bot.mesh.position.x + 38) < 2.5 && Math.abs(bot.mesh.position.z) < 2.5) bot.velocity.y = 16;
-
-                // 5. GRENADE THROWING LOGIC
                 if (minDist > 10 && minDist < 24 && bot.grenades > 0 && bot.grenadeCooldown <= 0 && Math.random() < 0.02) {
                     throwGrenade(bot);
                     bot.grenades--;
                     bot.grenadeCooldown = 5.0;
                 }
 
-                // 6. SKELETAL ANIMATIONS (Limb swing, aim pitching, recoil)
                 if (isMoving) {
                     ud.animTimer += delta * (bot.isSprinting ? 14 : 10);
                     ud.leftLegPivot.rotation.x = Math.sin(ud.animTimer) * 0.6;
@@ -1233,7 +1399,6 @@
                     }
                 }
 
-                // 7. FIRING AT TARGET
                 if (BOTS_CAN_FIRE && minDist < bot.weapon.range && Math.random() < 0.08) {
                     fireActiveWeapon(bot, dirToTarget);
                 }
@@ -1269,6 +1434,7 @@
             lastTime = now;
 
             if (gameStarted) {
+                updateFacilityMechanics(delta);
                 updatePlayerMovement(delta);
 
                 if (isMouseDown && document.pointerLockElement === document.body) {
