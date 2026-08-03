@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // RAMP TRAVERSAL ARENA</title>
+    <title>CYBER-STRIKE 2077 // ENCLOSED CQB FACILITY</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -80,7 +80,7 @@
             <div class="hud-panel">
                 <div>SCORE LIMIT: 60</div>
                 <div id="score-display" style="font-size: 20px; font-weight: bold; color: #ff007f;">0 / 60 KILLS</div>
-                <div id="test-indicator">MODE: SMOOTH RAMP TRAVERSAL & STAIRWELL PHYSICS</div>
+                <div id="test-indicator">MODE: EXPANDED ENCLOSED FACILITY (240x240 CQB)</div>
             </div>
             <div class="hud-panel" id="leaderboard">
                 <div style="text-decoration: underline; margin-bottom: 4px;">FACILITY COMBATANTS</div>
@@ -379,7 +379,7 @@
             };
         }
 
-        // --- 3-FLOOR ARENA GENERATOR ---
+        // --- EXPANDED 240x240 ENCLOSED FACILITY ARENA GENERATOR ---
         function generateFacilityArena() {
             const floorMat = new THREE.MeshStandardMaterial({ color: 0x080812, roughness: 0.8, metalness: 0.3 });
             const wallMat = new THREE.MeshStandardMaterial({ color: 0x141428, roughness: 0.4, metalness: 0.6 });
@@ -388,13 +388,13 @@
             const neonBlueMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
             const neonYellowMat = new THREE.MeshBasicMaterial({ color: 0xffe600 });
 
-            const facilitySize = 150;
-            const half = facilitySize / 2;
+            const facilitySize = 240; // Expanded map bounds (240x240)
+            const half = facilitySize / 2; // 120
             const floorHeight = 8.0;
             const floors = [0, floorHeight, floorHeight * 2];
 
             const addRoomLight = (x, y, z, colorHex, intensity = 2.0) => {
-                const light = new THREE.PointLight(colorHex, intensity, 25);
+                const light = new THREE.PointLight(colorHex, intensity, 28);
                 light.position.set(x, y + 5.0, z);
                 scene.add(light);
             };
@@ -413,12 +413,14 @@
                 return registerStaticBox(wall);
             };
 
+            // Outer Perimeter Enclosure
             const totalH = floorHeight * 3 + 2;
             createStaticWall(0, totalH/2, -half, facilitySize, totalH, 2);
             createStaticWall(0, totalH/2, half, facilitySize, totalH, 2);
             createStaticWall(-half, totalH/2, 0, 2, totalH, facilitySize);
             createStaticWall(half, totalH/2, 0, 2, totalH, facilitySize);
 
+            // Floor Slabs
             floors.forEach((fY, fIdx) => {
                 if (fIdx === 0) {
                     const mainFloor = new THREE.Mesh(new THREE.BoxGeometry(facilitySize, 1.0, facilitySize), floorMat);
@@ -426,13 +428,13 @@
                     scene.add(mainFloor);
                     registerStaticBox(mainFloor);
                 } else {
-                    const tileSize = 15;
+                    const tileSize = 20;
                     for (let x = -half + tileSize/2; x < half; x += tileSize) {
                         for (let z = -half + tileSize/2; z < half; z += tileSize) {
-                            const isElevator1 = (Math.abs(x - (-60)) < 10 && Math.abs(z - 0) < 10);
-                            const isElevator2 = (Math.abs(x - 60) < 10 && Math.abs(z - 0) < 10);
-                            const isStair1 = (Math.abs(x - 0) < 10 && Math.abs(z - (-35)) < 12);
-                            const isStair2 = (Math.abs(x - 0) < 10 && Math.abs(z - 35) < 12);
+                            const isElevator1 = (Math.abs(x - (-90)) < 12 && Math.abs(z - 0) < 12);
+                            const isElevator2 = (Math.abs(x - 90) < 12 && Math.abs(z - 0) < 12);
+                            const isStair1 = (Math.abs(x - 0) < 12 && Math.abs(z - (-60)) < 15);
+                            const isStair2 = (Math.abs(x - 0) < 12 && Math.abs(z - 60) < 15);
 
                             if (isElevator1 || isElevator2 || isStair1 || isStair2) continue;
 
@@ -444,7 +446,7 @@
                     }
                 }
 
-                const gridWire = new THREE.Mesh(new THREE.PlaneGeometry(facilitySize, facilitySize, 12, 12), 
+                const gridWire = new THREE.Mesh(new THREE.PlaneGeometry(facilitySize, facilitySize, 16, 16), 
                     new THREE.MeshBasicMaterial({ color: fIdx === 0 ? 0x00ffff : (fIdx === 1 ? 0xff007f : 0xffe600), wireframe: true }));
                 gridWire.rotation.x = -Math.PI / 2;
                 gridWire.position.set(0, fY + 0.02, 0);
@@ -497,67 +499,93 @@
             const buildRoomProps = (roomType, cX, cY, cZ) => {
                 if (roomType === 'COMPUTER_LAB') {
                     addRoomLight(cX, cY, cZ, 0x00ffff, 2.5);
-                    for (let i = -8; i <= 8; i += 4) {
-                        const rack = new THREE.Mesh(new THREE.BoxGeometry(1.5, 5.0, 1.5), wallMat);
-                        rack.position.set(cX + i, cY + 2.5, cZ - 6);
-                        const glowStrip = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.1, 1.52), neonBlueMat);
-                        glowStrip.position.set(cX + i, cY + 4.2, cZ - 6);
+                    for (let i = -10; i <= 10; i += 5) {
+                        const rack = new THREE.Mesh(new THREE.BoxGeometry(1.8, 5.5, 1.8), wallMat);
+                        rack.position.set(cX + i, cY + 2.75, cZ - 10);
+                        const glowStrip = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.12, 1.82), neonBlueMat);
+                        glowStrip.position.set(cX + i, cY + 4.5, cZ - 10);
                         scene.add(rack, glowStrip);
                         registerStaticBox(rack);
                     }
                 } else if (roomType === 'MEDIC_BAY') {
                     addRoomLight(cX, cY, cZ, 0xff007f, 2.5);
-                    for (let i = -6; i <= 6; i += 6) {
-                        const bed = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.8, 4.0), wallMat);
+                    for (let i = -8; i <= 8; i += 8) {
+                        const bed = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.8, 5.0), wallMat);
                         bed.position.set(cX + i, cY + 0.4, cZ);
                         scene.add(bed);
                         registerStaticBox(bed);
                     }
                 } else if (roomType === 'BRIEFING_ROOM') {
                     addRoomLight(cX, cY, cZ, 0xffe600, 2.5);
-                    const table = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 3.5, 1.0, 12), wallMat);
+                    const table = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 4.5, 1.0, 12), wallMat);
                     table.position.set(cX, cY + 0.5, cZ);
                     scene.add(table);
                     registerStaticBox(table);
                 } else if (roomType === 'ARMORY') {
                     addRoomLight(cX, cY, cZ, 0x00ffaa, 2.5);
-                    const rack = new THREE.Mesh(new THREE.BoxGeometry(10.0, 4.0, 0.8), wallMat);
-                    rack.position.set(cX, cY + 2.0, cZ - 6);
+                    const rack = new THREE.Mesh(new THREE.BoxGeometry(14.0, 4.5, 1.0), wallMat);
+                    rack.position.set(cX, cY + 2.25, cZ - 10);
                     scene.add(rack);
                     registerStaticBox(rack);
+                } else {
+                    addRoomLight(cX, cY, cZ, 0x9900ff, 2.5);
+                    const barrier1 = new THREE.Mesh(new THREE.BoxGeometry(8.0, 3.5, 1.0), wallMat);
+                    barrier1.position.set(cX - 4, cY + 1.75, cZ);
+                    const barrier2 = new THREE.Mesh(new THREE.BoxGeometry(1.0, 3.5, 8.0), wallMat);
+                    barrier2.position.set(cX + 4, cY + 1.75, cZ);
+                    scene.add(barrier1, barrier2);
+                    registerStaticBox(barrier1);
+                    registerStaticBox(barrier2);
                 }
             };
 
+            // DENSE 9-SECTOR ROOM GRID PER FLOOR
             floors.forEach((fY) => {
                 const roomGrid = [
-                    { type: 'COMPUTER_LAB', x: -40, z: -40 },
-                    { type: 'MEDIC_BAY', x: 40, z: -40 },
-                    { type: 'BRIEFING_ROOM', x: -40, z: 40 },
-                    { type: 'ARMORY', x: 40, z: 40 }
+                    { type: 'COMPUTER_LAB', x: -75, z: -75 },
+                    { type: 'SERVER_CORRIDOR', x: 0, z: -75 },
+                    { type: 'MEDIC_BAY', x: 75, z: -75 },
+                    { type: 'ARMORY', x: -75, z: 0 },
+                    { type: 'CENTRAL_HUB', x: 0, z: 0 },
+                    { type: 'ARMORY', x: 75, z: 0 },
+                    { type: 'BRIEFING_ROOM', x: -75, z: 75 },
+                    { type: 'SECURITY_CONTROL', x: 0, z: 75 },
+                    { type: 'RESEARCH_LAB', x: 75, z: 75 }
                 ];
 
-                roomGrid.forEach(r => {
-                    createStaticWall(r.x, fY + 3.5, r.z - 15, 30, 7.0, 1);
-                    createStaticWall(r.x - 15, fY + 3.5, r.z, 1, 7.0, 30);
-                    
-                    createDoor(r.x, fY, r.z - 15, 6.0, true);
-                    createBreakableGlass(r.x + 8, fY, r.z - 15, 8.0, 4.0, 0.3);
+                // Continuous Interior Corridor Partitioning Walls
+                createStaticWall(-37.5, fY + 3.5, 0, 1.5, 7.0, facilitySize - 10);
+                createStaticWall(37.5, fY + 3.5, 0, 1.5, 7.0, facilitySize - 10);
+                createStaticWall(0, fY + 3.5, -37.5, facilitySize - 10, 7.0, 1.5);
+                createStaticWall(0, fY + 3.5, 37.5, facilitySize - 10, 7.0, 1.5);
 
+                // Cut Doorway Access Corridors in the Grid Partition Walls
+                [-75, 0, 75].forEach(coord => {
+                    createDoor(-37.5, fY, coord, 6.0, false);
+                    createDoor(37.5, fY, coord, 6.0, false);
+                    createDoor(coord, fY, -37.5, 6.0, true);
+                    createDoor(coord, fY, 37.5, 6.0, true);
+
+                    createBreakableGlass(-37.5, fY, coord + 15, 0.3, 4.0, 8.0);
+                    createBreakableGlass(37.5, fY, coord - 15, 0.3, 4.0, 8.0);
+                });
+
+                roomGrid.forEach(r => {
                     buildRoomProps(r.type, r.x, fY, r.z);
-                    spawnPoints.push(new THREE.Vector3(r.x + (Math.random()-0.5)*12, fY + 0.1, r.z + (Math.random()-0.5)*12));
+                    spawnPoints.push(new THREE.Vector3(r.x + (Math.random()-0.5)*18, fY + 0.1, r.z + (Math.random()-0.5)*18));
                 });
             });
 
             const createElevatorShaft = (x, z) => {
                 for (let f = 0; f < 3; f++) {
                     const fY = floors[f];
-                    createStaticWall(x - 4, fY + 3.5, z, 1, 7.0, 8);
-                    createStaticWall(x + 4, fY + 3.5, z, 1, 7.0, 8);
-                    createStaticWall(x, fY + 3.5, z - 4, 8, 7.0, 1);
+                    createStaticWall(x - 5, fY + 3.5, z, 1, 7.0, 10);
+                    createStaticWall(x + 5, fY + 3.5, z, 1, 7.0, 10);
+                    createStaticWall(x, fY + 3.5, z - 5, 10, 7.0, 1);
                 }
 
-                const carMesh = new THREE.Mesh(new THREE.BoxGeometry(7.0, 0.5, 7.0), doorMat);
-                const carTrim = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.1, 7.2), neonYellowMat);
+                const carMesh = new THREE.Mesh(new THREE.BoxGeometry(9.0, 0.5, 9.0), doorMat);
+                const carTrim = new THREE.Mesh(new THREE.BoxGeometry(9.2, 0.1, 9.2), neonYellowMat);
                 carMesh.add(carTrim);
                 carMesh.position.set(x, 0.25, z);
                 scene.add(carMesh);
@@ -575,29 +603,26 @@
                 addRoomLight(x, floorHeight, z, 0xffe600, 3.0);
             };
 
-            createElevatorShaft(-60, 0);
-            createElevatorShaft(60, 0);
+            createElevatorShaft(-90, 0);
+            createElevatorShaft(90, 0);
 
-            // STAIRWELL RAMP BUILDER (EXCLUDED FROM AABB WALL BOXES TO ALLOW SMOOTH WALKWAY)
             const createStairwell = (x, z) => {
                 for (let f = 0; f < 2; f++) {
                     const fY = floors[f];
-                    const rampLen = 14;
+                    const rampLen = 16;
                     const rampAngle = Math.atan2(floorHeight, rampLen);
                     
-                    const ramp = new THREE.Mesh(new THREE.BoxGeometry(6, 0.5, Math.hypot(floorHeight, rampLen)), floorMat);
+                    const ramp = new THREE.Mesh(new THREE.BoxGeometry(7, 0.5, Math.hypot(floorHeight, rampLen)), floorMat);
                     ramp.position.set(x, fY + floorHeight / 2, z);
                     ramp.rotation.x = rampAngle;
                     scene.add(ramp);
-                    
-                    // Add to ground raycast colliders ONLY (not staticBoxes AABB)
                     colliders.push(ramp);
                 }
                 addRoomLight(x, floorHeight, z, 0x00ffff, 2.0);
             };
 
-            createStairwell(0, -35);
-            createStairwell(0, 35);
+            createStairwell(0, -60);
+            createStairwell(0, 60);
 
             spawnWorldWeapons();
         }
@@ -719,7 +744,6 @@
 
             for (let i = 0; i < hits.length; i++) {
                 const hit = hits[i];
-                // Allow step-up detection up to 2.0 units above feet for climbing ramps
                 if (hit.point.y <= position.y + 2.0) {
                     if (hit.point.y > maxFloorY) maxFloorY = hit.point.y;
                 }
@@ -1043,7 +1067,6 @@
             const proposedY = player.position.y + player.velocity.y * delta;
             const groundY = getGroundY(player.position);
 
-            // Slope Physics: Snap to ground level when climbing ramps OR walking down slopes while grounded
             if (proposedY <= groundY || (player.isGrounded && Math.abs(player.position.y - groundY) < 1.8)) {
                 player.position.y = groundY;
                 player.velocity.y = 0;
@@ -1459,7 +1482,7 @@
             }
         }
 
-        // --- BOT AI WITH STRICT LINE-OF-SIGHT VISION & SLOPE PHYSICS ---
+        // --- BOT AI WITH STRICT LINE-OF-SIGHT VISION & CQB MOVEMENT ---
         function updateBots(delta) {
             const allEntities = [player, ...players];
 
@@ -1579,7 +1602,6 @@
                 const proposedY = bot.mesh.position.y + bot.velocity.y * delta;
                 const groundY = getGroundY(bot.mesh.position);
 
-                // Bot Ramp Physics: Step up and snap down ramps
                 if (proposedY <= groundY || (bot.isGrounded && Math.abs(bot.mesh.position.y - groundY) < 1.8)) {
                     bot.mesh.position.y = groundY;
                     bot.velocity.y = 0;
