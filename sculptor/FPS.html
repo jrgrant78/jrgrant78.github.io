@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // OPTIMIZED ARENA</title>
+    <title>CYBER-STRIKE 2077 // OPTIMIZED MULTI-MODE ARENA</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -215,10 +215,9 @@
         const slidingDoors = [];
         const elevatorCars = [];
         
-        // COLLISION ARRAYS
-        const groundColliders = []; 
-        const wallColliders = [];   
-        const staticBoxes = [];     
+        const colliders = [];       // All physical colliders (includes floor tiles)
+        const wallColliders = [];   // Dedicated structural wall/door colliders for fast AI LoS raycasting
+        const staticBoxes = [];  
         const weaponsDatabase = [];
 
         // --- WEAPON SUBTYPES ---
@@ -479,11 +478,11 @@
                 scene.add(light);
             };
 
-            const registerStaticBox = (mesh, isGround = false) => {
-                if (isGround) groundColliders.push(mesh);
-                else wallColliders.push(mesh);
+            const registerStaticBox = (mesh, isWall = true) => {
+                colliders.push(mesh);
+                if (isWall) wallColliders.push(mesh); // Fast list for AI raycasting
 
-                const bObj = { box: new THREE.Box3().setFromObject(mesh), active: true, mesh: mesh, isGround: isGround };
+                const bObj = { box: new THREE.Box3().setFromObject(mesh), active: true, mesh: mesh };
                 staticBoxes.push(bObj);
                 return bObj;
             };
@@ -492,7 +491,7 @@
                 const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
                 wall.position.set(x, y, z);
                 scene.add(wall);
-                return registerStaticBox(wall, false);
+                return registerStaticBox(wall, true);
             };
 
             // Outer Perimeter Enclosure
@@ -508,7 +507,7 @@
                     const mainFloor = new THREE.Mesh(new THREE.BoxGeometry(facilitySize, 1.0, facilitySize), floorMat);
                     mainFloor.position.set(0, fY - 0.5, 0);
                     scene.add(mainFloor);
-                    registerStaticBox(mainFloor, true);
+                    registerStaticBox(mainFloor, false); // Floor slabs excluded from wall raycasts
                 } else {
                     const tileSize = 20;
                     for (let x = -half + tileSize/2; x < half; x += tileSize) {
@@ -523,7 +522,7 @@
                             const tile = new THREE.Mesh(new THREE.BoxGeometry(tileSize, 1.0, tileSize), floorMat);
                             tile.position.set(x, fY - 0.5, z);
                             scene.add(tile);
-                            registerStaticBox(tile, true);
+                            registerStaticBox(tile, false);
                         }
                     }
                 }
@@ -545,8 +544,9 @@
                 doorGroup.add(doorPanel, strip);
                 scene.add(doorGroup);
 
+                colliders.push(doorPanel);
                 wallColliders.push(doorPanel);
-                const bObj = { box: new THREE.Box3().setFromObject(doorPanel), active: true, mesh: doorPanel, isGround: false };
+                const bObj = { box: new THREE.Box3().setFromObject(doorPanel), active: true, mesh: doorPanel };
                 staticBoxes.push(bObj);
 
                 slidingDoors.push({
@@ -589,7 +589,7 @@
 
                 scene.add(glassMesh, topFrame, botFrame);
 
-                const bObj = registerStaticBox(glassMesh, false);
+                const bObj = registerStaticBox(glassMesh, true);
 
                 glassPanels.push({
                     mesh: glassMesh,
@@ -609,7 +609,7 @@
                         const glowStrip = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.12, 1.82), neonBlueMat);
                         glowStrip.position.set(cX + i, cY + 4.5, cZ - 10);
                         scene.add(rack, glowStrip);
-                        registerStaticBox(rack, false);
+                        registerStaticBox(rack, true);
                     }
                 } else if (roomType === 'MEDIC_BAY') {
                     addRoomLight(cX, cY, cZ, 0xff007f, 2.5);
@@ -617,20 +617,20 @@
                         const bed = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.8, 5.0), wallMat);
                         bed.position.set(cX + i, cY + 0.4, cZ);
                         scene.add(bed);
-                        registerStaticBox(bed, false);
+                        registerStaticBox(bed, true);
                     }
                 } else if (roomType === 'BRIEFING_ROOM') {
                     addRoomLight(cX, cY, cZ, 0xffe600, 2.5);
                     const table = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 4.5, 1.0, 12), wallMat);
                     table.position.set(cX, cY + 0.5, cZ);
                     scene.add(table);
-                    registerStaticBox(table, false);
+                    registerStaticBox(table, true);
                 } else if (roomType === 'ARMORY') {
                     addRoomLight(cX, cY, cZ, 0x00ffaa, 2.5);
                     const rack = new THREE.Mesh(new THREE.BoxGeometry(14.0, 4.5, 1.0), wallMat);
                     rack.position.set(cX, cY + 2.25, cZ - 10);
                     scene.add(rack);
-                    registerStaticBox(rack, false);
+                    registerStaticBox(rack, true);
                 } else {
                     addRoomLight(cX, cY, cZ, 0x9900ff, 2.5);
                     const barrier1 = new THREE.Mesh(new THREE.BoxGeometry(8.0, 3.5, 1.0), wallMat);
@@ -638,12 +638,12 @@
                     const barrier2 = new THREE.Mesh(new THREE.BoxGeometry(1.0, 3.5, 8.0), wallMat);
                     barrier2.position.set(cX + 4, cY + 1.75, cZ);
                     scene.add(barrier1, barrier2);
-                    registerStaticBox(barrier1, false);
-                    registerStaticBox(barrier2, false);
+                    registerStaticBox(barrier1, true);
+                    registerStaticBox(barrier2, true);
                 }
             };
 
-            // MASSIVE CONTINUOUS ROOM-SPANNING PARTITION WALLS WITH INSET SLIDING DOORS & WINDOWS
+            // Room Spanning Partition Walls with Inset Doors
             floors.forEach((fY) => {
                 const roomGrid = [
                     { type: 'COMPUTER_LAB', x: -75, z: -75 },
@@ -723,7 +723,8 @@
                     ramp.position.set(x, fY + floorHeight / 2, z);
                     ramp.rotation.x = rampAngle;
                     scene.add(ramp);
-                    groundColliders.push(ramp);
+                    colliders.push(ramp);
+                    wallColliders.push(ramp);
                 }
                 addRoomLight(x, floorHeight, z, 0x00ffff, 2.0);
             };
@@ -898,25 +899,17 @@
 
         generateFacilityArena();
 
-        // --- PLAYER-ONLY MODE SELECTION WITH INSTANT POINTER LOCK ---
-        let playerVotedMode = null;
-
+        // --- INSTANT MODE SELECTION & START ---
         function castPlayerVote(modeKey) {
-            if (playerVotedMode) return;
-            playerVotedMode = modeKey;
             currentMode = modeKey;
-
-            // Request pointer lock synchronously on direct user click!
-            try { document.body.requestPointerLock(); } catch(e) {}
-
-            document.getElementById('voting-status-text').innerText = `MODE SELECTED: ${getModeFullName(modeKey)}! ENTERING ARENA...`;
-
-            setTimeout(() => {
-                initGameMode();
-                startScreen.style.display = 'none';
-                gameStarted = true;
-                respawnEntity(player);
-            }, 400);
+            
+            // Synchronously request pointer lock within direct click gesture
+            document.body.requestPointerLock();
+            
+            initGameMode();
+            document.getElementById('start-screen').style.display = 'none';
+            gameStarted = true;
+            respawnEntity(player);
         }
 
         function initGameMode() {
@@ -978,7 +971,7 @@
             }
         }
 
-        // --- OPTIMIZED GROUND RAYCASTER & SOLID BOX3 COLLISION ENGINE ---
+        // --- GROUND RAYCASTER & SOLID BOX3 COLLISION ENGINE ---
         const raycasterDown = new THREE.Raycaster();
         const downVector = new THREE.Vector3(0, -1, 0);
 
@@ -986,7 +979,7 @@
             let maxFloorY = 0.0;
             const rayOrigin = new THREE.Vector3(position.x, position.y + 20.0, position.z);
             raycasterDown.set(rayOrigin, downVector);
-            const hits = raycasterDown.intersectObjects(groundColliders, false);
+            const hits = raycasterDown.intersectObjects(colliders, false);
 
             for (let i = 0; i < hits.length; i++) {
                 const hit = hits[i];
@@ -1005,7 +998,7 @@
             );
 
             for (let i = 0; i < staticBoxes.length; i++) {
-                if (!staticBoxes[i].isGround && staticBoxes[i].active && box.intersectsBox(staticBoxes[i].box)) return true;
+                if (staticBoxes[i].active && box.intersectsBox(staticBoxes[i].box)) return true;
             }
             return false;
         }
@@ -1017,12 +1010,12 @@
             );
 
             for (let i = 0; i < staticBoxes.length; i++) {
-                if (!staticBoxes[i].isGround && staticBoxes[i].active && headBox.intersectsBox(staticBoxes[i].box)) return true;
+                if (staticBoxes[i].active && headBox.intersectsBox(staticBoxes[i].box)) return true;
             }
             return false;
         }
 
-        // --- HIGH-PERFORMANCE LINE OF SIGHT (LoS) CHECK ---
+        // --- FAST LINE OF SIGHT (LoS) RAYCAST CHECK ---
         const losRaycaster = new THREE.Raycaster();
 
         function checkLineOfSight(fromPos, toPos, blockingObjects) {
@@ -1069,7 +1062,7 @@
         }
         updatePlayerViewmodel();
 
-        // --- BOTS MANAGEMENT (29 ACTIVE BOTS) ---
+        // --- BOTS MANAGEMENT (29 ACTIVE BOTS WITH THROTTLED SCANNING) ---
         function createBot(id) {
             const spawnPos = spawnPoints[Math.floor(Math.random() * spawnPoints.length)] || new THREE.Vector3(0, 0, 0);
             const archetype = BOT_ARCHETYPES[id % BOT_ARCHETYPES.length];
@@ -1091,7 +1084,8 @@
                 grenades: 2, lastFired: 0,
                 isGrounded: true, canDoubleJump: true,
                 isSprinting: false, isSliding: false, isCrouching: false, slideTimer: 0, slideDir: new THREE.Vector3(),
-                jumpCooldown: 0, grenadeCooldown: 0, target: null, patrolTarget: null
+                jumpCooldown: 0, grenadeCooldown: 0, target: null, patrolTarget: null,
+                scanTimer: (id % 10) * 0.03 // Stagger initial AI scans across frames
             };
 
             updateBotHeldWeaponMesh(botObj);
@@ -1231,8 +1225,8 @@
             const rayLeft = new THREE.Raycaster(player.position, leftDir, 0, 1.3);
             const rayRight = new THREE.Raycaster(player.position, rightDir, 0, 1.3);
 
-            const hitL = rayLeft.intersectObjects(wallColliders, false);
-            const hitR = rayRight.intersectObjects(wallColliders, false);
+            const hitL = rayLeft.intersectObjects(colliders, false);
+            const hitR = rayRight.intersectObjects(colliders, false);
 
             if ((hitL.length > 0 || hitR.length > 0) && player.wallRunTimer < WALL_RUN_DURATION) {
                 player.isWallRunning = true;
@@ -1595,7 +1589,10 @@
                 ? camera.position.clone() 
                 : shooter.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
-            const targets = [...wallColliders];
+            const targets = [];
+            wallColliders.forEach(c => targets.push(c));
+            glassPanels.forEach(g => { if (!g.isBroken) targets.push(g.mesh); });
+            slidingDoors.forEach(d => { if (d.slideProgress < 0.85) targets.push(d.panel); });
             
             if (!isHuman) targets.push(playerHitMesh);
             players.forEach(bot => {
@@ -1845,18 +1842,9 @@
             }
         }
 
-        // --- OPTIMIZED BOT AI ENGINE WITH DISTANCE-SORTED LoS SCANNING ---
+        // --- OPTIMIZED BOT AI WITH STAGGERED LINE-OF-SIGHT SCANNING ---
         function updateBots(delta) {
             const allEntities = [player, ...players];
-
-            // Build active wall obstacle array for Line of Sight
-            const activeWallBlockers = wallColliders.filter(mesh => {
-                let door = slidingDoors.find(d => d.panel === mesh);
-                if (door && door.slideProgress >= 0.85) return false;
-                let glass = glassPanels.find(g => g.mesh === mesh);
-                if (glass && glass.isBroken) return false;
-                return true;
-            });
 
             players.forEach(bot => {
                 if (bot === player || bot.health <= 0) return;
@@ -1864,42 +1852,38 @@
                 const b = bot.rig.bones;
                 bot.jumpCooldown = Math.max(0, bot.jumpCooldown - delta);
                 bot.grenadeCooldown = Math.max(0, bot.grenadeCooldown - delta);
+                bot.scanTimer -= delta;
 
                 const botEyePos = bot.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
-                // 1. Gather all potential targets in visual range
-                const candidates = [];
-                allEntities.forEach(ent => {
-                    if (ent === bot || ent.health <= 0) return;
-                    if ((currentMode === 'TDM' || currentMode === 'CTF') && ent.team === bot.team) return;
+                // Throttled target scanning (runs every ~0.25s per bot instead of 60 FPS)
+                if (bot.scanTimer <= 0) {
+                    bot.scanTimer = 0.2 + Math.random() * 0.1;
+                    let bestTarget = null;
+                    let minDist = 65.0; // Max visual scan range
 
-                    const entEyePos = (ent === player)
-                        ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0))
-                        : ent.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
+                    allEntities.forEach(ent => {
+                        if (ent === bot || ent.health <= 0) return;
+                        if ((currentMode === 'TDM' || currentMode === 'CTF') && ent.team === bot.team) return;
 
-                    const dist = botEyePos.distanceTo(entEyePos);
-                    if (dist <= 120) {
-                        candidates.push({ entity: ent, eyePos: entEyePos, dist: dist });
-                    }
-                });
+                        const entEyePos = (ent === player)
+                            ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0))
+                            : ent.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
-                // 2. Sort candidates by distance ascending
-                candidates.sort((a, b) => a.dist - b.dist);
+                        const d = botEyePos.distanceTo(entEyePos);
+                        if (d < minDist) {
+                            // Raycast against structural wall Colliders only (excluding floor tiles)
+                            if (checkLineOfSight(botEyePos, entEyePos, wallColliders)) {
+                                minDist = d;
+                                bestTarget = ent;
+                            }
+                        }
+                    });
 
-                // 3. Test LoS on closest candidate targets first (stops as soon as closest target is visible)
-                let bestTarget = null;
-                let minDist = Infinity;
-
-                for (let i = 0; i < candidates.length; i++) {
-                    const cand = candidates[i];
-                    if (checkLineOfSight(botEyePos, cand.eyePos, activeWallBlockers)) {
-                        bestTarget = cand.entity;
-                        minDist = cand.dist;
-                        break; // FOUND CLOSEST VISIBLE ENEMY! Stop testing remaining targets!
-                    }
+                    bot.target = bestTarget;
                 }
 
-                bot.target = bestTarget;
+                const bestTarget = bot.target;
 
                 // PATROL STATE
                 if (!bestTarget) {
@@ -1955,6 +1939,7 @@
 
                 // COMBAT ENGAGEMENT STATE
                 const targetPos = bestTarget === player ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0)) : bestTarget.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
+                const minDist = botEyePos.distanceTo(targetPos);
                 const dirToTarget = new THREE.Vector3().subVectors(targetPos, botEyePos).normalize();
 
                 let desiredSlot = 0;
