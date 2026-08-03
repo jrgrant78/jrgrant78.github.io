@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // FACILITY ARENA</title>
+    <title>CYBER-STRIKE 2077 // ADVANCED FFA ARENA</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -50,7 +50,7 @@
         #leaderboard { position: absolute; top: 80px; left: 20px; font-size: 12px; line-height: 1.5; }
         #stance-indicator { font-size: 12px; color: #ffe600; margin-top: 4px; }
         #grenade-display { font-size: 12px; color: #ff007f; margin-top: 6px; font-weight: bold; }
-        #test-indicator { font-size: 11px; color: #ff007f; margin-top: 4px; font-weight: bold; }
+        #test-indicator { font-size: 11px; color: #00ffff; margin-top: 4px; font-weight: bold; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
@@ -72,7 +72,7 @@
             <div class="hud-panel">
                 <div>SCORE LIMIT: 60</div>
                 <div id="score-display" style="font-size: 20px; font-weight: bold; color: #ff007f;">0 / 60 KILLS</div>
-                <div id="test-indicator">TEST MODE: BOTS PACIFIED</div>
+                <div id="test-indicator">MODE: FULL FREE-FOR-ALL COMBAT</div>
             </div>
             <div class="hud-panel" id="leaderboard">
                 <div style="text-decoration: underline; margin-bottom: 4px;">FACILITY COMBATANTS</div>
@@ -102,7 +102,7 @@
 
     <script>
         // --- CONFIG & TOGGLES ---
-        const BOTS_CAN_FIRE = false; // Set to true to re-enable bot attacks
+        const BOTS_CAN_FIRE = true; // Set to true for full combat
         const SCORE_LIMIT = 60;
         const TOTAL_COMBATANTS = 10;
         const WEAPON_COUNT = 60;
@@ -136,7 +136,7 @@
         viewmodelGroup.position.set(0.35, -0.35, -0.55);
 
         let gameStarted = false;
-        let isMouseDown = false; // Continuous automatic firing tracker
+        let isMouseDown = false;
         let kills = 0;
         const players = [];
         const projectiles = [];
@@ -422,10 +422,9 @@
                         const slot = sp.weapon.category === 'PRIMARY' ? 0 : (sp.weapon.category === 'SECONDARY' ? 1 : 2);
                         player.inventory[slot] = sp.weapon;
                         
-                        // AUTO-EQUIP AND TRIGGER SWITCH ANIMATION
                         switchWeapon(slot, true);
 
-                        player.grenades = 2; // Replenish grenades
+                        player.grenades = 2;
                         updateGrenadeHUD();
 
                         showPickupPrompt(`ACQUIRED: ${sp.weapon.name} + GRENADES REFILLED`);
@@ -586,7 +585,7 @@
             slideTimer: 0, slideDir: new THREE.Vector3(),
             canDoubleJump: true, jetpackFuel: 100, currentEyeHeight: EYE_HEIGHT_STAND,
             activeSlot: 0,
-            inventory: [defaultAssaultRifle, defaultHandgun, defaultKnife],
+            inventory: [Object.assign({}, defaultAssaultRifle), Object.assign({}, defaultHandgun), Object.assign({}, defaultKnife)],
             grenades: 2,
             lastFired: 0, grenadeCookTime: 0, isCookingGrenade: false,
             recoilAmount: 0, meleeSwingProgress: 0,
@@ -603,7 +602,7 @@
         }
         updatePlayerViewmodel();
 
-        // --- BOTS MANAGEMENT ---
+        // --- BOTS MANAGEMENT WITH FULL STATE ENGINE ---
         function createBot(id) {
             const spawnPos = spawnPoints[Math.floor(Math.random() * spawnPoints.length)] || new THREE.Vector3(0, 0, 0);
             const archetype = BOT_ARCHETYPES[id % BOT_ARCHETYPES.length];
@@ -612,14 +611,32 @@
             mesh.position.copy(spawnPos);
             scene.add(mesh);
 
-            const botWpn = weaponsDatabase[Math.floor(Math.random() * weaponsDatabase.length)];
-            const botWpnMesh = buildWeaponMesh(botWpn, false);
-            mesh.userData.weaponHolder.add(botWpnMesh);
+            const pWpn = weaponsDatabase[Math.floor(Math.random() * 25)];
+            const sWpn = weaponsDatabase[25 + Math.floor(Math.random() * 20)];
+            const mWpn = weaponsDatabase[45 + Math.floor(Math.random() * 15)];
 
-            return {
+            const botObj = {
                 id, name: `BOT_${archetype}_${id}`, health: 100, score: 0,
-                mesh, velocity: new THREE.Vector3(), lastShoot: 0, weapon: botWpn
+                mesh, velocity: new THREE.Vector3(),
+                inventory: [Object.assign({}, pWpn), Object.assign({}, sWpn), Object.assign({}, mWpn)],
+                activeSlot: 0, weapon: Object.assign({}, pWpn),
+                grenades: 2, lastFired: 0,
+                isGrounded: true, canDoubleJump: true,
+                isSprinting: false, isSliding: false, isCrouching: false, slideTimer: 0, slideDir: new THREE.Vector3(),
+                jumpCooldown: 0, grenadeCooldown: 0, target: null
             };
+
+            updateBotHeldWeaponMesh(botObj);
+            return botObj;
+        }
+
+        function updateBotHeldWeaponMesh(bot) {
+            const holder = bot.mesh.userData.weaponHolder;
+            while(holder.children.length > 0) holder.remove(holder.children[0]);
+            const currentWpn = bot.inventory[bot.activeSlot];
+            bot.weapon = currentWpn;
+            const mesh = buildWeaponMesh(currentWpn, false);
+            holder.add(mesh);
         }
 
         for (let i = 1; i < TOTAL_COMBATANTS; i++) players.push(createBot(i));
@@ -630,7 +647,6 @@
         document.addEventListener('keydown', (e) => {
             keys[e.code] = true;
 
-            // SHIFT KEY PRESS: Force stand up if crouching OR break slide instantly into a sprint
             if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
                 if (player.isCrouching) player.isCrouching = false;
                 if (player.isSliding) player.isSliding = false;
@@ -664,7 +680,7 @@
         document.addEventListener('keyup', (e) => {
             keys[e.code] = false;
             if (e.code === 'KeyG' && player.isCookingGrenade) {
-                throwGrenade();
+                throwGrenade(player);
                 player.grenades--;
                 updateGrenadeHUD();
                 player.isCookingGrenade = false;
@@ -723,7 +739,7 @@
         function switchWeapon(slotIndex, force = false) {
             if (!force && player.activeSlot === slotIndex && player.pendingSlot === -1) return;
             player.pendingSlot = slotIndex;
-            player.weaponSwitchTimer = 0.24; // 240ms transition
+            player.weaponSwitchTimer = 0.24;
         }
 
         function updateWeaponHUD() {
@@ -743,7 +759,7 @@
             document.getElementById('grenade-display').innerText = `GRENADES: ${player.grenades} / 2`;
         }
 
-        // --- PLAYER MOVEMENT & ANIMATION ENGINE ---
+        // --- PLAYER MOVEMENT ENGINE ---
         function updatePlayerMovement(delta) {
             player.isSprinting = (keys['ShiftLeft'] || keys['ShiftRight']) && !player.isCrouching;
 
@@ -804,7 +820,7 @@
                 player.isGrounded = false;
             }
 
-            // Elevator Boost Pads
+            // Elevator Shaft Boost
             if (Math.abs(player.position.x - 38) < 2.5 && Math.abs(player.position.z) < 2.5) player.velocity.y = 16;
             if (Math.abs(player.position.x + 38) < 2.5 && Math.abs(player.position.z) < 2.5) player.velocity.y = 16;
 
@@ -828,12 +844,11 @@
             camera.position.y = player.position.y + player.currentEyeHeight;
             camera.rotation.copy(player.rotation);
 
-            // --- VIEWMODEL ANIMATIONS & WEAPON SWITCH ANIMATION ---
+            // Viewmodel & Weapon Switch Animations
             if (player.weaponSwitchTimer > 0) {
                 player.weaponSwitchTimer -= delta;
-                const norm = Math.max(0, player.weaponSwitchTimer / 0.24); // 1.0 -> 0.0
+                const norm = Math.max(0, player.weaponSwitchTimer / 0.24);
 
-                // Midpoint Swap
                 if (player.pendingSlot !== -1 && norm <= 0.5) {
                     player.activeSlot = player.pendingSlot;
                     player.pendingSlot = -1;
@@ -841,8 +856,7 @@
                     updateWeaponHUD();
                 }
 
-                // Dip & Raise Arc
-                const dip = Math.sin(norm * Math.PI); // 0 -> 1 -> 0
+                const dip = Math.sin(norm * Math.PI);
                 viewmodelGroup.position.set(0.35, -0.35 - (dip * 0.5), -0.55);
                 viewmodelGroup.rotation.set(-dip * 0.8, 0, dip * 0.3);
             } else if (player.meleeSwingProgress > 0) {
@@ -938,27 +952,35 @@
         // --- WEAPON FIRING ---
         function fireActiveWeapon(shooter, direction) {
             const now = Date.now();
-            const wpn = shooter === player ? player.inventory[player.activeSlot] : shooter.weapon;
+            const isHuman = shooter === player;
+            const wpn = isHuman ? player.inventory[player.activeSlot] : shooter.weapon;
 
             if (now - shooter.lastFired < wpn.fireRate) return;
-            if (shooter === player && wpn.category !== 'MELEE' && wpn.ammo <= 0) {
-                wpn.ammo = wpn.ammoMax; updateAmmoHUD(); return;
+            if (wpn.category !== 'MELEE' && wpn.ammo <= 0) {
+                wpn.ammo = wpn.ammoMax;
+                if (isHuman) updateAmmoHUD();
+                else if (shooter.inventory) {
+                    shooter.activeSlot = (shooter.activeSlot + 1) % 2; // Switch primary/secondary
+                    updateBotHeldWeaponMesh(shooter);
+                }
+                return;
             }
 
             shooter.lastFired = now;
 
-            if (shooter === player) {
+            if (isHuman) {
                 if (wpn.category !== 'MELEE') {
                     wpn.ammo--; player.recoilAmount = 1.0; updateAmmoHUD();
                 } else {
                     player.meleeSwingProgress = 1.0;
                 }
             } else {
+                if (wpn.category !== 'MELEE') wpn.ammo--;
                 if (wpn.category === 'MELEE') shooter.mesh.userData.meleeSwingTimer = 1.0;
                 else shooter.mesh.userData.recoilTimer = 0.15;
             }
 
-            const origin = shooter === player 
+            const origin = isHuman
                 ? camera.position.clone() 
                 : shooter.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
@@ -968,9 +990,12 @@
 
             spawnBlastVisual(origin, direction, targetPoint, wpn);
 
-            players.concat([player]).forEach(target => {
+            // FFA Hit Detection (All Entities Can Hit All Other Entities)
+            const allTargets = [player, ...players];
+            allTargets.forEach(target => {
                 if (target === shooter) return;
                 let hit = false;
+
                 if (target === player) {
                     const playerHeadPos = player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0));
                     hit = origin.distanceTo(playerHeadPos) < wpn.range && direction.angleTo(playerHeadPos.clone().sub(origin)) < 0.25;
@@ -978,6 +1003,7 @@
                     const intersects = raycaster.intersectObject(target.mesh, true);
                     hit = intersects.length > 0;
                 }
+
                 if (hit) damageEntity(target, wpn.damage, shooter);
             });
         }
@@ -1005,25 +1031,34 @@
             if (entity === player) {
                 player.position.copy(randSpawn);
                 player.grenades = 2;
+                player.inventory[0].ammo = player.inventory[0].ammoMax;
+                player.inventory[1].ammo = player.inventory[1].ammoMax;
                 updateGrenadeHUD();
+                updateAmmoHUD();
             } else {
                 entity.mesh.position.copy(randSpawn);
+                entity.inventory.forEach(w => w.ammo = w.ammoMax);
             }
         }
 
         // --- GRENADE SYSTEM ---
-        function throwGrenade() {
-            const cookDuration = (Date.now() - player.grenadeCookTime) / 1000;
+        function throwGrenade(shooter) {
+            const isHuman = shooter === player;
+            const cookDuration = isHuman ? (Date.now() - player.grenadeCookTime) / 1000 : 0.5;
             const throwPower = Math.min(28, 12 + cookDuration * 10);
 
             const grenadeMesh = new THREE.Mesh(new THREE.SphereGeometry(0.2), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
-            grenadeMesh.position.copy(camera.position);
+            const origin = isHuman ? camera.position.clone() : shooter.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
+            grenadeMesh.position.copy(origin);
 
-            const dir = camera.getWorldDirection(new THREE.Vector3());
+            const dir = isHuman 
+                ? camera.getWorldDirection(new THREE.Vector3()) 
+                : (shooter.target ? new THREE.Vector3().subVectors(shooter.target.position || shooter.target.mesh.position, shooter.mesh.position).normalize() : new THREE.Vector3(0,0,-1));
+
             const vel = dir.multiplyScalar(throwPower); vel.y += 4;
 
             scene.add(grenadeMesh);
-            projectiles.push({ mesh: grenadeMesh, velocity: vel, spawnTime: Date.now(), fuse: Math.max(0.4, 3.0 - cookDuration) });
+            projectiles.push({ mesh: grenadeMesh, velocity: vel, spawnTime: Date.now(), fuse: Math.max(0.4, 3.0 - cookDuration), owner: shooter });
         }
 
         function updateProjectiles(delta) {
@@ -1041,7 +1076,7 @@
                     players.concat([player]).forEach(ent => {
                         const entPos = ent === player ? player.position : ent.mesh.position;
                         const dist = entPos.distanceTo(expPos);
-                        if (dist < 9) damageEntity(ent, Math.floor((1 - dist / 9) * 95), player);
+                        if (dist < 9) damageEntity(ent, Math.floor((1 - dist / 9) * 95), p.owner || player);
                     });
 
                     scene.remove(p.mesh); projectiles.splice(i, 1);
@@ -1049,39 +1084,131 @@
             }
         }
 
-        // --- BOT AI & ANIMATIONS ---
+        // --- ADVANCED AUTONOMOUS FFA BOT AI ENGINE ---
         function updateBots(delta) {
+            const allEntities = [player, ...players];
+
             players.forEach(bot => {
                 if (bot === player) return;
 
                 const ud = bot.mesh.userData;
-                const playerEyePos = player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0));
+                bot.jumpCooldown = Math.max(0, bot.jumpCooldown - delta);
+                bot.grenadeCooldown = Math.max(0, bot.grenadeCooldown - delta);
 
-                const distToPlayer = bot.mesh.position.distanceTo(player.position);
-                const dirToPlayer = new THREE.Vector3().subVectors(playerEyePos, bot.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0))).normalize();
+                // 1. DYNAMIC FFA TARGETING (Select closest living opponent)
+                let bestTarget = null;
+                let minDist = Infinity;
 
+                allEntities.forEach(ent => {
+                    if (ent === bot || ent.health <= 0) return;
+                    const entPos = ent === player ? player.position : ent.mesh.position;
+                    const d = bot.mesh.position.distanceTo(entPos);
+                    if (d < minDist) {
+                        minDist = d;
+                        bestTarget = ent;
+                    }
+                });
+
+                bot.target = bestTarget;
+                if (!bestTarget) return;
+
+                const targetPos = bestTarget === player ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0)) : bestTarget.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
+                const dirToTarget = new THREE.Vector3().subVectors(targetPos, bot.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0))).normalize();
+
+                // 2. TACTICAL WEAPON SELECTION & AUTOMATIC SWITCHING
+                let desiredSlot = 0; // Default Primary
+                if (minDist <= 3.5) {
+                    desiredSlot = 2; // Close quarters -> Melee
+                } else if (bot.inventory[0].ammo <= 0) {
+                    desiredSlot = 1; // Secondary
+                }
+
+                if (bot.activeSlot !== desiredSlot) {
+                    bot.activeSlot = desiredSlot;
+                    updateBotHeldWeaponMesh(bot);
+                }
+
+                // 3. MOVEMENT & MATCHING SPEED ENGINE (Sprinting = 18, Walk = 11, Slide = 24)
                 let isMoving = false;
-                if (distToPlayer > (bot.weapon.category === 'MELEE' ? 2.5 : 6.0)) {
-                    isMoving = true;
-                    const moveDir = new THREE.Vector3(dirToPlayer.x, 0, dirToPlayer.z).normalize();
-                    
-                    const oldBotX = bot.mesh.position.x;
-                    bot.mesh.position.x += moveDir.x * 7.5 * delta;
-                    if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) bot.mesh.position.x = oldBotX;
+                bot.isSprinting = minDist > 12; // Sprint to pursue distant enemies
+                const currentMoveSpeed = bot.isSprinting ? 18 : (bot.isSliding ? 22 : 11);
 
-                    const oldBotZ = bot.mesh.position.z;
-                    bot.mesh.position.z += moveDir.z * 7.5 * delta;
-                    if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) bot.mesh.position.z = oldBotZ;
+                if (minDist > (bot.weapon.category === 'MELEE' ? 1.8 : 5.0)) {
+                    isMoving = true;
+                    const moveDir = new THREE.Vector3(dirToTarget.x, 0, dirToTarget.z).normalize();
+                    
+                    // Sliding decision when sprinting close
+                    if (bot.isSprinting && minDist < 15 && Math.random() < 0.01 && !bot.isSliding) {
+                        bot.isSliding = true;
+                        bot.slideTimer = SLIDE_DURATION;
+                        bot.slideDir.copy(moveDir);
+                    }
+
+                    if (bot.isSliding) {
+                        bot.slideTimer -= delta;
+                        const sSpeed = 24 * (bot.slideTimer / SLIDE_DURATION);
+                        bot.velocity.x = bot.slideDir.x * sSpeed;
+                        bot.velocity.z = bot.slideDir.z * sSpeed;
+                        if (bot.slideTimer <= 0) bot.isSliding = false;
+                    } else {
+                        bot.velocity.x = moveDir.x * currentMoveSpeed;
+                        bot.velocity.z = moveDir.z * currentMoveSpeed;
+                    }
+
+                    // Solid Axis-Separated Wall Collisions
+                    const oldX = bot.mesh.position.x;
+                    bot.mesh.position.x += bot.velocity.x * delta;
+                    if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
+                        bot.mesh.position.x = oldX;
+                        // Jump over obstacle if blocked!
+                        if (bot.isGrounded && bot.jumpCooldown <= 0) {
+                            bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
+                        }
+                    }
+
+                    const oldZ = bot.mesh.position.z;
+                    bot.mesh.position.z += bot.velocity.z * delta;
+                    if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
+                        bot.mesh.position.z = oldZ;
+                        if (bot.isGrounded && bot.jumpCooldown <= 0) {
+                            bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
+                        }
+                    }
 
                     bot.mesh.rotation.y = Math.atan2(moveDir.x, moveDir.z);
                 } else {
-                    bot.mesh.rotation.y = Math.atan2(dirToPlayer.x, dirToPlayer.z);
+                    bot.mesh.rotation.y = Math.atan2(dirToTarget.x, dirToTarget.z);
                 }
 
-                bot.mesh.position.y = getGroundY(bot.mesh.position);
+                // 4. VERTICAL PHYSICS, GROUND CLAMPING & ELEVATOR BOOST
+                bot.velocity.y -= 32 * delta;
+                const proposedY = bot.mesh.position.y + bot.velocity.y * delta;
+                const groundY = getGroundY(bot.mesh.position);
 
+                if (proposedY <= groundY) {
+                    bot.mesh.position.y = groundY;
+                    bot.velocity.y = 0;
+                    bot.isGrounded = true;
+                    bot.canDoubleJump = true;
+                } else {
+                    bot.mesh.position.y = proposedY;
+                    bot.isGrounded = false;
+                }
+
+                // Elevator Shaft Lift Pads for Bots
+                if (Math.abs(bot.mesh.position.x - 38) < 2.5 && Math.abs(bot.mesh.position.z) < 2.5) bot.velocity.y = 16;
+                if (Math.abs(bot.mesh.position.x + 38) < 2.5 && Math.abs(bot.mesh.position.z) < 2.5) bot.velocity.y = 16;
+
+                // 5. GRENADE THROWING LOGIC
+                if (minDist > 10 && minDist < 24 && bot.grenades > 0 && bot.grenadeCooldown <= 0 && Math.random() < 0.02) {
+                    throwGrenade(bot);
+                    bot.grenades--;
+                    bot.grenadeCooldown = 5.0;
+                }
+
+                // 6. SKELETAL ANIMATIONS (Limb swing, aim pitching, recoil)
                 if (isMoving) {
-                    ud.animTimer += delta * 10;
+                    ud.animTimer += delta * (bot.isSprinting ? 14 : 10);
                     ud.leftLegPivot.rotation.x = Math.sin(ud.animTimer) * 0.6;
                     ud.rightLegPivot.rotation.x = -Math.sin(ud.animTimer) * 0.6;
                     ud.leftArmPivot.rotation.x = -Math.sin(ud.animTimer) * 0.5;
@@ -1091,13 +1218,13 @@
                 }
 
                 if (ud.meleeSwingTimer > 0) {
-                    ud.meleeSwingTimer -= delta * 3.0;
+                    ud.meleeSwingTimer -= delta * 3.5;
                     const swingProg = 1.0 - Math.max(0, ud.meleeSwingTimer);
                     ud.rightArmPivot.rotation.x = -Math.PI / 2 + Math.sin(swingProg * Math.PI) * 1.5;
                     ud.rightArmPivot.rotation.y = -Math.sin(swingProg * Math.PI) * 1.2;
                 } else {
                     ud.rightArmPivot.rotation.y = 0;
-                    const pitchAngle = Math.asin(dirToPlayer.y);
+                    const pitchAngle = Math.asin(dirToTarget.y);
                     ud.rightArmPivot.rotation.x = -Math.PI / 2 + pitchAngle;
 
                     if (ud.recoilTimer > 0) {
@@ -1106,8 +1233,9 @@
                     }
                 }
 
-                if (BOTS_CAN_FIRE && distToPlayer < bot.weapon.range && Math.random() < 0.04) {
-                    fireActiveWeapon(bot, dirToPlayer);
+                // 7. FIRING AT TARGET
+                if (BOTS_CAN_FIRE && minDist < bot.weapon.range && Math.random() < 0.08) {
+                    fireActiveWeapon(bot, dirToTarget);
                 }
             });
         }
@@ -1143,7 +1271,6 @@
             if (gameStarted) {
                 updatePlayerMovement(delta);
 
-                // Continuous Automatic Fire Processing
                 if (isMouseDown && document.pointerLockElement === document.body) {
                     fireActiveWeapon(player, camera.getWorldDirection(new THREE.Vector3()));
                 }
