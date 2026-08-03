@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // INTEGRATED WALLS & PLAYER RIGS</title>
+    <title>CYBER-STRIKE 2077 // OPTIMIZED ARENA</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -215,8 +215,10 @@
         const slidingDoors = [];
         const elevatorCars = [];
         
-        const colliders = [];    
-        const staticBoxes = [];  
+        // COLLISION ARRAYS
+        const groundColliders = []; 
+        const wallColliders = [];   
+        const staticBoxes = [];     
         const weaponsDatabase = [];
 
         // --- WEAPON SUBTYPES ---
@@ -326,7 +328,7 @@
             return group;
         }
 
-        // --- ARTICULATED 60-BONE RIG BUILDER (DISTINCT HUMAN PLAYER VS BOT RIGS) ---
+        // --- ARTICULATED 60-BONE RIG BUILDER ---
         function create60BoneHumanoidRig(colorHex, isHumanPlayer = false) {
             const bones = [];
             const boneMap = {};
@@ -371,7 +373,6 @@
             const chestGlow = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.08, 0.31), glowMat);
             chest.add(chestMesh, chestGlow, createJointSphere(0.09));
 
-            // Extra Hero Armor Accents for Human Players
             if (isHumanPlayer) {
                 const powerCore = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.08, 12), accentGlowMat);
                 powerCore.rotation.x = Math.PI / 2;
@@ -395,7 +396,6 @@
                 upperMesh.position.y = -0.18;
                 upperArm.add(upperMesh, createJointSphere(0.07));
 
-                // Player Shoulder Pauldrons
                 if (isHumanPlayer) {
                     const pauldron = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.12, 0.16), armorMat);
                     pauldron.position.set(0.04 * s, 0, 0);
@@ -479,9 +479,11 @@
                 scene.add(light);
             };
 
-            const registerStaticBox = (mesh) => {
-                colliders.push(mesh);
-                const bObj = { box: new THREE.Box3().setFromObject(mesh), active: true, mesh: mesh };
+            const registerStaticBox = (mesh, isGround = false) => {
+                if (isGround) groundColliders.push(mesh);
+                else wallColliders.push(mesh);
+
+                const bObj = { box: new THREE.Box3().setFromObject(mesh), active: true, mesh: mesh, isGround: isGround };
                 staticBoxes.push(bObj);
                 return bObj;
             };
@@ -490,7 +492,7 @@
                 const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
                 wall.position.set(x, y, z);
                 scene.add(wall);
-                return registerStaticBox(wall);
+                return registerStaticBox(wall, false);
             };
 
             // Outer Perimeter Enclosure
@@ -506,7 +508,7 @@
                     const mainFloor = new THREE.Mesh(new THREE.BoxGeometry(facilitySize, 1.0, facilitySize), floorMat);
                     mainFloor.position.set(0, fY - 0.5, 0);
                     scene.add(mainFloor);
-                    registerStaticBox(mainFloor);
+                    registerStaticBox(mainFloor, true);
                 } else {
                     const tileSize = 20;
                     for (let x = -half + tileSize/2; x < half; x += tileSize) {
@@ -521,7 +523,7 @@
                             const tile = new THREE.Mesh(new THREE.BoxGeometry(tileSize, 1.0, tileSize), floorMat);
                             tile.position.set(x, fY - 0.5, z);
                             scene.add(tile);
-                            registerStaticBox(tile);
+                            registerStaticBox(tile, true);
                         }
                     }
                 }
@@ -543,8 +545,8 @@
                 doorGroup.add(doorPanel, strip);
                 scene.add(doorGroup);
 
-                colliders.push(doorPanel);
-                const bObj = { box: new THREE.Box3().setFromObject(doorPanel), active: true, mesh: doorPanel };
+                wallColliders.push(doorPanel);
+                const bObj = { box: new THREE.Box3().setFromObject(doorPanel), active: true, mesh: doorPanel, isGround: false };
                 staticBoxes.push(bObj);
 
                 slidingDoors.push({
@@ -587,7 +589,7 @@
 
                 scene.add(glassMesh, topFrame, botFrame);
 
-                const bObj = registerStaticBox(glassMesh);
+                const bObj = registerStaticBox(glassMesh, false);
 
                 glassPanels.push({
                     mesh: glassMesh,
@@ -607,7 +609,7 @@
                         const glowStrip = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.12, 1.82), neonBlueMat);
                         glowStrip.position.set(cX + i, cY + 4.5, cZ - 10);
                         scene.add(rack, glowStrip);
-                        registerStaticBox(rack);
+                        registerStaticBox(rack, false);
                     }
                 } else if (roomType === 'MEDIC_BAY') {
                     addRoomLight(cX, cY, cZ, 0xff007f, 2.5);
@@ -615,20 +617,20 @@
                         const bed = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.8, 5.0), wallMat);
                         bed.position.set(cX + i, cY + 0.4, cZ);
                         scene.add(bed);
-                        registerStaticBox(bed);
+                        registerStaticBox(bed, false);
                     }
                 } else if (roomType === 'BRIEFING_ROOM') {
                     addRoomLight(cX, cY, cZ, 0xffe600, 2.5);
                     const table = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 4.5, 1.0, 12), wallMat);
                     table.position.set(cX, cY + 0.5, cZ);
                     scene.add(table);
-                    registerStaticBox(table);
+                    registerStaticBox(table, false);
                 } else if (roomType === 'ARMORY') {
                     addRoomLight(cX, cY, cZ, 0x00ffaa, 2.5);
                     const rack = new THREE.Mesh(new THREE.BoxGeometry(14.0, 4.5, 1.0), wallMat);
                     rack.position.set(cX, cY + 2.25, cZ - 10);
                     scene.add(rack);
-                    registerStaticBox(rack);
+                    registerStaticBox(rack, false);
                 } else {
                     addRoomLight(cX, cY, cZ, 0x9900ff, 2.5);
                     const barrier1 = new THREE.Mesh(new THREE.BoxGeometry(8.0, 3.5, 1.0), wallMat);
@@ -636,8 +638,8 @@
                     const barrier2 = new THREE.Mesh(new THREE.BoxGeometry(1.0, 3.5, 8.0), wallMat);
                     barrier2.position.set(cX + 4, cY + 1.75, cZ);
                     scene.add(barrier1, barrier2);
-                    registerStaticBox(barrier1);
-                    registerStaticBox(barrier2);
+                    registerStaticBox(barrier1, false);
+                    registerStaticBox(barrier2, false);
                 }
             };
 
@@ -655,35 +657,23 @@
                     { type: 'RESEARCH_LAB', x: 75, z: 75 }
                 ];
 
-                // Continuous 240m Long Vertical Partition Walls along Z Axis (at x = -37.5 and x = 37.5)
                 [-37.5, 37.5].forEach(px => {
-                    // Wall Span 1 (-120 to -68)
                     createStaticWall(px, fY + 3.5, -94, 1.5, 7.0, 52);
                     createBreakableGlassWindow(px, fY, -63, 10.0, 4.0, false);
-                    // Wall Span 2 (-58 to -3)
                     createStaticWall(px, fY + 3.5, -30.5, 1.5, 7.0, 55);
-                    // INSET SLIDING DOOR inside continuous wall
                     createDoor(px, fY, 0, 6.0, false);
-                    // Wall Span 3 (3 to 58)
                     createStaticWall(px, fY + 3.5, 30.5, 1.5, 7.0, 55);
                     createBreakableGlassWindow(px, fY, 63, 10.0, 4.0, false);
-                    // Wall Span 4 (68 to 120)
                     createStaticWall(px, fY + 3.5, 94, 1.5, 7.0, 52);
                 });
 
-                // Continuous 240m Long Horizontal Partition Walls along X Axis (at z = -37.5 and z = 37.5)
                 [-37.5, 37.5].forEach(pz => {
-                    // Wall Span 1 (-120 to -68)
                     createStaticWall(-94, fY + 3.5, pz, 52, 7.0, 1.5);
                     createBreakableGlassWindow(-63, fY, pz, 10.0, 4.0, true);
-                    // Wall Span 2 (-58 to -3)
                     createStaticWall(-30.5, fY + 3.5, pz, 55, 7.0, 1.5);
-                    // INSET SLIDING DOOR inside continuous wall
                     createDoor(0, fY, pz, 6.0, true);
-                    // Wall Span 3 (3 to 58)
                     createStaticWall(30.5, fY + 3.5, pz, 55, 7.0, 1.5);
                     createBreakableGlassWindow(63, fY, pz, 10.0, 4.0, true);
-                    // Wall Span 4 (68 to 120)
                     createStaticWall(94, fY + 3.5, pz, 52, 7.0, 1.5);
                 });
 
@@ -707,7 +697,7 @@
                 carMesh.position.set(x, 0.25, z);
                 scene.add(carMesh);
 
-                const bObj = registerStaticBox(carMesh);
+                const bObj = registerStaticBox(carMesh, true);
 
                 elevatorCars.push({
                     mesh: carMesh,
@@ -733,7 +723,7 @@
                     ramp.position.set(x, fY + floorHeight / 2, z);
                     ramp.rotation.x = rampAngle;
                     scene.add(ramp);
-                    colliders.push(ramp);
+                    groundColliders.push(ramp);
                 }
                 addRoomLight(x, floorHeight, z, 0x00ffff, 2.0);
             };
@@ -908,23 +898,25 @@
 
         generateFacilityArena();
 
-        // --- PLAYER-ONLY MODE SELECTION ---
+        // --- PLAYER-ONLY MODE SELECTION WITH INSTANT POINTER LOCK ---
         let playerVotedMode = null;
 
         function castPlayerVote(modeKey) {
             if (playerVotedMode) return;
             playerVotedMode = modeKey;
             currentMode = modeKey;
-            
+
+            // Request pointer lock synchronously on direct user click!
+            try { document.body.requestPointerLock(); } catch(e) {}
+
             document.getElementById('voting-status-text').innerText = `MODE SELECTED: ${getModeFullName(modeKey)}! ENTERING ARENA...`;
 
             setTimeout(() => {
                 initGameMode();
                 startScreen.style.display = 'none';
-                document.body.requestPointerLock();
                 gameStarted = true;
                 respawnEntity(player);
-            }, 600);
+            }, 400);
         }
 
         function initGameMode() {
@@ -986,7 +978,7 @@
             }
         }
 
-        // --- GROUND RAYCASTER & SOLID BOX3 COLLISION ENGINE ---
+        // --- OPTIMIZED GROUND RAYCASTER & SOLID BOX3 COLLISION ENGINE ---
         const raycasterDown = new THREE.Raycaster();
         const downVector = new THREE.Vector3(0, -1, 0);
 
@@ -994,7 +986,7 @@
             let maxFloorY = 0.0;
             const rayOrigin = new THREE.Vector3(position.x, position.y + 20.0, position.z);
             raycasterDown.set(rayOrigin, downVector);
-            const hits = raycasterDown.intersectObjects(colliders, false);
+            const hits = raycasterDown.intersectObjects(groundColliders, false);
 
             for (let i = 0; i < hits.length; i++) {
                 const hit = hits[i];
@@ -1013,7 +1005,7 @@
             );
 
             for (let i = 0; i < staticBoxes.length; i++) {
-                if (staticBoxes[i].active && box.intersectsBox(staticBoxes[i].box)) return true;
+                if (!staticBoxes[i].isGround && staticBoxes[i].active && box.intersectsBox(staticBoxes[i].box)) return true;
             }
             return false;
         }
@@ -1025,12 +1017,12 @@
             );
 
             for (let i = 0; i < staticBoxes.length; i++) {
-                if (staticBoxes[i].active && headBox.intersectsBox(staticBoxes[i].box)) return true;
+                if (!staticBoxes[i].isGround && staticBoxes[i].active && headBox.intersectsBox(staticBoxes[i].box)) return true;
             }
             return false;
         }
 
-        // --- LINE OF SIGHT (LoS) RAYCAST CHECK ---
+        // --- HIGH-PERFORMANCE LINE OF SIGHT (LoS) CHECK ---
         const losRaycaster = new THREE.Raycaster();
 
         function checkLineOfSight(fromPos, toPos, blockingObjects) {
@@ -1239,8 +1231,8 @@
             const rayLeft = new THREE.Raycaster(player.position, leftDir, 0, 1.3);
             const rayRight = new THREE.Raycaster(player.position, rightDir, 0, 1.3);
 
-            const hitL = rayLeft.intersectObjects(colliders, false);
-            const hitR = rayRight.intersectObjects(colliders, false);
+            const hitL = rayLeft.intersectObjects(wallColliders, false);
+            const hitR = rayRight.intersectObjects(wallColliders, false);
 
             if ((hitL.length > 0 || hitR.length > 0) && player.wallRunTimer < WALL_RUN_DURATION) {
                 player.isWallRunning = true;
@@ -1393,7 +1385,6 @@
 
             const allEntities = [player, ...players];
 
-            // Position carried flags behind player back so view is never obstructed
             if (cyanFlagCarrier) {
                 if (cyanFlagCarrier === player) {
                     const backOffset = camera.getWorldDirection(new THREE.Vector3()).negate().multiplyScalar(0.6);
@@ -1416,7 +1407,6 @@
                 pinkFlagObj.position.copy(pinkBasePos);
             }
 
-            // Flag Steal / Capture Triggers
             allEntities.forEach(ent => {
                 if (ent.health <= 0) return;
                 const pos = ent === player ? player.position : ent.mesh.position;
@@ -1605,10 +1595,7 @@
                 ? camera.position.clone() 
                 : shooter.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
-            const targets = [];
-            colliders.forEach(c => targets.push(c));
-            glassPanels.forEach(g => { if (!g.isBroken) targets.push(g.mesh); });
-            slidingDoors.forEach(d => { if (d.slideProgress < 0.85) targets.push(d.panel); });
+            const targets = [...wallColliders];
             
             if (!isHuman) targets.push(playerHitMesh);
             players.forEach(bot => {
@@ -1858,13 +1845,17 @@
             }
         }
 
-        // --- BOT AI WITH ACTIVE PATROL & TEAM BEHAVIOR ---
+        // --- OPTIMIZED BOT AI ENGINE WITH DISTANCE-SORTED LoS SCANNING ---
         function updateBots(delta) {
             const allEntities = [player, ...players];
 
-            const blockingObjects = [...colliders];
-            slidingDoors.forEach(d => {
-                if (d.slideProgress < 0.85) blockingObjects.push(d.panel);
+            // Build active wall obstacle array for Line of Sight
+            const activeWallBlockers = wallColliders.filter(mesh => {
+                let door = slidingDoors.find(d => d.panel === mesh);
+                if (door && door.slideProgress >= 0.85) return false;
+                let glass = glassPanels.find(g => g.mesh === mesh);
+                if (glass && glass.isBroken) return false;
+                return true;
             });
 
             players.forEach(bot => {
@@ -1876,28 +1867,41 @@
 
                 const botEyePos = bot.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
-                let bestTarget = null;
-                let minDist = Infinity;
-
+                // 1. Gather all potential targets in visual range
+                const candidates = [];
                 allEntities.forEach(ent => {
                     if (ent === bot || ent.health <= 0) return;
                     if ((currentMode === 'TDM' || currentMode === 'CTF') && ent.team === bot.team) return;
-                    
+
                     const entEyePos = (ent === player)
                         ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0))
                         : ent.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
-                    const d = botEyePos.distanceTo(entEyePos);
-                    if (d < minDist) {
-                        if (checkLineOfSight(botEyePos, entEyePos, blockingObjects)) {
-                            minDist = d;
-                            bestTarget = ent;
-                        }
+                    const dist = botEyePos.distanceTo(entEyePos);
+                    if (dist <= 120) {
+                        candidates.push({ entity: ent, eyePos: entEyePos, dist: dist });
                     }
                 });
 
+                // 2. Sort candidates by distance ascending
+                candidates.sort((a, b) => a.dist - b.dist);
+
+                // 3. Test LoS on closest candidate targets first (stops as soon as closest target is visible)
+                let bestTarget = null;
+                let minDist = Infinity;
+
+                for (let i = 0; i < candidates.length; i++) {
+                    const cand = candidates[i];
+                    if (checkLineOfSight(botEyePos, cand.eyePos, activeWallBlockers)) {
+                        bestTarget = cand.entity;
+                        minDist = cand.dist;
+                        break; // FOUND CLOSEST VISIBLE ENEMY! Stop testing remaining targets!
+                    }
+                }
+
                 bot.target = bestTarget;
 
+                // PATROL STATE
                 if (!bestTarget) {
                     if (currentMode === 'CTF') {
                         const targetFlagPos = bot.team === 'CYAN' ? pinkBasePos : cyanBasePos;
@@ -1949,6 +1953,7 @@
                     return;
                 }
 
+                // COMBAT ENGAGEMENT STATE
                 const targetPos = bestTarget === player ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0)) : bestTarget.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
                 const dirToTarget = new THREE.Vector3().subVectors(targetPos, botEyePos).normalize();
 
