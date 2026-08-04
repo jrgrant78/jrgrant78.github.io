@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // STUCK-DETECTION WATCHDOG FIX</title>
+    <title>CYBER-STRIKE 2077 // AUTHORITATIVE MULTIPLAYER ARENA</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -123,7 +123,7 @@
             </div>
         </div>
 
-        <p id="voting-status-text" style="font-size: 13px; color: #ffe600; margin-bottom: 0;">SEARCHING FOR ACTIVE ARENA HOST...</p>
+        <p id="voting-status-text" style="font-size: 13px; color: #ffe600; margin-bottom: 0;">CONNECTING TO GLOBAL MATCHMAKER...</p>
     </div>
 
     <!-- HUD SVG Flag Markers -->
@@ -205,12 +205,13 @@
         let spectatorIndex = 0;
 
         // --- NETWORK MULTIPLAYER SETUP ---
-        const GLOBAL_ROOM_ID = "cyberstrike2077-global-room";
+        const HOST_PEER_ID = "cyberstrike2077_host_v1";
         const localClientId = "CS2077_" + Math.random().toString(36).substring(2, 7);
-        const broadcastChan = new BroadcastChannel("cyberstrike_lobby");
+        const broadcastChan = new BroadcastChannel("cyberstrike_lobby_chan");
         let peer = null;
-        let isHost = true;
-        const connectedPeers = [];
+        let hostConnection = null;
+        let isHost = false;
+        const connectedClients = [];
 
         // --- THREE.JS SETUP ---
         const scene = new THREE.Scene();
@@ -502,7 +503,7 @@
             const neonYellowMat = new THREE.MeshBasicMaterial({ color: 0xffe600 });
 
             const facilitySize = 240;
-            const half = facilitySize / 2; // 120
+            const half = facilitySize / 2; 
             const floorHeight = 8.0;
             const floors = [0, floorHeight, floorHeight * 2];
 
@@ -821,7 +822,6 @@
             const bannerGeom = new THREE.BoxGeometry(1.2, 1.8, 0.08);
             const beaconGeom = new THREE.CylinderGeometry(1.8, 1.8, 60, 16);
 
-            // Cyan Flag
             cyanFlagObj = new THREE.Group();
             const cyanPole = new THREE.Mesh(flagGeom, new THREE.MeshBasicMaterial({ color: 0x00ffff }));
             const cyanBanner = new THREE.Mesh(bannerGeom, new THREE.MeshBasicMaterial({ color: 0x00ffff }));
@@ -834,7 +834,6 @@
             cyanFlagBeacon.position.copy(cyanBasePos).add(new THREE.Vector3(0, 30, 0));
             scene.add(cyanFlagBeacon);
 
-            // Pink Flag
             pinkFlagObj = new THREE.Group();
             const pinkPole = new THREE.Mesh(flagGeom, new THREE.MeshBasicMaterial({ color: 0xff007f }));
             const pinkBanner = new THREE.Mesh(bannerGeom, new THREE.MeshBasicMaterial({ color: 0xff007f }));
@@ -977,173 +976,212 @@
 
         generateFacilityArena();
 
-        // --- AUTOMATIC MULTIPLAYER NETWORKING (PEERJS & BROADCASTCHANNEL) ---
+        // --- DEDICATED P2P MATCHMAKING & NETWORKING SYSTEM ---
         function initMultiplayerNetworking() {
+            // Tier 1: BroadcastChannel for zero-latency multi-tab sync
             broadcastChan.onmessage = (event) => {
                 const data = event.data;
                 if (!data || data.sender === localClientId) return;
-
-                if (data.type === 'DISCOVER_HOST_REQUEST' && isHost && gameStarted) {
-                    broadcastChan.postMessage({
-                        type: 'HOST_WELCOME',
-                        sender: localClientId,
-                        mode: currentMode,
-                        teamCyanScore: teamCyanScore,
-                        teamPinkScore: teamPinkScore,
-                        kills: kills
-                    });
-                } else if (data.type === 'HOST_WELCOME' && !gameStarted) {
-                    joinMatchFromHost(data);
-                } else if (data.type === 'STATE_SYNC') {
-                    handleRemotePlayerState(data);
-                }
+                handleIncomingPacket(data);
             };
 
-            broadcastChan.postMessage({ type: 'DISCOVER_HOST_REQUEST', sender: localClientId });
-
-            initPeerJSMatchmaking();
-        }
-
-        function initPeerJSMatchmaking() {
-            peer = new Peer();
-
-            peer.on('open', (id) => {
-                updateNetworkStatusUI("CONNECTING...");
-                const conn = peer.connect(GLOBAL_ROOM_ID, { reliable: true });
-                let connectedToHost = false;
-
-                conn.on('open', () => {
-                    connectedToHost = true;
-                    isHost = false;
-                    conn.send({ type: 'DISCOVER_HOST_REQUEST', sender: localClientId });
-                    updateNetworkStatusUI("CLIENT (CONNECTED)");
-                });
-
-                conn.on('data', (data) => {
-                    if (data.type === 'HOST_WELCOME' && !gameStarted) {
-                        joinMatchFromHost(data);
-                    } else if (data.type === 'STATE_SYNC') {
-                        handleRemotePlayerState(data);
-                    }
-                });
-
-                setTimeout(() => {
-                    if (!connectedToHost && isHost && !gameStarted) {
-                        tryBecomeHost();
-                    }
-                }, 1200);
-            });
-
-            peer.on('error', (err) => {
-                if (isHost && !gameStarted) tryBecomeHost();
-            });
-        }
-
-        function tryBecomeHost() {
-            if (peer && !peer.destroyed) peer.destroy();
-            peer = new Peer(GLOBAL_ROOM_ID);
+            // Tier 2: PeerJS WebRTC for cross-browser / cross-device connections
+            peer = new Peer(localClientId);
 
             peer.on('open', () => {
-                isHost = true;
-                updateNetworkStatusUI("SINGLEPLAYER / HOST");
-                document.getElementById('voting-status-text').innerText = "CLICK A MODE BELOW TO START MATCH AS HOST";
+                attemptConnectToHost();
             });
 
             peer.on('connection', (conn) => {
-                connectedPeers.push(conn);
-                conn.on('data', (data) => {
-                    if (data.type === 'DISCOVER_HOST_REQUEST') {
-                        conn.send({
-                            type: 'HOST_WELCOME',
-                            sender: localClientId,
-                            mode: currentMode,
-                            teamCyanScore: teamCyanScore,
-                            teamPinkScore: teamPinkScore,
-                            kills: kills
-                        });
-                    } else if (data.type === 'STATE_SYNC') {
-                        handleRemotePlayerState(data);
-                        connectedPeers.forEach(c => { if(c !== conn && c.open) c.send(data); });
-                    }
-                });
+                connectedClients.push(conn);
+                conn.on('data', (data) => handleIncomingPacket(data, conn));
             });
 
             peer.on('error', (err) => {
-                isHost = false;
-                updateNetworkStatusUI("CLIENT (MATCH JOINED)");
+                if (!isHost && !gameStarted) {
+                    becomeMatchHost();
+                }
             });
         }
 
-        function joinMatchFromHost(data) {
-            if (gameStarted) return;
-            isHost = false;
-            currentMode = data.mode;
-            teamCyanScore = data.teamCyanScore || 0;
-            teamPinkScore = data.teamPinkScore || 0;
+        function attemptConnectToHost() {
+            updateNetworkStatusUI("CONNECTING TO HOST...");
             
-            gameStarted = true;
-            isSpectating = false;
+            const conn = peer.connect(HOST_PEER_ID, { reliable: true });
+            let connected = false;
 
-            document.getElementById('start-screen').style.display = 'none';
-            document.getElementById('spectator-bar').style.display = 'none';
-            viewmodelGroup.visible = true;
+            conn.on('open', () => {
+                connected = true;
+                hostConnection = conn;
+                isHost = false;
+                conn.send({ type: 'JOIN_REQUEST', sender: localClientId });
+                updateNetworkStatusUI("CLIENT (CONNECTED)");
+            });
 
-            players.forEach(p => { if (p.mesh) p.mesh.visible = true; });
+            conn.on('data', (data) => handleIncomingPacket(data));
 
-            initGameMode();
-            respawnEntity(player);
-            updateNetworkStatusUI("CLIENT (MATCH JOINED)");
-            showPickupPrompt(`AUTO-JOINED MATCH [${getModeFullName(currentMode)}]`);
+            setTimeout(() => {
+                if (!connected && !gameStarted) {
+                    becomeMatchHost();
+                }
+            }, 1500);
         }
 
-        function updateNetworkStatusUI(txt) {
-            document.getElementById('network-status').innerText = `NETWORK: ${txt}`;
+        function becomeMatchHost() {
+            if (peer && !peer.destroyed) peer.destroy();
+            peer = new Peer(HOST_PEER_ID);
+
+            peer.on('open', () => {
+                isHost = true;
+                updateNetworkStatusUI("MATCH HOST (AUTHORITATIVE)");
+                document.getElementById('voting-status-text').innerText = "HOST READY - CHOOSE MATCH MODE TO BEGIN";
+            });
+
+            peer.on('connection', (conn) => {
+                connectedClients.push(conn);
+                conn.on('data', (data) => handleIncomingPacket(data, conn));
+            });
+
+            peer.on('error', () => {
+                isHost = false;
+                updateNetworkStatusUI("CLIENT (JOINED)");
+            });
         }
 
-        function broadcastLocalPlayerState() {
-            const state = {
-                type: 'STATE_SYNC',
-                sender: localClientId,
-                x: player.position.x,
-                y: player.position.y,
-                z: player.position.z,
-                rotY: player.rotation.y,
-                rotX: player.rotation.x,
-                health: player.health,
-                weaponId: player.inventory[player.activeSlot].id,
-                team: player.team
-            };
-            broadcastChan.postMessage(state);
-            connectedPeers.forEach(c => { if(c.open) c.send(state); });
-        }
-
-        function handleRemotePlayerState(data) {
+        function handleIncomingPacket(data, conn = null) {
             if (data.sender === localClientId) return;
 
-            let remoteBot = players.find(p => p.isNetworkPlayer && p.networkId === data.sender);
+            if (data.type === 'JOIN_REQUEST' && isHost) {
+                // Host sends full current match state to joining client
+                const welcomeData = {
+                    type: 'MATCH_WELCOME',
+                    sender: localClientId,
+                    mode: currentMode,
+                    teamCyanScore: teamCyanScore,
+                    teamPinkScore: teamPinkScore,
+                    kills: kills
+                };
+                if (conn) conn.send(welcomeData);
+                broadcastChan.postMessage(welcomeData);
+                
+                // Add new remote player
+                registerRemotePlayer(data.sender);
+            } 
+            else if (data.type === 'MATCH_WELCOME' && !gameStarted) {
+                // Client joins host's match session
+                isHost = false;
+                currentMode = data.mode;
+                teamCyanScore = data.teamCyanScore || 0;
+                teamPinkScore = data.teamPinkScore || 0;
+                
+                gameStarted = true;
+                isSpectating = false;
+
+                document.getElementById('start-screen').style.display = 'none';
+                document.getElementById('spectator-bar').style.display = 'none';
+                viewmodelGroup.visible = true;
+
+                initGameMode();
+                respawnEntity(player);
+                updateNetworkStatusUI("CONNECTED TO HOST ARENA");
+                showPickupPrompt(`JOINED ACTIVE MATCH [${getModeFullName(currentMode)}]`);
+            } 
+            else if (data.type === 'CLIENT_INPUT') {
+                // Host updates client's position
+                let remote = players.find(p => p.isNetworkPlayer && p.networkId === data.sender);
+                if (!remote && isHost) remote = registerRemotePlayer(data.sender);
+
+                if (remote) {
+                    remote.mesh.position.set(data.x, data.y, data.z);
+                    remote.mesh.rotation.y = data.rotY;
+                    remote.health = data.health;
+                    remote.team = data.team;
+                    remote.score = data.score;
+                }
+            } 
+            else if (data.type === 'WORLD_SYNC' && !isHost) {
+                // Non-host clients apply Host's authoritative state
+                teamCyanScore = data.teamCyanScore;
+                teamPinkScore = data.teamPinkScore;
+                updateModeHUD();
+
+                data.botStates.forEach((bData, idx) => {
+                    if (players[idx]) {
+                        players[idx].mesh.position.set(bData.x, bData.y, bData.z);
+                        players[idx].mesh.rotation.y = bData.rotY;
+                        players[idx].health = bData.health;
+                        players[idx].score = bData.score;
+                        players[idx].weapon = weaponsDatabase[bData.wpnId] || players[idx].weapon;
+                    }
+                });
+            }
+        }
+
+        function registerRemotePlayer(senderId) {
+            let remoteBot = players.find(p => p.isNetworkPlayer && p.networkId === senderId);
             if (!remoteBot) {
-                const botSlot = players.find(p => !p.isNetworkPlayer);
-                if (botSlot) {
-                    remoteBot = botSlot;
+                const slot = players.find(p => !p.isNetworkPlayer);
+                if (slot) {
+                    remoteBot = slot;
                     remoteBot.isNetworkPlayer = true;
-                    remoteBot.networkId = data.sender;
-                    remoteBot.name = "PLAYER_" + data.sender.substring(7);
+                    remoteBot.networkId = senderId;
+                    remoteBot.name = "PLAYER_" + senderId.substring(7);
                     
                     scene.remove(remoteBot.mesh);
                     const newRig = create60BoneHumanoidRig(0x00ffaa, true);
                     remoteBot.mesh = newRig.group;
                     remoteBot.rig = newRig;
                     scene.add(remoteBot.mesh);
-                    showKillFeed(`${remoteBot.name} JOINED MATCH!`);
+                    showKillFeed(`${remoteBot.name} JOINED ARENA!`);
                 }
             }
+            return remoteBot;
+        }
 
-            if (remoteBot) {
-                remoteBot.mesh.position.set(data.x, data.y, data.z);
-                remoteBot.mesh.rotation.y = data.rotY;
-                remoteBot.health = data.health;
-                remoteBot.team = data.team;
+        function broadcastWorldState() {
+            if (!isHost) {
+                // Client sends input state to host
+                const clientPacket = {
+                    type: 'CLIENT_INPUT',
+                    sender: localClientId,
+                    x: player.position.x,
+                    y: player.position.y,
+                    z: player.position.z,
+                    rotY: player.rotation.y,
+                    health: player.health,
+                    score: player.score,
+                    team: player.team
+                };
+                if (hostConnection && hostConnection.open) hostConnection.send(clientPacket);
+                broadcastChan.postMessage(clientPacket);
+                return;
             }
+
+            // Host broadcasts full authoritative world state
+            const botStates = players.map(p => ({
+                x: p.mesh.position.x,
+                y: p.mesh.position.y,
+                z: p.mesh.position.z,
+                rotY: p.mesh.rotation.y,
+                health: p.health,
+                score: p.score,
+                wpnId: p.weapon.id
+            }));
+
+            const syncPacket = {
+                type: 'WORLD_SYNC',
+                sender: localClientId,
+                teamCyanScore: teamCyanScore,
+                teamPinkScore: teamPinkScore,
+                botStates: botStates
+            };
+
+            broadcastChan.postMessage(syncPacket);
+            connectedClients.forEach(c => { if (c.open) c.send(syncPacket); });
+        }
+
+        function updateNetworkStatusUI(txt) {
+            document.getElementById('network-status').innerText = `NETWORK: ${txt}`;
         }
 
         initMultiplayerNetworking();
@@ -1526,7 +1564,6 @@
         }
 
         function updatePlayerMovement(delta) {
-            // FIXED SPECTATOR POV LOGIC
             if (isSpectating) {
                 const survivors = players.filter(p => p.health > 0);
                 if (survivors.length > 0) {
@@ -1562,7 +1599,7 @@
 
             if (currentMode === 'LOS' && player.health <= 0) return;
 
-            broadcastLocalPlayerState();
+            broadcastWorldState();
 
             player.isSprinting = (keys['ShiftLeft'] || keys['ShiftRight']) && !player.isCrouching;
 
@@ -2193,29 +2230,28 @@
 
         // --- OPTIMIZED BOT AI WITH STAGGERED LINE-OF-SIGHT SCANNING & STUCK WATCHDOG ---
         function updateBots(delta) {
+            if (!isHost) return; // Only Authoritative Host runs Bot AI calculations
+
             const allEntities = [player, ...players].filter(e => e.health > 0);
 
             players.forEach(bot => {
-                if (bot === player || bot.health <= 0) return;
+                if (bot === player || bot.health <= 0 || bot.isNetworkPlayer) return;
 
                 const b = bot.rig.bones;
                 bot.jumpCooldown = Math.max(0, bot.jumpCooldown - delta);
                 bot.grenadeCooldown = Math.max(0, bot.grenadeCooldown - delta);
                 bot.scanTimer -= delta;
 
-                // --- STUCK DETECTOR WATCHDOG ---
                 const distMoved = bot.mesh.position.distanceTo(bot.lastPos);
                 bot.lastPos.copy(bot.mesh.position);
 
                 if (distMoved < 0.08 * delta * 60) {
                     bot.stuckTimer += delta;
                     if (bot.stuckTimer > 0.45) {
-                        // Evade impulse: Force jump, reset target, apply random sidestep
                         bot.velocity.y = 12;
                         bot.isGrounded = false;
                         bot.target = null;
                         
-                        // Pick fresh patrol target on same floor
                         const sameFloorSpawns = spawnPoints.filter(sp => Math.abs(sp.y - bot.mesh.position.y) < 3.0);
                         const pool = sameFloorSpawns.length > 0 ? sameFloorSpawns : spawnPoints;
                         bot.patrolTarget = pool[Math.floor(Math.random() * pool.length)].clone();
@@ -2262,7 +2298,6 @@
 
                 const bestTarget = bot.target;
 
-                // PATROL STATE (WITH SAME-FLOOR SPATIAL FILTER)
                 if (!bestTarget) {
                     if (currentMode === 'CTF') {
                         const targetFlagPos = bot.team === 'CYAN' ? pinkBasePos : cyanBasePos;
@@ -2322,7 +2357,6 @@
                     return;
                 }
 
-                // COMBAT ENGAGEMENT STATE
                 const targetPos = bestTarget === player ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0)) : bestTarget.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
                 const minDist = botEyePos.distanceTo(targetPos);
                 const dirToTarget = new THREE.Vector3().subVectors(targetPos, botEyePos).normalize();
