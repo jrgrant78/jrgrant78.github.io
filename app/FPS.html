@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // OVERHEAD TACTICAL SPECTATOR POV</title>
+    <title>CYBER-STRIKE 2077 // CCTV SURVEILLANCE SPECTATOR POV</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -29,6 +29,26 @@
             z-index: 90; text-align: center; pointer-events: none; display: none;
             letter-spacing: 3px;
         }
+
+        /* CCTV SCANLINE & CRT OVERLAY */
+        #cctv-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; display: none; z-index: 80;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.4) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+            background-size: 100% 4px, 6px 100%;
+            box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.9);
+        }
+        #cctv-hud {
+            position: absolute; top: 25px; left: 25px; font-family: 'Courier New', Courier, monospace;
+            color: #00ffaa; text-shadow: 0 0 8px #00ffaa; font-size: 15px; font-weight: bold;
+            line-height: 1.6;
+        }
+        .rec-dot {
+            display: inline-block; width: 12px; height: 12px; background: #ff0044;
+            border-radius: 50%; margin-right: 8px; box-shadow: 0 0 10px #ff0044;
+            animation: recBlink 1s infinite;
+        }
+        @keyframes recBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
 
         #death-screen {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -138,6 +158,13 @@
     <div id="damage-flash"></div>
     <div id="pre-match-overlay">MATCH BEGINS IN 5</div>
 
+    <div id="cctv-overlay">
+        <div id="cctv-hud">
+            <div><span class="rec-dot"></span><span id="cctv-cam-title">CAM 01 // F1-COMPUTER LAB</span></div>
+            <div id="cctv-timestamp" style="font-size: 12px; opacity: 0.85;">2077-11-04 14:22:09</div>
+        </div>
+    </div>
+
     <div id="death-screen">
         <div class="electric-overlay"></div>
         <div id="killer-title">KILLED BY ENEMY</div>
@@ -184,7 +211,7 @@
         <div class="dist-tag" id="pink-flag-dist" style="color: #ff007f; border-color: #ff007f;">0m</div>
     </div>
 
-    <div id="spectator-bar">TACTICAL OVERHEAD POV // WATCHING REMAINING COMBATANTS</div>
+    <div id="spectator-bar">CCTV SURVEILLANCE FEED // [A/D or ARROWS] SWITCH ROOM CAMERA (1-27)</div>
 
     <div id="ui-layer">
         <div id="crosshair"></div>
@@ -248,13 +275,45 @@
         let roofMesh = null; 
 
         let isSpectating = false;
-        let spectatorIndex = 0;
+        let cctvIndex = 0;
+        let cctvCameras = [];
         let spectatedWeaponId = -1;
         let spectatedRecoilTimer = 0;
         let isRespawning = false;
         let isPreMatch = false;
         let preMatchCountdown = 5;
         const humanMarkersToRotate = [];
+
+        // --- GENERATE 27 CCTV ROOM CAMERAS (9 PER FLOOR x 3 FLOORS) ---
+        function generateCCTVCameras() {
+            cctvCameras = [];
+            const floorLabels = ["F1", "F2", "F3"];
+            const roomNames = [
+                'COMPUTER LAB', 'SERVER CORRIDOR', 'MEDIC BAY',
+                'WEST ARMORY', 'CENTRAL HUB', 'EAST ARMORY',
+                'BRIEFING ROOM', 'SECURITY CONTROL', 'RESEARCH LAB'
+            ];
+            const floorsY = [0, 8, 16];
+            const gridX = [-75, 0, 75];
+            const gridZ = [-75, 0, 75];
+
+            let idCounter = 1;
+            floorsY.forEach((fY, fIdx) => {
+                gridZ.forEach((rz, zIdx) => {
+                    gridX.forEach((rx, xIdx) => {
+                        const roomIdx = zIdx * 3 + xIdx;
+                        const label = `CAM ${idCounter < 10 ? '0' + idCounter : idCounter} // ${floorLabels[fIdx]}-${roomNames[roomIdx]}`;
+                        cctvCameras.push({
+                            id: idCounter++,
+                            title: label,
+                            pos: new THREE.Vector3(rx + 16, fY + 6.2, rz + 16), // Upper corner of room
+                            center: new THREE.Vector3(rx, fY + 2.0, rz)          // Room center aim target
+                        });
+                    });
+                });
+            });
+        }
+        generateCCTVCameras();
 
         // --- NETWORK MULTIPLAYER SETUP ---
         const HOST_PEER_ID = "cyberstrike2077_host_v1";
@@ -1351,6 +1410,8 @@
 
                 document.getElementById('start-screen').style.display = 'none';
                 document.getElementById('spectator-bar').style.display = 'none';
+                document.getElementById('cctv-overlay').style.display = 'none';
+                renderer.domElement.style.filter = 'none';
                 viewmodelGroup.visible = true;
 
                 initGameMode();
@@ -1524,6 +1585,8 @@
 
             document.getElementById('start-screen').style.display = 'none';
             document.getElementById('spectator-bar').style.display = 'none';
+            document.getElementById('cctv-overlay').style.display = 'none';
+            renderer.domElement.style.filter = 'none';
             viewmodelGroup.visible = true;
 
             players.forEach(p => { if (p.mesh) p.mesh.visible = true; });
@@ -1750,7 +1813,15 @@
         const keys = {};
 
         document.addEventListener('keydown', (e) => {
-            if (isSpectating) return;
+            if (isSpectating) {
+                if (e.code === 'KeyA' || e.code === 'ArrowLeft') {
+                    cctvIndex = (cctvIndex - 1 + 27) % 27;
+                }
+                if (e.code === 'KeyD' || e.code === 'ArrowRight') {
+                    cctvIndex = (cctvIndex + 1) % 27;
+                }
+                return;
+            }
 
             if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight', 'KeyC', 'KeyG', 'Digit1', 'Digit2', 'Digit3'].includes(e.code)) {
                 if (e.code === 'Space' || e.code === 'KeyC') e.preventDefault();
@@ -1900,28 +1971,47 @@
             }
         }
 
-        // --- STATIC ANGLED OVERHEAD TOP-DOWN 3RD PERSON SPECTATOR POV ---
+        // --- CCTV SPECTATOR MODE (27 ROOM CAMERAS WITH AUTOMATED PAN & TILT) ---
         function updatePlayerMovement(delta) {
             if (isSpectating) {
                 viewmodelGroup.visible = false;
 
-                // Ensure all surviving combatants are visible across the entire map
+                // Display scanline filter & desaturate feed via CSS filter
+                document.getElementById('cctv-overlay').style.display = 'block';
+                renderer.domElement.style.filter = 'saturate(0.15) contrast(1.4) brightness(0.85) sepia(0.4) hue-rotate(85deg)';
+
                 players.forEach(p => {
                     if (p.health > 0) p.mesh.visible = true;
                 });
 
-                // Temporarily hide roof so spectator can see inside the multi-floor facility
-                if (roofMesh) roofMesh.visible = false;
+                const currentCam = cctvCameras[cctvIndex];
+                camera.position.copy(currentCam.pos);
 
-                // Positioned closer overhead (0, 65, 65) looking at (0, 0, 0) for clear combatant visibility
-                camera.position.set(0, 65, 65);
-                camera.lookAt(0, 0, 0);
+                // Automated side-to-side pan and slight vertical tilt simulation
+                const panTime = performance.now() * 0.0008;
+                const baseDir = new THREE.Vector3().subVectors(currentCam.center, currentCam.pos).normalize();
+                const baseAngle = Math.atan2(baseDir.z, baseDir.x);
+                const panAngle = baseAngle + Math.sin(panTime) * 0.45; // ~50 deg panning arc
+
+                const lookTarget = currentCam.pos.clone().add(new THREE.Vector3(
+                    Math.cos(panAngle) * 20,
+                    -3.5 + Math.sin(panTime * 0.5) * 1.0, // Mild vertical tilt
+                    Math.sin(panAngle) * 20
+                ));
+                camera.lookAt(lookTarget);
+
+                // Update CCTV Overlay HUD Text & Live Date/Time
+                document.getElementById('cctv-cam-title').innerText = currentCam.title;
+                const now = new Date();
+                document.getElementById('cctv-timestamp').innerText = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}.${String(Math.floor(now.getMilliseconds()/100))}`;
 
                 const survivors = [player, ...players].filter(p => p.health > 0).length;
-                document.getElementById('spectator-bar').innerText = `TACTICAL OVERHEAD POV // REMAINING COMBATANTS: ${survivors}`;
+                document.getElementById('spectator-bar').innerText = `CCTV SURVEILLANCE FEED // [A/D or ARROWS] SWITCH CAMERA (${currentCam.id}/27) // COMBATANTS: ${survivors}`;
                 document.getElementById('health-bar').style.width = `0%`;
                 return;
             } else {
+                document.getElementById('cctv-overlay').style.display = 'none';
+                renderer.domElement.style.filter = 'none';
                 if (roofMesh) roofMesh.visible = true;
             }
 
@@ -2557,9 +2647,10 @@
                 } else if (currentMode === 'LOS') {
                     if (target === player) {
                         isSpectating = true;
+                        cctvIndex = 0;
                         viewmodelGroup.visible = false;
                         document.getElementById('spectator-bar').style.display = 'block';
-                        showPickupPrompt("ELIMINATED! ENTERING OVERHEAD SPECTATOR POV");
+                        showPickupPrompt("ELIMINATED! ENTERING CCTV SURVEILLANCE FEED");
                     } else {
                         scene.remove(target.mesh);
                     }
