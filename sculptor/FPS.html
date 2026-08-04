@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // MULTIPLAYER BOT SYNC & DISCONNECT CLEANUP</title>
+    <title>CYBER-STRIKE 2077 // 120 WEAPON ARSENAL & ADS SYSTEM</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -27,6 +27,7 @@
             width: 10px; height: 10px; margin-left: -5px; margin-top: -5px;
             border: 2px solid #ff007f; border-radius: 50%;
             box-shadow: 0 0 10px #ff007f;
+            transition: transform 0.1s, opacity 0.1s;
         }
 
         .hud-panel {
@@ -184,11 +185,14 @@
         // --- CONFIG & TOGGLES ---
         const BOTS_CAN_FIRE = true;
         const TOTAL_COMBATANTS = 50; 
-        const WEAPON_COUNT = 60;
+        const WEAPON_COUNT = 120;
         const EYE_HEIGHT_STAND = 1.8;
         const EYE_HEIGHT_CROUCH = 0.9;
         const SLIDE_DURATION = 1.05; 
         const WALL_RUN_DURATION = 0.75; 
+
+        // Prevent Right-Click Context Menu for ADS Mechanics
+        window.addEventListener('contextmenu', e => e.preventDefault());
 
         // --- GAME MODE & SPECTATOR STATES ---
         let currentMode = 'FFA'; 
@@ -211,7 +215,7 @@
         const broadcastChan = new BroadcastChannel("cyberstrike_lobby_chan");
         let peer = null;
         let hostConnection = null;
-        let isHost = true; // Default to host authority until joined as client
+        let isHost = true;
         const connectedClients = [];
 
         // --- THREE.JS SETUP ---
@@ -256,48 +260,150 @@
         const staticBoxes = [];  
         const weaponsDatabase = [];
 
-        // --- WEAPON SUBTYPES ---
-        const SUBTYPES = {
-            MELEE: ['KATANA', 'AXE', 'HAMMER', 'CLAWS', 'KNIFE'],
-            RANGED: ['SHOTGUN', 'PLASMA', 'RAILGUN', 'RIFLE', 'SMG']
-        };
-        const weaponNamesPrefix = ['Neon', 'Cyber', 'Plasma', 'Quantum', 'Vortex', 'Hyper', 'Thermal', 'Arc', 'Void', 'Pulse'];
+        // --- 120 WEAPON DATABASE GENERATOR ---
+        const rawWeaponsData = [
+            // --- 60 PRIMARIES (0-59) ---
+            [0, 'Apex-9 Assault', 'PRIMARY', 'RIFLE', 24, 100, 30, 0x00ffff, 200],
+            [1, 'Vulcan Dread', 'PRIMARY', 'SHOTGUN', 140, 800, 8, 0xff5500, 60],
+            [2, 'Singularity Rail', 'PRIMARY', 'RAILGUN', 95, 1200, 5, 0xaa00ff, 250],
+            [3, 'Pulsar Carbine', 'PRIMARY', 'PLASMA', 32, 180, 24, 0x00ff66, 180],
+            [4, 'Titan Smasher', 'PRIMARY', 'LAUNCHER', 120, 1500, 4, 0xffe600, 220],
+            [5, 'Arc Tempest', 'PRIMARY', 'LIGHTNING', 22, 120, 30, 0x00aaff, 170],
+            [6, 'Hyperion Scope', 'PRIMARY', 'SNIPER', 130, 1600, 5, 0xff0033, 300],
+            [7, 'Tachyon Burst', 'PRIMARY', 'BURST', 84, 350, 30, 0xffffff, 210],
+            [8, 'Solar Flare', 'PRIMARY', 'THERMAL', 40, 280, 18, 0xffaa00, 190],
+            [9, 'Cryo Ray', 'PRIMARY', 'FREEZE', 12, 40, 75, 0x00ffff, 140],
+            [10, 'Viper Vector', 'PRIMARY', 'SMG', 15, 60, 50, 0xff007f, 150],
+            [11, 'Quantum Lance', 'PRIMARY', 'ENERGY', 30, 150, 25, 0xff00ff, 200],
+            [12, 'Scatter Mk-4', 'PRIMARY', 'SHOTGUN', 96, 400, 12, 0x8888aa, 70],
+            [13, 'Oblivion Cannon', 'PRIMARY', 'ANTI-MAT', 150, 2000, 3, 0x333344, 320],
+            [14, 'Ion Stream', 'PRIMARY', 'LASER', 8, 30, 100, 0xff0033, 160],
+            [15, 'Plasma Howitzer', 'PRIMARY', 'MORTAR', 110, 1400, 6, 0x008888, 230],
+            [16, 'Cobalt Buster', 'PRIMARY', 'LMG', 26, 110, 60, 0x0044ff, 210],
+            [17, 'Scourge Rifle', 'PRIMARY', 'INCENDIARY', 25, 130, 30, 0xff3300, 180],
+            [18, 'Sonic Blaster', 'PRIMARY', 'SOUND', 50, 500, 10, 0xffe600, 120],
+            [19, 'Helix Cannon', 'PRIMARY', 'SPIRAL', 35, 220, 20, 0x8800ff, 200],
+            [20, 'Specter DMR', 'PRIMARY', 'MARKSMAN', 65, 400, 10, 0x00ffff, 260],
+            [21, 'Scourge LMG', 'PRIMARY', 'LMG', 22, 85, 80, 0xaa6600, 220],
+            [22, 'Vortex Generator', 'PRIMARY', 'GRAVITY', 70, 900, 8, 0x00ffcc, 180],
+            [23, 'Phantom Carbine', 'PRIMARY', 'STEALTH', 28, 140, 25, 0x222233, 190],
+            [24, 'Nova Breaker', 'PRIMARY', 'PLASMA', 45, 300, 16, 0xff8800, 200],
+            [25, 'Frostbite', 'PRIMARY', 'CRYO', 18, 90, 40, 0xaaffff, 160],
+            [26, 'Acid Spitter', 'PRIMARY', 'CORROSION', 15, 60, 50, 0x33ff00, 130],
+            [27, 'Disruptor Mk-I', 'PRIMARY', 'EMP', 35, 300, 20, 0x0099ff, 170],
+            [28, 'Mag-Pulse', 'PRIMARY', 'MAGNETIC', 80, 850, 6, 0xcc6600, 220],
+            [29, 'Overlord', 'PRIMARY', 'GATLING', 30, 100, 100, 0x444444, 210],
+            [30, 'Cyclone SMG', 'PRIMARY', 'ROTARY', 14, 50, 60, 0xff0044, 140],
+            [31, 'Eclipse Lance', 'PRIMARY', 'DARK', 140, 1800, 4, 0xff0000, 280],
+            [32, 'Breacher-9', 'PRIMARY', 'BUCKSHOT', 144, 900, 6, 0xff5500, 65],
+            [33, 'Concussion Cannon', 'PRIMARY', 'SHOCKWAVE', 45, 450, 12, 0x0033aa, 130],
+            [34, 'Particle Accelerator', 'PRIMARY', 'LASER', 12, 40, 75, 0xffcc00, 230],
+            [35, 'Sentinel Rifle', 'PRIMARY', 'TACTICAL', 26, 120, 30, 0x55aa55, 210],
+            [36, 'Havoc Pod', 'PRIMARY', 'CLUSTER', 85, 1100, 5, 0xaa3300, 200],
+            [37, 'Radiation Repeater', 'PRIMARY', 'GAMMA', 18, 75, 45, 0x00ff00, 150],
+            [38, 'Tempest Storm', 'PRIMARY', 'LIGHTNING', 23, 105, 32, 0x00ccff, 180],
+            [39, 'Judgment DMR', 'PRIMARY', 'MARKSMAN', 75, 450, 8, 0xeeeeee, 270],
+            [40, 'Singularity Engine', 'PRIMARY', 'BLACKHOLE', 130, 2000, 3, 0x110022, 220],
+            [41, 'Gamma Beam', 'PRIMARY', 'RADIATION', 16, 50, 90, 0x88ff00, 170],
+            [42, 'Warhead Cannon', 'PRIMARY', 'MICROROCKET', 60, 600, 10, 0x556633, 210],
+            [43, 'Enforcer Shotgun', 'PRIMARY', 'SHOTGUN', 99, 500, 10, 0x0099cc, 75],
+            [44, 'Line Cutter', 'PRIMARY', 'ENERGY', 55, 350, 15, 0xff6600, 160],
+            [45, 'Chrono Rifle', 'PRIMARY', 'TEMPORAL', 32, 180, 24, 0x00ffff, 200],
+            [46, 'Basilisk', 'PRIMARY', 'VENOM', 21, 95, 35, 0x880088, 160],
+            [47, 'Valkyrie DMR', 'PRIMARY', 'LANCE', 68, 380, 12, 0xffffff, 260],
+            [48, 'Avalanche Pod', 'PRIMARY', 'CRYO', 90, 1200, 6, 0x66ffff, 210],
+            [49, 'Saw Launcher', 'PRIMARY', 'ROTARY', 40, 250, 20, 0xaaaaaa, 140],
+            [50, 'Aegis Carbine', 'PRIMARY', 'SHIELDED', 22, 110, 30, 0x00aaff, 190],
+            [51, 'Archangel', 'PRIMARY', 'LIGHTNING', 85, 950, 6, 0xeeddff, 230],
+            [52, 'Maelstrom Gatling', 'PRIMARY', 'PLASMA', 20, 60, 100, 0x00ffaa, 200],
+            [53, 'Flak Cannon', 'PRIMARY', 'FLAK', 120, 650, 10, 0x666666, 110],
+            [54, 'Zenith Array', 'PRIMARY', 'BEACON', 160, 2200, 2, 0xe0e0e0, 350],
+            [55, 'Reaper Harpoon', 'PRIMARY', 'PNEUMATIC', 110, 1300, 5, 0x777788, 180],
+            [56, 'Firestorm Quad', 'PRIMARY', 'ROCKET', 70, 800, 8, 0xff2200, 220],
+            [57, 'Pulsar Beltgun', 'PRIMARY', 'LMG', 24, 90, 75, 0xaa00ff, 210],
+            [58, 'Obliterator Rail', 'PRIMARY', 'HEAVYRAIL', 125, 1700, 4, 0x884400, 270],
+            [59, 'Apocalypse Cannon', 'PRIMARY', 'SUPER', 180, 2500, 2, 0x6600aa, 300],
 
-        const defaultAssaultRifle = {
-            id: 1000, name: 'Cyber Assault Rifle', category: 'PRIMARY', subType: 'RIFLE',
-            damage: 22, fireRate: 110, ammoMax: 30, ammo: 30, color: 0x00ffff, range: 200
-        };
-        const defaultHandgun = {
-            id: 1001, name: 'Neon Handgun', category: 'SECONDARY', subType: 'SMG',
-            damage: 28, fireRate: 180, ammoMax: 15, ammo: 15, color: 0xff007f, range: 180
-        };
-        const defaultKnife = {
-            id: 1002, name: 'Tactical Knife', category: 'MELEE', subType: 'KNIFE',
-            damage: 85, fireRate: 350, ammoMax: Infinity, ammo: Infinity, color: 0xffe600, range: 3.5
-        };
+            // --- 30 SECONDARIES (60-89) ---
+            [60, 'Cyber Pistol', 'SECONDARY', 'HANDGUN', 28, 180, 15, 0xff007f, 150],
+            [61, 'Plasma Revolver', 'SECONDARY', 'REVOLVER', 60, 450, 6, 0x00ffff, 160],
+            [62, 'Micro SMG', 'SECONDARY', 'SMG', 15, 65, 30, 0x888888, 120],
+            [63, 'Flare Pistol', 'SECONDARY', 'INCENDIARY', 45, 800, 4, 0xff5500, 110],
+            [64, 'Stun Gun', 'SECONDARY', 'TASER', 25, 300, 10, 0xffe600, 80],
+            [65, 'Magnum Cannon', 'SECONDARY', 'MAGNUM', 70, 550, 7, 0xdddddd, 180],
+            [66, 'Sawed-Off', 'SECONDARY', 'SHOTGUN', 60, 600, 4, 0x885522, 50],
+            [67, 'Laser Sidearm', 'SECONDARY', 'BEAM', 14, 60, 40, 0xff0033, 140],
+            [68, 'Needle Pistol', 'SECONDARY', 'POISON', 18, 120, 20, 0x00ff66, 110],
+            [69, 'Tri-Burst Pistol', 'SECONDARY', 'BURST', 66, 320, 18, 0x00aaff, 140],
+            [70, 'Arc Revolver', 'SECONDARY', 'SHOCK', 50, 400, 6, 0x00ccff, 130],
+            [71, 'Micro Rocket', 'SECONDARY', 'LAUNCHER', 75, 900, 3, 0x556633, 150],
+            [72, 'Pulse Handgun', 'SECONDARY', 'ENERGY', 32, 200, 12, 0x00ffff, 140],
+            [73, 'Cyber Derringer', 'SECONDARY', 'POCKET', 85, 700, 2, 0xccaa44, 90],
+            [74, 'Cryo Pistol', 'SECONDARY', 'FROST', 20, 150, 16, 0xaaffff, 120],
+            [75, 'Pocket Vector', 'SECONDARY', 'SMG', 16, 70, 33, 0x222233, 130],
+            [76, 'Venom Sidearm', 'SECONDARY', 'ACID', 19, 110, 20, 0x00ff00, 110],
+            [77, 'Compact Rail', 'SECONDARY', 'RAILGUN', 80, 1000, 4, 0xaaaaaa, 190],
+            [78, 'Aegis Pistol', 'SECONDARY', 'SHIELDED', 24, 190, 15, 0x00aaff, 130],
+            [79, 'Void Sidearm', 'SECONDARY', 'DARK', 38, 220, 12, 0xaa00ff, 140],
+            [80, 'Auto-Pistol', 'SECONDARY', 'AUTO', 17, 80, 24, 0x555566, 120],
+            [81, 'Sonic Pistol', 'SECONDARY', 'SOUND', 30, 280, 10, 0xcccc33, 100],
+            [82, 'Fusion Handgun', 'SECONDARY', 'CHARGED', 42, 250, 10, 0xff6600, 150],
+            [83, 'Flechette Gun', 'SECONDARY', 'NEEDLE', 12, 50, 45, 0xeeeeee, 120],
+            [84, 'Target Beacon', 'SECONDARY', 'BEACON', 110, 1500, 2, 0xffd700, 250],
+            [85, 'EMP Pistol', 'SECONDARY', 'EMP', 28, 220, 12, 0x0088ff, 130],
+            [86, 'Pocket Saw', 'SECONDARY', 'ROTARY', 35, 300, 8, 0xaa4444, 90],
+            [87, 'Elephant Pistol', 'SECONDARY', 'MAGNUM', 90, 700, 5, 0x333333, 170],
+            [88, 'Cyber Crossbow', 'SECONDARY', 'BOW', 65, 600, 5, 0x444455, 160],
+            [89, 'Phase Pistol', 'SECONDARY', 'QUANTUM', 36, 210, 14, 0x00ffcc, 140],
+
+            // --- 30 MELEE (90-119) ---
+            [90, 'Tactical Blade', 'MELEE', 'KNIFE', 85, 350, Infinity, 0xffe600, 3.5],
+            [91, 'Cyber Katana', 'MELEE', 'KATANA', 110, 450, Infinity, 0x00ffff, 4.5],
+            [92, 'Heavy Cyber Axe', 'MELEE', 'AXE', 125, 550, Infinity, 0xff5500, 4.2],
+            [93, 'War Hammer', 'MELEE', 'HAMMER', 140, 700, Infinity, 0xffe600, 4.0],
+            [94, 'Nano Claws', 'MELEE', 'CLAWS', 65, 200, Infinity, 0xff007f, 3.2],
+            [95, 'Plasma Edge', 'MELEE', 'SWORD', 95, 380, Infinity, 0x00ff66, 4.0],
+            [96, 'Stun Baton', 'MELEE', 'BATON', 70, 300, Infinity, 0x00ccff, 3.6],
+            [97, 'Chainsword', 'MELEE', 'SAW', 120, 480, Infinity, 0xff3300, 4.0],
+            [98, 'Nano Whip', 'MELEE', 'WHIP', 80, 320, Infinity, 0xaa00ff, 6.0],
+            [99, 'Vibro Daggers', 'MELEE', 'DAGGERS', 60, 180, Infinity, 0xffffff, 3.0],
+            [100, 'Great Broadsword', 'MELEE', 'GREATSWORD', 130, 600, Infinity, 0x00aaff, 4.8],
+            [101, 'Energy Spear', 'MELEE', 'SPEAR', 100, 420, Infinity, 0x00ffff, 5.5],
+            [102, 'Void Scythe', 'MELEE', 'SCYTHE', 135, 650, Infinity, 0x8800ff, 5.0],
+            [103, 'Power Gauntlets', 'MELEE', 'GAUNTLET', 90, 280, Infinity, 0xff0033, 3.2],
+            [104, 'Shield Spear', 'MELEE', 'SPEAR', 85, 400, Infinity, 0x00ffcc, 5.2],
+            [105, 'Cryo Halberd', 'MELEE', 'HALBERD', 115, 520, Infinity, 0x66ffff, 5.0],
+            [106, 'Acid Machete', 'MELEE', 'MACHETE', 90, 360, Infinity, 0x33ff00, 4.0],
+            [107, 'Dual Sai', 'MELEE', 'SAI', 65, 220, Infinity, 0x00aaff, 3.2],
+            [108, 'Morningstar', 'MELEE', 'FLAIL', 120, 580, Infinity, 0xffaa00, 4.5],
+            [109, 'Mono Wire', 'MELEE', 'WHIP', 150, 800, Infinity, 0xff0000, 6.5],
+            [110, 'Kinetic Tonfa', 'MELEE', 'TONFA', 75, 250, Infinity, 0x00ffff, 3.5],
+            [111, 'Colossal Blade', 'MELEE', 'GREATSWORD', 160, 850, Infinity, 0x444455, 5.0],
+            [112, 'Shock Trident', 'MELEE', 'SPEAR', 105, 440, Infinity, 0x00ccff, 5.5],
+            [113, 'Plasma Claymore', 'MELEE', 'GREATSWORD', 125, 560, Infinity, 0xff6600, 4.8],
+            [114, 'Stealth Wrist-Blade', 'MELEE', 'WRIST', 80, 260, Infinity, 0x111122, 3.0],
+            [115, 'War Glaive', 'MELEE', 'GLAIVE', 95, 340, Infinity, 0x00ff66, 4.6],
+            [116, 'Impact Knuckles', 'MELEE', 'KNUCKLES', 70, 210, Infinity, 0xffd700, 2.8],
+            [117, 'Light Katana', 'MELEE', 'KATANA', 115, 420, Infinity, 0xffffff, 4.5],
+            [118, 'Heavy Poleaxe', 'MELEE', 'HALBERD', 130, 620, Infinity, 0xaa6622, 5.0],
+            [119, 'Grav-Mace', 'MELEE', 'MACE', 145, 720, Infinity, 0x8800ff, 4.2]
+        ];
 
         function generateWeaponsDatabase() {
-            for (let i = 0; i < WEAPON_COUNT; i++) {
-                const typeIndex = i < 25 ? 0 : (i < 45 ? 1 : 2);
-                const category = typeIndex === 2 ? 'MELEE' : (typeIndex === 0 ? 'PRIMARY' : 'SECONDARY');
-                const colorHex = category === 'PRIMARY' ? 0x00ffff : (category === 'SECONDARY' ? 0xff007f : 0xffe600);
-                
-                const subType = category === 'MELEE' 
-                    ? SUBTYPES.MELEE[i % SUBTYPES.MELEE.length] 
-                    : SUBTYPES.RANGED[i % SUBTYPES.RANGED.length];
-
-                const name = `${weaponNamesPrefix[i % weaponNamesPrefix.length]} ${subType}`;
-
+            rawWeaponsData.forEach(d => {
                 weaponsDatabase.push({
-                    id: i, name, category, subType,
-                    damage: category === 'MELEE' ? 75 : (subType === 'SHOTGUN' ? 12 * 8 : (subType === 'RAILGUN' ? 65 : 18)),
-                    fireRate: category === 'MELEE' ? 450 : (subType === 'SHOTGUN' ? 650 : (subType === 'SMG' ? 90 : 220)),
-                    ammoMax: category === 'MELEE' ? Infinity : Math.floor(15 + Math.random()*25),
-                    ammo: category === 'MELEE' ? Infinity : 25,
-                    color: colorHex,
-                    range: category === 'MELEE' ? 4.0 : 200,
+                    id: d[0],
+                    name: d[1],
+                    category: d[2],
+                    subType: d[3],
+                    damage: d[4],
+                    fireRate: d[5],
+                    ammoMax: d[6],
+                    ammo: d[6],
+                    color: d[7],
+                    range: d[8]
                 });
-            }
+            });
         }
         generateWeaponsDatabase();
 
@@ -309,48 +415,75 @@
             const metallicMat = new THREE.MeshStandardMaterial({ color: 0x333344, roughness: 0.2, metalness: 0.9 });
 
             if (weapon.category === 'MELEE') {
-                if (weapon.subType === 'KATANA' || weapon.subType === 'KNIFE') {
-                    const bladeLen = weapon.subType === 'KNIFE' ? 0.7 * scale : 1.4 * scale;
-                    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.04*scale, bladeLen, 0.08*scale), glowMat);
+                if (['KATANA', 'KNIFE', 'SWORD', 'GREATSWORD', 'MACHETE', 'WRIST', 'DAGGERS'].includes(weapon.subType)) {
+                    const bladeLen = (weapon.subType === 'KNIFE' || weapon.subType === 'WRIST' || weapon.subType === 'DAGGERS') ? 0.7 * scale : (weapon.subType === 'GREATSWORD' ? 1.8 * scale : 1.3 * scale);
+                    const bladeWidth = weapon.subType === 'GREATSWORD' ? 0.12 * scale : 0.05 * scale;
+                    const blade = new THREE.Mesh(new THREE.BoxGeometry(bladeWidth, bladeLen, 0.08*scale), glowMat);
                     blade.position.set(0, (bladeLen/2)*scale, -0.02*scale);
-                    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.03*scale, 0.03*scale, 0.3*scale), darkMat);
+                    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.03*scale, 0.03*scale, 0.35*scale), darkMat);
                     handle.position.y = -0.1*scale;
                     group.add(blade, handle);
-                } else if (weapon.subType === 'AXE') {
-                    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025*scale, 0.025*scale, 1.2*scale), darkMat);
+                } else if (['AXE', 'HALBERD', 'GLAIVE'].includes(weapon.subType)) {
+                    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025*scale, 0.025*scale, 1.3*scale), darkMat);
                     handle.position.y = 0.4*scale;
-                    const head = new THREE.Mesh(new THREE.BoxGeometry(0.1*scale, 0.4*scale, 0.5*scale), glowMat);
-                    head.position.set(0, 0.8*scale, -0.15*scale);
+                    const head = new THREE.Mesh(new THREE.BoxGeometry(0.1*scale, 0.45*scale, 0.55*scale), glowMat);
+                    head.position.set(0, 0.85*scale, -0.15*scale);
                     group.add(handle, head);
-                } else {
-                    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.05*scale, 0.03*scale, 1.0*scale), glowMat);
-                    core.position.y = 0.4*scale;
+                } else if (['HAMMER', 'MACE', 'FLAIL', 'BATON'].includes(weapon.subType)) {
+                    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.03*scale, 0.03*scale, 1.1*scale), darkMat);
+                    handle.position.y = 0.4*scale;
+                    const head = new THREE.Mesh(new THREE.BoxGeometry(0.25*scale, 0.3*scale, 0.25*scale), glowMat);
+                    head.position.set(0, 0.8*scale, 0);
+                    group.add(handle, head);
+                } else if (['SPEAR', 'SCYTHE', 'WHIP'].includes(weapon.subType)) {
+                    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.02*scale, 0.02*scale, 1.6*scale), metallicMat);
+                    shaft.position.y = 0.5*scale;
+                    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.08*scale, 0.4*scale, 8), glowMat);
+                    tip.position.y = 1.3*scale;
+                    group.add(shaft, tip);
+                } else { // GAUNTLET, KNUCKLES, CLAWS
+                    const core = new THREE.Mesh(new THREE.BoxGeometry(0.2*scale, 0.2*scale, 0.3*scale), glowMat);
+                    core.position.y = 0.2*scale;
                     group.add(core);
                 }
-            } else {
-                if (weapon.subType === 'SHOTGUN') {
-                    const body = new THREE.Mesh(new THREE.BoxGeometry(0.18*scale, 0.2*scale, 0.5*scale), darkMat);
-                    const barrel1 = new THREE.Mesh(new THREE.CylinderGeometry(0.035*scale, 0.035*scale, 0.6*scale), metallicMat);
+            } else { // RANGED
+                if (['SHOTGUN', 'BUCKSHOT', 'FLAK'].includes(weapon.subType)) {
+                    const body = new THREE.Mesh(new THREE.BoxGeometry(0.18*scale, 0.2*scale, 0.55*scale), darkMat);
+                    const barrel1 = new THREE.Mesh(new THREE.CylinderGeometry(0.035*scale, 0.035*scale, 0.65*scale), metallicMat);
                     barrel1.rotation.x = Math.PI/2;
                     barrel1.position.set(-0.04*scale, 0.03*scale, -0.4*scale);
                     const barrel2 = barrel1.clone(); barrel2.position.x = 0.04*scale;
                     const pump = new THREE.Mesh(new THREE.BoxGeometry(0.14*scale, 0.12*scale, 0.25*scale), glowMat);
                     pump.position.set(0, -0.04*scale, -0.25*scale);
                     group.add(body, barrel1, barrel2, pump);
-                } else if (weapon.subType === 'PLASMA') {
+                } else if (['PLASMA', 'FREEZE', 'CRYO', 'DARK', 'CORROSION', 'VENOM'].includes(weapon.subType)) {
                     const body = new THREE.Mesh(new THREE.BoxGeometry(0.2*scale, 0.22*scale, 0.6*scale), darkMat);
                     const ring1 = new THREE.Mesh(new THREE.TorusGeometry(0.08*scale, 0.02*scale, 8, 16), glowMat);
                     ring1.position.set(0, 0, -0.2*scale);
                     const ring2 = ring1.clone(); ring2.position.z = -0.35*scale;
                     group.add(body, ring1, ring2);
-                } else if (weapon.subType === 'RAILGUN') {
-                    const body = new THREE.Mesh(new THREE.BoxGeometry(0.12*scale, 0.16*scale, 0.7*scale), darkMat);
-                    const topRail = new THREE.Mesh(new THREE.BoxGeometry(0.03*scale, 0.03*scale, 0.8*scale), glowMat);
-                    topRail.position.set(0, 0.08*scale, -0.35*scale);
+                } else if (['RAILGUN', 'HEAVYRAIL', 'ANTI-MAT', 'SNIPER'].includes(weapon.subType)) {
+                    const body = new THREE.Mesh(new THREE.BoxGeometry(0.12*scale, 0.16*scale, 0.85*scale), darkMat);
+                    const topRail = new THREE.Mesh(new THREE.BoxGeometry(0.03*scale, 0.03*scale, 0.95*scale), glowMat);
+                    topRail.position.set(0, 0.08*scale, -0.4*scale);
                     const botRail = topRail.clone(); botRail.position.y = -0.08*scale;
                     group.add(body, topRail, botRail);
-                } else {
-                    const body = new THREE.Mesh(new THREE.BoxGeometry(0.1*scale, 0.15*scale, 0.55*scale), darkMat);
+                } else if (['LAUNCHER', 'MORTAR', 'CLUSTER', 'ROCKET', 'MICROROCKET'].includes(weapon.subType)) {
+                    const pod = new THREE.Mesh(new THREE.BoxGeometry(0.35*scale, 0.3*scale, 0.6*scale), darkMat);
+                    const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.12*scale, 0.12*scale, 0.1*scale), glowMat);
+                    nozzle.rotation.x = Math.PI/2;
+                    nozzle.position.set(0, 0, -0.32*scale);
+                    group.add(pod, nozzle);
+                } else if (['HANDGUN', 'REVOLVER', 'MAGNUM', 'POCKET', 'AUTO', 'TASER'].includes(weapon.subType)) {
+                    const body = new THREE.Mesh(new THREE.BoxGeometry(0.09*scale, 0.14*scale, 0.35*scale), darkMat);
+                    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.02*scale, 0.02*scale, 0.3*scale), metallicMat);
+                    barrel.rotation.x = Math.PI/2;
+                    barrel.position.set(0, 0.03*scale, -0.25*scale);
+                    const sight = new THREE.Mesh(new THREE.BoxGeometry(0.02*scale, 0.04*scale, 0.08*scale), glowMat);
+                    sight.position.set(0, 0.08*scale, -0.1*scale);
+                    group.add(body, barrel, sight);
+                } else { // RIFLE, LMG, SMG, BURST, LASER, LIGHTNING, ROTARY, GATLING, etc.
+                    const body = new THREE.Mesh(new THREE.BoxGeometry(0.1*scale, 0.15*scale, 0.58*scale), darkMat);
                     const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.025*scale, 0.025*scale, 0.5*scale), metallicMat);
                     barrel.rotation.x = Math.PI/2;
                     barrel.position.set(0, 0.03*scale, -0.45*scale);
@@ -1047,7 +1180,7 @@
             conn.on('open', () => {
                 connected = true;
                 hostConnection = conn;
-                isHost = false; // Successfully joined another player's match
+                isHost = false; 
                 conn.send({ type: 'JOIN_REQUEST', sender: localClientId });
                 updateNetworkStatusUI("CLIENT (CONNECTED)");
             });
@@ -1181,7 +1314,6 @@
                     const p = players[idx];
                     if (!p) return;
 
-                    // Dynamically convert bot slot into human rig on clients if remote player is assigned
                     if (bData.isNetworkPlayer && (!p.isNetworkPlayer || p.networkId !== bData.networkId)) {
                         p.isNetworkPlayer = true;
                         p.networkId = bData.networkId;
@@ -1203,7 +1335,6 @@
                     p.score = bData.score;
                     p.weapon = weaponsDatabase[bData.wpnId] || p.weapon;
 
-                    // Client-Side Bot Walking Animation Sync
                     const distMoved = prevPos.distanceTo(p.mesh.position);
                     if (distMoved > 0.001 && p.rig && p.rig.bones) {
                         const b = p.rig.bones;
@@ -1441,12 +1572,12 @@
             velocity: new THREE.Vector3(0, 0, 0),
             rotation: new THREE.Euler(0, 0, 0, 'YXZ'),
             health: 100, score: 0, name: "YOU", team: 'CYAN',
-            isGrounded: true, isSprinting: false, isSliding: false, isCrouching: false,
+            isGrounded: true, isSprinting: false, isSliding: false, isCrouching: false, isADS: false,
             isWallRunning: false, wallRunTimer: 0,
             slideTimer: 0, slideDir: new THREE.Vector3(),
             canDoubleJump: true, jetpackFuel: 100, currentEyeHeight: EYE_HEIGHT_STAND,
             activeSlot: 0,
-            inventory: [Object.assign({}, defaultAssaultRifle), Object.assign({}, defaultHandgun), Object.assign({}, defaultKnife)],
+            inventory: [Object.assign({}, weaponsDatabase[0]), Object.assign({}, weaponsDatabase[60]), Object.assign({}, weaponsDatabase[90])],
             grenades: 2,
             lastFired: 0, grenadeCookTime: 0, isCookingGrenade: false,
             recoilAmount: 0, meleeSwingProgress: 0,
@@ -1485,9 +1616,9 @@
             rigObj.group.position.copy(spawnPos);
             scene.add(rigObj.group);
 
-            const pWpn = weaponsDatabase[Math.floor(Math.random() * 25)];
-            const sWpn = weaponsDatabase[25 + Math.floor(Math.random() * 20)];
-            const mWpn = weaponsDatabase[45 + Math.floor(Math.random() * 15)];
+            const pWpn = weaponsDatabase[Math.floor(Math.random() * 60)];
+            const sWpn = weaponsDatabase[60 + Math.floor(Math.random() * 30)];
+            const mWpn = weaponsDatabase[90 + Math.floor(Math.random() * 30)];
 
             const botObj = {
                 id, name: `BOT_${archetype}_${id}`, health: 100, score: 0, team: 'NONE',
@@ -1605,11 +1736,13 @@
         window.addEventListener('blur', () => {
             for (let k in keys) keys[k] = false;
             isMouseDown = false;
+            player.isADS = false;
         });
 
         document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement === document.body && !isSpectating) {
-                const sensitivity = 0.0022;
+                // Halved sensitivity when Aiming Down Sights
+                const sensitivity = player.isADS ? 0.0011 : 0.0022;
                 player.rotation.y -= e.movementX * sensitivity;
                 player.rotation.x -= e.movementY * sensitivity;
                 player.rotation.x = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, player.rotation.x));
@@ -1622,17 +1755,21 @@
             else switchWeapon((player.activeSlot + 2) % 3);
         });
 
+        // MOUSE DOWN & UP LISTENERS FOR FIRING & ADS
         document.addEventListener('mousedown', (e) => {
             if (e.button === 0) isMouseDown = true;
+            if (e.button === 2 && !isSpectating) player.isADS = true; // RMB Hold to Scope
         });
 
         document.addEventListener('mouseup', (e) => {
             if (e.button === 0) isMouseDown = false;
+            if (e.button === 2) player.isADS = false; // RMB Release Scope
         });
 
         document.addEventListener('pointerlockchange', () => {
             if (document.pointerLockElement !== document.body) {
                 isMouseDown = false;
+                player.isADS = false;
             }
         });
 
@@ -1719,9 +1856,11 @@
 
             broadcastWorldState();
 
-            player.isSprinting = (keys['ShiftLeft'] || keys['ShiftRight']) && !player.isCrouching;
+            player.isSprinting = (keys['ShiftLeft'] || keys['ShiftRight']) && !player.isCrouching && !player.isADS;
 
-            const baseSpeed = player.isSprinting ? 18 : (player.isCrouching ? 6 : 11);
+            let baseSpeed = player.isSprinting ? 18 : (player.isCrouching ? 6 : 11);
+            if (player.isADS) baseSpeed *= 0.52; // Movement slowed when aiming down sights
+
             let moveX = 0, moveZ = 0;
 
             if (keys['KeyW']) moveZ -= 1;
@@ -1811,7 +1950,26 @@
             camera.position.y = player.position.y + player.currentEyeHeight;
             camera.rotation.copy(player.rotation);
 
+            // ADS CAMERA FOV & CROSSHAIR INTERPOLATION
+            const targetFOV = player.isADS ? 40 : 75;
+            if (Math.abs(camera.fov - targetFOV) > 0.1) {
+                camera.fov = THREE.MathUtils.lerp(camera.fov, targetFOV, delta * 14);
+                camera.updateProjectionMatrix();
+            }
+
+            const crosshairEl = document.getElementById('crosshair');
+            if (player.isADS) {
+                crosshairEl.style.transform = 'scale(0.5)';
+                crosshairEl.style.opacity = '0.4';
+            } else {
+                crosshairEl.style.transform = 'scale(1.0)';
+                crosshairEl.style.opacity = '1.0';
+            }
+
             playerHitMesh.position.set(player.position.x, player.position.y + player.currentEyeHeight / 2, player.position.z);
+
+            // VIEWMODEL POSITIONING (CENTERED WHEN ADS)
+            const targetVmPos = player.isADS ? new THREE.Vector3(0.0, -0.22, -0.42) : new THREE.Vector3(0.35, -0.35, -0.55);
 
             if (player.weaponSwitchTimer > 0) {
                 player.weaponSwitchTimer -= delta;
@@ -1825,28 +1983,32 @@
                 }
 
                 const dip = Math.sin(norm * Math.PI);
-                viewmodelGroup.position.set(0.35, -0.35 - (dip * 0.5), -0.55);
+                viewmodelGroup.position.set(targetVmPos.x, targetVmPos.y - (dip * 0.5), targetVmPos.z);
                 viewmodelGroup.rotation.set(-dip * 0.8, 0, dip * 0.3);
             } else if (player.meleeSwingProgress > 0) {
                 player.meleeSwingProgress -= delta * 3.5;
                 const p = 1.0 - Math.max(0, player.meleeSwingProgress);
-                viewmodelGroup.position.x = 0.35 - Math.sin(p * Math.PI) * 0.8;
-                viewmodelGroup.position.y = -0.35 + Math.sin(p * Math.PI) * 0.4;
-                viewmodelGroup.position.z = -0.55 - Math.cos(p * Math.PI) * 0.3;
+                viewmodelGroup.position.x = targetVmPos.x - Math.sin(p * Math.PI) * 0.8;
+                viewmodelGroup.position.y = targetVmPos.y + Math.sin(p * Math.PI) * 0.4;
+                viewmodelGroup.position.z = targetVmPos.z - Math.cos(p * Math.PI) * 0.3;
                 viewmodelGroup.rotation.z = -Math.sin(p * Math.PI) * 2.2;
                 viewmodelGroup.rotation.x = Math.cos(p * Math.PI) * 1.5;
             } else {
                 player.recoilAmount = THREE.MathUtils.lerp(player.recoilAmount, 0, delta * 10);
-                viewmodelGroup.position.set(0.35, -0.35, -0.55 + player.recoilAmount * 0.15);
+                
+                viewmodelGroup.position.x = THREE.MathUtils.lerp(viewmodelGroup.position.x, targetVmPos.x, delta * 15);
+                viewmodelGroup.position.y = THREE.MathUtils.lerp(viewmodelGroup.position.y, targetVmPos.y, delta * 15);
+                viewmodelGroup.position.z = THREE.MathUtils.lerp(viewmodelGroup.position.z, targetVmPos.z + player.recoilAmount * 0.15, delta * 15);
+                
                 viewmodelGroup.rotation.set(player.recoilAmount * 0.2, 0, 0);
 
-                if (moveVector.lengthSq() > 0 && player.isGrounded) {
+                if (moveVector.lengthSq() > 0 && player.isGrounded && !player.isADS) {
                     const bob = Math.sin(performance.now() * 0.012) * 0.02;
                     viewmodelGroup.position.y += bob;
                 }
             }
 
-            document.getElementById('stance-indicator').innerText = player.isWallRunning ? "STANCE: WALL-RUNNING" : (player.isSliding ? "STANCE: SLIDING" : (player.isCrouching ? "STANCE: CROUCHING" : "STANCE: STANDING"));
+            document.getElementById('stance-indicator').innerText = player.isADS ? "STANCE: AIMING DOWN SIGHTS" : (player.isWallRunning ? "STANCE: WALL-RUNNING" : (player.isSliding ? "STANCE: SLIDING" : (player.isCrouching ? "STANCE: CROUCHING" : "STANCE: STANDING")));
             document.getElementById('jetpack-fill').style.width = `${Math.max(0, player.jetpackFuel)}%`;
             document.getElementById('health-bar').style.width = `${Math.max(0, player.health)}%`;
         }
@@ -1966,7 +2128,7 @@
                     arcMat.opacity = opacity;
                     if (opacity <= 0) { scene.remove(arcMesh); clearInterval(fadeInterval); }
                 }, 30);
-            } else if (weapon.subType === 'SHOTGUN') {
+            } else if (['SHOTGUN', 'BUCKSHOT', 'FLAK'].includes(weapon.subType)) {
                 for (let i = 0; i < 8; i++) {
                     const spreadDir = direction.clone().add(new THREE.Vector3(
                         (Math.random()-0.5)*0.15, (Math.random()-0.5)*0.15, (Math.random()-0.5)*0.15
@@ -1976,11 +2138,11 @@
                     const tracerGeom = new THREE.BufferGeometry().setFromPoints([
                         origin, origin.clone().addScaledVector(spreadDir, Math.min(weapon.range * 0.4, maxDist))
                     ]);
-                    const tracer = new THREE.Line(tracerGeom, new THREE.LineBasicMaterial({ color: 0xffe600, linewidth: 2 }));
+                    const tracer = new THREE.Line(tracerGeom, new THREE.LineBasicMaterial({ color: weapon.color, linewidth: 2 }));
                     scene.add(tracer);
                     setTimeout(() => scene.remove(tracer), 40);
                 }
-            } else if (weapon.subType === 'PLASMA') {
+            } else if (['PLASMA', 'FREEZE', 'CRYO', 'DARK', 'CORROSION', 'VENOM'].includes(weapon.subType)) {
                 const plasmaMesh = new THREE.Mesh(new THREE.SphereGeometry(0.35), new THREE.MeshBasicMaterial({ color: weapon.color }));
                 plasmaMesh.position.copy(origin);
                 scene.add(plasmaMesh);
@@ -1994,7 +2156,7 @@
                     else scene.remove(plasmaMesh);
                 };
                 step();
-            } else if (weapon.subType === 'RAILGUN') {
+            } else if (['RAILGUN', 'HEAVYRAIL', 'ANTI-MAT', 'SNIPER'].includes(weapon.subType)) {
                 const tracerGeom = new THREE.BufferGeometry().setFromPoints([origin, targetPoint]);
                 const tracer = new THREE.Line(tracerGeom, new THREE.LineBasicMaterial({ color: weapon.color, linewidth: 5 }));
                 scene.add(tracer);
@@ -2282,6 +2444,7 @@
                 player.position.copy(safeSpawn);
                 player.velocity.set(0, 0, 0);
                 player.grenades = 2;
+                player.isADS = false;
                 player.inventory[0].ammo = player.inventory[0].ammoMax;
                 player.inventory[1].ammo = player.inventory[1].ammoMax;
                 updateGrenadeHUD();
@@ -2419,7 +2582,7 @@
                 const bestTarget = bot.target;
 
                 if (!bestTarget) {
-                    bot.rotX = 0; // Look level when patrolling
+                    bot.rotX = 0; 
                     if (currentMode === 'CTF') {
                         const targetFlagPos = bot.team === 'CYAN' ? pinkBasePos : cyanBasePos;
                         bot.patrolTarget = targetFlagPos.clone();
