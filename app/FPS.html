@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // OVERHEAD TACTICAL SPECTATOR POV</title>
+    <title>CYBER-STRIKE 2077 // CLOSE TACTICAL ISOMETRIC SPECTATOR</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -184,7 +184,7 @@
         <div class="dist-tag" id="pink-flag-dist" style="color: #ff007f; border-color: #ff007f;">0m</div>
     </div>
 
-    <div id="spectator-bar">TACTICAL OVERHEAD POV // WATCHING REMAINING COMBATANTS</div>
+    <div id="spectator-bar">TACTICAL ISOMETRIC POV // [A/D or ARROWS] SWITCH COMBATANT FOCUS</div>
 
     <div id="ui-layer">
         <div id="crosshair"></div>
@@ -245,7 +245,7 @@
         let pinkFlagBeacon = null;
         let cyanFlagCarrier = null;
         let pinkFlagCarrier = null;
-        let roofMesh = null; // Arena roof mesh reference
+        let roofMesh = null; 
 
         let isSpectating = false;
         let spectatorIndex = 0;
@@ -772,7 +772,7 @@
             roof.position.set(0, floorHeight * 3 + 0.5, 0);
             scene.add(roof);
             registerStaticBox(roof, true);
-            roofMesh = roof; // Store reference to hide roof in overhead spectator mode
+            roofMesh = roof;
 
             floors.forEach((fY, fIdx) => {
                 if (fIdx === 0) {
@@ -1747,10 +1747,23 @@
 
         for (let i = 1; i < TOTAL_COMBATANTS; i++) players.push(createBot(i));
 
+        function switchSpectatorTarget(direction) {
+            const survivors = players.filter(p => p.health > 0);
+            if (survivors.length === 0) return;
+            spectatorIndex = (spectatorIndex + direction + survivors.length) % survivors.length;
+            const target = survivors[spectatorIndex];
+            const badge = target.isNetworkPlayer ? "[HUMAN PLAYER]" : "[AI BOT]";
+            showPickupPrompt(`TRACKING COMBATANT: ${target.name} ${badge}`);
+        }
+
         const keys = {};
 
         document.addEventListener('keydown', (e) => {
-            if (isSpectating) return;
+            if (isSpectating) {
+                if (e.code === 'ArrowLeft' || e.code === 'KeyA') switchSpectatorTarget(-1);
+                if (e.code === 'ArrowRight' || e.code === 'KeyD') switchSpectatorTarget(1);
+                return;
+            }
 
             if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight', 'KeyC', 'KeyG', 'Digit1', 'Digit2', 'Digit3'].includes(e.code)) {
                 if (e.code === 'Space' || e.code === 'KeyC') e.preventDefault();
@@ -1900,26 +1913,39 @@
             }
         }
 
-        // --- STATIC ANGLED OVERHEAD TOP-DOWN 3RD PERSON SPECTATOR POV ---
+        // --- CLOSE TACTICAL ISOMETRIC SPECTATOR TRACKING ---
         function updatePlayerMovement(delta) {
             if (isSpectating) {
                 viewmodelGroup.visible = false;
 
-                // Ensure all surviving combatants are visible across the entire map
-                players.forEach(p => {
-                    if (p.health > 0) p.mesh.visible = true;
-                });
+                if (roofMesh) roofMesh.visible = false; // Unroof facility so interior combat is clear
 
-                // Temporarily hide roof so spectator can see inside the multi-floor facility
-                if (roofMesh) roofMesh.visible = false;
+                const survivors = players.filter(p => p.health > 0);
+                if (survivors.length > 0) {
+                    spectatorIndex = spectatorIndex % survivors.length;
+                    const specTarget = survivors[spectatorIndex];
 
-                // Distant elevated pseudo-isometric tactical camera position over whole 240x240 map
-                camera.position.set(0, 190, 180);
-                camera.lookAt(0, 0, 0);
+                    // Make all surviving entities visible in tactical view
+                    players.forEach(p => {
+                        if (p.health > 0) p.mesh.visible = true;
+                    });
 
-                const survivors = [player, ...players].filter(p => p.health > 0).length;
-                document.getElementById('spectator-bar').innerText = `TACTICAL OVERHEAD POV // REMAINING COMBATANTS: ${survivors}`;
-                document.getElementById('health-bar').style.width = `0%`;
+                    const targetPos = specTarget.mesh.position.clone();
+
+                    // Close-range angled pseudo-isometric offset above the active focus combatant
+                    const isoOffset = new THREE.Vector3(0, 22, 16);
+                    camera.position.copy(targetPos).add(isoOffset);
+                    camera.lookAt(targetPos.clone().add(new THREE.Vector3(0, 1.0, 0)));
+
+                    document.getElementById('health-bar').style.width = `${Math.max(0, specTarget.health)}%`;
+                    document.getElementById('weapon-slot').innerText = `[${specTarget.weapon.category}]`;
+                    document.getElementById('weapon-name').innerText = specTarget.weapon.name;
+                    document.getElementById('weapon-name').style.color = '#' + specTarget.weapon.color.toString(16);
+                    document.getElementById('ammo-display').innerText = specTarget.weapon.category === 'MELEE' ? '∞ / ∞' : `${specTarget.weapon.ammo} / ${specTarget.weapon.ammoMax}`;
+
+                    const badge = specTarget.isNetworkPlayer ? "[HUMAN PLAYER]" : "[AI BOT]";
+                    document.getElementById('spectator-bar').innerText = `TACTICAL ISOMETRIC POV: ${specTarget.name} ${badge} // [A/D or ARROWS] SWITCH FOCUS (${survivors.length} ALIVE)`;
+                }
                 return;
             } else {
                 if (roofMesh) roofMesh.visible = true;
@@ -2559,7 +2585,7 @@
                         isSpectating = true;
                         viewmodelGroup.visible = false;
                         document.getElementById('spectator-bar').style.display = 'block';
-                        showPickupPrompt("ELIMINATED! ENTERING OVERHEAD SPECTATOR POV");
+                        showPickupPrompt("ELIMINATED! ENTERING TACTICAL ISOMETRIC POV");
                     } else {
                         scene.remove(target.mesh);
                     }
