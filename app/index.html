@@ -185,16 +185,10 @@
   <script>
     // Configuration Settings
     const CONFIG = {
-      username: 'jrgrant78',       // Leave blank to auto-detect, or set e.g. 'octocat'
-      repo: 'jrgrant78.github.io',           // Leave blank to auto-detect, or set e.g. 'my-repo'
-      
-      // Specify the subfolder to search in (e.g., 'pages', 'docs', or 'reports/2026')
+      username: 'jrgrant78',
+      repo: 'jrgrant78.github.io',
       subfolder: 'app', 
-
-      // List files to exclude from the dashboard (case-insensitive)
-      excludedFiles: [
-        'index.html',
-      ]
+      excludedFiles: ['index.html']
     };
 
     const grid = document.getElementById('grid');
@@ -255,10 +249,22 @@
         // Convert excluded list to lowercase for matching
         const exclusions = CONFIG.excludedFiles.map(f => f.toLowerCase());
 
-        // Filter for .html files while excluding specified files
+        // *** FIX APPLIED HERE ***
+        // Map the API results to ensure we are only storing the filename,
+        // removing any directory path prefix if GitHub returned it in the 'path' field.
         const htmlFiles = contents
           .filter(item => item.type === 'file' && item.name.match(/\.html?$/i))
-          .map(item => item.name)
+          .map(item => {
+            // Check if the path starts with the subdirectory. If so, remove the subdirectory part.
+            // If the subfolder is empty, we fall back to just the item.name.
+            if (cleanSubfolder && item.path.startsWith(cleanSubfolder)) {
+              // substring(cleanSubfolder.length) removes the subfolder,
+              // .replace(/^\/+/, '') ensures we don't have a leading slash left.
+              return item.path.substring(cleanSubfolder.length).replace(/^\/+/, '');
+            }
+            return item.name; // Fallback to item.name if we are in the root
+          })
+          // Run exclusions check *after* mapping to just the filename.
           .filter(file => !exclusions.includes(file.toLowerCase()));
 
         if (htmlFiles.length === 0) {
@@ -267,6 +273,7 @@
           return;
         }
 
+        // renderFiles will now correctly combine cleanSubfolder + filename
         renderFiles(htmlFiles, cleanSubfolder);
       } catch (err) {
         status.textContent = err.message || 'Error communicating with GitHub API.';
@@ -280,17 +287,18 @@
       fileCount.textContent = `Found ${fileList.length} page${fileList.length === 1 ? '' : 's'}`;
 
       for (const file of fileList) {
-        // Construct the relative path to navigate to and fetch from
+        // Construct the correct relative path to navigate to and fetch from.
+        // If subfolder is 'pages' and file is 'about.html', path is 'pages/about.html'
         const relativePath = subfolder ? `${subfolder}/${file}` : file;
         let title = file;
 
+        // Fetch page content to read its title tag
         try {
           const res = await fetch(relativePath);
           if (res.ok) {
             const pageText = await res.text();
             const pageDoc = new DOMParser().parseFromString(pageText, 'text/html');
-            const extracted = pageDoc.querySelector('title')?.textContent || 
-                               pageDoc.querySelector('h1')?.textContent;
+            const extracted = pageDoc.querySelector('title')?.textContent || pageDoc.querySelector('h1')?.textContent;
             if (extracted) title = extracted.trim();
           }
         } catch (e) {}
