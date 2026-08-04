@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>CYBER-STRIKE 2077 // STABLE DESKTOP & MOBILE ARENA</title>
+    <title>CYBER-STRIKE 2077 // CCTV SURVEILLANCE SPECTATOR POV</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; touch-action: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -150,7 +150,7 @@
         #grenade-display { font-size: 12px; color: #ff007f; margin-top: 6px; font-weight: bold; }
         #mode-status-hud { font-size: 14px; font-weight: bold; color: #00ffff; margin-top: 4px; }
 
-        /* MOBILE ACTION BUTTONS & TOUCH CONTROLS */
+        /* MOBILE TOUCH OVERLAY & BUTTONS */
         #mobile-controls {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             pointer-events: none; display: none; z-index: 85;
@@ -169,7 +169,7 @@
         #btn-fire { right: 25px; bottom: 45px; width: 78px; height: 78px; border-color: #ff007f; }
         #btn-run { right: 115px; bottom: 50px; width: 58px; height: 58px; border-color: #ffe600; }
 
-        /* STRICTLY SMALL SCREEN MEDIA QUERY (WIDTH <= 850px ONLY) */
+        /* SMALL SCREEN SPECIFIC HIDE/SHOW RULES */
         @media (max-width: 850px) {
             #top-hud, #bottom-hud, #kill-feed, #leaderboard {
                 display: none !important;
@@ -199,7 +199,7 @@
         </div>
     </div>
 
-    <!-- MOBILE TOUCH ACTION BUTTONS -->
+    <!-- MOBILE TOUCH CONTROLS -->
     <div id="mobile-controls">
         <div id="btn-fire" class="mobile-btn">
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#ff007f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -261,7 +261,7 @@
         <div class="dist-tag" id="pink-flag-dist" style="color: #ff007f; border-color: #ff007f;">0m</div>
     </div>
 
-    <div id="spectator-bar">CCTV SURVEILLANCE FEED // [A/D or ARROWS] SWITCH CAMERA (1-27)</div>
+    <div id="spectator-bar">CCTV SURVEILLANCE FEED // [A/D or ARROWS] SWITCH ROOM CAMERA (1-27)</div>
 
     <div id="ui-layer">
         <div id="crosshair"></div>
@@ -301,7 +301,7 @@
     </div>
 
     <script>
-        // --- CONFIG & GLOBAL BASE POSITIONS ---
+        // --- CONFIG & GLOBAL DECLARATIONS ---
         const BOTS_CAN_FIRE = true;
         const TOTAL_COMBATANTS = 50; 
         const WEAPON_COUNT = 120;
@@ -310,8 +310,11 @@
         const SLIDE_DURATION = 1.05; 
         const WALL_RUN_DURATION = 0.75; 
 
+        // Declared early to avoid TDZ errors during bot generation
         const cyanBasePos = new THREE.Vector3(-75, 0.1, -75);
         const pinkBasePos = new THREE.Vector3(75, 0.1, 75);
+
+        window.addEventListener('contextmenu', e => e.preventDefault());
 
         // --- GAME MODE, PRE-MATCH & SPECTATOR STATES ---
         let currentMode = 'FFA'; 
@@ -343,6 +346,7 @@
         let mobileMoveX = 0, mobileMoveZ = 0;
         let hasTriggeredJumpGesture = false, hasTriggeredSlideGesture = false;
 
+        // --- GENERATE 27 CCTV ROOM CAMERAS (9 PER FLOOR x 3 FLOORS) ---
         function generateCCTVCameras() {
             cctvCameras = [];
             const floorLabels = ["F1", "F2", "F3"];
@@ -1113,7 +1117,6 @@
             spawnWorldWeapons();
         }
 
-        // --- ENHANCED SPAWN SYSTEM WITH DISTANCE SEPARATION & TEAM SIDES ---
         function getSafeSpawnPoint(entity = null) {
             let candidateList = spawnPoints;
             const team = entity ? entity.team : (player ? player.team : 'CYAN');
@@ -1661,7 +1664,7 @@
             } catch(e) {}
         }
 
-        // --- SCREEN TOUCH FULLSCREEN & DUAL-ZONE TOUCH CONTROLS SETUP ---
+        // --- DUAL-ZONE TOUCH NAVIGATION & FULLSCREEN CONTROLS ---
         function setupTouchSystem() {
             window.addEventListener('touchstart', (e) => {
                 if (!document.fullscreenElement) {
@@ -2155,6 +2158,217 @@
             } else {
                 player.isWallRunning = false;
             }
+        }
+
+        // --- CCTV SPECTATOR MODE & DUAL KEYBOARD/MOBILE MOVEMENT ---
+        function updatePlayerMovement(delta) {
+            if (isSpectating) {
+                viewmodelGroup.visible = false;
+
+                document.getElementById('cctv-overlay').style.display = 'block';
+                renderer.domElement.style.filter = 'saturate(0.15) contrast(1.4) brightness(0.85) sepia(0.4) hue-rotate(85deg)';
+
+                players.forEach(p => {
+                    if (p.health > 0) p.mesh.visible = true;
+                });
+
+                const currentCam = cctvCameras[cctvIndex];
+                camera.position.copy(currentCam.pos);
+
+                const panTime = performance.now() * 0.0008;
+                const baseDir = new THREE.Vector3().subVectors(currentCam.center, currentCam.pos).normalize();
+                const baseAngle = Math.atan2(baseDir.z, baseDir.x);
+                const panAngle = baseAngle + Math.sin(panTime) * 0.45; 
+
+                const lookTarget = currentCam.pos.clone().add(new THREE.Vector3(
+                    Math.cos(panAngle) * 20,
+                    -3.5 + Math.sin(panTime * 0.5) * 1.0, 
+                    Math.sin(panAngle) * 20
+                ));
+                camera.lookAt(lookTarget);
+
+                document.getElementById('cctv-cam-title').innerText = currentCam.title;
+                const now = new Date();
+                document.getElementById('cctv-timestamp').innerText = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}.${String(Math.floor(now.getMilliseconds()/100))}`;
+
+                const survivors = [player, ...players].filter(p => p.health > 0).length;
+                document.getElementById('spectator-bar').innerText = `CCTV SURVEILLANCE FEED // [A/D or ARROWS] SWITCH CAMERA (${currentCam.id}/27) // COMBATANTS: ${survivors}`;
+                document.getElementById('health-bar').style.width = `0%`;
+                return;
+            } else {
+                document.getElementById('cctv-overlay').style.display = 'none';
+                renderer.domElement.style.filter = 'none';
+                if (roofMesh) roofMesh.visible = true;
+            }
+
+            if (isRespawning) return; 
+
+            if (isPreMatch) {
+                player.velocity.set(0, 0, 0);
+                camera.position.x = player.position.x;
+                camera.position.z = player.position.z;
+                camera.position.y = player.position.y + player.currentEyeHeight;
+                camera.rotation.copy(player.rotation);
+                playerHitMesh.position.set(player.position.x, player.position.y + player.currentEyeHeight / 2, player.position.z);
+                return;
+            }
+
+            if (currentMode === 'LOS' && player.health <= 0) return;
+
+            broadcastWorldState();
+
+            player.isSprinting = (keys['ShiftLeft'] || keys['ShiftRight']) && !player.isCrouching && !player.isADS;
+
+            let baseSpeed = player.isSprinting ? 18 : (player.isCrouching ? 6 : 11);
+            if (player.isADS) baseSpeed *= 0.52; 
+
+            let moveX = mobileMoveX, moveZ = mobileMoveZ;
+
+            if (keys['KeyW']) moveZ -= 1;
+            if (keys['KeyS']) moveZ += 1;
+            if (keys['KeyA']) moveX -= 1;
+            if (keys['KeyD']) moveX += 1;
+
+            const moveVector = new THREE.Vector3(moveX, 0, moveZ);
+            if (moveVector.lengthSq() > 0) {
+                moveVector.normalize();
+                moveVector.applyEuler(new THREE.Euler(0, player.rotation.y, 0));
+            }
+
+            if (player.isSliding) {
+                player.slideTimer -= delta;
+                const slideSpeed = 32.0 * (player.slideTimer / SLIDE_DURATION);
+                player.velocity.x = player.slideDir.x * slideSpeed;
+                player.velocity.z = player.slideDir.z * slideSpeed;
+                if (player.slideTimer <= 0) player.isSliding = false;
+            } else {
+                player.velocity.x = moveVector.x * baseSpeed;
+                player.velocity.z = moveVector.z * baseSpeed;
+            }
+
+            const oldX = player.position.x;
+            player.position.x += player.velocity.x * delta;
+            if (checkWallCollision(player.position, 0.45, player.currentEyeHeight)) {
+                player.position.x = oldX; player.velocity.x = 0;
+            }
+
+            const oldZ = player.position.z;
+            player.position.z += player.velocity.z * delta;
+            if (checkWallCollision(player.position, 0.45, player.currentEyeHeight)) {
+                player.position.z = oldZ; player.velocity.z = 0;
+            }
+
+            if (player.velocity.y > 0 && checkCeilingCollision(player.position, 0.45, player.currentEyeHeight)) {
+                player.velocity.y = 0;
+            }
+
+            updateWallRun(delta);
+
+            if (!player.isWallRunning) {
+                player.velocity.y -= 32 * delta;
+            }
+
+            const proposedY = player.position.y + player.velocity.y * delta;
+            const groundY = getGroundY(player.position);
+
+            if (proposedY <= groundY || (player.isGrounded && Math.abs(player.position.y - groundY) < 1.8)) {
+                player.position.y = groundY;
+                player.velocity.y = 0;
+                player.isGrounded = true;
+                player.canDoubleJump = true;
+            } else {
+                player.position.y = proposedY;
+                player.isGrounded = false;
+            }
+
+            if (keys['Space']) {
+                if (player.isGrounded) {
+                    player.velocity.y = 12;
+                    player.isGrounded = false;
+                    keys['Space'] = false; 
+                } else if (player.isWallRunning) {
+                    player.velocity.y = 12;
+                    player.isWallRunning = false;
+                    player.wallRunTimer = WALL_RUN_DURATION;
+                    keys['Space'] = false;
+                } else if (player.canDoubleJump) {
+                    player.velocity.y = 12;
+                    player.canDoubleJump = false; 
+                } else if (player.jetpackFuel > 0) {
+                    player.velocity.y += 28 * delta; 
+                    player.jetpackFuel -= 45 * delta;
+                }
+            } else if (player.jetpackFuel < 100) {
+                player.jetpackFuel += 18 * delta;
+            }
+
+            const targetEyeHeight = (player.isSliding || player.isCrouching) ? EYE_HEIGHT_CROUCH : EYE_HEIGHT_STAND;
+            player.currentEyeHeight = THREE.MathUtils.lerp(player.currentEyeHeight, targetEyeHeight, delta * 12);
+
+            camera.position.x = player.position.x;
+            camera.position.z = player.position.z;
+            camera.position.y = player.position.y + player.currentEyeHeight;
+            camera.rotation.copy(player.rotation);
+
+            const targetFOV = player.isADS ? 40 : 75;
+            if (Math.abs(camera.fov - targetFOV) > 0.1) {
+                camera.fov = THREE.MathUtils.lerp(camera.fov, targetFOV, delta * 14);
+                camera.updateProjectionMatrix();
+            }
+
+            const crosshairEl = document.getElementById('crosshair');
+            if (player.isADS) {
+                crosshairEl.style.transform = 'scale(0.5)';
+                crosshairEl.style.opacity = '0.4';
+            } else {
+                crosshairEl.style.transform = 'scale(1.0)';
+                crosshairEl.style.opacity = '1.0';
+            }
+
+            playerHitMesh.position.set(player.position.x, player.position.y + player.currentEyeHeight / 2, player.position.z);
+
+            const targetVmPos = player.isADS ? new THREE.Vector3(0.0, -0.22, -0.42) : new THREE.Vector3(0.35, -0.35, -0.55);
+
+            if (player.weaponSwitchTimer > 0) {
+                player.weaponSwitchTimer -= delta;
+                const norm = Math.max(0, player.weaponSwitchTimer / 0.24);
+
+                if (player.pendingSlot !== -1 && norm <= 0.5) {
+                    player.activeSlot = player.pendingSlot;
+                    player.pendingSlot = -1;
+                    updatePlayerViewmodel();
+                    updateWeaponHUD();
+                }
+
+                const dip = Math.sin(norm * Math.PI);
+                viewmodelGroup.position.set(targetVmPos.x, targetVmPos.y - (dip * 0.5), targetVmPos.z);
+                viewmodelGroup.rotation.set(-dip * 0.8, 0, dip * 0.3);
+            } else if (player.meleeSwingProgress > 0) {
+                player.meleeSwingProgress -= delta * 3.5;
+                const p = 1.0 - Math.max(0, player.meleeSwingProgress);
+                viewmodelGroup.position.x = targetVmPos.x - Math.sin(p * Math.PI) * 0.8;
+                viewmodelGroup.position.y = targetVmPos.y + Math.sin(p * Math.PI) * 0.4;
+                viewmodelGroup.position.z = targetVmPos.z - Math.cos(p * Math.PI) * 0.3;
+                viewmodelGroup.rotation.z = -Math.sin(p * Math.PI) * 2.2;
+                viewmodelGroup.rotation.x = Math.cos(p * Math.PI) * 1.5;
+            } else {
+                player.recoilAmount = THREE.MathUtils.lerp(player.recoilAmount, 0, delta * 10);
+                
+                viewmodelGroup.position.x = THREE.MathUtils.lerp(viewmodelGroup.position.x, targetVmPos.x, delta * 15);
+                viewmodelGroup.position.y = THREE.MathUtils.lerp(viewmodelGroup.position.y, targetVmPos.y, delta * 15);
+                viewmodelGroup.position.z = THREE.MathUtils.lerp(viewmodelGroup.position.z, targetVmPos.z + player.recoilAmount * 0.15, delta * 15);
+                
+                viewmodelGroup.rotation.set(player.recoilAmount * 0.2, 0, 0);
+
+                if (moveVector.lengthSq() > 0 && player.isGrounded && !player.isADS) {
+                    const bob = Math.sin(performance.now() * 0.012) * 0.02;
+                    viewmodelGroup.position.y += bob;
+                }
+            }
+
+            document.getElementById('stance-indicator').innerText = player.isADS ? "STANCE: AIMING DOWN SIGHTS" : (player.isWallRunning ? "STANCE: WALL-RUNNING" : (player.isSliding ? "STANCE: SLIDING" : (player.isCrouching ? "STANCE: CROUCHING" : "STANCE: STANDING")));
+            document.getElementById('jetpack-fill').style.width = `${Math.max(0, player.jetpackFuel)}%`;
+            document.getElementById('health-bar').style.width = `${Math.max(0, player.health)}%`;
         }
 
         function updateCTFMechanics() {
