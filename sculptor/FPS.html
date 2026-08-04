@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // DISTINCT HUMAN PLAYER VISUALS</title>
+    <title>CYBER-STRIKE 2077 // DIRECTIONAL TRAJECTORY SLIDING</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -363,13 +363,12 @@
             return group;
         }
 
-        // --- ARTICULATED 60-BONE RIG BUILDER (DISTINCT HUMAN VISUAL RE-DESIGN) ---
+        // --- ARTICULATED 60-BONE RIG BUILDER ---
         function create60BoneHumanoidRig(colorHex, isHumanPlayer = false) {
             const bones = [];
             const boneMap = {};
             const rigGroup = new THREE.Group();
 
-            // DISTINCT HUMAN ARMOR MATERIAL: HIGH-GLOSS METALLIC CHROME
             const armorMat = isHumanPlayer 
                 ? new THREE.MeshStandardMaterial({ color: 0x112244, roughness: 0.1, metalness: 0.95 })
                 : new THREE.MeshStandardMaterial({ color: 0x181824, roughness: 0.3, metalness: 0.8 });
@@ -409,7 +408,6 @@
             chest.add(chestMesh, chestGlow, createJointSphere(0.09));
 
             if (isHumanPlayer) {
-                // ARC-REACTOR CHEST LIGHT & BACKPACK THRUSTER WITH WINGS
                 const powerCore = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.09, 12), accentGlowMat);
                 powerCore.rotation.x = Math.PI / 2;
                 powerCore.position.set(0, 0, -0.16);
@@ -418,11 +416,9 @@
                 chestLight.position.set(0, 0, -0.2);
                 chest.add(powerCore, chestLight);
 
-                // Heavy Cybernetic Backpack Thruster
                 const pack = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.35, 0.18), armorMat);
                 pack.position.set(0, 0, 0.2);
 
-                // Twin Glowing Energy Wings
                 const wingGeom = new THREE.BoxGeometry(0.04, 0.7, 0.22);
                 const wingL = new THREE.Mesh(wingGeom, accentGlowMat);
                 wingL.position.set(0.28, 0.2, 0.25);
@@ -441,7 +437,6 @@
             head.add(headMesh, visor, createJointSphere(0.08));
 
             if (isHumanPlayer) {
-                // OVERHEAD SPINNING HOLOGRAPHIC DIAMOND IDENTITY MARKER
                 const markerGroup = new THREE.Group();
                 markerGroup.position.set(0, 0.65, 0);
 
@@ -1479,12 +1474,28 @@
             if (e.code === 'Digit2') switchWeapon(1);
             if (e.code === 'Digit3') switchWeapon(2);
 
+            // UPDATED DIRECTIONAL TRAJECTORY SLIDING (KeyC)
             if (e.code === 'KeyC') {
                 if (player.isSprinting && player.isGrounded && !player.isSliding) {
-                    player.isSliding = true; player.slideTimer = SLIDE_DURATION;
-                    const camDir = new THREE.Vector3();
-                    camera.getWorldDirection(camDir); camDir.y = 0;
-                    player.slideDir.copy(camDir.normalize());
+                    player.isSliding = true; 
+                    player.slideTimer = SLIDE_DURATION;
+                    
+                    let moveX = 0, moveZ = 0;
+                    if (keys['KeyW']) moveZ -= 1;
+                    if (keys['KeyS']) moveZ += 1;
+                    if (keys['KeyA']) moveX -= 1;
+                    if (keys['KeyD']) moveX += 1;
+
+                    const moveVector = new THREE.Vector3(moveX, 0, moveZ);
+                    if (moveVector.lengthSq() > 0) {
+                        moveVector.normalize();
+                        moveVector.applyEuler(new THREE.Euler(0, player.rotation.y, 0));
+                        player.slideDir.copy(moveVector);
+                    } else {
+                        const camDir = new THREE.Vector3();
+                        camera.getWorldDirection(camDir); camDir.y = 0;
+                        player.slideDir.copy(camDir.normalize());
+                    }
                 } else if (!player.isSliding) {
                     player.isCrouching = !player.isCrouching;
                 }
@@ -2539,7 +2550,6 @@
             lastTime = now;
 
             if (gameStarted) {
-                // Rotate human player overhead markers
                 humanMarkersToRotate.forEach(m => {
                     m.rotation.y += delta * 2.5;
                 });
