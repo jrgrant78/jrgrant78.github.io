@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>CYBER-STRIKE 2077 // OPTIMIZED MOBILE CONTROLS & FAST SPAWNS</title>
+    <title>CYBER-STRIKE 2077 // STABLE DESKTOP & MOBILE ARENA</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; touch-action: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -53,7 +53,7 @@
         #death-screen {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(15, 0, 10, 0.88); display: none; flex-direction: column;
-            justify-content: center; align-align: center; z-index: 95;
+            justify-content: center; align-items: center; z-index: 95;
             pointer-events: none;
         }
         #death-screen.active {
@@ -106,19 +106,17 @@
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(5, 5, 10, 0.95); display: flex; flex-direction: column;
             justify-content: center; align-items: center; z-index: 100; padding: 20px;
-            pointer-events: auto;
         }
         #start-screen h1 { font-size: 42px; color: #ff007f; text-shadow: 0 0 20px #ff007f; margin-bottom: 5px; }
         #start-screen p { font-size: 16px; color: #00ffff; text-shadow: 0 0 10px #00ffff; margin-bottom: 25px; }
 
         .vote-container {
             display: grid; grid-template-columns: repeat(2, 220px); gap: 15px; margin-bottom: 25px;
-            pointer-events: auto;
         }
         .vote-card {
             background: rgba(15, 15, 30, 0.9); border: 2px solid #00ffff; border-radius: 6px;
             padding: 20px 15px; text-align: center; cursor: pointer; transition: all 0.2s;
-            box-shadow: 0 0 10px rgba(0, 255, 255, 0.2); pointer-events: auto;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.2);
         }
         .vote-card:hover { transform: translateY(-4px); border-color: #ff007f; box-shadow: 0 0 20px #ff007f; }
         .vote-card h3 { font-size: 18px; color: #fff; margin-bottom: 8px; }
@@ -171,8 +169,8 @@
         #btn-fire { right: 25px; bottom: 45px; width: 78px; height: 78px; border-color: #ff007f; }
         #btn-run { right: 115px; bottom: 50px; width: 58px; height: 58px; border-color: #ffe600; }
 
-        /* HIDE HUDS ON SMALL SCREENS OR TOUCH DEVICES */
-        @media (max-width: 850px), (pointer: coarse) {
+        /* STRICTLY SMALL SCREEN MEDIA QUERY (WIDTH <= 850px ONLY) */
+        @media (max-width: 850px) {
             #top-hud, #bottom-hud, #kill-feed, #leaderboard {
                 display: none !important;
             }
@@ -303,7 +301,7 @@
     </div>
 
     <script>
-        // --- CONFIG & TOGGLES ---
+        // --- CONFIG & GLOBAL BASE POSITIONS ---
         const BOTS_CAN_FIRE = true;
         const TOTAL_COMBATANTS = 50; 
         const WEAPON_COUNT = 120;
@@ -312,7 +310,8 @@
         const SLIDE_DURATION = 1.05; 
         const WALL_RUN_DURATION = 0.75; 
 
-        window.addEventListener('contextmenu', e => e.preventDefault());
+        const cyanBasePos = new THREE.Vector3(-75, 0.1, -75);
+        const pinkBasePos = new THREE.Vector3(75, 0.1, 75);
 
         // --- GAME MODE, PRE-MATCH & SPECTATOR STATES ---
         let currentMode = 'FFA'; 
@@ -416,7 +415,6 @@
         const activeDebris = [];
         const worldWeaponSpawns = [];
         const spawnPoints = [];
-        const validSpawnPoints = []; // Pre-calculated non-colliding spawn points
         const glassPanels = [];
         const slidingDoors = [];
         const elevatorCars = [];
@@ -425,11 +423,6 @@
         const wallColliders = [];   
         const staticBoxes = [];  
         const weaponsDatabase = [];
-
-        // Pre-allocated collision buffers to avoid Garbage Collection memory freezes
-        const tempCollisionBox = new THREE.Box3();
-        const tempMinVec = new THREE.Vector3();
-        const tempMaxVec = new THREE.Vector3();
 
         // --- 120 WEAPON DATABASE GENERATOR ---
         const rawWeaponsData = [
@@ -851,27 +844,6 @@
             };
         }
 
-        function checkWallCollision(pos, radius = 0.45, height = EYE_HEIGHT_STAND) {
-            const footOffset = 0.2;
-            tempMinVec.set(pos.x - radius, pos.y + footOffset, pos.z - radius);
-            tempMaxVec.set(pos.x + radius, pos.y + height, pos.z + radius);
-            tempCollisionBox.set(tempMinVec, tempMaxVec);
-
-            for (let i = 0; i < staticBoxes.length; i++) {
-                if (staticBoxes[i].active && tempCollisionBox.intersectsBox(staticBoxes[i].box)) return true;
-            }
-            return false;
-        }
-
-        function preValidateSpawnPoints() {
-            validSpawnPoints.length = 0;
-            spawnPoints.forEach(sp => {
-                if (!checkWallCollision(sp, 0.5, EYE_HEIGHT_STAND)) {
-                    validSpawnPoints.push(sp);
-                }
-            });
-        }
-
         function generateFacilityArena() {
             const floorMat = new THREE.MeshStandardMaterial({ color: 0x080812, roughness: 0.8, metalness: 0.3 });
             const wallMat = new THREE.MeshStandardMaterial({ color: 0x141428, roughness: 0.4, metalness: 0.6 });
@@ -1139,24 +1111,22 @@
 
             setupCTFFlags();
             spawnWorldWeapons();
-            preValidateSpawnPoints(); // Fast pre-filter
         }
 
-        // --- OPTIMIZED FAST SPAWN SELECTION ENGINE ---
+        // --- ENHANCED SPAWN SYSTEM WITH DISTANCE SEPARATION & TEAM SIDES ---
         function getSafeSpawnPoint(entity = null) {
-            const pool = validSpawnPoints.length > 0 ? validSpawnPoints : spawnPoints;
-            let candidateList = pool;
+            let candidateList = spawnPoints;
             const team = entity ? entity.team : (player ? player.team : 'CYAN');
 
             if (currentMode === 'TDM' || currentMode === 'CTF') {
                 if (team === 'CYAN') {
-                    candidateList = pool.filter(sp => sp.x <= -15 || sp.z <= -15);
+                    candidateList = spawnPoints.filter(sp => sp.x <= -15 || sp.z <= -15);
                 } else if (team === 'PINK') {
-                    candidateList = pool.filter(sp => sp.x >= 15 || sp.z >= 15);
+                    candidateList = spawnPoints.filter(sp => sp.x >= 15 || sp.z >= 15);
                 }
             }
 
-            if (!candidateList || candidateList.length === 0) candidateList = pool;
+            if (!candidateList || candidateList.length === 0) candidateList = spawnPoints;
 
             const activePositions = [];
             if (player && player.health > 0 && player !== entity && !isRespawning) {
@@ -1168,24 +1138,23 @@
                 }
             });
 
-            if (activePositions.length === 0) {
-                return candidateList[Math.floor(Math.random() * candidateList.length)].clone();
-            }
-
             const REQUIRED_DIST = 16.0;
-            let bestPoint = candidateList[0];
+            let bestPoint = null;
             let maxMinDist = -1;
 
-            for (let i = 0; i < candidateList.length; i++) {
-                const sp = candidateList[i];
-                let minDistToAny = Infinity;
+            const shuffledCandidates = [...candidateList].sort(() => Math.random() - 0.5);
 
-                for (let j = 0; j < activePositions.length; j++) {
-                    const d = sp.distanceTo(activePositions[j]);
-                    if (d < minDistToAny) {
-                        minDistToAny = d;
-                        if (d < maxMinDist) break;
-                    }
+            for (let sp of shuffledCandidates) {
+                if (checkWallCollision(sp, 0.5, EYE_HEIGHT_STAND)) continue;
+
+                if (activePositions.length === 0) {
+                    return sp.clone();
+                }
+
+                let minDistToAny = Infinity;
+                for (let pos of activePositions) {
+                    const d = sp.distanceTo(pos);
+                    if (d < minDistToAny) minDistToAny = d;
                 }
 
                 if (minDistToAny >= REQUIRED_DIST) {
@@ -1200,9 +1169,6 @@
 
             return bestPoint ? bestPoint.clone() : (team === 'PINK' ? pinkBasePos.clone() : cyanBasePos.clone());
         }
-
-        const cyanBasePos = new THREE.Vector3(-75, 0.1, -75);
-        const pinkBasePos = new THREE.Vector3(75, 0.1, 75);
 
         function setupCTFFlags() {
             const flagGeom = new THREE.CylinderGeometry(0.1, 0.1, 3.5);
@@ -1688,14 +1654,14 @@
 
             startPreMatchCountdown();
 
-            if (document.body.requestPointerLock && !('ontouchstart' in window)) {
-                try {
-                    const p = document.body.requestPointerLock();
-                    if (p && p.catch) p.catch(() => {});
-                } catch(e) {}
-            }
+            try {
+                if (window.innerWidth > 850 && !('ontouchstart' in window)) {
+                    document.body.requestPointerLock();
+                }
+            } catch(e) {}
         }
 
+        // --- SCREEN TOUCH FULLSCREEN & DUAL-ZONE TOUCH CONTROLS SETUP ---
         function setupTouchSystem() {
             window.addEventListener('touchstart', (e) => {
                 if (!document.fullscreenElement) {
@@ -1705,10 +1671,6 @@
                 for (let i = 0; i < e.changedTouches.length; i++) {
                     const touch = e.changedTouches[i];
                     const targetEl = touch.target;
-
-                    if (targetEl.closest('#start-screen') || targetEl.closest('.vote-card')) {
-                        continue; 
-                    }
 
                     if (targetEl.closest('#btn-fire')) {
                         isMouseDown = true;
@@ -1738,7 +1700,7 @@
                         }
                     }
                 }
-            }, { passive: true });
+            }, { passive: false });
 
             window.addEventListener('touchmove', (e) => {
                 for (let i = 0; i < e.changedTouches.length; i++) {
@@ -1792,7 +1754,7 @@
                         }
                     }
                 }
-            }, { passive: true });
+            }, { passive: false });
 
             const handleTouchEnd = (e) => {
                 for (let i = 0; i < e.changedTouches.length; i++) {
@@ -1826,13 +1788,8 @@
         setupTouchSystem();
 
         document.addEventListener('click', (e) => {
-            if (gameStarted && document.pointerLockElement !== document.body && !('ontouchstart' in window)) {
-                if (document.body.requestPointerLock) {
-                    try {
-                        const p = document.body.requestPointerLock();
-                        if (p && p.catch) p.catch(() => {});
-                    } catch(err) {}
-                }
+            if (gameStarted && document.pointerLockElement !== document.body && window.innerWidth > 850 && !('ontouchstart' in window)) {
+                try { document.body.requestPointerLock(); } catch(err) {}
             }
         });
 
@@ -1911,6 +1868,19 @@
                 }
             }
             return maxFloorY;
+        }
+
+        function checkWallCollision(pos, radius = 0.45, height = EYE_HEIGHT_STAND) {
+            const footOffset = 0.2;
+            const box = new THREE.Box3(
+                new THREE.Vector3(pos.x - radius, pos.y + footOffset, pos.z - radius),
+                new THREE.Vector3(pos.x + radius, pos.y + height, pos.z + radius)
+            );
+
+            for (let i = 0; i < staticBoxes.length; i++) {
+                if (staticBoxes[i].active && box.intersectsBox(staticBoxes[i].box)) return true;
+            }
+            return false;
         }
 
         function checkCeilingCollision(pos, radius = 0.45, height = EYE_HEIGHT_STAND) {
@@ -3109,7 +3079,7 @@
                 updateFacilityMechanics(delta);
                 updatePlayerMovement(delta);
 
-                if (isMouseDown && document.pointerLockElement === document.body && !isSpectating && !isRespawning && !isPreMatch) {
+                if (isMouseDown && (document.pointerLockElement === document.body || window.innerWidth <= 850) && !isSpectating && !isRespawning && !isPreMatch) {
                     fireActiveWeapon(player, camera.getWorldDirection(new THREE.Vector3()));
                 }
 
