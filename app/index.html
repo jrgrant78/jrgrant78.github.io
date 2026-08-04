@@ -195,120 +195,115 @@
     const status = document.getElementById('status');
     const fileCount = document.getElementById('file-count');
     const searchInput = document.getElementById('search-input');
-
+  
     function getGitHubDetails() {
       let username = CONFIG.username;
       let repo = CONFIG.repo;
-
+  
       if (!username || !repo) {
         const host = window.location.hostname;
         const pathParts = window.location.pathname.split('/').filter(Boolean);
-
+  
         if (host.endsWith('.github.io')) {
           if (!username) username = host.split('.')[0];
           if (!repo && pathParts.length > 0) repo = pathParts[0];
         }
       }
-
+  
       return { username, repo };
     }
-
+  
+    // Smart path resolver: prevents duplicate 'app/app/' URLs
+    function resolveRelativePath(file, subfolder) {
+      if (!subfolder) return file;
+  
+      const cleanSub = subfolder.replace(/^\/+|\/+$/g, '').toLowerCase();
+      const currentPath = window.location.pathname.toLowerCase().replace(/\/index\.html$/, '').replace(/\/+$/, '');
+  
+      // If current URL already ends with /subfolder, index.html is already inside it
+      if (currentPath.endsWith('/' + cleanSub) || currentPath === '/' + cleanSub) {
+        return file;
+      }
+  
+      return `${cleanSub}/${file}`;
+    }
+  
     async function loadGitHubFiles() {
       const { username, repo } = getGitHubDetails();
-
+  
       if (!username || !repo) {
         status.innerHTML = `
           <p><strong>Auto-detection failed.</strong></p>
           <p style="margin-top: 0.5rem; font-size: 0.85rem;">
-            Fill in <code>username</code> and <code>repo</code> in the script's <code>CONFIG</code> object.
+            Fill in <code>username</code> and <code>repo</code> in <code>CONFIG</code>.
           </p>
         `;
         fileCount.textContent = 'Configuration required';
         return;
       }
-
+  
       try {
-        // Clean subfolder slashes
         const cleanSubfolder = CONFIG.subfolder.replace(/^\/+|\/+$/g, '');
         
-        // Target subfolder endpoint or root directory
         const apiUrl = cleanSubfolder
           ? `https://api.github.com/repos/${username}/${repo}/contents/${cleanSubfolder}`
           : `https://api.github.com/repos/${username}/${repo}/contents`;
-
+  
         const response = await fetch(apiUrl);
-
+  
         if (!response.ok) {
           if (response.status === 403) throw new Error('GitHub API rate limit exceeded.');
           if (response.status === 404) throw new Error(`Subfolder "${cleanSubfolder}" or repository not found.`);
           throw new Error('Failed to fetch folder list from GitHub API.');
         }
-
+  
         const contents = await response.json();
-
-        // Convert excluded list to lowercase for matching
         const exclusions = CONFIG.excludedFiles.map(f => f.toLowerCase());
-
-        // *** FIX APPLIED HERE ***
-        // Map the API results to ensure we are only storing the filename,
-        // removing any directory path prefix if GitHub returned it in the 'path' field.
+  
         const htmlFiles = contents
           .filter(item => item.type === 'file' && item.name.match(/\.html?$/i))
-          .map(item => {
-            // Check if the path starts with the subdirectory. If so, remove the subdirectory part.
-            // If the subfolder is empty, we fall back to just the item.name.
-            if (cleanSubfolder && item.path.startsWith(cleanSubfolder)) {
-              // substring(cleanSubfolder.length) removes the subfolder,
-              // .replace(/^\/+/, '') ensures we don't have a leading slash left.
-              return item.path.substring(cleanSubfolder.length).replace(/^\/+/, '');
-            }
-            return item.name; // Fallback to item.name if we are in the root
-          })
-          // Run exclusions check *after* mapping to just the filename.
+          .map(item => item.name)
           .filter(file => !exclusions.includes(file.toLowerCase()));
-
+  
         if (htmlFiles.length === 0) {
           status.textContent = `No matching HTML files found in "${cleanSubfolder || 'root'}".`;
           fileCount.textContent = '0 pages found';
           return;
         }
-
-        // renderFiles will now correctly combine cleanSubfolder + filename
+  
         renderFiles(htmlFiles, cleanSubfolder);
       } catch (err) {
         status.textContent = err.message || 'Error communicating with GitHub API.';
         fileCount.textContent = 'Scan failed';
       }
     }
-
+  
     async function renderFiles(fileList, subfolder) {
       status.style.display = 'none';
       grid.innerHTML = '';
       fileCount.textContent = `Found ${fileList.length} page${fileList.length === 1 ? '' : 's'}`;
-
+  
       for (const file of fileList) {
-        // Construct the correct relative path to navigate to and fetch from.
-        // If subfolder is 'pages' and file is 'about.html', path is 'pages/about.html'
-        const relativePath = subfolder ? `${subfolder}/${file}` : file;
+        const relativePath = resolveRelativePath(file, subfolder);
         let title = file;
-
-        // Fetch page content to read its title tag
+  
         try {
           const res = await fetch(relativePath);
           if (res.ok) {
             const pageText = await res.text();
             const pageDoc = new DOMParser().parseFromString(pageText, 'text/html');
-            const extracted = pageDoc.querySelector('title')?.textContent || pageDoc.querySelector('h1')?.textContent;
+            const extracted = pageDoc.querySelector('title')?.textContent || 
+                               pageDoc.querySelector('h1')?.textContent;
             if (extracted) title = extracted.trim();
           }
         } catch (e) {}
-
+  
         const card = document.createElement('a');
         card.className = 'card';
         card.href = relativePath;
         card.dataset.title = title.toLowerCase();
         card.dataset.file = relativePath.toLowerCase();
-
+  
         card.innerHTML = `
           <div class="card-icon">📄</div>
           <div class="card-details">
@@ -317,15 +312,15 @@
           </div>
           <div class="card-arrow">→</div>
         `;
-
+  
         grid.appendChild(card);
       }
     }
-
+  
     function escapeHtml(str) {
       return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
-
+  
     searchInput.addEventListener('input', (e) => {
       const term = e.target.value.toLowerCase().trim();
       document.querySelectorAll('.card').forEach(card => {
@@ -333,7 +328,7 @@
         card.style.display = matches ? 'flex' : 'none';
       });
     });
-
+  
     loadGitHubFiles();
   </script>
 </body>
