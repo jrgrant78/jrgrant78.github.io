@@ -187,7 +187,9 @@
     // (e.g. https://username.github.io/repository-name/)
     const OVERRIDE_CONFIG = {
       username: 'jrgrant78', // Manual override e.g. 'octocat'
-      repo: 'jrgrant78.github.io/app'      // Manual override e.g. 'my-repo'
+      repo: 'jrgrant78.github.io',      // Manual override e.g. 'my-repo'
+      subfolder: 'app',
+      excludedFiles: [ 'index.html' ]
     };
 
     const grid = document.getElementById('grid');
@@ -196,8 +198,8 @@
     const searchInput = document.getElementById('search-input');
 
     function getGitHubDetails() {
-      let username = OVERRIDE_CONFIG.username;
-      let repo = OVERRIDE_CONFIG.repo;
+      let username = CONFIG.username;
+      let repo = CONFIG.repo;
 
       if (!username || !repo) {
         const host = window.location.hostname;
@@ -219,7 +221,7 @@
         status.innerHTML = `
           <p><strong>Auto-detection failed.</strong></p>
           <p style="margin-top: 0.5rem; font-size: 0.85rem;">
-            If using a custom domain or testing locally, open <code>index.html</code> and manually populate <code>OVERRIDE_CONFIG</code> in the script.
+            Fill in <code>username</code> and <code>repo</code> in the script's <code>CONFIG</code> object.
           </p>
         `;
         fileCount.textContent = 'Configuration required';
@@ -227,47 +229,58 @@
       }
 
       try {
-        const apiUrl = `https://api.github.com/repos/${username}/${repo}/contents`;
+        // Clean subfolder slashes
+        const cleanSubfolder = CONFIG.subfolder.replace(/^\/+|\/+$/g, '');
+        
+        // Target subfolder endpoint or root directory
+        const apiUrl = cleanSubfolder
+          ? `https://api.github.com/repos/${username}/${repo}/contents/${cleanSubfolder}`
+          : `https://api.github.com/repos/${username}/${repo}/contents`;
+
         const response = await fetch(apiUrl);
 
         if (!response.ok) {
-          if (response.status === 403) throw new Error('GitHub API rate limit exceeded. Try again in a few minutes.');
-          if (response.status === 404) throw new Error('Repository not found. Ensure the GitHub repository is public.');
-          throw new Error('Failed to fetch directory list from GitHub API.');
+          if (response.status === 403) throw new Error('GitHub API rate limit exceeded.');
+          if (response.status === 404) throw new Error(`Subfolder "${cleanSubfolder}" or repository not found.`);
+          throw new Error('Failed to fetch folder list from GitHub API.');
         }
 
         const contents = await response.json();
 
-        // Extract .html files excluding index.html
+        // Convert excluded list to lowercase for matching
+        const exclusions = CONFIG.excludedFiles.map(f => f.toLowerCase());
+
+        // Filter for .html files while excluding specified files
         const htmlFiles = contents
           .filter(item => item.type === 'file' && item.name.match(/\.html?$/i))
           .map(item => item.name)
-          .filter(file => file.toLowerCase() !== 'index.html');
+          .filter(file => !exclusions.includes(file.toLowerCase()));
 
         if (htmlFiles.length === 0) {
-          status.textContent = 'No other HTML files found in this repository.';
+          status.textContent = `No matching HTML files found in "${cleanSubfolder || 'root'}".`;
           fileCount.textContent = '0 pages found';
           return;
         }
 
-        renderFiles(htmlFiles);
+        renderFiles(htmlFiles, cleanSubfolder);
       } catch (err) {
         status.textContent = err.message || 'Error communicating with GitHub API.';
         fileCount.textContent = 'Scan failed';
       }
     }
 
-    async function renderFiles(fileList) {
+    async function renderFiles(fileList, subfolder) {
       status.style.display = 'none';
       grid.innerHTML = '';
       fileCount.textContent = `Found ${fileList.length} page${fileList.length === 1 ? '' : 's'}`;
 
       for (const file of fileList) {
+        // Construct the relative path to navigate to and fetch from
+        const relativePath = subfolder ? `${subfolder}/${file}` : file;
         let title = file;
 
-        // Fetch page file directly through GitHub Pages to extract page <title>
         try {
-          const res = await fetch(file);
+          const res = await fetch(relativePath);
           if (res.ok) {
             const pageText = await res.text();
             const pageDoc = new DOMParser().parseFromString(pageText, 'text/html');
@@ -279,15 +292,15 @@
 
         const card = document.createElement('a');
         card.className = 'card';
-        card.href = file;
+        card.href = relativePath;
         card.dataset.title = title.toLowerCase();
-        card.dataset.file = file.toLowerCase();
+        card.dataset.file = relativePath.toLowerCase();
 
         card.innerHTML = `
           <div class="card-icon">📄</div>
           <div class="card-details">
             <div class="card-title">${escapeHtml(title)}</div>
-            <div class="card-path">${escapeHtml(file)}</div>
+            <div class="card-path">${escapeHtml(relativePath)}</div>
           </div>
           <div class="card-arrow">→</div>
         `;
