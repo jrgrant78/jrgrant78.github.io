@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Local Directory Dashboard</title>
+  <title>Server Directory Dashboard</title>
   <style>
     :root {
       --bg: #0f172a;
       --card-bg: #1e293b;
+      --card-hover: #334155;
       --accent-gradient: linear-gradient(135deg, #38bdf8, #818cf8);
       --text: #f8fafc;
       --text-muted: #94a3b8;
@@ -16,23 +17,59 @@
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); padding: 2rem; }
-    .container { max-width: 1200px; margin: 0 auto; }
-    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem; }
-    h1 { background: var(--accent-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
     
-    .btn-select {
-      background: var(--accent-gradient);
-      color: #fff;
-      padding: 0.75rem 1.25rem;
-      border-radius: var(--radius);
-      cursor: pointer;
-      font-weight: 600;
-      display: inline-block;
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 2rem;
+      min-height: 100vh;
     }
-    .btn-select input { display: none; }
-    
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.25rem; }
+
+    .container { max-width: 1200px; margin: 0 auto; }
+
+    header {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    @media (min-width: 640px) {
+      header {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+      }
+    }
+
+    h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      background: var(--accent-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .search-bar input {
+      width: 100%;
+      min-width: 280px;
+      padding: 0.75rem 1rem;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      outline: none;
+    }
+
+    .search-bar input:focus { border-color: #38bdf8; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1.25rem;
+    }
+
     .card {
       background: var(--card-bg);
       border: 1px solid var(--border);
@@ -45,10 +82,49 @@
       gap: 1rem;
       transition: transform 0.2s, border-color 0.2s;
     }
-    .card:hover { transform: translateY(-3px); border-color: #38bdf8; }
-    .card-icon { width: 40px; height: 40px; background: var(--accent-gradient); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    .card-title { font-weight: 600; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .card-path { font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .card:hover {
+      transform: translateY(-3px);
+      border-color: #38bdf8;
+      background: var(--card-hover);
+    }
+
+    .card-icon {
+      width: 40px;
+      height: 40px;
+      background: var(--accent-gradient);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .card-title {
+      font-weight: 600;
+      font-size: 1rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 0.2rem;
+    }
+
+    .card-path {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .status-panel {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2.5rem;
+      text-align: center;
+      color: var(--text-muted);
+    }
   </style>
 </head>
 <body>
@@ -56,63 +132,112 @@
   <div class="container">
     <header>
       <div>
-        <h1>Offline Project Index</h1>
-        <p id="count" style="color: var(--text-muted);">Select folder to load contents...</p>
+        <h1>Server Directory Index</h1>
+        <p id="count" style="color: var(--text-muted); margin-top: 0.25rem;">Scanning server folder...</p>
       </div>
-      <label class="btn-select">
-        Open Directory
-        <input type="file" id="dir-picker" webkitdirectory directory multiple />
-      </label>
+      <div class="search-bar">
+        <input type="text" id="search" placeholder="Search server pages..." />
+      </div>
     </header>
 
     <main id="grid" class="grid"></main>
+    <div id="status" class="status-panel">Connecting to directory...</div>
   </div>
 
   <script>
-    const picker = document.getElementById('dir-picker');
     const grid = document.getElementById('grid');
+    const status = document.getElementById('status');
     const count = document.getElementById('count');
+    const search = document.getElementById('search');
 
-    picker.addEventListener('change', async (e) => {
-      const files = Array.from(e.target.files).filter(f => 
-        (f.name.endsWith('.html') || f.name.endsWith('.htm')) && f.name.toLowerCase() !== 'index.html'
-      );
+    async function loadServerFiles() {
+      try {
+        // Fetch directory index listing generated by server
+        const response = await fetch('./');
+        if (!response.ok) throw new Error('Autoindex unavailable');
 
-      if (!files.length) {
-        count.textContent = 'No other HTML files found in selected directory.';
-        return;
+        const htmlText = await response.text();
+        const doc = new DOMParser().parseFromString(htmlText, 'text/html');
+        const links = Array.from(doc.querySelectorAll('a'));
+
+        // Extract HTML files while excluding index.html
+        const files = links
+          .map(a => a.getAttribute('href'))
+          .filter(href => href && href.match(/\.html?$/i))
+          .map(href => href.replace(/^\.\//, ''))
+          .filter(file => file.toLowerCase() !== 'index.html' && !file.startsWith('http'));
+
+        const uniqueFiles = [...new Set(files)];
+
+        if (uniqueFiles.length === 0) {
+          status.textContent = 'No other HTML files found on server.';
+          count.textContent = '0 pages found';
+          return;
+        }
+
+        renderCards(uniqueFiles);
+      } catch (err) {
+        status.innerHTML = `
+          <p><strong>Unable to auto-list server directory.</strong></p>
+          <p style="font-size: 0.85rem; margin-top: 0.5rem;">
+            Ensure directory auto-indexing is enabled on your web server (e.g., <code>autoindex on;</code> in Nginx or <code>Options +Indexes</code> in Apache).
+          </p>
+        `;
+        count.textContent = 'Scan failed';
       }
+    }
 
+    async function renderCards(fileList) {
+      status.style.display = 'none';
       grid.innerHTML = '';
-      count.textContent = `Loaded ${files.length} page${files.length === 1 ? '' : 's'}`;
+      count.textContent = `Found ${fileList.length} page${fileList.length === 1 ? '' : 's'}`;
 
-      for (const file of files) {
-        const text = await file.text();
-        const doc = new DOMParser().parseFromString(text, 'text/html');
-        const title = doc.querySelector('title')?.textContent?.trim() || 
-                      doc.querySelector('h1')?.textContent?.trim() || 
-                      file.name;
+      for (const file of fileList) {
+        let title = file;
 
-        const blobUrl = URL.createObjectURL(file);
+        // Fetch page content to read its title tag
+        try {
+          const res = await fetch(file);
+          if (res.ok) {
+            const pageText = await res.text();
+            const pageDoc = new DOMParser().parseFromString(pageText, 'text/html');
+            const extracted = pageDoc.querySelector('title')?.textContent || pageDoc.querySelector('h1')?.textContent;
+            if (extracted) title = extracted.trim();
+          }
+        } catch (e) {}
 
         const card = document.createElement('a');
         card.className = 'card';
-        card.href = blobUrl;
-        card.target = '_blank';
+        card.href = file;
+        card.dataset.title = title.toLowerCase();
+        card.dataset.file = file.toLowerCase();
+
         card.innerHTML = `
           <div class="card-icon">📄</div>
-          <div style="overflow: hidden;">
+          <div style="overflow: hidden; flex-grow: 1;">
             <div class="card-title">${escapeHtml(title)}</div>
-            <div class="card-path">${escapeHtml(file.webkitRelativePath || file.name)}</div>
+            <div class="card-path">${escapeHtml(file)}</div>
           </div>
+          <div style="color: var(--text-muted);">→</div>
         `;
+
         grid.appendChild(card);
       }
-    });
+    }
 
     function escapeHtml(str) {
       return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
+
+    search.addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase().trim();
+      document.querySelectorAll('.card').forEach(card => {
+        const matches = card.dataset.title.includes(term) || card.dataset.file.includes(term);
+        card.style.display = matches ? 'flex' : 'none';
+      });
+    });
+
+    loadServerFiles();
   </script>
 </body>
 </html>
