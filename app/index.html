@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Directory Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --card-hover: #334155;
+      --accent: #38bdf8;
+      --accent-gradient: linear-gradient(135deg, #38bdf8, #818cf8);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: #334155;
+      --radius: 12px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      margin-bottom: 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    @media (min-width: 640px) {
+      header {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+      }
+    }
+
+    .title-area h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      background: var(--accent-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .title-area p {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-top: 0.25rem;
+    }
+
+    .search-bar {
+      position: relative;
+      width: 100%;
+      max-width: 320px;
+    }
+
+    .search-bar input {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .search-bar input:focus {
+      border-color: var(--accent);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1.25rem;
+    }
+
+    .card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      transition: transform 0.2s, background-color 0.2s, border-color 0.2s;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+
+    .card:hover {
+      transform: translateY(-3px);
+      background-color: var(--card-hover);
+      border-color: var(--accent);
+    }
+
+    .card-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      background: var(--accent-gradient);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      flex-shrink: 0;
+    }
+
+    .card-details {
+      flex-grow: 1;
+      overflow: hidden;
+    }
+
+    .card-title {
+      font-size: 1rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 0.25rem;
+    }
+
+    .card-path {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .card-arrow {
+      color: var(--text-muted);
+      font-size: 1.1rem;
+      transition: transform 0.2s, color 0.2s;
+    }
+
+    .card:hover .card-arrow {
+      transform: translateX(3px);
+      color: var(--accent);
+    }
+
+    .status-panel {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2.5rem;
+      text-align: center;
+      color: var(--text-muted);
+    }
+
+    .status-panel code {
+      background-color: rgba(255, 255, 255, 0.1);
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      color: var(--accent);
+    }
+
+    .file-input-btn {
+      margin-top: 1rem;
+      display: inline-block;
+      background: var(--accent-gradient);
+      color: #fff;
+      padding: 0.6rem 1.2rem;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .file-input-btn input {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <header>
+      <div class="title-area">
+        <h1>Project Index</h1>
+        <p id="file-count">Scanning directory...</p>
+      </div>
+      <div class="search-bar">
+        <input type="text" id="search-input" placeholder="Search pages..." />
+      </div>
+    </header>
+
+    <main id="grid" class="grid"></main>
+    <div id="status" class="status-panel">Loading directory contents...</div>
+  </div>
+
+  <script>
+    const grid = document.getElementById('grid');
+    const status = document.getElementById('status');
+    const fileCount = document.getElementById('file-count');
+    const searchInput = document.getElementById('search-input');
+
+    async function scanDirectory() {
+      try {
+        const response = await fetch('./');
+        if (!response.ok) throw new Error('Cannot fetch directory autoindex.');
+
+        const htmlText = await response.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlText, 'text/html');
+        const links = Array.from(doc.querySelectorAll('a'));
+
+        const htmlFiles = links
+          .map(a => a.getAttribute('href'))
+          .filter(href => href && href.match(/\.html?$/i))
+          .map(href => href.replace(/^\.\//, ''))
+          .filter(file => file !== 'index.html' && !file.startsWith('http'));
+
+        const uniqueFiles = [...new Set(htmlFiles)];
+
+        if (uniqueFiles.length === 0) {
+          showStatus('No other HTML files found in this directory.');
+          return;
+        }
+
+        renderFiles(uniqueFiles);
+      } catch (err) {
+        showFallbackPrompt();
+      }
+    }
+
+    async function renderFiles(fileList) {
+      status.style.display = 'none';
+      grid.innerHTML = '';
+      fileCount.textContent = `Found ${fileList.length} page${fileList.length === 1 ? '' : 's'}`;
+
+      for (const file of fileList) {
+        let title = file;
+        
+        try {
+          const res = await fetch(file);
+          if (res.ok) {
+            const pageText = await res.text();
+            const pageDoc = new DOMParser().parseFromString(pageText, 'text/html');
+            const extractedTitle = pageDoc.querySelector('title')?.textContent || 
+                                   pageDoc.querySelector('h1')?.textContent;
+            if (extractedTitle) title = extractedTitle.trim();
+          }
+        } catch (e) {
+          // Fall back to filename if fetch fails
+        }
+
+        const card = document.createElement('a');
+        card.className = 'card';
+        card.href = file;
+        card.dataset.title = title.toLowerCase();
+        card.dataset.file = file.toLowerCase();
+
+        card.innerHTML = `
+          <div class="card-icon">📄</div>
+          <div class="card-details">
+            <div class="card-title">${escapeHtml(title)}</div>
+            <div class="card-path">${escapeHtml(file)}</div>
+          </div>
+          <div class="card-arrow">→</div>
+        `;
+
+        grid.appendChild(card);
+      }
+    }
+
+    function showFallbackPrompt() {
+      status.innerHTML = `
+        <p><strong>Auto-scan unavailable.</strong></p>
+        <p style="margin-top: 0.5rem; font-size: 0.9rem;">
+          To enable automatic scanning, serve this folder over HTTP (e.g., <code>python -m http.server</code>).
+        </p>
+        <p style="margin-top: 1rem; font-size: 0.9rem;">Or manually select the HTML files from this directory:</p>
+        <label class="file-input-btn">
+          Select Files
+          <input type="file" id="manual-picker" multiple accept=".html,.htm" />
+        </label>
+      `;
+
+      document.getElementById('manual-picker').addEventListener('change', (e) => {
+        const files = Array.from(e.target.files)
+          .filter(f => f.name !== 'index.html')
+          .map(f => f.name);
+        
+        if (files.length > 0) {
+          renderFiles(files);
+        }
+      });
+    }
+
+    function showStatus(msg) {
+      status.style.display = 'block';
+      status.textContent = msg;
+      fileCount.textContent = '0 pages found';
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    searchInput.addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase().trim();
+      const cards = document.querySelectorAll('.card');
+
+      cards.forEach(card => {
+        const matches = card.dataset.title.includes(term) || card.dataset.file.includes(term);
+        card.style.display = matches ? 'flex' : 'none';
+      });
+    });
+
+    discoverAndRender();
+  </script>
+</body>
+</html>
