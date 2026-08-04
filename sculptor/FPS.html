@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // AUTHORITATIVE MULTIPLAYER ARENA</title>
+    <title>CYBER-STRIKE 2077 // FLOOR/CEILING SIGHT OCCLUSION & ENHANCED SLIDE</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -187,8 +187,8 @@
         const WEAPON_COUNT = 60;
         const EYE_HEIGHT_STAND = 1.8;
         const EYE_HEIGHT_CROUCH = 0.9;
-        const SLIDE_DURATION = 0.75;
-        const WALL_RUN_DURATION = 0.75;
+        const SLIDE_DURATION = 1.05; // Slightly longer slide duration
+        const WALL_RUN_DURATION = 0.75; // Wall run unchanged
 
         // --- GAME MODE & SPECTATOR STATES ---
         let currentMode = 'FFA'; 
@@ -978,14 +978,12 @@
 
         // --- DEDICATED P2P MATCHMAKING & NETWORKING SYSTEM ---
         function initMultiplayerNetworking() {
-            // Tier 1: BroadcastChannel for zero-latency multi-tab sync
             broadcastChan.onmessage = (event) => {
                 const data = event.data;
                 if (!data || data.sender === localClientId) return;
                 handleIncomingPacket(data);
             };
 
-            // Tier 2: PeerJS WebRTC for cross-browser / cross-device connections
             peer = new Peer(localClientId);
 
             peer.on('open', () => {
@@ -1052,7 +1050,6 @@
             if (data.sender === localClientId) return;
 
             if (data.type === 'JOIN_REQUEST' && isHost) {
-                // Host sends full current match state to joining client
                 const welcomeData = {
                     type: 'MATCH_WELCOME',
                     sender: localClientId,
@@ -1064,11 +1061,9 @@
                 if (conn) conn.send(welcomeData);
                 broadcastChan.postMessage(welcomeData);
                 
-                // Add new remote player
                 registerRemotePlayer(data.sender);
             } 
             else if (data.type === 'MATCH_WELCOME' && !gameStarted) {
-                // Client joins host's match session
                 isHost = false;
                 currentMode = data.mode;
                 teamCyanScore = data.teamCyanScore || 0;
@@ -1087,7 +1082,6 @@
                 showPickupPrompt(`JOINED ACTIVE MATCH [${getModeFullName(currentMode)}]`);
             } 
             else if (data.type === 'CLIENT_INPUT') {
-                // Host updates client's position
                 let remote = players.find(p => p.isNetworkPlayer && p.networkId === data.sender);
                 if (!remote && isHost) remote = registerRemotePlayer(data.sender);
 
@@ -1100,7 +1094,6 @@
                 }
             } 
             else if (data.type === 'WORLD_SYNC' && !isHost) {
-                // Non-host clients apply Host's authoritative state
                 teamCyanScore = data.teamCyanScore;
                 teamPinkScore = data.teamPinkScore;
                 updateModeHUD();
@@ -1140,7 +1133,6 @@
 
         function broadcastWorldState() {
             if (!isHost) {
-                // Client sends input state to host
                 const clientPacket = {
                     type: 'CLIENT_INPUT',
                     sender: localClientId,
@@ -1157,7 +1149,6 @@
                 return;
             }
 
-            // Host broadcasts full authoritative world state
             const botStates = players.map(p => ({
                 x: p.mesh.position.x,
                 y: p.mesh.position.y,
@@ -1617,9 +1608,10 @@
                 moveVector.applyEuler(new THREE.Euler(0, player.rotation.y, 0));
             }
 
+            // SLIDE MECHANIC REFINED: LONGER (1.05s) AND FASTER (32.0 peak velocity)
             if (player.isSliding) {
                 player.slideTimer -= delta;
-                const slideSpeed = 24 * (player.slideTimer / SLIDE_DURATION);
+                const slideSpeed = 32.0 * (player.slideTimer / SLIDE_DURATION);
                 player.velocity.x = player.slideDir.x * slideSpeed;
                 player.velocity.z = player.slideDir.z * slideSpeed;
                 if (player.slideTimer <= 0) player.isSliding = false;
@@ -2272,7 +2264,8 @@
                     let bestTarget = null;
                     let minDist = 65.0;
 
-                    const losObstacles = [...wallColliders];
+                    // INCLUDES ALL SOLID COLLIDERS (FLOORS, CEILINGS, WALLS) TO PREVENT SIGHT THROUGH FLOORS
+                    const losObstacles = [...colliders];
                     slidingDoors.forEach(d => { if (d.slideProgress < 0.85) losObstacles.push(d.panel); });
                     glassPanels.forEach(g => { if (!g.isBroken) losObstacles.push(g.mesh); });
 
@@ -2389,7 +2382,7 @@
 
                     if (bot.isSliding) {
                         bot.slideTimer -= delta;
-                        const sSpeed = 24 * (bot.slideTimer / SLIDE_DURATION);
+                        const sSpeed = 32.0 * (bot.slideTimer / SLIDE_DURATION);
                         bot.velocity.x = bot.slideDir.x * sSpeed;
                         bot.velocity.z = bot.slideDir.z * sSpeed;
                         if (bot.slideTimer <= 0) bot.isSliding = false;
