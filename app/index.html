@@ -66,7 +66,6 @@
     }
 
     .search-bar {
-      position: relative;
       width: 100%;
       max-width: 320px;
     }
@@ -166,28 +165,6 @@
       text-align: center;
       color: var(--text-muted);
     }
-
-    .status-panel code {
-      background-color: rgba(255, 255, 255, 0.1);
-      padding: 0.2rem 0.4rem;
-      border-radius: 4px;
-      color: var(--accent);
-    }
-
-    .file-input-btn {
-      margin-top: 1rem;
-      display: inline-block;
-      background: var(--accent-gradient);
-      color: #fff;
-      padding: 0.6rem 1.2rem;
-      border-radius: 8px;
-      cursor: pointer;
-      font-weight: 600;
-    }
-
-    .file-input-btn input {
-      display: none;
-    }
   </style>
 </head>
 <body>
@@ -196,7 +173,7 @@
     <header>
       <div class="title-area">
         <h1>Project Index</h1>
-        <p id="file-count">Scanning directory...</p>
+        <p id="file-count">Loading pages...</p>
       </div>
       <div class="search-bar">
         <input type="text" id="search-input" placeholder="Search pages..." />
@@ -204,7 +181,7 @@
     </header>
 
     <main id="grid" class="grid"></main>
-    <div id="status" class="status-panel">Loading directory contents...</div>
+    <div id="status" class="status-panel">Fetching directory data...</div>
   </div>
 
   <script>
@@ -213,103 +190,46 @@
     const fileCount = document.getElementById('file-count');
     const searchInput = document.getElementById('search-input');
 
-    async function scanDirectory() {
+    async function loadDirectory() {
       try {
-        const response = await fetch('./');
-        if (!response.ok) throw new Error('Cannot fetch directory autoindex.');
+        const response = await fetch('/api/files');
+        if (!response.ok) throw new Error('API request failed');
 
-        const htmlText = await response.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(htmlText, 'text/html');
-        const links = Array.from(doc.querySelectorAll('a'));
+        const pages = await response.json();
 
-        const htmlFiles = links
-          .map(a => a.getAttribute('href'))
-          .filter(href => href && href.match(/\.html?$/i))
-          .map(href => href.replace(/^\.\//, ''))
-          .filter(file => file !== 'index.html' && !file.startsWith('http'));
-
-        const uniqueFiles = [...new Set(htmlFiles)];
-
-        if (uniqueFiles.length === 0) {
-          showStatus('No other HTML files found in this directory.');
+        if (pages.length === 0) {
+          status.textContent = 'No other HTML files found in this directory.';
+          fileCount.textContent = '0 pages found';
           return;
         }
 
-        renderFiles(uniqueFiles);
+        status.style.display = 'none';
+        grid.innerHTML = '';
+        fileCount.textContent = `Found ${pages.length} page${pages.length === 1 ? '' : 's'}`;
+
+        pages.forEach(item => {
+          const card = document.createElement('a');
+          card.className = 'card';
+          card.href = item.file;
+          card.dataset.title = item.title.toLowerCase();
+          card.dataset.file = item.file.toLowerCase();
+
+          card.innerHTML = `
+            <div class="card-icon">📄</div>
+            <div class="card-details">
+              <div class="card-title">${escapeHtml(item.title)}</div>
+              <div class="card-path">${escapeHtml(item.file)}</div>
+            </div>
+            <div class="card-arrow">→</div>
+          `;
+
+          grid.appendChild(card);
+        });
+
       } catch (err) {
-        showFallbackPrompt();
+        status.textContent = 'Error loading files from server API.';
+        fileCount.textContent = 'Error loading pages';
       }
-    }
-
-    async function renderFiles(fileList) {
-      status.style.display = 'none';
-      grid.innerHTML = '';
-      fileCount.textContent = `Found ${fileList.length} page${fileList.length === 1 ? '' : 's'}`;
-
-      for (const file of fileList) {
-        let title = file;
-        
-        try {
-          const res = await fetch(file);
-          if (res.ok) {
-            const pageText = await res.text();
-            const pageDoc = new DOMParser().parseFromString(pageText, 'text/html');
-            const extractedTitle = pageDoc.querySelector('title')?.textContent || 
-                                   pageDoc.querySelector('h1')?.textContent;
-            if (extractedTitle) title = extractedTitle.trim();
-          }
-        } catch (e) {
-          // Fall back to filename if fetch fails
-        }
-
-        const card = document.createElement('a');
-        card.className = 'card';
-        card.href = file;
-        card.dataset.title = title.toLowerCase();
-        card.dataset.file = file.toLowerCase();
-
-        card.innerHTML = `
-          <div class="card-icon">📄</div>
-          <div class="card-details">
-            <div class="card-title">${escapeHtml(title)}</div>
-            <div class="card-path">${escapeHtml(file)}</div>
-          </div>
-          <div class="card-arrow">→</div>
-        `;
-
-        grid.appendChild(card);
-      }
-    }
-
-    function showFallbackPrompt() {
-      status.innerHTML = `
-        <p><strong>Auto-scan unavailable.</strong></p>
-        <p style="margin-top: 0.5rem; font-size: 0.9rem;">
-          To enable automatic scanning, serve this folder over HTTP (e.g., <code>python -m http.server</code>).
-        </p>
-        <p style="margin-top: 1rem; font-size: 0.9rem;">Or manually select the HTML files from this directory:</p>
-        <label class="file-input-btn">
-          Select Files
-          <input type="file" id="manual-picker" multiple accept=".html,.htm" />
-        </label>
-      `;
-
-      document.getElementById('manual-picker').addEventListener('change', (e) => {
-        const files = Array.from(e.target.files)
-          .filter(f => f.name !== 'index.html')
-          .map(f => f.name);
-        
-        if (files.length > 0) {
-          renderFiles(files);
-        }
-      });
-    }
-
-    function showStatus(msg) {
-      status.style.display = 'block';
-      status.textContent = msg;
-      fileCount.textContent = '0 pages found';
     }
 
     function escapeHtml(str) {
@@ -326,7 +246,7 @@
       });
     });
 
-    discoverAndRender();
+    loadDirectory();
   </script>
 </body>
 </html>
