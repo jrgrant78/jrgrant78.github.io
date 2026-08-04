@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // CCTV SURVEILLANCE SPECTATOR POV</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>CYBER-STRIKE 2077 // MOBILE TOUCH CONTROLS & ADAPTIVE HUD</title>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; touch-action: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
         
         #gameCanvas { width: 100%; height: 100%; display: block; }
@@ -149,6 +149,40 @@
         #stance-indicator { font-size: 12px; color: #ffe600; margin-top: 4px; }
         #grenade-display { font-size: 12px; color: #ff007f; margin-top: 6px; font-weight: bold; }
         #mode-status-hud { font-size: 14px; font-weight: bold; color: #00ffff; margin-top: 4px; }
+
+        /* MOBILE ACTION BUTTONS & TOUCH CONTROLS */
+        #mobile-controls {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; display: none; z-index: 85;
+        }
+        .mobile-btn {
+            position: absolute; width: 68px; height: 68px; border-radius: 50%;
+            background: rgba(15, 15, 30, 0.75); border: 2px solid #00ffff;
+            display: flex; justify-content: center; align-items: center;
+            pointer-events: auto; box-shadow: 0 0 15px rgba(0, 255, 255, 0.4);
+            touch-action: none;
+        }
+        .mobile-btn:active, .mobile-btn.active {
+            background: rgba(255, 0, 127, 0.8); border-color: #ff007f;
+            box-shadow: 0 0 22px #ff007f;
+        }
+        #btn-fire { right: 25px; bottom: 45px; width: 78px; height: 78px; border-color: #ff007f; }
+        #btn-run { right: 115px; bottom: 50px; width: 58px; height: 58px; border-color: #ffe600; }
+
+        /* HIDE HUDS ON SMALL SCREENS OR TOUCH DEVICES */
+        @media (max-width: 850px), (pointer: coarse) {
+            #top-hud, #bottom-hud, #kill-feed, #leaderboard {
+                display: none !important;
+            }
+            #mobile-controls {
+                display: block !important;
+            }
+            #start-screen h1 { font-size: 28px; }
+            .vote-container { grid-template-columns: repeat(2, 160px); gap: 10px; }
+            .vote-card { padding: 12px 8px; }
+            .vote-card h3 { font-size: 14px; }
+            .vote-card .desc { font-size: 9px; }
+        }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
@@ -162,6 +196,24 @@
         <div id="cctv-hud">
             <div><span class="rec-dot"></span><span id="cctv-cam-title">CAM 01 // F1-COMPUTER LAB</span></div>
             <div id="cctv-timestamp" style="font-size: 12px; opacity: 0.85;">2077-11-04 14:22:09</div>
+        </div>
+    </div>
+
+    <!-- MOBILE TOUCH ACTION BUTTONS -->
+    <div id="mobile-controls">
+        <div id="btn-fire" class="mobile-btn">
+            <!-- Bullet Icon SVG -->
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#ff007f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2C9.5 5 8 9 8 13v7c0 1.1.9 2 2 2h4c1.1 0 2-.9 2-2v-7c0-4-1.5-8-4-11z" fill="rgba(255,0,127,0.3)"/>
+                <line x1="8" y1="16" x2="16" y2="16"/>
+            </svg>
+        </div>
+        <div id="btn-run" class="mobile-btn">
+            <!-- Running Man Icon SVG -->
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ffe600" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="15" cy="4" r="2.5" fill="#ffe600"/>
+                <path d="M9 20l2.5-5.5L14 17v4M6 11l4-2 3 3 4-2M13 8l-3 4-3-1"/>
+            </svg>
         </div>
     </div>
 
@@ -211,7 +263,7 @@
         <div class="dist-tag" id="pink-flag-dist" style="color: #ff007f; border-color: #ff007f;">0m</div>
     </div>
 
-    <div id="spectator-bar">CCTV SURVEILLANCE FEED // [A/D or ARROWS] SWITCH ROOM CAMERA (1-27)</div>
+    <div id="spectator-bar">CCTV SURVEILLANCE FEED // [A/D or ARROWS] SWITCH CAMERA (1-27)</div>
 
     <div id="ui-layer">
         <div id="crosshair"></div>
@@ -284,7 +336,14 @@
         let preMatchCountdown = 5;
         const humanMarkersToRotate = [];
 
-        // --- GENERATE 27 CCTV ROOM CAMERAS (9 PER FLOOR x 3 FLOORS) ---
+        // --- MOBILE TOUCH CONTROLS STATE ---
+        let touchMoveId = null, touchLookId = null, touchRunId = null;
+        let touchMoveOrigin = { x: 0, y: 0 };
+        let touchLookLast = { x: 0, y: 0 };
+        let touchRunStartY = 0;
+        let mobileMoveX = 0, mobileMoveZ = 0;
+        let hasTriggeredJumpGesture = false, hasTriggeredSlideGesture = false;
+
         function generateCCTVCameras() {
             cctvCameras = [];
             const floorLabels = ["F1", "F2", "F3"];
@@ -306,8 +365,8 @@
                         cctvCameras.push({
                             id: idCounter++,
                             title: label,
-                            pos: new THREE.Vector3(rx + 16, fY + 6.2, rz + 16), // Upper corner of room
-                            center: new THREE.Vector3(rx, fY + 2.0, rz)          // Room center aim target
+                            pos: new THREE.Vector3(rx + 16, fY + 6.2, rz + 16),
+                            center: new THREE.Vector3(rx, fY + 2.0, rz)
                         });
                     });
                 });
@@ -1601,8 +1660,140 @@
             document.body.requestPointerLock();
         }
 
+        // --- SCREEN TOUCH FULLSCREEN & DUAL-ZONE TOUCH CONTROLS SETUP ---
+        function setupTouchSystem() {
+            window.addEventListener('touchstart', (e) => {
+                // Request full screen on first screen touch
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(() => {});
+                }
+
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    const touch = e.changedTouches[i];
+                    const targetEl = touch.target;
+
+                    // Button Touch Filtering
+                    if (targetEl.closest('#btn-fire')) {
+                        isMouseDown = true;
+                        continue;
+                    }
+                    if (targetEl.closest('#btn-run')) {
+                        touchRunId = touch.identifier;
+                        touchRunStartY = touch.clientY;
+                        keys['ShiftLeft'] = true; // Hold to Sprint
+                        hasTriggeredJumpGesture = false;
+                        hasTriggeredSlideGesture = false;
+                        document.getElementById('btn-run').classList.add('active');
+                        continue;
+                    }
+
+                    // Zone Filtering
+                    const touchX = touch.clientX;
+                    if (touchX < window.innerWidth / 2) {
+                        if (touchMoveId === null) {
+                            touchMoveId = touch.identifier;
+                            touchMoveOrigin = { x: touch.clientX, y: touch.clientY };
+                            mobileMoveX = 0; mobileMoveZ = 0;
+                        }
+                    } else {
+                        if (touchLookId === null) {
+                            touchLookId = touch.identifier;
+                            touchLookLast = { x: touch.clientX, y: touch.clientY };
+                        }
+                    }
+                }
+            }, { passive: false });
+
+            window.addEventListener('touchmove', (e) => {
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    const touch = e.changedTouches[i];
+
+                    // Left Screen Joystick Movement
+                    if (touch.identifier === touchMoveId) {
+                        const dx = touch.clientX - touchMoveOrigin.x;
+                        const dy = touch.clientY - touchMoveOrigin.y;
+                        const maxRadius = 45.0;
+
+                        mobileMoveX = Math.max(-1, Math.min(1, dx / maxRadius));
+                        mobileMoveZ = Math.max(-1, Math.min(1, dy / maxRadius));
+                    }
+
+                    // Right Screen Aim/Look
+                    if (touch.identifier === touchLookId) {
+                        if (gameStarted && !isSpectating && !isRespawning) {
+                            const dx = touch.clientX - touchLookLast.x;
+                            const dy = touch.clientY - touchLookLast.y;
+                            touchLookLast = { x: touch.clientX, y: touch.clientY };
+
+                            const sensitivity = player.isADS ? 0.0018 : 0.0035;
+                            player.rotation.y -= dx * sensitivity;
+                            player.rotation.x -= dy * sensitivity;
+                            player.rotation.x = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, player.rotation.x));
+                        }
+                    }
+
+                    // Run Button Gesture Detection (Swipe UP = Jump / Swipe DOWN = Slide)
+                    if (touch.identifier === touchRunId) {
+                        const dy = touch.clientY - touchRunStartY;
+
+                        if (dy < -25 && !hasTriggeredJumpGesture && !isRespawning && !isPreMatch) {
+                            hasTriggeredJumpGesture = true;
+                            if (player.isGrounded) {
+                                player.velocity.y = 12;
+                                player.isGrounded = false;
+                            } else if (player.canDoubleJump) {
+                                player.velocity.y = 12;
+                                player.canDoubleJump = false;
+                            }
+                        } else if (dy > 25 && !hasTriggeredSlideGesture && !isRespawning && !isPreMatch) {
+                            hasTriggeredSlideGesture = true;
+                            if (player.isSprinting && player.isGrounded && !player.isSliding) {
+                                player.isSliding = true;
+                                player.slideTimer = SLIDE_DURATION;
+                                const camDir = new THREE.Vector3();
+                                camera.getWorldDirection(camDir); camDir.y = 0;
+                                player.slideDir.copy(camDir.normalize());
+                            } else if (!player.isSliding) {
+                                player.isCrouching = !player.isCrouching;
+                            }
+                        }
+                    }
+                }
+            }, { passive: false });
+
+            const handleTouchEnd = (e) => {
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    const touch = e.changedTouches[i];
+                    const targetEl = touch.target;
+
+                    if (targetEl.closest('#btn-fire')) {
+                        isMouseDown = false;
+                    }
+
+                    if (touch.identifier === touchRunId) {
+                        touchRunId = null;
+                        keys['ShiftLeft'] = false; // Release Sprint
+                        document.getElementById('btn-run').classList.remove('active');
+                    }
+
+                    if (touch.identifier === touchMoveId) {
+                        touchMoveId = null;
+                        mobileMoveX = 0; mobileMoveZ = 0;
+                    }
+
+                    if (touch.identifier === touchLookId) {
+                        touchLookId = null;
+                    }
+                }
+            };
+
+            window.addEventListener('touchend', handleTouchEnd);
+            window.addEventListener('touchcancel', handleTouchEnd);
+        }
+        setupTouchSystem();
+
         document.addEventListener('click', (e) => {
-            if (gameStarted && document.pointerLockElement !== document.body) {
+            if (gameStarted && document.pointerLockElement !== document.body && !('ontouchstart' in window)) {
                 document.body.requestPointerLock();
             }
         });
@@ -1810,173 +2001,11 @@
 
         for (let i = 1; i < TOTAL_COMBATANTS; i++) players.push(createBot(i));
 
-        const keys = {};
-
-        document.addEventListener('keydown', (e) => {
-            if (isSpectating) {
-                if (e.code === 'KeyA' || e.code === 'ArrowLeft') {
-                    cctvIndex = (cctvIndex - 1 + 27) % 27;
-                }
-                if (e.code === 'KeyD' || e.code === 'ArrowRight') {
-                    cctvIndex = (cctvIndex + 1) % 27;
-                }
-                return;
-            }
-
-            if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight', 'KeyC', 'KeyG', 'Digit1', 'Digit2', 'Digit3'].includes(e.code)) {
-                if (e.code === 'Space' || e.code === 'KeyC') e.preventDefault();
-            }
-
-            keys[e.code] = true;
-
-            if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
-                if (player.isCrouching) player.isCrouching = false;
-                if (player.isSliding) player.isSliding = false;
-            }
-
-            if (e.code === 'Digit1') switchWeapon(0);
-            if (e.code === 'Digit2') switchWeapon(1);
-            if (e.code === 'Digit3') switchWeapon(2);
-
-            if (e.code === 'KeyC' && !isRespawning && !isPreMatch) {
-                if (player.isSprinting && player.isGrounded && !player.isSliding) {
-                    player.isSliding = true; 
-                    player.slideTimer = SLIDE_DURATION;
-                    
-                    let moveX = 0, moveZ = 0;
-                    if (keys['KeyW']) moveZ -= 1;
-                    if (keys['KeyS']) moveZ += 1;
-                    if (keys['KeyA']) moveX -= 1;
-                    if (keys['KeyD']) moveX += 1;
-
-                    const moveVector = new THREE.Vector3(moveX, 0, moveZ);
-                    if (moveVector.lengthSq() > 0) {
-                        moveVector.normalize();
-                        moveVector.applyEuler(new THREE.Euler(0, player.rotation.y, 0));
-                        player.slideDir.copy(moveVector);
-                    } else {
-                        const camDir = new THREE.Vector3();
-                        camera.getWorldDirection(camDir); camDir.y = 0;
-                        player.slideDir.copy(camDir.normalize());
-                    }
-                } else if (!player.isSliding) {
-                    player.isCrouching = !player.isCrouching;
-                }
-            }
-
-            if (e.code === 'KeyG' && !player.isCookingGrenade && !isRespawning && !isPreMatch) {
-                if (player.grenades > 0) {
-                    player.isCookingGrenade = true;
-                    player.grenadeCookTime = Date.now();
-                } else {
-                    showPickupPrompt("NO GRENADES REMAINING!");
-                }
-            }
-        });
-
-        document.addEventListener('keyup', (e) => {
-            keys[e.code] = false;
-            if (e.code === 'KeyG' && player.isCookingGrenade && !isSpectating && !isRespawning && !isPreMatch) {
-                throwGrenade(player);
-                player.grenades--;
-                updateGrenadeHUD();
-                player.isCookingGrenade = false;
-            }
-        });
-
-        window.addEventListener('blur', () => {
-            for (let k in keys) keys[k] = false;
-            isMouseDown = false;
-            player.isADS = false;
-        });
-
-        document.addEventListener('mousemove', (e) => {
-            if (document.pointerLockElement === document.body && !isSpectating && !isRespawning) {
-                const sensitivity = player.isADS ? 0.0011 : 0.0022;
-                player.rotation.y -= e.movementX * sensitivity;
-                player.rotation.x -= e.movementY * sensitivity;
-                player.rotation.x = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, player.rotation.x));
-            }
-        });
-
-        document.addEventListener('wheel', (e) => {
-            if (isSpectating || isRespawning || isPreMatch) return;
-            if (e.deltaY > 0) switchWeapon((player.activeSlot + 1) % 3);
-            else switchWeapon((player.activeSlot + 2) % 3);
-        });
-
-        document.addEventListener('mousedown', (e) => {
-            if (e.button === 0) isMouseDown = true;
-            if (e.button === 2 && !isSpectating && !isRespawning && !isPreMatch) player.isADS = true; 
-        });
-
-        document.addEventListener('mouseup', (e) => {
-            if (e.button === 0) isMouseDown = false;
-            if (e.button === 2) player.isADS = false; 
-        });
-
-        document.addEventListener('pointerlockchange', () => {
-            if (document.pointerLockElement !== document.body) {
-                isMouseDown = false;
-                player.isADS = false;
-            }
-        });
-
-        function switchWeapon(slotIndex, force = false) {
-            if (!force && player.activeSlot === slotIndex && player.pendingSlot === -1) return;
-            player.pendingSlot = slotIndex;
-            player.weaponSwitchTimer = 0.24;
-        }
-
-        function updateWeaponHUD() {
-            const currentWpn = player.inventory[player.activeSlot];
-            document.getElementById('weapon-slot').innerText = `[${currentWpn.category}]`;
-            document.getElementById('weapon-name').innerText = currentWpn.name;
-            document.getElementById('weapon-name').style.color = '#' + currentWpn.color.toString(16);
-            updateAmmoHUD();
-        }
-
-        function updateAmmoHUD() {
-            const currentWpn = player.inventory[player.activeSlot];
-            document.getElementById('ammo-display').innerText = currentWpn.category === 'MELEE' ? '∞ / ∞' : `${currentWpn.ammo} / ${currentWpn.ammoMax}`;
-        }
-
-        function updateGrenadeHUD() {
-            document.getElementById('grenade-display').innerText = `GRENADES: ${player.grenades} / 2`;
-        }
-
-        function updateWallRun(delta) {
-            if (player.isGrounded || !player.isSprinting || !keys['KeyW']) {
-                player.isWallRunning = false;
-                player.wallRunTimer = 0;
-                return;
-            }
-
-            const leftDir = new THREE.Vector3(-1, 0, 0).applyEuler(new THREE.Euler(0, player.rotation.y, 0));
-            const rightDir = new THREE.Vector3(1, 0, 0).applyEuler(new THREE.Euler(0, player.rotation.y, 0));
-
-            const rayLeft = new THREE.Raycaster(player.position, leftDir, 0, 1.3);
-            const rayRight = new THREE.Raycaster(player.position, rightDir, 0, 1.3);
-
-            const hitL = rayLeft.intersectObjects(colliders, false);
-            const hitR = rayRight.intersectObjects(colliders, false);
-
-            if ((hitL.length > 0 || hitR.length > 0) && player.wallRunTimer < WALL_RUN_DURATION) {
-                player.isWallRunning = true;
-                player.wallRunTimer += delta;
-                player.velocity.y = -0.5;
-                player.canDoubleJump = true;
-            } else {
-                player.isWallRunning = false;
-            }
-        }
-
-        // --- CCTV SPECTATOR MODE (27 ROOM CAMERAS WITH AUTOMATED PAN & TILT) ---
+        // --- PLAYER MOVEMENT & TOUCH JOYSTICK DUAL INTEGRATION ---
         function updatePlayerMovement(delta) {
             if (isSpectating) {
                 viewmodelGroup.visible = false;
 
-                // Display scanline filter & desaturate feed via CSS filter
                 document.getElementById('cctv-overlay').style.display = 'block';
                 renderer.domElement.style.filter = 'saturate(0.15) contrast(1.4) brightness(0.85) sepia(0.4) hue-rotate(85deg)';
 
@@ -1987,20 +2016,18 @@
                 const currentCam = cctvCameras[cctvIndex];
                 camera.position.copy(currentCam.pos);
 
-                // Automated side-to-side pan and slight vertical tilt simulation
                 const panTime = performance.now() * 0.0008;
                 const baseDir = new THREE.Vector3().subVectors(currentCam.center, currentCam.pos).normalize();
                 const baseAngle = Math.atan2(baseDir.z, baseDir.x);
-                const panAngle = baseAngle + Math.sin(panTime) * 0.45; // ~50 deg panning arc
+                const panAngle = baseAngle + Math.sin(panTime) * 0.45; 
 
                 const lookTarget = currentCam.pos.clone().add(new THREE.Vector3(
                     Math.cos(panAngle) * 20,
-                    -3.5 + Math.sin(panTime * 0.5) * 1.0, // Mild vertical tilt
+                    -3.5 + Math.sin(panTime * 0.5) * 1.0, 
                     Math.sin(panAngle) * 20
                 ));
                 camera.lookAt(lookTarget);
 
-                // Update CCTV Overlay HUD Text & Live Date/Time
                 document.getElementById('cctv-cam-title').innerText = currentCam.title;
                 const now = new Date();
                 document.getElementById('cctv-timestamp').innerText = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}.${String(Math.floor(now.getMilliseconds()/100))}`;
@@ -2036,7 +2063,7 @@
             let baseSpeed = player.isSprinting ? 18 : (player.isCrouching ? 6 : 11);
             if (player.isADS) baseSpeed *= 0.52; 
 
-            let moveX = 0, moveZ = 0;
+            let moveX = mobileMoveX, moveZ = mobileMoveZ;
 
             if (keys['KeyW']) moveZ -= 1;
             if (keys['KeyS']) moveZ += 1;
