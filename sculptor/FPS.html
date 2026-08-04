@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // FLOOR/CEILING SIGHT OCCLUSION & ENHANCED SLIDE</title>
+    <title>CYBER-STRIKE 2077 // DISTINCT HUMAN PLAYER VISUALS</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -187,8 +187,8 @@
         const WEAPON_COUNT = 60;
         const EYE_HEIGHT_STAND = 1.8;
         const EYE_HEIGHT_CROUCH = 0.9;
-        const SLIDE_DURATION = 1.05; // Slightly longer slide duration
-        const WALL_RUN_DURATION = 0.75; // Wall run unchanged
+        const SLIDE_DURATION = 1.05; 
+        const WALL_RUN_DURATION = 0.75; 
 
         // --- GAME MODE & SPECTATOR STATES ---
         let currentMode = 'FFA'; 
@@ -203,6 +203,7 @@
 
         let isSpectating = false;
         let spectatorIndex = 0;
+        const humanMarkersToRotate = [];
 
         // --- NETWORK MULTIPLAYER SETUP ---
         const HOST_PEER_ID = "cyberstrike2077_host_v1";
@@ -362,18 +363,18 @@
             return group;
         }
 
-        // --- ARTICULATED 60-BONE RIG BUILDER ---
+        // --- ARTICULATED 60-BONE RIG BUILDER (DISTINCT HUMAN VISUAL RE-DESIGN) ---
         function create60BoneHumanoidRig(colorHex, isHumanPlayer = false) {
             const bones = [];
             const boneMap = {};
             const rigGroup = new THREE.Group();
 
-            const armorMat = new THREE.MeshStandardMaterial({ 
-                color: isHumanPlayer ? 0x222238 : 0x181824, 
-                roughness: isHumanPlayer ? 0.2 : 0.3, 
-                metalness: isHumanPlayer ? 0.9 : 0.8 
-            });
-            const jointMat = new THREE.MeshStandardMaterial({ color: 0x444466, roughness: 0.2, metalness: 0.9 });
+            // DISTINCT HUMAN ARMOR MATERIAL: HIGH-GLOSS METALLIC CHROME
+            const armorMat = isHumanPlayer 
+                ? new THREE.MeshStandardMaterial({ color: 0x112244, roughness: 0.1, metalness: 0.95 })
+                : new THREE.MeshStandardMaterial({ color: 0x181824, roughness: 0.3, metalness: 0.8 });
+
+            const jointMat = new THREE.MeshStandardMaterial({ color: isHumanPlayer ? 0x00ffff : 0x444466, roughness: 0.1, metalness: 0.9 });
             const glowMat = new THREE.MeshBasicMaterial({ color: isHumanPlayer ? 0xffe600 : colorHex });
             const accentGlowMat = new THREE.MeshBasicMaterial({ color: isHumanPlayer ? 0x00ffff : colorHex });
 
@@ -408,16 +409,54 @@
             chest.add(chestMesh, chestGlow, createJointSphere(0.09));
 
             if (isHumanPlayer) {
-                const powerCore = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.08, 12), accentGlowMat);
+                // ARC-REACTOR CHEST LIGHT & BACKPACK THRUSTER WITH WINGS
+                const powerCore = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.09, 12), accentGlowMat);
                 powerCore.rotation.x = Math.PI / 2;
                 powerCore.position.set(0, 0, -0.16);
-                chest.add(powerCore);
+                
+                const chestLight = new THREE.PointLight(0x00ffff, 2.0, 10);
+                chestLight.position.set(0, 0, -0.2);
+                chest.add(powerCore, chestLight);
+
+                // Heavy Cybernetic Backpack Thruster
+                const pack = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.35, 0.18), armorMat);
+                pack.position.set(0, 0, 0.2);
+
+                // Twin Glowing Energy Wings
+                const wingGeom = new THREE.BoxGeometry(0.04, 0.7, 0.22);
+                const wingL = new THREE.Mesh(wingGeom, accentGlowMat);
+                wingL.position.set(0.28, 0.2, 0.25);
+                wingL.rotation.z = -Math.PI / 6;
+
+                const wingR = new THREE.Mesh(wingGeom, accentGlowMat);
+                wingR.position.set(-0.28, 0.2, 0.25);
+                wingR.rotation.z = Math.PI / 6;
+
+                chest.add(pack, wingL, wingR);
             }
 
             const headMesh = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), armorMat);
-            const visor = new THREE.Mesh(new THREE.BoxGeometry(0.3, isHumanPlayer ? 0.12 : 0.08, 0.18), isHumanPlayer ? accentGlowMat : glowMat);
+            const visor = new THREE.Mesh(new THREE.BoxGeometry(0.3, isHumanPlayer ? 0.14 : 0.08, 0.18), isHumanPlayer ? accentGlowMat : glowMat);
             visor.position.set(0, 0.02, -0.1);
             head.add(headMesh, visor, createJointSphere(0.08));
+
+            if (isHumanPlayer) {
+                // OVERHEAD SPINNING HOLOGRAPHIC DIAMOND IDENTITY MARKER
+                const markerGroup = new THREE.Group();
+                markerGroup.position.set(0, 0.65, 0);
+
+                const diamondMesh = new THREE.Mesh(
+                    new THREE.OctahedronGeometry(0.18, 0),
+                    new THREE.MeshBasicMaterial({ color: 0x00ffaa, wireframe: true })
+                );
+                const coreDot = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.06, 8, 8),
+                    new THREE.MeshBasicMaterial({ color: 0xffe600 })
+                );
+                markerGroup.add(diamondMesh, coreDot);
+                head.add(markerGroup);
+                humanMarkersToRotate.push(markerGroup);
+            }
 
             ['L', 'R'].forEach(side => {
                 const s = side === 'L' ? 1 : -1;
@@ -431,8 +470,8 @@
                 upperArm.add(upperMesh, createJointSphere(0.07));
 
                 if (isHumanPlayer) {
-                    const pauldron = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.12, 0.16), armorMat);
-                    pauldron.position.set(0.04 * s, 0, 0);
+                    const pauldron = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.14, 0.18), armorMat);
+                    pauldron.position.set(0.05 * s, 0, 0);
                     upperArm.add(pauldron);
                 }
 
@@ -1608,7 +1647,6 @@
                 moveVector.applyEuler(new THREE.Euler(0, player.rotation.y, 0));
             }
 
-            // SLIDE MECHANIC REFINED: LONGER (1.05s) AND FASTER (32.0 peak velocity)
             if (player.isSliding) {
                 player.slideTimer -= delta;
                 const slideSpeed = 32.0 * (player.slideTimer / SLIDE_DURATION);
@@ -2222,7 +2260,7 @@
 
         // --- OPTIMIZED BOT AI WITH STAGGERED LINE-OF-SIGHT SCANNING & STUCK WATCHDOG ---
         function updateBots(delta) {
-            if (!isHost) return; // Only Authoritative Host runs Bot AI calculations
+            if (!isHost) return; 
 
             const allEntities = [player, ...players].filter(e => e.health > 0);
 
@@ -2501,6 +2539,11 @@
             lastTime = now;
 
             if (gameStarted) {
+                // Rotate human player overhead markers
+                humanMarkersToRotate.forEach(m => {
+                    m.rotation.y += delta * 2.5;
+                });
+
                 updateFacilityMechanics(delta);
                 updatePlayerMovement(delta);
 
