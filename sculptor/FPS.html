@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // DIRECT FIRST-PERSON SPECTATOR POV</title>
+    <title>CYBER-STRIKE 2077 // OVERHEAD TACTICAL SPECTATOR POV</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -20,6 +20,14 @@
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(255, 0, 50, 0.5); pointer-events: none; opacity: 0;
             transition: opacity 0.08s ease-out; z-index: 50;
+        }
+
+        #pre-match-overlay {
+            position: absolute; top: 38%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 38px; font-weight: bold; color: #ffe600;
+            text-shadow: 0 0 20px #ffe600, 0 0 40px #ff007f;
+            z-index: 90; text-align: center; pointer-events: none; display: none;
+            letter-spacing: 3px;
         }
 
         #death-screen {
@@ -128,6 +136,7 @@
 <body>
 
     <div id="damage-flash"></div>
+    <div id="pre-match-overlay">MATCH BEGINS IN 5</div>
 
     <div id="death-screen">
         <div class="electric-overlay"></div>
@@ -175,7 +184,7 @@
         <div class="dist-tag" id="pink-flag-dist" style="color: #ff007f; border-color: #ff007f;">0m</div>
     </div>
 
-    <div id="spectator-bar">SPECTATING POV // [A/D or ARROWS] SWITCH COMBATANT</div>
+    <div id="spectator-bar">TACTICAL OVERHEAD POV // WATCHING REMAINING COMBATANTS</div>
 
     <div id="ui-layer">
         <div id="crosshair"></div>
@@ -226,7 +235,7 @@
 
         window.addEventListener('contextmenu', e => e.preventDefault());
 
-        // --- GAME MODE & SPECTATOR STATES ---
+        // --- GAME MODE, PRE-MATCH & SPECTATOR STATES ---
         let currentMode = 'FFA'; 
         let teamCyanScore = 0;
         let teamPinkScore = 0;
@@ -236,12 +245,15 @@
         let pinkFlagBeacon = null;
         let cyanFlagCarrier = null;
         let pinkFlagCarrier = null;
+        let roofMesh = null; // Arena roof mesh reference
 
         let isSpectating = false;
         let spectatorIndex = 0;
         let spectatedWeaponId = -1;
         let spectatedRecoilTimer = 0;
         let isRespawning = false;
+        let isPreMatch = false;
+        let preMatchCountdown = 5;
         const humanMarkersToRotate = [];
 
         // --- NETWORK MULTIPLAYER SETUP ---
@@ -715,7 +727,6 @@
             };
         }
 
-        // --- EXPANDED FACILITY ARENA GENERATOR ---
         function generateFacilityArena() {
             const floorMat = new THREE.MeshStandardMaterial({ color: 0x080812, roughness: 0.8, metalness: 0.3 });
             const wallMat = new THREE.MeshStandardMaterial({ color: 0x141428, roughness: 0.4, metalness: 0.6 });
@@ -761,6 +772,7 @@
             roof.position.set(0, floorHeight * 3 + 0.5, 0);
             scene.add(roof);
             registerStaticBox(roof, true);
+            roofMesh = roof; // Store reference to hide roof in overhead spectator mode
 
             floors.forEach((fY, fIdx) => {
                 if (fIdx === 0) {
@@ -986,39 +998,58 @@
 
         function getSafeSpawnPoint(entity = null) {
             let candidateList = spawnPoints;
+            const team = entity ? entity.team : (player ? player.team : 'CYAN');
 
             if (currentMode === 'TDM' || currentMode === 'CTF') {
-                const team = entity ? entity.team : 'CYAN';
                 if (team === 'CYAN') {
-                    candidateList = spawnPoints.filter(sp => sp.x <= 10 && sp.z <= 10);
-                } else {
-                    candidateList = spawnPoints.filter(sp => sp.x >= -10 && sp.z >= -10);
+                    candidateList = spawnPoints.filter(sp => sp.x <= -15 || sp.z <= -15);
+                } else if (team === 'PINK') {
+                    candidateList = spawnPoints.filter(sp => sp.x >= 15 || sp.z >= 15);
                 }
             }
 
             if (!candidateList || candidateList.length === 0) candidateList = spawnPoints;
 
-            const allActivePos = [player, ...players]
-                .filter(e => e.health > 0 && e !== entity)
-                .map(e => e === player ? player.position : e.mesh.position);
+            const activePositions = [];
+            if (player && player.health > 0 && player !== entity && !isRespawning) {
+                activePositions.push(player.position);
+            }
+            players.forEach(p => {
+                if (p && p.health > 0 && p !== entity) {
+                    activePositions.push(p.mesh.position);
+                }
+            });
 
-            const MIN_SPAWN_DIST = 8.0;
+            const REQUIRED_DIST = 16.0;
+            let bestPoint = null;
+            let maxMinDist = -1;
 
-            for (let i = 0; i < 50; i++) {
-                const candidate = candidateList[Math.floor(Math.random() * candidateList.length)];
-                if (!candidate) continue;
+            const shuffledCandidates = [...candidateList].sort(() => Math.random() - 0.5);
 
-                if (checkWallCollision(candidate, 0.5, EYE_HEIGHT_STAND)) continue;
+            for (let sp of shuffledCandidates) {
+                if (checkWallCollision(sp, 0.5, EYE_HEIGHT_STAND)) continue;
 
-                if (currentMode === 'FFA' || currentMode === 'LOS') {
-                    const tooClose = allActivePos.some(pos => pos.distanceTo(candidate) < MIN_SPAWN_DIST);
-                    if (tooClose && i < 40) continue;
+                if (activePositions.length === 0) {
+                    return sp.clone();
                 }
 
-                return candidate.clone();
+                let minDistToAny = Infinity;
+                for (let pos of activePositions) {
+                    const d = sp.distanceTo(pos);
+                    if (d < minDistToAny) minDistToAny = d;
+                }
+
+                if (minDistToAny >= REQUIRED_DIST) {
+                    return sp.clone(); 
+                }
+
+                if (minDistToAny > maxMinDist) {
+                    maxMinDist = minDistToAny;
+                    bestPoint = sp;
+                }
             }
 
-            return (entity && entity.team === 'PINK') ? pinkBasePos.clone() : cyanBasePos.clone();
+            return bestPoint ? bestPoint.clone() : (team === 'PINK' ? pinkBasePos.clone() : cyanBasePos.clone());
         }
 
         const cyanBasePos = new THREE.Vector3(-75, 0.1, -75);
@@ -1099,7 +1130,7 @@
         }
 
         function updateWorldWeapons(delta) {
-            if (isSpectating || isRespawning) return;
+            if (isSpectating || isRespawning || isPreMatch) return;
 
             worldWeaponSpawns.forEach(sp => {
                 if (sp.active) {
@@ -1324,6 +1355,8 @@
 
                 initGameMode();
                 respawnEntity(player);
+                players.forEach(bot => respawnEntity(bot));
+                startPreMatchCountdown();
                 updateNetworkStatusUI("CONNECTED TO HOST ARENA");
                 showPickupPrompt(`JOINED ACTIVE MATCH [${getModeFullName(currentMode)}]`);
             } 
@@ -1459,6 +1492,29 @@
 
         initMultiplayerNetworking();
 
+        function startPreMatchCountdown() {
+            isPreMatch = true;
+            preMatchCountdown = 5;
+
+            const overlay = document.getElementById('pre-match-overlay');
+            overlay.style.display = 'block';
+            overlay.innerText = `MATCH BEGINS IN ${preMatchCountdown}`;
+
+            const interval = setInterval(() => {
+                preMatchCountdown--;
+                if (preMatchCountdown > 0) {
+                    overlay.innerText = `MATCH BEGINS IN ${preMatchCountdown}`;
+                } else if (preMatchCountdown === 0) {
+                    overlay.innerText = `MATCH STARTED! COMMENCE COMBAT!`;
+                    setTimeout(() => {
+                        overlay.style.display = 'none';
+                    }, 1200);
+                    isPreMatch = false;
+                    clearInterval(interval);
+                }
+            }, 1000);
+        }
+
         function castPlayerVote(modeKey) {
             currentMode = modeKey;
             gameStarted = true;
@@ -1473,7 +1529,11 @@
             players.forEach(p => { if (p.mesh) p.mesh.visible = true; });
 
             initGameMode();
+
             respawnEntity(player);
+            players.forEach(bot => respawnEntity(bot));
+
+            startPreMatchCountdown();
 
             document.body.requestPointerLock();
         }
@@ -1687,24 +1747,10 @@
 
         for (let i = 1; i < TOTAL_COMBATANTS; i++) players.push(createBot(i));
 
-        function switchSpectatorTarget(direction) {
-            const survivors = players.filter(p => p.health > 0);
-            if (survivors.length === 0) return;
-            spectatorIndex = (spectatorIndex + direction + survivors.length) % survivors.length;
-            spectatedWeaponId = -1; // Force viewmodel refresh for new target
-            const target = survivors[spectatorIndex];
-            const badge = target.isNetworkPlayer ? "[HUMAN PLAYER]" : "[AI BOT]";
-            showPickupPrompt(`SPECTATING POV: ${target.name} ${badge}`);
-        }
-
         const keys = {};
 
         document.addEventListener('keydown', (e) => {
-            if (isSpectating) {
-                if (e.code === 'ArrowLeft' || e.code === 'KeyA') switchSpectatorTarget(-1);
-                if (e.code === 'ArrowRight' || e.code === 'KeyD') switchSpectatorTarget(1);
-                return;
-            }
+            if (isSpectating) return;
 
             if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight', 'KeyC', 'KeyG', 'Digit1', 'Digit2', 'Digit3'].includes(e.code)) {
                 if (e.code === 'Space' || e.code === 'KeyC') e.preventDefault();
@@ -1721,7 +1767,7 @@
             if (e.code === 'Digit2') switchWeapon(1);
             if (e.code === 'Digit3') switchWeapon(2);
 
-            if (e.code === 'KeyC' && !isRespawning) {
+            if (e.code === 'KeyC' && !isRespawning && !isPreMatch) {
                 if (player.isSprinting && player.isGrounded && !player.isSliding) {
                     player.isSliding = true; 
                     player.slideTimer = SLIDE_DURATION;
@@ -1747,7 +1793,7 @@
                 }
             }
 
-            if (e.code === 'KeyG' && !player.isCookingGrenade && !isRespawning) {
+            if (e.code === 'KeyG' && !player.isCookingGrenade && !isRespawning && !isPreMatch) {
                 if (player.grenades > 0) {
                     player.isCookingGrenade = true;
                     player.grenadeCookTime = Date.now();
@@ -1759,7 +1805,7 @@
 
         document.addEventListener('keyup', (e) => {
             keys[e.code] = false;
-            if (e.code === 'KeyG' && player.isCookingGrenade && !isSpectating && !isRespawning) {
+            if (e.code === 'KeyG' && player.isCookingGrenade && !isSpectating && !isRespawning && !isPreMatch) {
                 throwGrenade(player);
                 player.grenades--;
                 updateGrenadeHUD();
@@ -1783,14 +1829,14 @@
         });
 
         document.addEventListener('wheel', (e) => {
-            if (isSpectating || isRespawning) return;
+            if (isSpectating || isRespawning || isPreMatch) return;
             if (e.deltaY > 0) switchWeapon((player.activeSlot + 1) % 3);
             else switchWeapon((player.activeSlot + 2) % 3);
         });
 
         document.addEventListener('mousedown', (e) => {
             if (e.button === 0) isMouseDown = true;
-            if (e.button === 2 && !isSpectating && !isRespawning) player.isADS = true; 
+            if (e.button === 2 && !isSpectating && !isRespawning && !isPreMatch) player.isADS = true; 
         });
 
         document.addEventListener('mouseup', (e) => {
@@ -1854,54 +1900,42 @@
             }
         }
 
-        // --- DIRECT FIRST-PERSON SPECTATOR POV CONTROLLER ---
+        // --- STATIC ANGLED OVERHEAD TOP-DOWN 3RD PERSON SPECTATOR POV ---
         function updatePlayerMovement(delta) {
             if (isSpectating) {
-                const survivors = players.filter(p => p.health > 0);
-                if (survivors.length > 0) {
-                    spectatorIndex = spectatorIndex % survivors.length;
-                    const specTarget = survivors[spectatorIndex];
+                viewmodelGroup.visible = false;
 
-                    // Hide spectated entity's body mesh to prevent camera clipping inside head
-                    players.forEach((p) => {
-                        p.mesh.visible = (p !== specTarget);
-                    });
+                // Ensure all surviving combatants are visible across the entire map
+                players.forEach(p => {
+                    if (p.health > 0) p.mesh.visible = true;
+                });
 
-                    // Lock camera directly to spectated target's head position
-                    const specEye = specTarget.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
-                    camera.position.copy(specEye);
+                // Temporarily hide roof so spectator can see inside the multi-floor facility
+                if (roofMesh) roofMesh.visible = false;
 
-                    // Align spectator camera pitch & yaw directly with spectated target's exact line of sight
-                    const pitch = specTarget.rotX || 0;
-                    const yaw = specTarget.mesh.rotation.y;
-                    camera.rotation.set(pitch, yaw, 0, 'YXZ');
+                // Distant elevated pseudo-isometric tactical camera position over whole 240x240 map
+                camera.position.set(0, 190, 180);
+                camera.lookAt(0, 0, 0);
 
-                    // Sync viewmodel & HUD readout with spectated combatant
-                    updateSpectatedTargetViewmodel(specTarget.weapon);
-
-                    if (spectatedRecoilTimer > 0) {
-                        spectatedRecoilTimer -= delta;
-                        const rec = spectatedRecoilTimer / 0.15;
-                        viewmodelGroup.position.set(0.35, -0.35, -0.55 + rec * 0.12);
-                    } else {
-                        viewmodelGroup.position.set(0.35, -0.35, -0.55);
-                    }
-
-                    document.getElementById('health-bar').style.width = `${Math.max(0, specTarget.health)}%`;
-                    document.getElementById('weapon-slot').innerText = `[${specTarget.weapon.category}]`;
-                    document.getElementById('weapon-name').innerText = specTarget.weapon.name;
-                    document.getElementById('weapon-name').style.color = '#' + specTarget.weapon.color.toString(16);
-                    document.getElementById('ammo-display').innerText = specTarget.weapon.category === 'MELEE' ? '∞ / ∞' : `${specTarget.weapon.ammo} / ${specTarget.weapon.ammoMax}`;
-
-                    const badge = specTarget.isNetworkPlayer ? "[HUMAN PLAYER]" : "[AI BOT]";
-                    document.getElementById('spectator-bar').innerText = `SPECTATING POV: ${specTarget.name} ${badge} // [A/D or ARROWS] SWITCH COMBATANT`;
-                } else {
-                    viewmodelGroup.visible = false;
-                }
+                const survivors = [player, ...players].filter(p => p.health > 0).length;
+                document.getElementById('spectator-bar').innerText = `TACTICAL OVERHEAD POV // REMAINING COMBATANTS: ${survivors}`;
+                document.getElementById('health-bar').style.width = `0%`;
                 return;
+            } else {
+                if (roofMesh) roofMesh.visible = true;
             }
 
             if (isRespawning) return; 
+
+            if (isPreMatch) {
+                player.velocity.set(0, 0, 0);
+                camera.position.x = player.position.x;
+                camera.position.z = player.position.z;
+                camera.position.y = player.position.y + player.currentEyeHeight;
+                camera.rotation.copy(player.rotation);
+                playerHitMesh.position.set(player.position.x, player.position.y + player.currentEyeHeight / 2, player.position.z);
+                return;
+            }
 
             if (currentMode === 'LOS' && player.health <= 0) return;
 
@@ -2130,7 +2164,7 @@
             const cyanDist = document.getElementById('cyan-flag-dist');
             const pinkDist = document.getElementById('pink-flag-dist');
 
-            if (currentMode !== 'CTF' || !gameStarted || isSpectating || isRespawning) {
+            if (currentMode !== 'CTF' || !gameStarted || isSpectating || isRespawning || isPreMatch) {
                 cyanMarker.style.display = 'none';
                 pinkMarker.style.display = 'none';
                 return;
@@ -2263,7 +2297,7 @@
         }
 
         function fireActiveWeapon(shooter, direction) {
-            if (isRespawning && shooter === player) return;
+            if ((isRespawning || isPreMatch) && shooter === player) return;
             const now = Date.now();
             const isHuman = shooter === player;
             const wpn = isHuman ? player.inventory[player.activeSlot] : shooter.weapon;
@@ -2293,11 +2327,6 @@
             }
 
             shooter.lastFired = now;
-
-            // Trigger viewmodel recoil kick if currently spectating this shooter
-            if (isSpectating && players[spectatorIndex] === shooter) {
-                spectatedRecoilTimer = 0.15;
-            }
 
             if (isHuman) {
                 if (wpn.category !== 'MELEE') {
@@ -2528,11 +2557,9 @@
                 } else if (currentMode === 'LOS') {
                     if (target === player) {
                         isSpectating = true;
-                        spectatorIndex = 0;
-                        spectatedWeaponId = -1;
                         viewmodelGroup.visible = false;
                         document.getElementById('spectator-bar').style.display = 'block';
-                        showPickupPrompt("ELIMINATED! ENTERING SPECTATOR POV");
+                        showPickupPrompt("ELIMINATED! ENTERING OVERHEAD SPECTATOR POV");
                     } else {
                         scene.remove(target.mesh);
                     }
@@ -2695,9 +2722,13 @@
             }
         }
 
-        // --- BOT AI LOGIC (CORRECTED FACE-FORWARD DIRECTION) ---
         function updateBots(delta) {
             if (!isHost) return; 
+
+            if (isPreMatch) {
+                players.forEach(bot => bot.velocity.set(0, 0, 0));
+                return;
+            }
 
             const allEntities = [player, ...players].filter(e => e.health > 0);
 
@@ -2802,7 +2833,6 @@
                         }
                     }
 
-                    // Face forward in movement direction (Three.js camera/visor facing -Z)
                     bot.mesh.rotation.y = Math.atan2(-patrolDir.x, -patrolDir.z);
 
                     bot.velocity.y -= 32 * delta;
@@ -2887,10 +2917,8 @@
                         }
                     }
 
-                    // Align bot rotation forward towards move direction
                     bot.mesh.rotation.y = Math.atan2(-moveDir.x, -moveDir.z);
                 } else {
-                    // Align bot rotation forward directly towards target
                     bot.mesh.rotation.y = Math.atan2(-dirToTarget.x, -dirToTarget.z);
                 }
 
@@ -2988,7 +3016,7 @@
                 updateFacilityMechanics(delta);
                 updatePlayerMovement(delta);
 
-                if (isMouseDown && document.pointerLockElement === document.body && !isSpectating && !isRespawning) {
+                if (isMouseDown && document.pointerLockElement === document.body && !isSpectating && !isRespawning && !isPreMatch) {
                     fireActiveWeapon(player, camera.getWorldDirection(new THREE.Vector3()));
                 }
 
