@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // BOT MIDSECTION WIRES & ELECTRIC DEATH SCREEN</title>
+    <title>CYBER-STRIKE 2077 // DIRECT FIRST-PERSON SPECTATOR POV</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -22,7 +22,6 @@
             transition: opacity 0.08s ease-out; z-index: 50;
         }
 
-        /* ELECTRICAL DEATH SCREEN OVERLAY */
         #death-screen {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(15, 0, 10, 0.88); display: none; flex-direction: column;
@@ -130,7 +129,6 @@
 
     <div id="damage-flash"></div>
 
-    <!-- ELECTRIC DEATH SCREEN WITH COUNTDOWN -->
     <div id="death-screen">
         <div class="electric-overlay"></div>
         <div id="killer-title">KILLED BY ENEMY</div>
@@ -163,7 +161,6 @@
         <p id="voting-status-text" style="font-size: 13px; color: #ffe600; margin-bottom: 0;">CONNECTING TO GLOBAL MATCHMAKER...</p>
     </div>
 
-    <!-- HUD SVG Flag Markers -->
     <div id="cyan-flag-marker" class="flag-marker" style="color: #00ffff;">
         <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
             <path d="M5 21V3M5 4L19 7.5L5 11" stroke="#00ffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="rgba(0,255,255,0.4)"/>
@@ -242,6 +239,8 @@
 
         let isSpectating = false;
         let spectatorIndex = 0;
+        let spectatedWeaponId = -1;
+        let spectatedRecoilTimer = 0;
         let isRespawning = false;
         const humanMarkersToRotate = [];
 
@@ -532,7 +531,6 @@
             return group;
         }
 
-        // --- ARTICULATED 60-BONE RIG BUILDER (EXPOSED BOT MIDSECTION WIRES) ---
         function create60BoneHumanoidRig(colorHex, isHumanPlayer = false) {
             const bones = [];
             const boneMap = {};
@@ -599,7 +597,6 @@
 
                 chest.add(pack, wingL, wingR);
             } else {
-                // TANGLE OF WIRES & CIRCUITRY IN BOT MIDSECTION
                 const wireColors = [0xff0055, 0x00ffff, 0xffe600, 0x222233, 0x00ff66, 0x888888];
                 const circuitBox = new THREE.Mesh(
                     new THREE.BoxGeometry(0.22, 0.25, 0.18), 
@@ -718,7 +715,7 @@
             };
         }
 
-        // --- EXPANDED 240x240 ENCLOSED FACILITY ARENA GENERATOR ---
+        // --- EXPANDED FACILITY ARENA GENERATOR ---
         function generateFacilityArena() {
             const floorMat = new THREE.MeshStandardMaterial({ color: 0x080812, roughness: 0.8, metalness: 0.3 });
             const wallMat = new THREE.MeshStandardMaterial({ color: 0x141428, roughness: 0.4, metalness: 0.6 });
@@ -754,20 +751,17 @@
                 return registerStaticBox(wall, true);
             };
 
-            // Outer Perimeter Enclosure
             const totalH = floorHeight * 3 + 2;
             createStaticWall(0, totalH/2, -half, facilitySize, totalH, 2);
             createStaticWall(0, totalH/2, half, facilitySize, totalH, 2);
             createStaticWall(-half, totalH/2, 0, 2, totalH, facilitySize);
             createStaticWall(half, totalH/2, 0, 2, totalH, facilitySize);
 
-            // Roof / Top Ceiling
             const roof = new THREE.Mesh(new THREE.BoxGeometry(facilitySize, 1.0, facilitySize), floorMat);
             roof.position.set(0, floorHeight * 3 + 0.5, 0);
             scene.add(roof);
             registerStaticBox(roof, true);
 
-            // Floor Slabs
             floors.forEach((fY, fIdx) => {
                 if (fIdx === 0) {
                     const mainFloor = new THREE.Mesh(new THREE.BoxGeometry(facilitySize, 1.0, facilitySize), floorMat);
@@ -829,20 +823,10 @@
                 const sillH = 2.0;
                 const headerH = 1.0;
 
-                createStaticWall(
-                    x, y + sillH / 2, z,
-                    isX ? w : wallThick, sillH, isX ? wallThick : w
-                );
+                createStaticWall(x, y + sillH / 2, z, isX ? w : wallThick, sillH, isX ? wallThick : w);
+                createStaticWall(x, y + sillH + h + headerH / 2, z, isX ? w : wallThick, headerH, isX ? wallThick : w);
 
-                createStaticWall(
-                    x, y + sillH + h + headerH / 2, z,
-                    isX ? w : wallThick, headerH, isX ? wallThick : w
-                );
-
-                const glassMesh = new THREE.Mesh(
-                    new THREE.BoxGeometry(isX ? w : 0.25, h, isX ? 0.25 : w),
-                    glassMat
-                );
+                const glassMesh = new THREE.Mesh(new THREE.BoxGeometry(isX ? w : 0.25, h, isX ? 0.25 : w), glassMat);
                 glassMesh.position.set(x, y + sillH + h / 2, z);
 
                 const topFrame = new THREE.Mesh(new THREE.BoxGeometry(isX ? w : 0.35, 0.15, isX ? 0.35 : w), neonBlueMat);
@@ -1000,7 +984,6 @@
             spawnWorldWeapons();
         }
 
-        // --- ENHANCED MODE & TEAM BIASED SAFE SPAWN SYSTEM ---
         function getSafeSpawnPoint(entity = null) {
             let candidateList = spawnPoints;
 
@@ -1038,7 +1021,6 @@
             return (entity && entity.team === 'PINK') ? pinkBasePos.clone() : cyanBasePos.clone();
         }
 
-        // --- CTF FLAG BASES & LIGHT BEACONS ---
         const cyanBasePos = new THREE.Vector3(-75, 0.1, -75);
         const pinkBasePos = new THREE.Vector3(75, 0.1, 75);
 
@@ -1077,7 +1059,6 @@
             pinkFlagBeacon.visible = false;
         }
 
-        // --- WEAPON PICKUPS SYSTEM ---
         function setPickupWeapon(sp, newWpnData) {
             sp.weapon = Object.assign({}, newWpnData);
             while(sp.modelHolder.children.length > 0) sp.modelHolder.remove(sp.modelHolder.children[0]);
@@ -1201,7 +1182,6 @@
 
         generateFacilityArena();
 
-        // --- DEDICATED P2P MATCHMAKING & NETWORKING SYSTEM WITH DISCONNECT CLEANUP ---
         function initMultiplayerNetworking() {
             broadcastChan.onmessage = (event) => {
                 const data = event.data;
@@ -1479,7 +1459,6 @@
 
         initMultiplayerNetworking();
 
-        // --- INSTANT MODE SELECTION & START ---
         function castPlayerVote(modeKey) {
             currentMode = modeKey;
             gameStarted = true;
@@ -1564,7 +1543,6 @@
             }
         }
 
-        // --- GROUND RAYCASTER & SOLID BOX3 COLLISION ENGINE ---
         const raycasterDown = new THREE.Raycaster();
         const downVector = new THREE.Vector3(0, -1, 0);
 
@@ -1608,7 +1586,6 @@
             return false;
         }
 
-        // --- FAST LINE OF SIGHT (LoS) RAYCAST CHECK ---
         const losRaycaster = new THREE.Raycaster();
 
         function checkLineOfSight(fromPos, toPos, blockingObjects) {
@@ -1624,7 +1601,6 @@
             return hits.length === 0;
         }
 
-        // --- PLAYER CONTROLLER STATE & HITBOX ---
         const player = {
             position: new THREE.Vector3(0, 0, 0),
             velocity: new THREE.Vector3(0, 0, 0),
@@ -1652,19 +1628,21 @@
             const currentWpn = player.inventory[player.activeSlot];
             const vm = buildWeaponMesh(currentWpn, true);
             viewmodelGroup.add(vm);
+            spectatedWeaponId = currentWpn.id;
         }
         updatePlayerViewmodel();
 
         function updateSpectatedTargetViewmodel(weaponData) {
-            while(viewmodelGroup.children.length > 0) viewmodelGroup.remove(viewmodelGroup.children[0]);
-            if (weaponData) {
+            if (!weaponData) return;
+            if (spectatedWeaponId !== weaponData.id) {
+                spectatedWeaponId = weaponData.id;
+                while(viewmodelGroup.children.length > 0) viewmodelGroup.remove(viewmodelGroup.children[0]);
                 const vm = buildWeaponMesh(weaponData, true);
                 viewmodelGroup.add(vm);
-                viewmodelGroup.visible = true;
             }
+            viewmodelGroup.visible = true;
         }
 
-        // --- BOTS MANAGEMENT WITH STUCK DETECTOR ---
         function createBot(id) {
             const spawnPos = getSafeSpawnPoint();
             const archetype = BOT_ARCHETYPES[id % BOT_ARCHETYPES.length];
@@ -1709,17 +1687,16 @@
 
         for (let i = 1; i < TOTAL_COMBATANTS; i++) players.push(createBot(i));
 
-        // --- SPECTATOR POV SWITCHER ---
         function switchSpectatorTarget(direction) {
             const survivors = players.filter(p => p.health > 0);
             if (survivors.length === 0) return;
             spectatorIndex = (spectatorIndex + direction + survivors.length) % survivors.length;
+            spectatedWeaponId = -1; // Force viewmodel refresh for new target
             const target = survivors[spectatorIndex];
             const badge = target.isNetworkPlayer ? "[HUMAN PLAYER]" : "[AI BOT]";
             showPickupPrompt(`SPECTATING POV: ${target.name} ${badge}`);
         }
 
-        // --- INPUT HANDLING ---
         const keys = {};
 
         document.addEventListener('keydown', (e) => {
@@ -1744,7 +1721,6 @@
             if (e.code === 'Digit2') switchWeapon(1);
             if (e.code === 'Digit3') switchWeapon(2);
 
-            // DIRECTIONAL TRAJECTORY SLIDING (KeyC)
             if (e.code === 'KeyC' && !isRespawning) {
                 if (player.isSprinting && player.isGrounded && !player.isSliding) {
                     player.isSliding = true; 
@@ -1878,26 +1854,44 @@
             }
         }
 
+        // --- DIRECT FIRST-PERSON SPECTATOR POV CONTROLLER ---
         function updatePlayerMovement(delta) {
             if (isSpectating) {
                 const survivors = players.filter(p => p.health > 0);
                 if (survivors.length > 0) {
                     spectatorIndex = spectatorIndex % survivors.length;
-                    
-                    survivors.forEach((s, idx) => {
-                        s.mesh.visible = (idx !== spectatorIndex);
+                    const specTarget = survivors[spectatorIndex];
+
+                    // Hide spectated entity's body mesh to prevent camera clipping inside head
+                    players.forEach((p) => {
+                        p.mesh.visible = (p !== specTarget);
                     });
 
-                    const specTarget = survivors[spectatorIndex];
+                    // Lock camera directly to spectated target's head position
                     const specEye = specTarget.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
-
                     camera.position.copy(specEye);
 
+                    // Align spectator camera pitch & yaw directly with spectated target's exact line of sight
                     const pitch = specTarget.rotX || 0;
                     const yaw = specTarget.mesh.rotation.y;
                     camera.rotation.set(pitch, yaw, 0, 'YXZ');
 
+                    // Sync viewmodel & HUD readout with spectated combatant
                     updateSpectatedTargetViewmodel(specTarget.weapon);
+
+                    if (spectatedRecoilTimer > 0) {
+                        spectatedRecoilTimer -= delta;
+                        const rec = spectatedRecoilTimer / 0.15;
+                        viewmodelGroup.position.set(0.35, -0.35, -0.55 + rec * 0.12);
+                    } else {
+                        viewmodelGroup.position.set(0.35, -0.35, -0.55);
+                    }
+
+                    document.getElementById('health-bar').style.width = `${Math.max(0, specTarget.health)}%`;
+                    document.getElementById('weapon-slot').innerText = `[${specTarget.weapon.category}]`;
+                    document.getElementById('weapon-name').innerText = specTarget.weapon.name;
+                    document.getElementById('weapon-name').style.color = '#' + specTarget.weapon.color.toString(16);
+                    document.getElementById('ammo-display').innerText = specTarget.weapon.category === 'MELEE' ? '∞ / ∞' : `${specTarget.weapon.ammo} / ${specTarget.weapon.ammoMax}`;
 
                     const badge = specTarget.isNetworkPlayer ? "[HUMAN PLAYER]" : "[AI BOT]";
                     document.getElementById('spectator-bar').innerText = `SPECTATING POV: ${specTarget.name} ${badge} // [A/D or ARROWS] SWITCH COMBATANT`;
@@ -1907,7 +1901,7 @@
                 return;
             }
 
-            if (isRespawning) return; // Prevent movement during 5s death countdown
+            if (isRespawning) return; 
 
             if (currentMode === 'LOS' && player.health <= 0) return;
 
@@ -2067,7 +2061,6 @@
             document.getElementById('health-bar').style.width = `${Math.max(0, player.health)}%`;
         }
 
-        // --- CTF MECHANICS & SCREEN HUD MARKERS ---
         function updateCTFMechanics() {
             if (currentMode !== 'CTF') return;
 
@@ -2166,7 +2159,6 @@
             element.style.display = 'block';
         }
 
-        // --- ENHANCED VISUAL BLAST/PROJECTILE RENDERING ---
         function spawnBlastVisual(origin, direction, targetPoint, weapon) {
             if (weapon.category === 'MELEE') {
                 const arcGeom = new THREE.RingGeometry(0.8, 1.3, 16, 1, 0, Math.PI * 0.8);
@@ -2270,7 +2262,6 @@
             }
         }
 
-        // --- STRICT WEAPON RAYCASTING & AMMO DEPLETION ---
         function fireActiveWeapon(shooter, direction) {
             if (isRespawning && shooter === player) return;
             const now = Date.now();
@@ -2302,6 +2293,11 @@
             }
 
             shooter.lastFired = now;
+
+            // Trigger viewmodel recoil kick if currently spectating this shooter
+            if (isSpectating && players[spectatorIndex] === shooter) {
+                spectatedRecoilTimer = 0.15;
+            }
 
             if (isHuman) {
                 if (wpn.category !== 'MELEE') {
@@ -2458,7 +2454,6 @@
             }
         }
 
-        // --- DEATH SEQUENCE & COUNTDOWN SYSTEM ---
         function startDeathSequence(killerName) {
             isRespawning = true;
             player.isADS = false;
@@ -2534,6 +2529,7 @@
                     if (target === player) {
                         isSpectating = true;
                         spectatorIndex = 0;
+                        spectatedWeaponId = -1;
                         viewmodelGroup.visible = false;
                         document.getElementById('spectator-bar').style.display = 'block';
                         showPickupPrompt("ELIMINATED! ENTERING SPECTATOR POV");
@@ -2699,7 +2695,7 @@
             }
         }
 
-        // --- OPTIMIZED BOT AI WITH STAGGERED LINE-OF-SIGHT SCANNING & STUCK WATCHDOG ---
+        // --- BOT AI LOGIC (CORRECTED FACE-FORWARD DIRECTION) ---
         function updateBots(delta) {
             if (!isHost) return; 
 
@@ -2739,7 +2735,7 @@
                 const botEyePos = bot.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
                 if (bot.scanTimer <= 0) {
-                    bot.scanTimer = 0.25 + Math.random() * 0.1;
+                    bot.scanTimer = 0.45 + Math.random() * 0.15; 
                     let bestTarget = null;
                     let minDist = 65.0;
 
@@ -2806,7 +2802,8 @@
                         }
                     }
 
-                    bot.mesh.rotation.y = Math.atan2(patrolDir.x, patrolDir.z);
+                    // Face forward in movement direction (Three.js camera/visor facing -Z)
+                    bot.mesh.rotation.y = Math.atan2(-patrolDir.x, -patrolDir.z);
 
                     bot.velocity.y -= 32 * delta;
                     const propY = bot.mesh.position.y + bot.velocity.y * delta;
@@ -2848,10 +2845,10 @@
                 }
 
                 let isMoving = false;
-                bot.isSprinting = minDist > 12;
+                bot.isSprinting = minDist > 16;
                 const currentMoveSpeed = bot.isSprinting ? 18 : (bot.isSliding ? 22 : 11);
 
-                if (minDist > (bot.weapon.category === 'MELEE' ? 1.8 : 5.0)) {
+                if (minDist > (bot.weapon.category === 'MELEE' ? 1.8 : 8.5)) {
                     isMoving = true;
                     const moveDir = new THREE.Vector3(dirToTarget.x, 0, dirToTarget.z).normalize();
                     
@@ -2890,9 +2887,11 @@
                         }
                     }
 
-                    bot.mesh.rotation.y = Math.atan2(moveDir.x, moveDir.z);
+                    // Align bot rotation forward towards move direction
+                    bot.mesh.rotation.y = Math.atan2(-moveDir.x, -moveDir.z);
                 } else {
-                    bot.mesh.rotation.y = Math.atan2(dirToTarget.x, dirToTarget.z);
+                    // Align bot rotation forward directly towards target
+                    bot.mesh.rotation.y = Math.atan2(-dirToTarget.x, -dirToTarget.z);
                 }
 
                 if (bot.velocity.y > 0 && checkCeilingCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
@@ -2913,7 +2912,7 @@
                     bot.isGrounded = false;
                 }
 
-                if (minDist > 10 && minDist < 24 && bot.grenades > 0 && bot.grenadeCooldown <= 0 && Math.random() < 0.02) {
+                if (minDist > 10 && minDist < 24 && bot.grenades > 0 && bot.grenadeCooldown <= 0 && Math.random() < 0.008) {
                     throwGrenade(bot);
                     bot.grenades--;
                     bot.grenadeCooldown = 5.0;
@@ -2940,8 +2939,8 @@
                     b['R_Forearm'].rotation.x = THREE.MathUtils.lerp(b['R_Forearm'].rotation.x, -0.2, delta * 8);
                 }
 
-                if (BOTS_CAN_FIRE && minDist < bot.weapon.range && Math.random() < 0.05) {
-                    const inaccuracy = 0.22;
+                if (BOTS_CAN_FIRE && minDist < bot.weapon.range && Math.random() < 0.025) {
+                    const inaccuracy = 0.32;
                     const inaccurateAimDir = dirToTarget.clone().add(new THREE.Vector3(
                         (Math.random() - 0.5) * inaccuracy,
                         (Math.random() - 0.5) * inaccuracy,
