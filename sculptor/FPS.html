@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CYBER-STRIKE 2077 // DIRECTIONAL TRAJECTORY SLIDING</title>
+    <title>CYBER-STRIKE 2077 // MULTIPLAYER BOT SYNC & DISCONNECT CLEANUP</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -211,7 +211,7 @@
         const broadcastChan = new BroadcastChannel("cyberstrike_lobby_chan");
         let peer = null;
         let hostConnection = null;
-        let isHost = false;
+        let isHost = true; // Default to host authority until joined as client
         const connectedClients = [];
 
         // --- THREE.JS SETUP ---
@@ -1010,7 +1010,7 @@
 
         generateFacilityArena();
 
-        // --- DEDICATED P2P MATCHMAKING & NETWORKING SYSTEM ---
+        // --- DEDICATED P2P MATCHMAKING & NETWORKING SYSTEM WITH DISCONNECT CLEANUP ---
         function initMultiplayerNetworking() {
             broadcastChan.onmessage = (event) => {
                 const data = event.data;
@@ -1027,10 +1027,12 @@
             peer.on('connection', (conn) => {
                 connectedClients.push(conn);
                 conn.on('data', (data) => handleIncomingPacket(data, conn));
+                conn.on('close', () => handleClientDisconnect(conn));
+                conn.on('error', () => handleClientDisconnect(conn));
             });
 
             peer.on('error', (err) => {
-                if (!isHost && !gameStarted) {
+                if (!gameStarted) {
                     becomeMatchHost();
                 }
             });
@@ -1045,18 +1047,19 @@
             conn.on('open', () => {
                 connected = true;
                 hostConnection = conn;
-                isHost = false;
+                isHost = false; // Successfully joined another player's match
                 conn.send({ type: 'JOIN_REQUEST', sender: localClientId });
                 updateNetworkStatusUI("CLIENT (CONNECTED)");
             });
 
             conn.on('data', (data) => handleIncomingPacket(data));
+            conn.on('close', () => { isHost = true; updateNetworkStatusUI("HOST DISCONNECTED (SOLO)"); });
 
             setTimeout(() => {
                 if (!connected && !gameStarted) {
                     becomeMatchHost();
                 }
-            }, 1500);
+            }, 1200);
         }
 
         function becomeMatchHost() {
@@ -1072,12 +1075,50 @@
             peer.on('connection', (conn) => {
                 connectedClients.push(conn);
                 conn.on('data', (data) => handleIncomingPacket(data, conn));
+                conn.on('close', () => handleClientDisconnect(conn));
+                conn.on('error', () => handleClientDisconnect(conn));
             });
 
             peer.on('error', () => {
-                isHost = false;
-                updateNetworkStatusUI("CLIENT (JOINED)");
+                isHost = true;
+                updateNetworkStatusUI("HOST (SOLO ARENA)");
             });
+        }
+
+        function handleClientDisconnect(conn) {
+            const idx = connectedClients.indexOf(conn);
+            if (idx !== -1) connectedClients.splice(idx, 1);
+
+            const remote = players.find(p => p.connection === conn);
+            if (remote && remote.isNetworkPlayer) {
+                unregisterRemotePlayer(remote.networkId);
+            }
+        }
+
+        function unregisterRemotePlayer(netId) {
+            const remote = players.find(p => p.isNetworkPlayer && p.networkId === netId);
+            if (remote) {
+                remote.isNetworkPlayer = false;
+                remote.networkId = null;
+                remote.connection = null;
+                remote.name = `BOT_${BOT_ARCHETYPES[remote.id % BOT_ARCHETYPES.length]}_${remote.id}`;
+
+                scene.remove(remote.mesh);
+                const colorHex = Math.random() > 0.5 ? 0x00ffff : 0xff0055;
+                const newRig = create60BoneHumanoidRig(colorHex, false);
+                remote.mesh = newRig.group;
+                remote.rig = newRig;
+                scene.add(remote.mesh);
+                updateBotHeldWeaponMesh(remote);
+
+                showKillFeed(`${remote.name} DISCONNECTED (SLOT RESTORED TO BOT)`);
+
+                if (isHost) {
+                    const leftPacket = { type: 'PLAYER_LEFT', networkId: netId, sender: localClientId };
+                    broadcastChan.postMessage(leftPacket);
+                    connectedClients.forEach(c => { if (c.open) c.send(leftPacket); });
+                }
+            }
         }
 
         function handleIncomingPacket(data, conn = null) {
@@ -1095,7 +1136,7 @@
                 if (conn) conn.send(welcomeData);
                 broadcastChan.postMessage(welcomeData);
                 
-                registerRemotePlayer(data.sender);
+                registerRemotePlayer(data.sender, conn);
             } 
             else if (data.type === 'MATCH_WELCOME' && !gameStarted) {
                 isHost = false;
@@ -1117,34 +1158,66 @@
             } 
             else if (data.type === 'CLIENT_INPUT') {
                 let remote = players.find(p => p.isNetworkPlayer && p.networkId === data.sender);
-                if (!remote && isHost) remote = registerRemotePlayer(data.sender);
+                if (!remote && isHost) remote = registerRemotePlayer(data.sender, conn);
 
                 if (remote) {
                     remote.mesh.position.set(data.x, data.y, data.z);
                     remote.mesh.rotation.y = data.rotY;
+                    remote.rotX = data.rotX;
                     remote.health = data.health;
                     remote.team = data.team;
                     remote.score = data.score;
                 }
             } 
+            else if (data.type === 'PLAYER_LEFT') {
+                unregisterRemotePlayer(data.networkId);
+            }
             else if (data.type === 'WORLD_SYNC' && !isHost) {
                 teamCyanScore = data.teamCyanScore;
                 teamPinkScore = data.teamPinkScore;
                 updateModeHUD();
 
                 data.botStates.forEach((bData, idx) => {
-                    if (players[idx]) {
-                        players[idx].mesh.position.set(bData.x, bData.y, bData.z);
-                        players[idx].mesh.rotation.y = bData.rotY;
-                        players[idx].health = bData.health;
-                        players[idx].score = bData.score;
-                        players[idx].weapon = weaponsDatabase[bData.wpnId] || players[idx].weapon;
+                    const p = players[idx];
+                    if (!p) return;
+
+                    // Dynamically convert bot slot into human rig on clients if remote player is assigned
+                    if (bData.isNetworkPlayer && (!p.isNetworkPlayer || p.networkId !== bData.networkId)) {
+                        p.isNetworkPlayer = true;
+                        p.networkId = bData.networkId;
+                        p.name = bData.name;
+                        scene.remove(p.mesh);
+                        const newRig = create60BoneHumanoidRig(0x00ffaa, true);
+                        p.mesh = newRig.group;
+                        p.rig = newRig;
+                        scene.add(p.mesh);
+                    } else if (!bData.isNetworkPlayer && p.isNetworkPlayer) {
+                        unregisterRemotePlayer(p.networkId);
+                    }
+
+                    const prevPos = p.mesh.position.clone();
+                    p.mesh.position.set(bData.x, bData.y, bData.z);
+                    p.mesh.rotation.y = bData.rotY;
+                    p.rotX = bData.rotX || 0;
+                    p.health = bData.health;
+                    p.score = bData.score;
+                    p.weapon = weaponsDatabase[bData.wpnId] || p.weapon;
+
+                    // Client-Side Bot Walking Animation Sync
+                    const distMoved = prevPos.distanceTo(p.mesh.position);
+                    if (distMoved > 0.001 && p.rig && p.rig.bones) {
+                        const b = p.rig.bones;
+                        const animTime = performance.now() * 0.014;
+                        if (b['L_Thigh']) b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.7;
+                        if (b['R_Thigh']) b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.7;
+                        if (b['L_Shin']) b['L_Shin'].rotation.x = Math.max(0, -Math.sin(animTime)) * 0.8;
+                        if (b['R_Shin']) b['R_Shin'].rotation.x = Math.max(0, Math.sin(animTime)) * 0.8;
                     }
                 });
             }
         }
 
-        function registerRemotePlayer(senderId) {
+        function registerRemotePlayer(senderId, conn = null) {
             let remoteBot = players.find(p => p.isNetworkPlayer && p.networkId === senderId);
             if (!remoteBot) {
                 const slot = players.find(p => !p.isNetworkPlayer);
@@ -1152,6 +1225,7 @@
                     remoteBot = slot;
                     remoteBot.isNetworkPlayer = true;
                     remoteBot.networkId = senderId;
+                    remoteBot.connection = conn;
                     remoteBot.name = "PLAYER_" + senderId.substring(7);
                     
                     scene.remove(remoteBot.mesh);
@@ -1174,6 +1248,7 @@
                     y: player.position.y,
                     z: player.position.z,
                     rotY: player.rotation.y,
+                    rotX: player.rotation.x,
                     health: player.health,
                     score: player.score,
                     team: player.team
@@ -1188,9 +1263,13 @@
                 y: p.mesh.position.y,
                 z: p.mesh.position.z,
                 rotY: p.mesh.rotation.y,
+                rotX: p.rotX || 0,
                 health: p.health,
                 score: p.score,
-                wpnId: p.weapon.id
+                wpnId: p.weapon.id,
+                isNetworkPlayer: p.isNetworkPlayer || false,
+                networkId: p.networkId || null,
+                name: p.name
             }));
 
             const syncPacket = {
@@ -1420,7 +1499,7 @@
                 isSprinting: false, isSliding: false, isCrouching: false, slideTimer: 0, slideDir: new THREE.Vector3(),
                 jumpCooldown: 0, grenadeCooldown: 0, target: null, patrolTarget: null,
                 scanTimer: (id % 15) * 0.02,
-                stuckTimer: 0, lastPos: spawnPos.clone()
+                stuckTimer: 0, lastPos: spawnPos.clone(), rotX: 0
             };
 
             updateBotHeldWeaponMesh(botObj);
@@ -1446,7 +1525,9 @@
             const survivors = players.filter(p => p.health > 0);
             if (survivors.length === 0) return;
             spectatorIndex = (spectatorIndex + direction + survivors.length) % survivors.length;
-            showPickupPrompt(`SPECTATING POV: ${survivors[spectatorIndex].name}`);
+            const target = survivors[spectatorIndex];
+            const badge = target.isNetworkPlayer ? "[HUMAN PLAYER]" : "[AI BOT]";
+            showPickupPrompt(`SPECTATING POV: ${target.name} ${badge}`);
         }
 
         // --- INPUT HANDLING ---
@@ -1474,7 +1555,7 @@
             if (e.code === 'Digit2') switchWeapon(1);
             if (e.code === 'Digit3') switchWeapon(2);
 
-            // UPDATED DIRECTIONAL TRAJECTORY SLIDING (KeyC)
+            // DIRECTIONAL TRAJECTORY SLIDING (KeyC)
             if (e.code === 'KeyC') {
                 if (player.isSprinting && player.isGrounded && !player.isSliding) {
                     player.isSliding = true; 
@@ -1605,6 +1686,7 @@
         }
 
         function updatePlayerMovement(delta) {
+            // TRUE FIRST-PERSON SPECTATOR POV
             if (isSpectating) {
                 const survivors = players.filter(p => p.health > 0);
                 if (survivors.length > 0) {
@@ -1619,19 +1701,14 @@
 
                     camera.position.copy(specEye);
 
-                    if (specTarget.target && specTarget.target.health > 0) {
-                        const targetEyePos = (specTarget.target === player)
-                            ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0))
-                            : specTarget.target.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
-                        camera.lookAt(targetEyePos);
-                    } else {
-                        const facingAngle = specTarget.mesh.rotation.y;
-                        const forwardDir = new THREE.Vector3(Math.sin(facingAngle), 0, Math.cos(facingAngle));
-                        const lookTarget = specEye.clone().add(forwardDir);
-                        camera.lookAt(lookTarget);
-                    }
+                    const pitch = specTarget.rotX || 0;
+                    const yaw = specTarget.mesh.rotation.y;
+                    camera.rotation.set(pitch, yaw, 0, 'YXZ');
 
                     updateSpectatedTargetViewmodel(specTarget.weapon);
+
+                    const badge = specTarget.isNetworkPlayer ? "[HUMAN PLAYER]" : "[AI BOT]";
+                    document.getElementById('spectator-bar').innerText = `SPECTATING POV: ${specTarget.name} ${badge} // [A/D or ARROWS] SWITCH COMBATANT`;
                 } else {
                     viewmodelGroup.visible = false;
                 }
@@ -2216,6 +2293,7 @@
                 entity.patrolTarget = null;
                 entity.stuckTimer = 0;
                 entity.lastPos.copy(safeSpawn);
+                entity.rotX = 0;
             }
         }
 
@@ -2341,6 +2419,7 @@
                 const bestTarget = bot.target;
 
                 if (!bestTarget) {
+                    bot.rotX = 0; // Look level when patrolling
                     if (currentMode === 'CTF') {
                         const targetFlagPos = bot.team === 'CYAN' ? pinkBasePos : cyanBasePos;
                         bot.patrolTarget = targetFlagPos.clone();
@@ -2402,6 +2481,8 @@
                 const targetPos = bestTarget === player ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0)) : bestTarget.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
                 const minDist = botEyePos.distanceTo(targetPos);
                 const dirToTarget = new THREE.Vector3().subVectors(targetPos, botEyePos).normalize();
+
+                bot.rotX = Math.asin(dirToTarget.y);
 
                 let desiredSlot = 0;
                 if (minDist <= 3.5) {
