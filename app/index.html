@@ -3,12 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Server Directory Dashboard</title>
+  <title>GitHub Pages Dashboard</title>
   <style>
     :root {
       --bg: #0f172a;
       --card-bg: #1e293b;
       --card-hover: #334155;
+      --accent: #38bdf8;
       --accent-gradient: linear-gradient(135deg, #38bdf8, #818cf8);
       --text: #f8fafc;
       --text-muted: #94a3b8;
@@ -17,13 +18,13 @@
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    
+
     body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: var(--bg);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg);
       color: var(--text);
-      padding: 2rem;
       min-height: 100vh;
+      padding: 2rem;
     }
 
     .container { max-width: 1200px; margin: 0 auto; }
@@ -43,7 +44,7 @@
       }
     }
 
-    h1 {
+    .title-area h1 {
       font-size: 2rem;
       font-weight: 700;
       background: var(--accent-gradient);
@@ -51,18 +52,30 @@
       -webkit-text-fill-color: transparent;
     }
 
+    .title-area p {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-top: 0.25rem;
+    }
+
+    .search-bar {
+      width: 100%;
+      max-width: 320px;
+    }
+
     .search-bar input {
       width: 100%;
-      min-width: 280px;
       padding: 0.75rem 1rem;
-      background: var(--card-bg);
+      background-color: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       color: var(--text);
+      font-size: 0.95rem;
       outline: none;
+      transition: border-color 0.2s;
     }
 
-    .search-bar input:focus { border-color: #38bdf8; }
+    .search-bar input:focus { border-color: var(--accent); }
 
     .grid {
       display: grid;
@@ -71,7 +84,7 @@
     }
 
     .card {
-      background: var(--card-bg);
+      background-color: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 1.25rem;
@@ -80,33 +93,40 @@
       display: flex;
       align-items: center;
       gap: 1rem;
-      transition: transform 0.2s, border-color 0.2s;
+      transition: transform 0.2s, background-color 0.2s, border-color 0.2s;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
 
     .card:hover {
       transform: translateY(-3px);
-      border-color: #38bdf8;
-      background: var(--card-hover);
+      background-color: var(--card-hover);
+      border-color: var(--accent);
     }
 
     .card-icon {
-      width: 40px;
-      height: 40px;
-      background: var(--accent-gradient);
+      width: 42px;
+      height: 42px;
       border-radius: 8px;
+      background: var(--accent-gradient);
       display: flex;
       align-items: center;
       justify-content: center;
+      font-size: 1.2rem;
       flex-shrink: 0;
     }
 
+    .card-details {
+      flex-grow: 1;
+      overflow: hidden;
+    }
+
     .card-title {
-      font-weight: 600;
       font-size: 1rem;
+      font-weight: 600;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      margin-bottom: 0.2rem;
+      margin-bottom: 0.25rem;
     }
 
     .card-path {
@@ -117,13 +137,31 @@
       text-overflow: ellipsis;
     }
 
+    .card-arrow {
+      color: var(--text-muted);
+      font-size: 1.1rem;
+      transition: transform 0.2s, color 0.2s;
+    }
+
+    .card:hover .card-arrow {
+      transform: translateX(3px);
+      color: var(--accent);
+    }
+
     .status-panel {
-      background: var(--card-bg);
+      background-color: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 2.5rem;
       text-align: center;
       color: var(--text-muted);
+    }
+
+    .status-panel code {
+      background-color: rgba(255, 255, 255, 0.1);
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      color: var(--accent);
     }
   </style>
 </head>
@@ -131,77 +169,110 @@
 
   <div class="container">
     <header>
-      <div>
-        <h1>Server Directory Index</h1>
-        <p id="count" style="color: var(--text-muted); margin-top: 0.25rem;">Scanning server folder...</p>
+      <div class="title-area">
+        <h1>Project Index</h1>
+        <p id="file-count">Scanning GitHub repository...</p>
       </div>
       <div class="search-bar">
-        <input type="text" id="search" placeholder="Search server pages..." />
+        <input type="text" id="search-input" placeholder="Search pages..." />
       </div>
     </header>
 
     <main id="grid" class="grid"></main>
-    <div id="status" class="status-panel">Connecting to directory...</div>
+    <div id="status" class="status-panel">Connecting to GitHub API...</div>
   </div>
 
   <script>
+    // Configuration: Leave blank for automatic URL parsing on standard GitHub Pages sites
+    // (e.g. https://username.github.io/repository-name/)
+    const OVERRIDE_CONFIG = {
+      username: 'jrgrant78', // Manual override e.g. 'octocat'
+      repo: ''      // Manual override e.g. 'my-repo'
+    };
+
     const grid = document.getElementById('grid');
     const status = document.getElementById('status');
-    const count = document.getElementById('count');
-    const search = document.getElementById('search');
+    const fileCount = document.getElementById('file-count');
+    const searchInput = document.getElementById('search-input');
 
-    async function loadServerFiles() {
+    function getGitHubDetails() {
+      let username = OVERRIDE_CONFIG.username;
+      let repo = OVERRIDE_CONFIG.repo;
+
+      if (!username || !repo) {
+        const host = window.location.hostname;
+        const pathParts = window.location.pathname.split('/').filter(Boolean);
+
+        if (host.endsWith('.github.io')) {
+          if (!username) username = host.split('.')[0];
+          if (!repo && pathParts.length > 0) repo = pathParts[0];
+        }
+      }
+
+      return { username, repo };
+    }
+
+    async function loadGitHubFiles() {
+      const { username, repo } = getGitHubDetails();
+
+      if (!username || !repo) {
+        status.innerHTML = `
+          <p><strong>Auto-detection failed.</strong></p>
+          <p style="margin-top: 0.5rem; font-size: 0.85rem;">
+            If using a custom domain or testing locally, open <code>index.html</code> and manually populate <code>OVERRIDE_CONFIG</code> in the script.
+          </p>
+        `;
+        fileCount.textContent = 'Configuration required';
+        return;
+      }
+
       try {
-        // Fetch directory index listing generated by server
-        const response = await fetch('./');
-        if (!response.ok) throw new Error('Autoindex unavailable');
+        const apiUrl = `https://api.github.com/repos/${username}/${repo}/contents`;
+        const response = await fetch(apiUrl);
 
-        const htmlText = await response.text();
-        const doc = new DOMParser().parseFromString(htmlText, 'text/html');
-        const links = Array.from(doc.querySelectorAll('a'));
+        if (!response.ok) {
+          if (response.status === 403) throw new Error('GitHub API rate limit exceeded. Try again in a few minutes.');
+          if (response.status === 404) throw new Error('Repository not found. Ensure the GitHub repository is public.');
+          throw new Error('Failed to fetch directory list from GitHub API.');
+        }
 
-        // Extract HTML files while excluding index.html
-        const files = links
-          .map(a => a.getAttribute('href'))
-          .filter(href => href && href.match(/\.html?$/i))
-          .map(href => href.replace(/^\.\//, ''))
-          .filter(file => file.toLowerCase() !== 'index.html' && !file.startsWith('http'));
+        const contents = await response.json();
 
-        const uniqueFiles = [...new Set(files)];
+        // Extract .html files excluding index.html
+        const htmlFiles = contents
+          .filter(item => item.type === 'file' && item.name.match(/\.html?$/i))
+          .map(item => item.name)
+          .filter(file => file.toLowerCase() !== 'index.html');
 
-        if (uniqueFiles.length === 0) {
-          status.textContent = 'No other HTML files found on server.';
-          count.textContent = '0 pages found';
+        if (htmlFiles.length === 0) {
+          status.textContent = 'No other HTML files found in this repository.';
+          fileCount.textContent = '0 pages found';
           return;
         }
 
-        renderCards(uniqueFiles);
+        renderFiles(htmlFiles);
       } catch (err) {
-        status.innerHTML = `
-          <p><strong>Unable to auto-list server directory.</strong></p>
-          <p style="font-size: 0.85rem; margin-top: 0.5rem;">
-            Ensure directory auto-indexing is enabled on your web server (e.g., <code>autoindex on;</code> in Nginx or <code>Options +Indexes</code> in Apache).
-          </p>
-        `;
-        count.textContent = 'Scan failed';
+        status.textContent = err.message || 'Error communicating with GitHub API.';
+        fileCount.textContent = 'Scan failed';
       }
     }
 
-    async function renderCards(fileList) {
+    async function renderFiles(fileList) {
       status.style.display = 'none';
       grid.innerHTML = '';
-      count.textContent = `Found ${fileList.length} page${fileList.length === 1 ? '' : 's'}`;
+      fileCount.textContent = `Found ${fileList.length} page${fileList.length === 1 ? '' : 's'}`;
 
       for (const file of fileList) {
         let title = file;
 
-        // Fetch page content to read its title tag
+        // Fetch page file directly through GitHub Pages to extract page <title>
         try {
           const res = await fetch(file);
           if (res.ok) {
             const pageText = await res.text();
             const pageDoc = new DOMParser().parseFromString(pageText, 'text/html');
-            const extracted = pageDoc.querySelector('title')?.textContent || pageDoc.querySelector('h1')?.textContent;
+            const extracted = pageDoc.querySelector('title')?.textContent || 
+                               pageDoc.querySelector('h1')?.textContent;
             if (extracted) title = extracted.trim();
           }
         } catch (e) {}
@@ -214,11 +285,11 @@
 
         card.innerHTML = `
           <div class="card-icon">📄</div>
-          <div style="overflow: hidden; flex-grow: 1;">
+          <div class="card-details">
             <div class="card-title">${escapeHtml(title)}</div>
             <div class="card-path">${escapeHtml(file)}</div>
           </div>
-          <div style="color: var(--text-muted);">→</div>
+          <div class="card-arrow">→</div>
         `;
 
         grid.appendChild(card);
@@ -229,7 +300,7 @@
       return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
-    search.addEventListener('input', (e) => {
+    searchInput.addEventListener('input', (e) => {
       const term = e.target.value.toLowerCase().trim();
       document.querySelectorAll('.card').forEach(card => {
         const matches = card.dataset.title.includes(term) || card.dataset.file.includes(term);
@@ -237,7 +308,7 @@
       });
     });
 
-    loadServerFiles();
+    loadGitHubFiles();
   </script>
 </body>
 </html>
