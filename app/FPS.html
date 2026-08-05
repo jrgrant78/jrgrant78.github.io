@@ -311,7 +311,7 @@
         const SLIDE_DURATION = 1.05; 
         const WALL_RUN_DURATION = 0.75; 
 
-        // Detect mobile setup once
+        // Detect small screen
         const isMobileScreen = window.innerWidth <= 850;
 
         // Declared early to avoid TDZ errors during bot generation
@@ -350,7 +350,10 @@
         let mobileMoveX = 0, mobileMoveZ = 0;
         let hasTriggeredJumpGesture = false, hasTriggeredSlideGesture = false;
 
-        // --- GENERATE 27 CCTV ROOM CAMERAS (9 PER FLOOR x 3 FLOORS) ---
+        // --- NETWORK & FIXED 50-SLOT SYNCHRONIZATION ---
+        let mySlot = 0; // Host is Slot 0. Clients receive Slot 1..49
+        const entitySlots = new Array(TOTAL_COMBATANTS).fill(null); // Explicit 50-slot map
+
         function generateCCTVCameras() {
             cctvCameras = [];
             const floorLabels = ["F1", "F2", "F3"];
@@ -390,7 +393,7 @@
         let isHost = true;
         const connectedClients = [];
 
-        // --- THREE.JS SETUP & MOBILE WEBGL FLICKER STABILITY ---
+        // --- THREE.JS SETUP & STABILITY IMPROVEMENTS ---
         const scene = new THREE.Scene();
         scene.fog = new THREE.FogExp2(0x05050d, 0.008);
 
@@ -398,11 +401,10 @@
         scene.add(camera);
 
         const renderer = new THREE.WebGLRenderer({ antialias: !isMobileScreen, powerPreference: "high-performance" });
-        renderer.setClearColor(0x050508, 1.0); // Explicit clear color prevents white frame-buffer flashes on mobile WebGL
+        renderer.setClearColor(0x050508, 1.0);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0));
         renderer.setSize(window.innerWidth, window.innerHeight);
 
-        // Turn off soft shadows on small mobile screens to prevent depth texture uniform crashes
         renderer.shadowMap.enabled = !isMobileScreen;
         if (renderer.shadowMap.enabled) {
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -873,7 +875,6 @@
 
             const activeRoomLights = [];
             const addRoomLight = (x, y, z, colorHex, intensity = 2.0) => {
-                // Mobile GPUs hit uniform crashes if too many forward PointLights are active
                 if (isMobileScreen && activeRoomLights.length >= 6) return;
                 const light = new THREE.PointLight(colorHex, isMobileScreen ? intensity * 0.5 : intensity, 22);
                 light.position.set(x, y + 5.0, z);
@@ -1345,6 +1346,66 @@
 
         generateFacilityArena();
 
+        function createRemoteEntity(slotId) {
+            const archetype = BOT_ARCHETYPES[slotId % BOT_ARCHETYPES.length];
+            const colorHex = 0x00ffff;
+            const rigObj = create60BoneHumanoidRig(colorHex, false);
+            rigObj.group.position.set(0, -100, 0); // Offscreen until state update
+            scene.add(rigObj.group);
+
+            return {
+                id: slotId,
+                slot: slotId,
+                name: `COMBATANT_${slotId}`,
+                health: 100,
+                score: 0,
+                team: 'NONE',
+                mesh: rigObj.group,
+                rig: rigObj,
+                weapon: Object.assign({}, weaponsDatabase[0]),
+                rotX: 0,
+                isNetworkPlayer: false
+            };
+        }
+
+        function updateRemoteHeldWeaponMesh(remote) {
+            if (!remote.rig || !remote.rig.bones || !remote.rig.bones['R_Wrist']) return;
+            const holder = remote.rig.bones['R_Wrist'];
+            while(holder.children.length > 0) holder.remove(holder.children[0]);
+            const mesh = buildWeaponMesh(remote.weapon, false);
+            mesh.rotation.x = Math.PI / 2;
+            holder.add(mesh);
+        }
+
+        function initEntitySlots() {
+            entitySlots[0] = player;
+            player.slot = 0;
+            player.id = 0;
+
+            for (let i = 1; i < TOTAL_COMBATANTS; i++) {
+                const bot = createBot(i);
+                bot.slot = i;
+                entitySlots[i] = bot;
+                players.push(bot);
+            }
+        }
+
+        function setupClientSlots(assignedSlot) {
+            mySlot = assignedSlot;
+            isHost = false;
+
+            entitySlots[mySlot] = player;
+            player.slot = mySlot;
+
+            for (let i = 0; i < TOTAL_COMBATANTS; i++) {
+                if (i === mySlot) continue;
+                if (!entitySlots[i] || entitySlots[i] === player) {
+                    const remoteEnt = createRemoteEntity(i);
+                    entitySlots[i] = remoteEnt;
+                }
+            }
+        }
+
         function initMultiplayerNetworking() {
             broadcastChan.onmessage = (event) => {
                 const data = event.data;
@@ -1423,34 +1484,22 @@
             const idx = connectedClients.indexOf(conn);
             if (idx !== -1) connectedClients.splice(idx, 1);
 
-            const remote = players.find(p => p.connection === conn);
-            if (remote && remote.isNetworkPlayer) {
-                unregisterRemotePlayer(remote.networkId);
-            }
-        }
-
-        function unregisterRemotePlayer(netId) {
-            const remote = players.find(p => p.isNetworkPlayer && p.networkId === netId);
-            if (remote) {
-                remote.isNetworkPlayer = false;
-                remote.networkId = null;
-                remote.connection = null;
-                remote.name = `BOT_${BOT_ARCHETYPES[remote.id % BOT_ARCHETYPES.length]}_${remote.id}`;
-
-                scene.remove(remote.mesh);
-                const colorHex = Math.random() > 0.5 ? 0x00ffff : 0xff0055;
-                const newRig = create60BoneHumanoidRig(colorHex, false);
-                remote.mesh = newRig.group;
-                remote.rig = newRig;
-                scene.add(remote.mesh);
-                updateBotHeldWeaponMesh(remote);
-
-                showKillFeed(`${remote.name} DISCONNECTED (SLOT RESTORED TO BOT)`);
-
-                if (isHost) {
-                    const leftPacket = { type: 'PLAYER_LEFT', networkId: netId, sender: localClientId };
-                    broadcastChan.postMessage(leftPacket);
-                    connectedClients.forEach(c => { if (c.open) c.send(leftPacket); });
+            for (let i = 1; i < TOTAL_COMBATANTS; i++) {
+                const ent = entitySlots[i];
+                if (ent && ent.isNetworkPlayer && ent.connection === conn) {
+                    ent.isNetworkPlayer = false;
+                    ent.networkId = null;
+                    ent.connection = null;
+                    ent.name = `BOT_${BOT_ARCHETYPES[i % BOT_ARCHETYPES.length]}_${i}`;
+                    
+                    scene.remove(ent.mesh);
+                    const newRig = create60BoneHumanoidRig(0x00ffff, false);
+                    ent.mesh = newRig.group;
+                    ent.rig = newRig;
+                    scene.add(ent.mesh);
+                    updateBotHeldWeaponMesh(ent);
+                    showKillFeed(`${ent.name} DISCONNECTED (SLOT RESTORED TO BOT)`);
+                    break;
                 }
             }
         }
@@ -1459,9 +1508,31 @@
             if (data.sender === localClientId) return;
 
             if (data.type === 'JOIN_REQUEST' && isHost) {
+                let freeSlot = -1;
+                for (let i = 1; i < TOTAL_COMBATANTS; i++) {
+                    if (entitySlots[i] && !entitySlots[i].isNetworkPlayer) {
+                        freeSlot = i;
+                        break;
+                    }
+                }
+                if (freeSlot === -1) freeSlot = 1;
+
+                const targetBot = entitySlots[freeSlot];
+                targetBot.isNetworkPlayer = true;
+                targetBot.networkId = data.sender;
+                targetBot.connection = conn;
+                targetBot.name = "PLAYER_" + data.sender.substring(7);
+
+                scene.remove(targetBot.mesh);
+                const newRig = create60BoneHumanoidRig(0x00ffaa, true);
+                targetBot.mesh = newRig.group;
+                targetBot.rig = newRig;
+                scene.add(targetBot.mesh);
+
                 const welcomeData = {
                     type: 'MATCH_WELCOME',
                     sender: localClientId,
+                    assignedSlot: freeSlot,
                     mode: currentMode,
                     teamCyanScore: teamCyanScore,
                     teamPinkScore: teamPinkScore,
@@ -1469,8 +1540,8 @@
                 };
                 if (conn) conn.send(welcomeData);
                 broadcastChan.postMessage(welcomeData);
-                
-                registerRemotePlayer(data.sender, conn);
+
+                showKillFeed(`${targetBot.name} JOINED ARENA!`);
             } 
             else if (data.type === 'MATCH_WELCOME' && !gameStarted) {
                 isHost = false;
@@ -1478,6 +1549,8 @@
                 teamCyanScore = data.teamCyanScore || 0;
                 teamPinkScore = data.teamPinkScore || 0;
                 
+                setupClientSlots(data.assignedSlot);
+
                 gameStarted = true;
                 isSpectating = false;
 
@@ -1488,90 +1561,67 @@
 
                 initGameMode();
                 respawnEntity(player);
-                players.forEach(bot => respawnEntity(bot));
                 startPreMatchCountdown();
-                updateNetworkStatusUI("CONNECTED TO HOST ARENA");
+                updateNetworkStatusUI(`CLIENT (SLOT ${mySlot})`);
                 showPickupPrompt(`JOINED ACTIVE MATCH [${getModeFullName(currentMode)}]`);
             } 
-            else if (data.type === 'CLIENT_INPUT') {
-                let remote = players.find(p => p.isNetworkPlayer && p.networkId === data.sender);
-                if (!remote && isHost) remote = registerRemotePlayer(data.sender, conn);
-
-                if (remote) {
-                    remote.mesh.position.set(data.x, data.y, data.z);
-                    remote.mesh.rotation.y = data.rotY;
-                    remote.rotX = data.rotX;
-                    remote.health = data.health;
-                    remote.team = data.team;
-                    remote.score = data.score;
+            else if (data.type === 'CLIENT_INPUT' && isHost) {
+                const slot = data.slot;
+                if (slot !== undefined && slot > 0 && slot < TOTAL_COMBATANTS) {
+                    const target = entitySlots[slot];
+                    if (target) {
+                        target.mesh.position.set(data.x, data.y, data.z);
+                        target.mesh.rotation.y = data.rotY;
+                        target.rotX = data.rotX;
+                        target.health = data.health;
+                        target.score = data.score;
+                        target.team = data.team;
+                    }
                 }
             } 
-            else if (data.type === 'PLAYER_LEFT') {
-                unregisterRemotePlayer(data.networkId);
-            }
             else if (data.type === 'WORLD_SYNC' && !isHost) {
                 teamCyanScore = data.teamCyanScore;
                 teamPinkScore = data.teamPinkScore;
                 updateModeHUD();
 
-                data.botStates.forEach((bData, idx) => {
-                    const p = players[idx];
-                    if (!p) return;
+                if (data.worldData) {
+                    data.worldData.forEach((eData) => {
+                        const slot = eData.slot;
+                        if (slot === mySlot) {
+                            player.health = eData.health;
+                            player.score = eData.score;
+                            return;
+                        }
 
-                    if (bData.isNetworkPlayer && (!p.isNetworkPlayer || p.networkId !== bData.networkId)) {
-                        p.isNetworkPlayer = true;
-                        p.networkId = bData.networkId;
-                        p.name = bData.name;
-                        scene.remove(p.mesh);
-                        const newRig = create60BoneHumanoidRig(0x00ffaa, true);
-                        p.mesh = newRig.group;
-                        p.rig = newRig;
-                        scene.add(p.mesh);
-                    } else if (!bData.isNetworkPlayer && p.isNetworkPlayer) {
-                        unregisterRemotePlayer(p.networkId);
-                    }
+                        let remote = entitySlots[slot];
+                        if (!remote) {
+                            remote = createRemoteEntity(slot);
+                            entitySlots[slot] = remote;
+                        }
 
-                    const prevPos = p.mesh.position.clone();
-                    p.mesh.position.set(bData.x, bData.y, bData.z);
-                    p.mesh.rotation.y = bData.rotY;
-                    p.rotX = bData.rotX || 0;
-                    p.health = bData.health;
-                    p.score = bData.score;
-                    p.weapon = weaponsDatabase[bData.wpnId] || p.weapon;
+                        remote.name = eData.name;
+                        remote.health = eData.health;
+                        remote.score = eData.score;
+                        remote.team = eData.team;
+                        remote.isNetworkPlayer = eData.isNetworkPlayer;
 
-                    const distMoved = prevPos.distanceTo(p.mesh.position);
-                    if (distMoved > 0.001 && p.rig && p.rig.bones) {
-                        const b = p.rig.bones;
-                        const animTime = performance.now() * 0.014;
-                        if (b['L_Thigh']) b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.7;
-                        if (b['R_Thigh']) b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.7;
-                        if (b['L_Shin']) b['L_Shin'].rotation.x = Math.max(0, -Math.sin(animTime)) * 0.8;
-                        if (b['R_Shin']) b['R_Shin'].rotation.x = Math.max(0, Math.sin(animTime)) * 0.8;
-                    }
-                });
-            }
-        }
+                        remote.mesh.position.set(eData.x, eData.y, eData.z);
+                        remote.mesh.rotation.y = eData.rotY;
+                        remote.rotX = eData.rotX || 0;
+                        remote.mesh.visible = eData.health > 0;
 
-        function registerRemotePlayer(senderId, conn = null) {
-            let remoteBot = players.find(p => p.isNetworkPlayer && p.networkId === senderId);
-            if (!remoteBot) {
-                const slot = players.find(p => !p.isNetworkPlayer);
-                if (slot) {
-                    remoteBot = slot;
-                    remoteBot.isNetworkPlayer = true;
-                    remoteBot.networkId = senderId;
-                    remoteBot.connection = conn;
-                    remoteBot.name = "PLAYER_" + senderId.substring(7);
-                    
-                    scene.remove(remoteBot.mesh);
-                    const newRig = create60BoneHumanoidRig(0x00ffaa, true);
-                    remoteBot.mesh = newRig.group;
-                    remoteBot.rig = newRig;
-                    scene.add(remoteBot.mesh);
-                    showKillFeed(`${remoteBot.name} JOINED ARENA!`);
+                        if (remote.rig && remote.rig.glowMat) {
+                            const colorHex = remote.team === 'CYAN' ? 0x00ffff : (remote.team === 'PINK' ? 0xff007f : 0xffe600);
+                            remote.rig.glowMat.color.setHex(colorHex);
+                        }
+
+                        if (eData.wpnId !== undefined && (!remote.weapon || remote.weapon.id !== eData.wpnId)) {
+                            remote.weapon = weaponsDatabase[eData.wpnId] || remote.weapon;
+                            updateRemoteHeldWeaponMesh(remote);
+                        }
+                    });
                 }
             }
-            return remoteBot;
         }
 
         function broadcastWorldState() {
@@ -1579,6 +1629,7 @@
                 const clientPacket = {
                     type: 'CLIENT_INPUT',
                     sender: localClientId,
+                    slot: mySlot,
                     x: player.position.x,
                     y: player.position.y,
                     z: player.position.z,
@@ -1593,26 +1644,33 @@
                 return;
             }
 
-            const botStates = players.map(p => ({
-                x: p.mesh.position.x,
-                y: p.mesh.position.y,
-                z: p.mesh.position.z,
-                rotY: p.mesh.rotation.y,
-                rotX: p.rotX || 0,
-                health: p.health,
-                score: p.score,
-                wpnId: p.weapon.id,
-                isNetworkPlayer: p.isNetworkPlayer || false,
-                networkId: p.networkId || null,
-                name: p.name
-            }));
+            const worldData = entitySlots.map((ent, idx) => {
+                if (!ent) return null;
+                const isHumanHost = (idx === 0);
+                const pos = isHumanHost ? ent.position : ent.mesh.position;
+                const rotY = isHumanHost ? ent.rotation.y : ent.mesh.rotation.y;
+                const rotX = isHumanHost ? ent.rotation.x : (ent.rotX || 0);
+                const currentWpn = isHumanHost ? ent.inventory[ent.activeSlot] : ent.weapon;
+                return {
+                    slot: idx,
+                    name: ent.name,
+                    x: pos.x, y: pos.y, z: pos.z,
+                    rotY: rotY, rotX: rotX,
+                    health: ent.health,
+                    score: ent.score,
+                    team: ent.team,
+                    wpnId: currentWpn ? currentWpn.id : 0,
+                    isNetworkPlayer: ent.isNetworkPlayer || isHumanHost,
+                    networkId: isHumanHost ? localClientId : (ent.networkId || null)
+                };
+            }).filter(e => e !== null);
 
             const syncPacket = {
                 type: 'WORLD_SYNC',
                 sender: localClientId,
                 teamCyanScore: teamCyanScore,
                 teamPinkScore: teamPinkScore,
-                botStates: botStates
+                worldData: worldData
             };
 
             broadcastChan.postMessage(syncPacket);
@@ -1623,6 +1681,7 @@
             document.getElementById('network-status').innerText = `NETWORK: ${txt}`;
         }
 
+        initEntitySlots();
         initMultiplayerNetworking();
 
         function startPreMatchCountdown() {
@@ -1660,12 +1719,14 @@
             document.getElementById('cctv-overlay').style.display = 'none';
             viewmodelGroup.visible = true;
 
-            players.forEach(p => { if (p.mesh) p.mesh.visible = true; });
+            entitySlots.forEach(p => { if (p && p.mesh) p.mesh.visible = true; });
 
             initGameMode();
 
             respawnEntity(player);
-            players.forEach(bot => respawnEntity(bot));
+            if (isHost) {
+                players.forEach(bot => respawnEntity(bot));
+            }
 
             startPreMatchCountdown();
 
@@ -1813,15 +1874,18 @@
 
             if (currentMode === 'TDM' || currentMode === 'CTF') {
                 player.team = 'CYAN';
-                players.forEach((bot, idx) => {
-                    bot.team = idx % 2 === 0 ? 'CYAN' : 'PINK';
-                    const colorHex = bot.team === 'CYAN' ? 0x00ffff : 0xff007f;
-                    bot.rig.glowMat.color.setHex(colorHex);
+                entitySlots.forEach((ent, idx) => {
+                    if (!ent || ent === player) return;
+                    ent.team = idx % 2 === 0 ? 'CYAN' : 'PINK';
+                    if (ent.rig && ent.rig.glowMat) {
+                        const colorHex = ent.team === 'CYAN' ? 0x00ffff : 0xff007f;
+                        ent.rig.glowMat.color.setHex(colorHex);
+                    }
                 });
             } else {
                 player.team = 'NONE';
-                players.forEach(bot => {
-                    bot.team = 'NONE';
+                entitySlots.forEach(ent => {
+                    if (ent) ent.team = 'NONE';
                 });
             }
 
@@ -1861,7 +1925,7 @@
                 scoreEl.innerText = `FLAG CAPTURES`;
                 statusEl.innerText = `CYAN: ${teamCyanScore} / 3 | PINK: ${teamPinkScore} / 3`;
             } else if (currentMode === 'LOS') {
-                const survivors = [player, ...players].filter(p => p.health > 0).length;
+                const survivors = entitySlots.filter(p => p && p.health > 0).length;
                 scoreEl.innerText = `SURVIVORS`;
                 statusEl.innerText = `${survivors} / ${TOTAL_COMBATANTS} ALIVE`;
             }
@@ -2000,16 +2064,15 @@
         const BOT_ARCHETYPES = ['HEAVY_JUGGER', 'ASSASSIN_SPECTRE', 'ENFORCER', 'SCOUT'];
 
         function updateBotHeldWeaponMesh(bot) {
+            if (!bot.rig || !bot.rig.bones || !bot.rig.bones['R_Wrist']) return;
             const holder = bot.rig.bones['R_Wrist'];
             while(holder.children.length > 0) holder.remove(holder.children[0]);
-            const currentWpn = bot.inventory[bot.activeSlot];
+            const currentWpn = bot.inventory ? bot.inventory[bot.activeSlot] : bot.weapon;
             bot.weapon = currentWpn;
             const mesh = buildWeaponMesh(currentWpn, false);
             mesh.rotation.x = Math.PI / 2;
             holder.add(mesh);
         }
-
-        for (let i = 1; i < TOTAL_COMBATANTS; i++) players.push(createBot(i));
 
         const keys = {};
 
@@ -2172,15 +2235,15 @@
             }
         }
 
-        // --- CCTV SPECTATOR MODE & DUAL KEYBOARD/MOBILE MOVEMENT ---
+        // --- CCTV SPECTATOR MODE & MOVEMENT ---
         function updatePlayerMovement(delta) {
             if (isSpectating) {
                 viewmodelGroup.visible = false;
 
                 document.getElementById('cctv-overlay').style.display = 'block';
 
-                players.forEach(p => {
-                    if (p.health > 0) p.mesh.visible = true;
+                entitySlots.forEach(p => {
+                    if (p && p.mesh && p !== player) p.mesh.visible = (p.health > 0);
                 });
 
                 const currentCam = cctvCameras[cctvIndex];
@@ -2202,7 +2265,7 @@
                 const now = new Date();
                 document.getElementById('cctv-timestamp').innerText = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}.${String(Math.floor(now.getMilliseconds()/100))}`;
 
-                const survivors = [player, ...players].filter(p => p.health > 0).length;
+                const survivors = entitySlots.filter(p => p && p.health > 0).length;
                 document.getElementById('spectator-bar').innerText = `CCTV SURVEILLANCE FEED // [A/D or ARROWS] SWITCH CAMERA (${currentCam.id}/27) // COMBATANTS: ${survivors}`;
                 document.getElementById('health-bar').style.width = `0%`;
                 return;
@@ -2384,7 +2447,7 @@
         function updateCTFMechanics() {
             if (currentMode !== 'CTF') return;
 
-            const allEntities = [player, ...players];
+            const allEntities = entitySlots.filter(e => e && e.health > 0);
 
             if (cyanFlagCarrier) {
                 if (cyanFlagCarrier === player) {
@@ -2647,9 +2710,9 @@
             });
 
             if (!isHuman && player.health > 0) targets.push(playerHitMesh);
-            players.forEach(bot => {
-                if (bot !== shooter && bot.health > 0) {
-                    bot.mesh.traverse(child => {
+            entitySlots.forEach(ent => {
+                if (ent && ent !== shooter && ent !== player && ent.health > 0 && ent.mesh) {
+                    ent.mesh.traverse(child => {
                         if (child.isMesh) targets.push(child);
                     });
                 }
@@ -2682,12 +2745,12 @@
                 if (hitObj === playerHitMesh) {
                     hitTarget = player;
                 } else {
-                    players.forEach(bot => {
-                        if (bot === shooter) return;
+                    entitySlots.forEach(ent => {
+                        if (!ent || ent === shooter || ent === player) return;
                         let curr = hitObj;
                         while (curr) {
-                            if (curr === bot.mesh) {
-                                hitTarget = bot;
+                            if (curr === ent.mesh) {
+                                hitTarget = ent;
                                 break;
                             }
                             curr = curr.parent;
@@ -2799,7 +2862,7 @@
         }
 
         function damageEntity(target, damage, attacker, hitDirection) {
-            if (target.health <= 0) return;
+            if (!target || target.health <= 0) return;
             target.health -= damage;
 
             if (target === player) {
@@ -2809,8 +2872,8 @@
             }
 
             if (target.health <= 0) {
-                attacker.score++;
-                showKillFeed(`${attacker.name} [ELIMINATED] ${target.name}`);
+                if (attacker) attacker.score++;
+                showKillFeed(`${attacker ? attacker.name : 'ENEMY'} [ELIMINATED] ${target.name}`);
 
                 if (target === cyanFlagCarrier) cyanFlagCarrier = null;
                 if (target === pinkFlagCarrier) pinkFlagCarrier = null;
@@ -2822,7 +2885,7 @@
                     ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight/2, 0))
                     : target.mesh.position.clone().add(new THREE.Vector3(0, 1.0, 0));
 
-                if (target !== player) {
+                if (target !== player && target.mesh) {
                     target.mesh.position.addScaledVector(pushDir, 1.5);
                 }
 
@@ -2830,12 +2893,12 @@
 
                 if (currentMode === 'FFA') {
                     if (attacker === player) kills++;
-                    if (attacker.score >= 60) {
+                    if (attacker && attacker.score >= 60) {
                         alert(`${attacker.name} VICTORY! SCORE LIMIT REACHED!`); location.reload();
                     }
                 } else if (currentMode === 'TDM') {
-                    if (attacker.team === 'CYAN') teamCyanScore++;
-                    else teamPinkScore++;
+                    if (attacker && attacker.team === 'CYAN') teamCyanScore++;
+                    else if (attacker) teamPinkScore++;
 
                     if (teamCyanScore >= 100 || teamPinkScore >= 100) {
                         alert(`${teamCyanScore >= 100 ? 'CYAN' : 'PINK'} TEAM VICTORY! ARENA DOMINATED!`); location.reload();
@@ -2847,11 +2910,11 @@
                         viewmodelGroup.visible = false;
                         document.getElementById('spectator-bar').style.display = 'block';
                         showPickupPrompt("ELIMINATED! ENTERING CCTV SURVEILLANCE FEED");
-                    } else {
+                    } else if (target.mesh) {
                         scene.remove(target.mesh);
                     }
 
-                    const survivors = [player, ...players].filter(p => p.health > 0);
+                    const survivors = entitySlots.filter(p => p && p.health > 0);
                     if (survivors.length <= 1) {
                         const winner = survivors[0] ? survivors[0].name : "NO ONE";
                         setTimeout(() => {
@@ -2866,7 +2929,7 @@
                 if (currentMode !== 'LOS') {
                     if (target === player) {
                         startDeathSequence(attacker ? attacker.name : "ANONYMOUS COMBATANT");
-                    } else {
+                    } else if (isHost) {
                         respawnEntity(target);
                     }
                 }
@@ -2874,6 +2937,7 @@
         }
 
         function respawnEntity(entity) {
+            if (!entity) return;
             const safeSpawn = getSafeSpawnPoint(entity);
             entity.health = 100;
             if (entity === player) {
@@ -2885,13 +2949,14 @@
                 player.inventory[1].ammo = player.inventory[1].ammoMax;
                 updateGrenadeHUD();
                 updateWeaponHUD();
-            } else {
+            } else if (entity.mesh) {
                 entity.mesh.position.copy(safeSpawn);
+                entity.velocity = entity.velocity || new THREE.Vector3();
                 entity.velocity.set(0, 0, 0);
-                entity.inventory.forEach(w => w.ammo = w.ammoMax);
+                if (entity.inventory) entity.inventory.forEach(w => w.ammo = w.ammoMax);
                 entity.patrolTarget = null;
                 entity.stuckTimer = 0;
-                entity.lastPos.copy(safeSpawn);
+                entity.lastPos = safeSpawn.clone();
                 entity.rotX = 0;
             }
         }
@@ -2994,8 +3059,8 @@
                         if (g.mesh.position.distanceTo(expPos) < BLAST_RADIUS + 2) triggerGlassShatter(g);
                     });
 
-                    players.concat([player]).forEach(ent => {
-                        if (ent.health <= 0) return;
+                    entitySlots.forEach(ent => {
+                        if (!ent || ent.health <= 0) return;
                         const entPos = ent === player ? player.position : ent.mesh.position;
                         const dist = entPos.distanceTo(expPos);
                         if (dist < BLAST_RADIUS) {
@@ -3017,7 +3082,7 @@
                 return;
             }
 
-            const allEntities = [player, ...players].filter(e => e.health > 0);
+            const allEntities = entitySlots.filter(e => e && e.health > 0);
 
             players.forEach(bot => {
                 if (bot === player || bot.health <= 0 || bot.isNetworkPlayer) return;
@@ -3275,13 +3340,14 @@
         }
 
         function updateLeaderboard() {
-            const all = [player, ...players].sort((a, b) => b.score - a.score);
+            const all = entitySlots.filter(e => e !== null).sort((a, b) => b.score - a.score);
             const listEl = document.getElementById('leaderboard-list');
+            if (!listEl) return;
             listEl.innerHTML = '';
             all.slice(0, 5).forEach((p, idx) => {
                 const entry = document.createElement('div');
                 entry.innerText = `${idx + 1}. ${p.name}: ${p.score} KILLS`;
-                if (p === player) entry.style.color = '#ffe600';
+                if (p === player || p.slot === mySlot) entry.style.color = '#ffe600';
                 listEl.appendChild(entry);
             });
         }
