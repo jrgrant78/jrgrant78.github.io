@@ -310,7 +310,7 @@
         const SLIDE_DURATION = 1.05; 
         const WALL_RUN_DURATION = 0.75; 
 
-        // Base spawn vectors declared early to prevent Temporal Dead Zone crashes
+        // Base spawn vectors declared early
         const cyanBasePos = new THREE.Vector3(-75, 0.1, -75);
         const pinkBasePos = new THREE.Vector3(75, 0.1, 75);
 
@@ -1564,7 +1564,8 @@
                     mode: currentMode,
                     teamCyanScore: teamCyanScore,
                     teamPinkScore: teamPinkScore,
-                    kills: kills
+                    kills: kills,
+                    gameStarted: gameStarted
                 };
                 if (conn) conn.send(welcomeData);
                 if (broadcastChan) broadcastChan.postMessage(welcomeData);
@@ -1580,29 +1581,42 @@
                 
                 setupClientSlots(data.assignedSlot);
 
-                gameStarted = true;
-                isSpectating = false;
-
-                document.getElementById('start-screen').style.display = 'none';
-                document.getElementById('spectator-bar').style.display = 'none';
-                document.getElementById('cctv-overlay').style.display = 'none';
-                viewmodelGroup.visible = true;
-
-                initGameMode();
-                respawnEntity(player);
-                startPreMatchCountdown();
                 updateNetworkStatusUI(`CLIENT (SLOT ${mySlot})`);
-                showPickupPrompt(`JOINED ACTIVE MATCH [${getModeFullName(currentMode)}]`);
+
+                // If Host is ALREADY playing, launch client into match immediately
+                if (data.gameStarted) {
+                    gameStarted = true;
+                    isSpectating = false;
+
+                    const startScreen = document.getElementById('start-screen');
+                    if (startScreen) startScreen.style.display = 'none';
+                    const specBar = document.getElementById('spectator-bar');
+                    if (specBar) specBar.style.display = 'none';
+                    const cctvOverlay = document.getElementById('cctv-overlay');
+                    if (cctvOverlay) cctvOverlay.style.display = 'none';
+                    if (viewmodelGroup) viewmodelGroup.visible = true;
+
+                    initGameMode();
+                    respawnEntity(player);
+                    startPreMatchCountdown();
+                    showPickupPrompt(`JOINED ACTIVE MATCH [${getModeFullName(currentMode)}]`);
+                } else {
+                    const statusText = document.getElementById('voting-status-text');
+                    if (statusText) statusText.innerText = "CONNECTED TO HOST. WAITING FOR HOST TO START MATCH...";
+                }
             } 
             else if (data.type === 'MATCH_START' && !isHost) {
                 currentMode = data.mode;
                 gameStarted = true;
                 isSpectating = false;
 
-                document.getElementById('start-screen').style.display = 'none';
-                document.getElementById('spectator-bar').style.display = 'none';
-                document.getElementById('cctv-overlay').style.display = 'none';
-                viewmodelGroup.visible = true;
+                const startScreen = document.getElementById('start-screen');
+                if (startScreen) startScreen.style.display = 'none';
+                const specBar = document.getElementById('spectator-bar');
+                if (specBar) specBar.style.display = 'none';
+                const cctvOverlay = document.getElementById('cctv-overlay');
+                if (cctvOverlay) cctvOverlay.style.display = 'none';
+                if (viewmodelGroup) viewmodelGroup.visible = true;
 
                 initGameMode();
                 respawnEntity(player);
@@ -1650,7 +1664,8 @@
                                     isSpectating = true;
                                     cctvIndex = 0;
                                     viewmodelGroup.visible = false;
-                                    document.getElementById('spectator-bar').style.display = 'block';
+                                    const specBar = document.getElementById('spectator-bar');
+                                    if (specBar) specBar.style.display = 'block';
                                     showPickupPrompt("ELIMINATED! ENTERING CCTV SURVEILLANCE FEED");
                                 } else {
                                     startDeathSequence("ENEMY");
