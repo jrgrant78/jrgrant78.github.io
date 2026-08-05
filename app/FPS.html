@@ -1446,7 +1446,8 @@
             const joinPacket = { type: 'JOIN_REQUEST', sender: localClientId };
             broadcastChan.postMessage(joinPacket);
 
-            const conn = peer.connect(HOST_PEER_ID, { reliable: true });
+            // Removing reliable:true prevents WebRTC congestion lockups that freeze the client bots
+            const conn = peer.connect(HOST_PEER_ID); 
             let connected = false;
 
             conn.on('open', () => {
@@ -1576,6 +1577,20 @@
                 updateNetworkStatusUI(`CLIENT (SLOT ${mySlot})`);
                 showPickupPrompt(`JOINED ACTIVE MATCH [${getModeFullName(currentMode)}]`);
             } 
+            else if (data.type === 'MATCH_START' && !isHost) {
+                currentMode = data.mode;
+                gameStarted = true;
+                isSpectating = false;
+
+                document.getElementById('start-screen').style.display = 'none';
+                document.getElementById('spectator-bar').style.display = 'none';
+                document.getElementById('cctv-overlay').style.display = 'none';
+                viewmodelGroup.visible = true;
+
+                initGameMode();
+                respawnEntity(player);
+                startPreMatchCountdown();
+            }
             else if (data.type === 'CLIENT_INPUT' && isHost) {
                 const slot = data.slot;
                 if (slot !== undefined && slot > 0 && slot < TOTAL_COMBATANTS) {
@@ -1584,9 +1599,12 @@
                         target.mesh.position.set(data.x, data.y, data.z);
                         target.mesh.rotation.y = data.rotY;
                         target.rotX = data.rotX;
-                        target.health = data.health;
-                        target.score = data.score;
                         target.team = data.team;
+
+                        if (data.wpnId !== undefined && (!target.weapon || target.weapon.id !== data.wpnId)) {
+                            target.weapon = weaponsDatabase[data.wpnId] || target.weapon;
+                            updateBotHeldWeaponMesh(target);
+                        }
                     }
                 }
             } 
@@ -1598,9 +1616,30 @@
                 if (data.worldData) {
                     data.worldData.forEach((eData) => {
                         const slot = eData.slot;
+                        
                         if (slot === mySlot) {
+                            if (eData.health < player.health && player.health > 0) {
+                                const flash = document.getElementById('damage-flash');
+                                flash.style.opacity = '0.7';
+                                setTimeout(() => { flash.style.opacity = '0'; }, 120);
+                            }
+                            
+                            // Host overrides local score & health
                             player.health = eData.health;
                             player.score = eData.score;
+                            kills = player.score; 
+                            
+                            if (player.health <= 0 && !isRespawning && !isSpectating) {
+                                if (currentMode === 'LOS') {
+                                    isSpectating = true;
+                                    cctvIndex = 0;
+                                    viewmodelGroup.visible = false;
+                                    document.getElementById('spectator-bar').style.display = 'block';
+                                    showPickupPrompt("ELIMINATED! ENTERING CCTV SURVEILLANCE FEED");
+                                } else {
+                                    startDeathSequence("ENEMY");
+                                }
+                            }
                             return;
                         }
 
@@ -1608,6 +1647,7 @@
                         if (!remote) {
                             remote = createRemoteEntity(slot);
                             entitySlots[slot] = remote;
+                            players.push(remote);
                         }
 
                         remote.name = eData.name;
@@ -1662,7 +1702,7 @@
         let lastBroadcastTime = 0;
         function broadcastWorldState() {
             const now = performance.now();
-            if (now - lastBroadcastTime < 30) return; // 33Hz sync rate
+            if (now - lastBroadcastTime < 30) return; // 33Hz sync rate limit
             lastBroadcastTime = now;
 
             if (!isHost) {
@@ -1675,9 +1715,8 @@
                     z: player.position.z,
                     rotY: player.rotation.y,
                     rotX: player.rotation.x,
-                    health: player.health,
-                    score: player.score,
-                    team: player.team
+                    team: player.team,
+                    wpnId: player.inventory[player.activeSlot].id
                 };
                 if (hostConnection && hostConnection.open) hostConnection.send(clientPacket);
                 broadcastChan.postMessage(clientPacket);
@@ -1715,63 +1754,6 @@
 
             broadcastChan.postMessage(syncPacket);
             connectedClients.forEach(c => { if (c.open) c.send(syncPacket); });
-        }
-
-        function updateNetworkStatusUI(txt) {
-            document.getElementById('network-status').innerText = `NETWORK: ${txt}`;
-        }
-
-        const player = {
-            position: new THREE.Vector3(0, 0, 0),
-            velocity: new THREE.Vector3(0, 0, 0),
-            rotation: new THREE.Euler(0, 0, 0, 'YXZ'),
-            health: 100, score: 0, name: "YOU", team: 'CYAN',
-            isGrounded: true, isSprinting: false, isSliding: false, isCrouching: false, isADS: false,
-            isWallRunning: false, wallRunTimer: 0,
-            slideTimer: 0, slideDir: new THREE.Vector3(),
-            canDoubleJump: true, jetpackFuel: 100, currentEyeHeight: EYE_HEIGHT_STAND,
-            activeSlot: 0,
-            inventory: [Object.assign({}, weaponsDatabase[0]), Object.assign({}, weaponsDatabase[60]), Object.assign({}, weaponsDatabase[90])],
-            grenades: 2,
-            lastFired: 0, grenadeCookTime: 0, isCookingGrenade: false,
-            recoilAmount: 0, meleeSwingProgress: 0,
-            weaponSwitchTimer: 0, pendingSlot: -1
-        };
-
-        camera.rotation.order = 'YXZ';
-
-        const playerHitMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.8), new THREE.MeshBasicMaterial({ visible: false }));
-        scene.add(playerHitMesh);
-
-        function createBot(id) {
-            const spawnPos = getSafeSpawnPoint();
-            const archetype = BOT_ARCHETYPES[id % BOT_ARCHETYPES.length];
-            const colorHex = Math.random() > 0.5 ? 0x00ffff : 0xff0055;
-
-            const rigObj = create60BoneHumanoidRig(colorHex, false);
-            rigObj.group.position.copy(spawnPos);
-            scene.add(rigObj.group);
-
-            const pWpn = weaponsDatabase[Math.floor(Math.random() * 60)];
-            const sWpn = weaponsDatabase[60 + Math.floor(Math.random() * 30)];
-            const mWpn = weaponsDatabase[90 + Math.floor(Math.random() * 30)];
-
-            const botObj = {
-                id, name: `BOT_${archetype}_${id}`, health: 100, score: 0, team: 'NONE',
-                mesh: rigObj.group, rig: rigObj, velocity: new THREE.Vector3(),
-                inventory: [Object.assign({}, pWpn), Object.assign({}, sWpn), Object.assign({}, mWpn)],
-                activeSlot: 0, weapon: Object.assign({}, pWpn),
-                grenades: 2, lastFired: 0,
-                isGrounded: true, canDoubleJump: true,
-                isSprinting: false, isSliding: false, isCrouching: false, slideTimer: 0, slideDir: new THREE.Vector3(),
-                jumpCooldown: 0, grenadeCooldown: 0, target: null, patrolTarget: null,
-                targetRoom: null,
-                scanTimer: (id % 15) * 0.02,
-                stuckTimer: 0, lastPos: spawnPos.clone(), rotX: 0
-            };
-
-            updateBotHeldWeaponMesh(botObj);
-            return botObj;
         }
 
         const BOT_ARCHETYPES = ['HEAVY_JUGGER', 'ASSASSIN_SPECTRE', 'ENFORCER', 'SCOUT'];
@@ -1833,6 +1815,11 @@
             respawnEntity(player);
             if (isHost) {
                 players.forEach(bot => respawnEntity(bot));
+
+                // Force connected clients to start the match
+                const startPacket = { type: 'MATCH_START', mode: currentMode };
+                broadcastChan.postMessage(startPacket);
+                connectedClients.forEach(c => { if (c.open) c.send(startPacket); });
             }
 
             startPreMatchCountdown();
