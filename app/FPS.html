@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>CYBER-STRIKE 2077 // ROOM-AWARE AI & CCTV SPECTATOR</title>
+    <title>CYBER-STRIKE 2077 // MULTIPLAYER & ROOM-AWARE ARENA</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; touch-action: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -170,7 +170,6 @@
         #btn-fire { right: 25px; bottom: 45px; width: 78px; height: 78px; border-color: #ff007f; }
         #btn-run { right: 115px; bottom: 50px; width: 58px; height: 58px; border-color: #ffe600; }
 
-        /* STRICTLY SMALL SCREEN MEDIA QUERY (WIDTH <= 850px ONLY) */
         @media (max-width: 850px) {
             #top-hud, #bottom-hud, #kill-feed, #leaderboard {
                 display: none !important;
@@ -311,14 +310,12 @@
         const SLIDE_DURATION = 1.05; 
         const WALL_RUN_DURATION = 0.75; 
 
-        // Detect mobile setup once
-        const isMobileScreen = window.innerWidth <= 850;
-
-        // Base spawn vectors & Fixed 50-slot network tracking
+        // Base spawn vectors declared early to prevent Temporal Dead Zone crashes
         const cyanBasePos = new THREE.Vector3(-75, 0.1, -75);
         const pinkBasePos = new THREE.Vector3(75, 0.1, 75);
-        let mySlot = 0; // Host = Slot 0, Clients = Slot 1..49
-        const entitySlots = new Array(TOTAL_COMBATANTS).fill(null);
+
+        // Detect small screen
+        const isMobileScreen = window.innerWidth <= 850;
 
         window.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -352,7 +349,11 @@
         let mobileMoveX = 0, mobileMoveZ = 0;
         let hasTriggeredJumpGesture = false, hasTriggeredSlideGesture = false;
 
-        // --- ROOM QUADRANT UTILITIES ---
+        // --- NETWORK & FIXED 50-SLOT SYNCHRONIZATION ---
+        let mySlot = 0;
+        const entitySlots = new Array(TOTAL_COMBATANTS).fill(null);
+
+        // --- ROOM & QUADRANT UTILITIES ---
         function getRoomIndex(pos) {
             let f = 0;
             if (pos.y >= 12) f = 2;
@@ -391,6 +392,22 @@
                 }
             }
             return false;
+        }
+
+        function getSafeSpawnPoint(entity = null) {
+            let candidateList = spawnPoints;
+            const team = entity ? entity.team : (player ? player.team : 'CYAN');
+
+            if (currentMode === 'TDM' || currentMode === 'CTF') {
+                if (team === 'CYAN') {
+                    candidateList = spawnPoints.filter(sp => sp.x <= -15 || sp.z <= -15);
+                } else if (team === 'PINK') {
+                    candidateList = spawnPoints.filter(sp => sp.x >= 15 || sp.z >= 15);
+                }
+            }
+
+            if (!candidateList || candidateList.length === 0) candidateList = spawnPoints;
+            return candidateList[Math.floor(Math.random() * candidateList.length)].clone();
         }
 
         function generateCCTVCameras() {
@@ -432,7 +449,7 @@
         let isHost = true;
         const connectedClients = [];
 
-        // --- THREE.JS SETUP & MOBILE WEBGL FLICKER STABILITY ---
+        // --- THREE.JS SETUP & STABILITY IMPROVEMENTS ---
         const scene = new THREE.Scene();
         scene.fog = new THREE.FogExp2(0x05050d, 0.008);
 
@@ -1171,23 +1188,6 @@
             spawnWorldWeapons();
         }
 
-        // Instant O(1) Safe Spawn Point Selection (Eliminates start-screen freeze)
-        function getSafeSpawnPoint(entity = null) {
-            let candidateList = spawnPoints;
-            const team = entity ? entity.team : (player ? player.team : 'CYAN');
-
-            if (currentMode === 'TDM' || currentMode === 'CTF') {
-                if (team === 'CYAN') {
-                    candidateList = spawnPoints.filter(sp => sp.x <= -15 || sp.z <= -15);
-                } else if (team === 'PINK') {
-                    candidateList = spawnPoints.filter(sp => sp.x >= 15 || sp.z >= 15);
-                }
-            }
-
-            if (!candidateList || candidateList.length === 0) candidateList = spawnPoints;
-            return candidateList[Math.floor(Math.random() * candidateList.length)].clone();
-        }
-
         function setupCTFFlags() {
             const flagGeom = new THREE.CylinderGeometry(0.1, 0.1, 3.5);
             const bannerGeom = new THREE.BoxGeometry(1.2, 1.8, 0.08);
@@ -1344,6 +1344,9 @@
             });
         }
 
+        // Standard setup execution flow
+        generateFacilityArena();
+
         function createRemoteEntity(slotId) {
             const archetype = BOT_ARCHETYPES[slotId % BOT_ARCHETYPES.length];
             const colorHex = 0x00ffff;
@@ -1404,9 +1407,6 @@
                 }
             }
         }
-
-        generateFacilityArena();
-        initEntitySlots();
 
         function initMultiplayerNetworking() {
             broadcastChan.onmessage = (event) => {
@@ -1683,6 +1683,74 @@
             document.getElementById('network-status').innerText = `NETWORK: ${txt}`;
         }
 
+        const player = {
+            position: new THREE.Vector3(0, 0, 0),
+            velocity: new THREE.Vector3(0, 0, 0),
+            rotation: new THREE.Euler(0, 0, 0, 'YXZ'),
+            health: 100, score: 0, name: "YOU", team: 'CYAN',
+            isGrounded: true, isSprinting: false, isSliding: false, isCrouching: false, isADS: false,
+            isWallRunning: false, wallRunTimer: 0,
+            slideTimer: 0, slideDir: new THREE.Vector3(),
+            canDoubleJump: true, jetpackFuel: 100, currentEyeHeight: EYE_HEIGHT_STAND,
+            activeSlot: 0,
+            inventory: [Object.assign({}, weaponsDatabase[0]), Object.assign({}, weaponsDatabase[60]), Object.assign({}, weaponsDatabase[90])],
+            grenades: 2,
+            lastFired: 0, grenadeCookTime: 0, isCookingGrenade: false,
+            recoilAmount: 0, meleeSwingProgress: 0,
+            weaponSwitchTimer: 0, pendingSlot: -1
+        };
+
+        camera.rotation.order = 'YXZ';
+
+        const playerHitMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.8), new THREE.MeshBasicMaterial({ visible: false }));
+        scene.add(playerHitMesh);
+
+        function createBot(id) {
+            const spawnPos = getSafeSpawnPoint();
+            const archetype = BOT_ARCHETYPES[id % BOT_ARCHETYPES.length];
+            const colorHex = Math.random() > 0.5 ? 0x00ffff : 0xff0055;
+
+            const rigObj = create60BoneHumanoidRig(colorHex, false);
+            rigObj.group.position.copy(spawnPos);
+            scene.add(rigObj.group);
+
+            const pWpn = weaponsDatabase[Math.floor(Math.random() * 60)];
+            const sWpn = weaponsDatabase[60 + Math.floor(Math.random() * 30)];
+            const mWpn = weaponsDatabase[90 + Math.floor(Math.random() * 30)];
+
+            const botObj = {
+                id, name: `BOT_${archetype}_${id}`, health: 100, score: 0, team: 'NONE',
+                mesh: rigObj.group, rig: rigObj, velocity: new THREE.Vector3(),
+                inventory: [Object.assign({}, pWpn), Object.assign({}, sWpn), Object.assign({}, mWpn)],
+                activeSlot: 0, weapon: Object.assign({}, pWpn),
+                grenades: 2, lastFired: 0,
+                isGrounded: true, canDoubleJump: true,
+                isSprinting: false, isSliding: false, isCrouching: false, slideTimer: 0, slideDir: new THREE.Vector3(),
+                jumpCooldown: 0, grenadeCooldown: 0, target: null, patrolTarget: null,
+                targetRoom: null,
+                scanTimer: (id % 15) * 0.02,
+                stuckTimer: 0, lastPos: spawnPos.clone(), rotX: 0
+            };
+
+            updateBotHeldWeaponMesh(botObj);
+            return botObj;
+        }
+
+        const BOT_ARCHETYPES = ['HEAVY_JUGGER', 'ASSASSIN_SPECTRE', 'ENFORCER', 'SCOUT'];
+
+        function updateBotHeldWeaponMesh(bot) {
+            if (!bot.rig || !bot.rig.bones || !bot.rig.bones['R_Wrist']) return;
+            const holder = bot.rig.bones['R_Wrist'];
+            while(holder.children.length > 0) holder.remove(holder.children[0]);
+            const currentWpn = bot.inventory ? bot.inventory[bot.activeSlot] : bot.weapon;
+            bot.weapon = currentWpn;
+            const mesh = buildWeaponMesh(currentWpn, false);
+            mesh.rotation.x = Math.PI / 2;
+            holder.add(mesh);
+        }
+
+        // Initialize explicit 50 slots & connections AFTER entities functions exist
+        initEntitySlots();
         initMultiplayerNetworking();
 
         function startPreMatchCountdown() {
@@ -1990,28 +2058,6 @@
             return hits.length === 0;
         }
 
-        const player = {
-            position: new THREE.Vector3(0, 0, 0),
-            velocity: new THREE.Vector3(0, 0, 0),
-            rotation: new THREE.Euler(0, 0, 0, 'YXZ'),
-            health: 100, score: 0, name: "YOU", team: 'CYAN',
-            isGrounded: true, isSprinting: false, isSliding: false, isCrouching: false, isADS: false,
-            isWallRunning: false, wallRunTimer: 0,
-            slideTimer: 0, slideDir: new THREE.Vector3(),
-            canDoubleJump: true, jetpackFuel: 100, currentEyeHeight: EYE_HEIGHT_STAND,
-            activeSlot: 0,
-            inventory: [Object.assign({}, weaponsDatabase[0]), Object.assign({}, weaponsDatabase[60]), Object.assign({}, weaponsDatabase[90])],
-            grenades: 2,
-            lastFired: 0, grenadeCookTime: 0, isCookingGrenade: false,
-            recoilAmount: 0, meleeSwingProgress: 0,
-            weaponSwitchTimer: 0, pendingSlot: -1
-        };
-
-        camera.rotation.order = 'YXZ';
-
-        const playerHitMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.8), new THREE.MeshBasicMaterial({ visible: false }));
-        scene.add(playerHitMesh);
-
         function updatePlayerViewmodel() {
             while(viewmodelGroup.children.length > 0) viewmodelGroup.remove(viewmodelGroup.children[0]);
             const currentWpn = player.inventory[player.activeSlot];
@@ -2030,50 +2076,6 @@
                 viewmodelGroup.add(vm);
             }
             viewmodelGroup.visible = true;
-        }
-
-        function createBot(id) {
-            const spawnPos = getSafeSpawnPoint();
-            const archetype = BOT_ARCHETYPES[id % BOT_ARCHETYPES.length];
-            const colorHex = Math.random() > 0.5 ? 0x00ffff : 0xff0055;
-
-            const rigObj = create60BoneHumanoidRig(colorHex, false);
-            rigObj.group.position.copy(spawnPos);
-            scene.add(rigObj.group);
-
-            const pWpn = weaponsDatabase[Math.floor(Math.random() * 60)];
-            const sWpn = weaponsDatabase[60 + Math.floor(Math.random() * 30)];
-            const mWpn = weaponsDatabase[90 + Math.floor(Math.random() * 30)];
-
-            const botObj = {
-                id, name: `BOT_${archetype}_${id}`, health: 100, score: 0, team: 'NONE',
-                mesh: rigObj.group, rig: rigObj, velocity: new THREE.Vector3(),
-                inventory: [Object.assign({}, pWpn), Object.assign({}, sWpn), Object.assign({}, mWpn)],
-                activeSlot: 0, weapon: Object.assign({}, pWpn),
-                grenades: 2, lastFired: 0,
-                isGrounded: true, canDoubleJump: true,
-                isSprinting: false, isSliding: false, isCrouching: false, slideTimer: 0, slideDir: new THREE.Vector3(),
-                jumpCooldown: 0, grenadeCooldown: 0, target: null, patrolTarget: null,
-                targetRoom: null,
-                scanTimer: (id % 15) * 0.02,
-                stuckTimer: 0, lastPos: spawnPos.clone(), rotX: 0
-            };
-
-            updateBotHeldWeaponMesh(botObj);
-            return botObj;
-        }
-
-        const BOT_ARCHETYPES = ['HEAVY_JUGGER', 'ASSASSIN_SPECTRE', 'ENFORCER', 'SCOUT'];
-
-        function updateBotHeldWeaponMesh(bot) {
-            if (!bot.rig || !bot.rig.bones || !bot.rig.bones['R_Wrist']) return;
-            const holder = bot.rig.bones['R_Wrist'];
-            while(holder.children.length > 0) holder.remove(holder.children[0]);
-            const currentWpn = bot.inventory ? bot.inventory[bot.activeSlot] : bot.weapon;
-            bot.weapon = currentWpn;
-            const mesh = buildWeaponMesh(currentWpn, false);
-            mesh.rotation.x = Math.PI / 2;
-            holder.add(mesh);
         }
 
         const keys = {};
@@ -3077,7 +3079,7 @@
             }
         }
 
-        // --- ENHANCED ROOM-AWARE BOT AI WITH REDUCED AGGRESSION ---
+        // --- ROOM-AWARE QUADRANT BOT AI WITH REDUCED AGGRESSION ---
         function updateBots(delta) {
             if (!isHost) return; 
 
@@ -3102,7 +3104,7 @@
                 const currentRoomIdx = getRoomIndex(bot.mesh.position);
                 const isOccupied = isRoomOccupiedByOthers(bot, currentRoomIdx, allEntities);
 
-                // Room-aware logic: move to next room if current room is empty
+                // Check room status: Move to another room if empty
                 if (!isOccupied || bot.targetRoom === null) {
                     if (bot.targetRoom === null || currentRoomIdx === bot.targetRoom || bot.mesh.position.distanceTo(getRoomCenter(bot.targetRoom)) < 6.0) {
                         let newRoom = Math.floor(Math.random() * 27);
@@ -3183,7 +3185,7 @@
                     bot.velocity.x = patrolDir.x * moveSpeed;
                     bot.velocity.z = patrolDir.z * moveSpeed;
 
-                    // Jetpack/jump to upper levels
+                    // Jetpack or jump to upper floor target
                     if (bot.patrolTarget.y > bot.mesh.position.y + 2.0) {
                         if (bot.isGrounded && Math.random() < 0.08) {
                             bot.velocity.y = 13;
@@ -3193,7 +3195,7 @@
                         }
                     }
 
-                    // Window/Door boundary jumps
+                    // Traverse window/door openings
                     if (bot.isGrounded && Math.random() < 0.04 && (Math.abs(Math.abs(bot.mesh.position.x) - 37.5) < 3.5 || Math.abs(Math.abs(bot.mesh.position.z) - 37.5) < 3.5)) {
                         bot.velocity.y = 11;
                         bot.isGrounded = false;
@@ -3351,7 +3353,7 @@
                     b['R_Forearm'].rotation.x = THREE.MathUtils.lerp(b['R_Forearm'].rotation.x, -0.2, delta * 8);
                 }
 
-                // 80% reduced aggression toward other AI bots
+                // 80% reduced firing aggression vs other bots
                 const isTargetHuman = (bestTarget === player);
                 const fireChance = isTargetHuman ? 0.025 : 0.005;
 
