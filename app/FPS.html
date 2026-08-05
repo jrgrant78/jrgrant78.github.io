@@ -1398,7 +1398,7 @@
             mySlot = assignedSlot;
             isHost = false;
 
-            players.length = 0; // Clear local AI bot array on client
+            players.length = 0;
 
             for (let i = 0; i < TOTAL_COMBATANTS; i++) {
                 if (i === mySlot) {
@@ -1408,9 +1408,12 @@
                     if (entitySlots[i] && entitySlots[i].mesh && entitySlots[i] !== player) {
                         scene.remove(entitySlots[i].mesh);
                     }
-                    const remoteEnt = createRemoteEntity(i);
-                    entitySlots[i] = remoteEnt;
-                    players.push(remoteEnt);
+                    
+                    // Create entity at valid spawn point instead of y = -100
+                    const bot = createBot(i);
+                    bot.slot = i;
+                    entitySlots[i] = bot;
+                    players.push(bot);
                 }
             }
         }
@@ -1596,6 +1599,9 @@
                 const remote = entitySlots[data.slot];
                 if (!remote) return;
 
+                remote.isNetworkPlayer = true;
+                remote.networkId = data.sender;
+
                 const prevPos = remote.mesh.position.clone();
                 remote.mesh.position.set(data.x, data.y, data.z);
                 remote.mesh.rotation.y = data.rotY;
@@ -1609,12 +1615,10 @@
                     updateRemoteHeldWeaponMesh(remote);
                 }
 
-                // ARENA VISIBILITY CONSTRAINT: 
-                // Only render the remote player if they are in the EXACT SAME room as the local player
-                const myRoom = getRoomIndex(player.position);
-                remote.mesh.visible = (data.roomIdx === myRoom && data.health > 0);
+                // Render remote players if alive and within immediate floor/room range (within 60m)
+                const distToLocalPlayer = player.position.distanceTo(remote.mesh.position);
+                remote.mesh.visible = (data.health > 0 && distToLocalPlayer < 60.0);
 
-                // Animate remote limbs when moving
                 if (remote.rig && remote.rig.bones) {
                     const b = remote.rig.bones;
                     const distMoved = prevPos.distanceTo(remote.mesh.position);
@@ -3109,19 +3113,17 @@
             }
         }
 
-        // --- ROOM-AWARE QUADRANT BOT AI WITH REDUCED AGGRESSION ---
         function updateBots(delta) {
-            if (!isHost) return; 
-
-            if (isPreMatch) {
-                players.forEach(bot => { if (bot && bot.velocity) bot.velocity.set(0, 0, 0); });
-                return;
-            }
+            if (isPreMatch || !gameStarted) return;
 
             const allEntities = entitySlots.filter(e => e && e.health > 0);
 
             players.forEach(bot => {
+                // Skip local human player and active remote network players
                 if (!bot || bot === player || bot.health <= 0 || bot.isNetworkPlayer) return;
+
+                // Ensure bot mesh is visible in local arena space
+                if (bot.mesh && !bot.mesh.visible) bot.mesh.visible = true;
 
                 const b = bot.rig.bones;
                 bot.jumpCooldown = Math.max(0, bot.jumpCooldown - delta);
