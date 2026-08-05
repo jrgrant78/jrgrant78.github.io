@@ -1533,8 +1533,9 @@
         }
 
         function handleIncomingPacket(data, conn = null) {
-            if (data.sender === localClientId) return;
+            if (!data || data.sender === localClientId) return;
 
+            // 1. Host processes new join requests
             if (data.type === 'JOIN_REQUEST' && isHost) {
                 let freeSlot = -1;
                 for (let i = 1; i < TOTAL_COMBATANTS; i++) {
@@ -1551,12 +1552,6 @@
                 targetBot.connection = conn;
                 targetBot.name = "PLAYER_" + data.sender.substring(7);
 
-                scene.remove(targetBot.mesh);
-                const newRig = create60BoneHumanoidRig(0x00ffaa, true);
-                targetBot.mesh = newRig.group;
-                targetBot.rig = newRig;
-                scene.add(targetBot.mesh);
-
                 const welcomeData = {
                     type: 'MATCH_WELCOME',
                     sender: localClientId,
@@ -1564,227 +1559,106 @@
                     mode: currentMode,
                     teamCyanScore: teamCyanScore,
                     teamPinkScore: teamPinkScore,
-                    kills: kills,
                     gameStarted: gameStarted
                 };
                 if (conn) conn.send(welcomeData);
                 if (broadcastChan) broadcastChan.postMessage(welcomeData);
-
                 showKillFeed(`${targetBot.name} JOINED ARENA!`);
             } 
+            // 2. Client receives slot assignment
             else if (data.type === 'MATCH_WELCOME' && !gameStarted) {
                 if (connectTimeout) clearTimeout(connectTimeout);
                 isHost = false;
                 currentMode = data.mode;
-                teamCyanScore = data.teamCyanScore || 0;
-                teamPinkScore = data.teamPinkScore || 0;
-                
                 setupClientSlots(data.assignedSlot);
 
-                updateNetworkStatusUI(`CLIENT (SLOT ${mySlot})`);
-
-                // If Host is ALREADY playing, launch client into match immediately
                 if (data.gameStarted) {
                     gameStarted = true;
                     isSpectating = false;
-
-                    const startScreen = document.getElementById('start-screen');
-                    if (startScreen) startScreen.style.display = 'none';
-                    const specBar = document.getElementById('spectator-bar');
-                    if (specBar) specBar.style.display = 'none';
-                    const cctvOverlay = document.getElementById('cctv-overlay');
-                    if (cctvOverlay) cctvOverlay.style.display = 'none';
-                    if (viewmodelGroup) viewmodelGroup.visible = true;
-
+                    document.getElementById('start-screen').style.display = 'none';
                     initGameMode();
                     respawnEntity(player);
                     startPreMatchCountdown();
-                    showPickupPrompt(`JOINED ACTIVE MATCH [${getModeFullName(currentMode)}]`);
-                } else {
-                    const statusText = document.getElementById('voting-status-text');
-                    if (statusText) statusText.innerText = "CONNECTED TO HOST. WAITING FOR HOST TO START MATCH...";
                 }
-            } 
+            }
+            // 3. Match start signal
             else if (data.type === 'MATCH_START' && !isHost) {
                 currentMode = data.mode;
                 gameStarted = true;
                 isSpectating = false;
-
-                const startScreen = document.getElementById('start-screen');
-                if (startScreen) startScreen.style.display = 'none';
-                const specBar = document.getElementById('spectator-bar');
-                if (specBar) specBar.style.display = 'none';
-                const cctvOverlay = document.getElementById('cctv-overlay');
-                if (cctvOverlay) cctvOverlay.style.display = 'none';
-                if (viewmodelGroup) viewmodelGroup.visible = true;
-
+                document.getElementById('start-screen').style.display = 'none';
                 initGameMode();
                 respawnEntity(player);
                 startPreMatchCountdown();
             }
-            else if (data.type === 'CLIENT_INPUT' && isHost) {
-                const slot = data.slot;
-                if (slot !== undefined && slot > 0 && slot < TOTAL_COMBATANTS) {
-                    const target = entitySlots[slot];
-                    if (target) {
-                        target.mesh.position.set(data.x, data.y, data.z);
-                        target.mesh.rotation.y = data.rotY;
-                        target.rotX = data.rotX;
-                        target.team = data.team;
+            // 4. Human-Only Position & Room Sync Packet
+            else if (data.type === 'HUMAN_SYNC') {
+                const remote = entitySlots[data.slot];
+                if (!remote) return;
 
-                        if (data.wpnId !== undefined && (!target.weapon || target.weapon.id !== data.wpnId)) {
-                            target.weapon = weaponsDatabase[data.wpnId] || target.weapon;
-                            updateBotHeldWeaponMesh(target);
-                        }
-                    }
+                const prevPos = remote.mesh.position.clone();
+                remote.mesh.position.set(data.x, data.y, data.z);
+                remote.mesh.rotation.y = data.rotY;
+                remote.rotX = data.rotX || 0;
+                remote.health = data.health;
+                remote.score = data.score;
+                remote.team = data.team;
+
+                if (data.wpnId !== undefined && (!remote.weapon || remote.weapon.id !== data.wpnId)) {
+                    remote.weapon = weaponsDatabase[data.wpnId] || remote.weapon;
+                    updateRemoteHeldWeaponMesh(remote);
                 }
-            } 
-            else if (data.type === 'WORLD_SYNC' && !isHost) {
-                teamCyanScore = data.teamCyanScore;
-                teamPinkScore = data.teamPinkScore;
-                updateModeHUD();
 
-                if (data.worldData) {
-                    data.worldData.forEach((eData) => {
-                        const slot = eData.slot;
-                        
-                        if (slot === mySlot) {
-                            if (eData.health < player.health && player.health > 0) {
-                                const flash = document.getElementById('damage-flash');
-                                if (flash) flash.style.opacity = '0.7';
-                                setTimeout(() => { if (flash) flash.style.opacity = '0'; }, 120);
-                            }
-                            
-                            player.health = eData.health;
-                            player.score = eData.score;
-                            kills = player.score; 
-                            
-                            if (player.health <= 0 && !isRespawning && !isSpectating) {
-                                if (currentMode === 'LOS') {
-                                    isSpectating = true;
-                                    cctvIndex = 0;
-                                    viewmodelGroup.visible = false;
-                                    const specBar = document.getElementById('spectator-bar');
-                                    if (specBar) specBar.style.display = 'block';
-                                    showPickupPrompt("ELIMINATED! ENTERING CCTV SURVEILLANCE FEED");
-                                } else {
-                                    startDeathSequence("ENEMY");
-                                }
-                            }
-                            return;
-                        }
+                // ARENA VISIBILITY CONSTRAINT: 
+                // Only render the remote player if they are in the EXACT SAME room as the local player
+                const myRoom = getRoomIndex(player.position);
+                remote.mesh.visible = (data.roomIdx === myRoom && data.health > 0);
 
-                        let remote = entitySlots[slot];
-                        if (!remote) {
-                            remote = createRemoteEntity(slot);
-                            entitySlots[slot] = remote;
-                            players.push(remote);
-                        }
-
-                        remote.name = eData.name;
-                        remote.health = eData.health;
-                        remote.score = eData.score;
-                        remote.team = eData.team;
-                        remote.isNetworkPlayer = eData.isNetworkPlayer;
-
-                        const prevPos = remote.mesh.position.clone();
-                        remote.mesh.position.set(eData.x, eData.y, eData.z);
-                        remote.mesh.rotation.y = eData.rotY;
-                        remote.rotX = eData.rotX || 0;
-                        remote.mesh.visible = eData.health > 0;
-
-                        if (remote.rig && remote.rig.glowMat) {
-                            const colorHex = remote.team === 'CYAN' ? 0x00ffff : (remote.team === 'PINK' ? 0xff007f : 0xffe600);
-                            remote.rig.glowMat.color.setHex(colorHex);
-                        }
-
-                        if (eData.wpnId !== undefined && (!remote.weapon || remote.weapon.id !== eData.wpnId)) {
-                            remote.weapon = weaponsDatabase[eData.wpnId] || remote.weapon;
-                            updateRemoteHeldWeaponMesh(remote);
-                        }
-
-                        // Animate limbs on client screen based on movement delta
-                        if (remote.rig && remote.rig.bones) {
-                            const b = remote.rig.bones;
-                            const distMoved = prevPos.distanceTo(remote.mesh.position);
-                            if (distMoved > 0.005) {
-                                const animTime = performance.now() * 0.014;
-                                if (b['L_Thigh']) b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.7;
-                                if (b['R_Thigh']) b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.7;
-                                if (b['L_Shin']) b['L_Shin'].rotation.x = Math.max(0, -Math.sin(animTime)) * 0.8;
-                                if (b['R_Shin']) b['R_Shin'].rotation.x = Math.max(0, Math.sin(animTime)) * 0.8;
-                                if (b['L_UpperArm']) b['L_UpperArm'].rotation.x = -Math.sin(animTime) * 0.5;
-                                if (b['R_UpperArm']) b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.5;
-                            } else {
-                                if (b['L_Thigh']) b['L_Thigh'].rotation.x = 0;
-                                if (b['R_Thigh']) b['R_Thigh'].rotation.x = 0;
-                                if (b['L_Shin']) b['L_Shin'].rotation.x = 0;
-                                if (b['R_Shin']) b['R_Shin'].rotation.x = 0;
-                                if (b['L_UpperArm']) b['L_UpperArm'].rotation.x = 0;
-                                if (b['R_UpperArm']) b['R_UpperArm'].rotation.x = 0;
-                            }
-                            if (b['Head']) b['Head'].rotation.x = remote.rotX;
-                        }
-                    });
+                // Animate remote limbs when moving
+                if (remote.rig && remote.rig.bones) {
+                    const b = remote.rig.bones;
+                    const distMoved = prevPos.distanceTo(remote.mesh.position);
+                    if (distMoved > 0.005) {
+                        const animTime = performance.now() * 0.014;
+                        if (b['L_Thigh']) b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.7;
+                        if (b['R_Thigh']) b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.7;
+                        if (b['L_UpperArm']) b['L_UpperArm'].rotation.x = -Math.sin(animTime) * 0.5;
+                        if (b['R_UpperArm']) b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.5;
+                    }
                 }
             }
         }
 
         let lastBroadcastTime = 0;
         function broadcastWorldState() {
+            if (!gameStarted || isPreMatch) return;
             const now = performance.now();
-            if (now - lastBroadcastTime < 30) return; // 33Hz sync rate limit
+            if (now - lastBroadcastTime < 30) return; // 33Hz cap
             lastBroadcastTime = now;
 
-            if (!isHost) {
-                const clientPacket = {
-                    type: 'CLIENT_INPUT',
-                    sender: localClientId,
-                    slot: mySlot,
-                    x: player.position.x,
-                    y: player.position.y,
-                    z: player.position.z,
-                    rotY: player.rotation.y,
-                    rotX: player.rotation.x,
-                    team: player.team,
-                    wpnId: player.inventory[player.activeSlot] ? player.inventory[player.activeSlot].id : 0
-                };
-                if (hostConnection && hostConnection.open) hostConnection.send(clientPacket);
-                if (broadcastChan) broadcastChan.postMessage(clientPacket);
-                return;
-            }
-
-            const worldData = entitySlots.map((ent, idx) => {
-                if (!ent) return null;
-                const isHumanHost = (idx === 0);
-                const pos = isHumanHost ? ent.position : ent.mesh.position;
-                const rotY = isHumanHost ? ent.rotation.y : ent.mesh.rotation.y;
-                const rotX = isHumanHost ? ent.rotation.x : (ent.rotX || 0);
-                const currentWpn = isHumanHost ? ent.inventory[ent.activeSlot] : ent.weapon;
-                return {
-                    slot: idx,
-                    name: ent.name,
-                    x: pos.x, y: pos.y, z: pos.z,
-                    rotY: rotY, rotX: rotX,
-                    health: ent.health,
-                    score: ent.score,
-                    team: ent.team,
-                    wpnId: currentWpn ? currentWpn.id : 0,
-                    isNetworkPlayer: ent.isNetworkPlayer || isHumanHost,
-                    networkId: isHumanHost ? localClientId : (ent.networkId || null)
-                };
-            }).filter(e => e !== null);
-
-            const syncPacket = {
-                type: 'WORLD_SYNC',
+            const packet = {
+                type: 'HUMAN_SYNC',
                 sender: localClientId,
-                teamCyanScore: teamCyanScore,
-                teamPinkScore: teamPinkScore,
-                worldData: worldData
+                slot: mySlot,
+                x: player.position.x,
+                y: player.position.y,
+                z: player.position.z,
+                rotY: player.rotation.y,
+                rotX: player.rotation.x,
+                roomIdx: getRoomIndex(player.position),
+                health: player.health,
+                score: player.score,
+                team: player.team,
+                wpnId: player.inventory[player.activeSlot] ? player.inventory[player.activeSlot].id : 0
             };
 
-            if (broadcastChan) broadcastChan.postMessage(syncPacket);
-            connectedClients.forEach(c => { try { if (c && c.open) c.send(syncPacket); } catch(e){} });
+            if (isHost) {
+                if (broadcastChan) broadcastChan.postMessage(packet);
+                connectedClients.forEach(c => { try { if (c && c.open) c.send(packet); } catch(e){} });
+            } else {
+                if (hostConnection && hostConnection.open) hostConnection.send(packet);
+                if (broadcastChan) broadcastChan.postMessage(packet);
+            }
         }
 
         function updateNetworkStatusUI(txt) {
