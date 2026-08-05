@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>CYBER-STRIKE 2077</title>
+    <title>CYBER-STRIKE 2077 // MULTIPLAYER & ROOM-AWARE ARENA</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; touch-action: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -407,6 +407,7 @@
             }
 
             if (!candidateList || candidateList.length === 0) candidateList = spawnPoints;
+            if (!candidateList || candidateList.length === 0) return new THREE.Vector3(0, 0.1, 0);
             return candidateList[Math.floor(Math.random() * candidateList.length)].clone();
         }
 
@@ -443,7 +444,8 @@
         // --- NETWORK MULTIPLAYER SETUP ---
         const HOST_PEER_ID = "cyberstrike2077_host_v1";
         const localClientId = "CS2077_" + Math.random().toString(36).substring(2, 7);
-        const broadcastChan = new BroadcastChannel("cyberstrike_lobby_chan");
+        let broadcastChan = null;
+        try { broadcastChan = new BroadcastChannel("cyberstrike_lobby_chan"); } catch(e){}
         let peer = null;
         let hostConnection = null;
         let isHost = true;
@@ -1414,52 +1416,61 @@
         }
 
         function initMultiplayerNetworking() {
-            broadcastChan.onmessage = (event) => {
-                const data = event.data;
-                if (!data || data.sender === localClientId) return;
-                handleIncomingPacket(data);
-            };
+            if (broadcastChan) {
+                broadcastChan.onmessage = (event) => {
+                    const data = event.data;
+                    if (!data || data.sender === localClientId) return;
+                    handleIncomingPacket(data);
+                };
+            }
 
-            peer = new Peer(localClientId);
+            try {
+                peer = new Peer(localClientId);
 
-            peer.on('open', () => {
-                attemptConnectToHost();
-            });
+                peer.on('open', () => {
+                    attemptConnectToHost();
+                });
 
-            peer.on('connection', (conn) => {
-                connectedClients.push(conn);
-                conn.on('data', (data) => handleIncomingPacket(data, conn));
-                conn.on('close', () => handleClientDisconnect(conn));
-                conn.on('error', () => handleClientDisconnect(conn));
-            });
+                peer.on('connection', (conn) => {
+                    connectedClients.push(conn);
+                    conn.on('data', (data) => handleIncomingPacket(data, conn));
+                    conn.on('close', () => handleClientDisconnect(conn));
+                    conn.on('error', () => handleClientDisconnect(conn));
+                });
 
-            peer.on('error', (err) => {
-                if (!gameStarted) {
-                    becomeMatchHost();
-                }
-            });
+                peer.on('error', (err) => {
+                    if (!gameStarted) {
+                        becomeMatchHost();
+                    }
+                });
+            } catch (err) {
+                becomeMatchHost();
+            }
         }
 
         function attemptConnectToHost() {
             updateNetworkStatusUI("CONNECTING TO HOST...");
             
             const joinPacket = { type: 'JOIN_REQUEST', sender: localClientId };
-            broadcastChan.postMessage(joinPacket);
+            if (broadcastChan) broadcastChan.postMessage(joinPacket);
 
-            // Removing reliable:true prevents WebRTC congestion lockups that freeze the client bots
-            const conn = peer.connect(HOST_PEER_ID); 
             let connected = false;
+            if (peer) {
+                try {
+                    const conn = peer.connect(HOST_PEER_ID); 
 
-            conn.on('open', () => {
-                connected = true;
-                hostConnection = conn;
-                isHost = false; 
-                conn.send(joinPacket);
-                updateNetworkStatusUI("CLIENT (CONNECTED)");
-            });
+                    conn.on('open', () => {
+                        connected = true;
+                        hostConnection = conn;
+                        isHost = false; 
+                        conn.send(joinPacket);
+                        updateNetworkStatusUI("CLIENT (CONNECTED)");
+                    });
 
-            conn.on('data', (data) => handleIncomingPacket(data, conn));
-            conn.on('close', () => { isHost = true; updateNetworkStatusUI("HOST DISCONNECTED (SOLO)"); });
+                    conn.on('data', (data) => handleIncomingPacket(data, conn));
+                    conn.on('close', () => { isHost = true; updateNetworkStatusUI("HOST DISCONNECTED (SOLO)"); });
+                } catch(e){}
+            }
 
             connectTimeout = setTimeout(() => {
                 if (!connected && !gameStarted) {
@@ -1470,25 +1481,31 @@
 
         function becomeMatchHost() {
             if (peer && !peer.destroyed) peer.destroy();
-            peer = new Peer(HOST_PEER_ID);
+            try {
+                peer = new Peer(HOST_PEER_ID);
 
-            peer.on('open', () => {
-                isHost = true;
-                updateNetworkStatusUI("MATCH HOST (AUTHORITATIVE)");
-                document.getElementById('voting-status-text').innerText = "HOST READY - CHOOSE MATCH MODE TO BEGIN";
-            });
+                peer.on('open', () => {
+                    isHost = true;
+                    updateNetworkStatusUI("MATCH HOST (AUTHORITATIVE)");
+                    const statusText = document.getElementById('voting-status-text');
+                    if (statusText) statusText.innerText = "HOST READY - CHOOSE MATCH MODE TO BEGIN";
+                });
 
-            peer.on('connection', (conn) => {
-                connectedClients.push(conn);
-                conn.on('data', (data) => handleIncomingPacket(data, conn));
-                conn.on('close', () => handleClientDisconnect(conn));
-                conn.on('error', () => handleClientDisconnect(conn));
-            });
+                peer.on('connection', (conn) => {
+                    connectedClients.push(conn);
+                    conn.on('data', (data) => handleIncomingPacket(data, conn));
+                    conn.on('close', () => handleClientDisconnect(conn));
+                    conn.on('error', () => handleClientDisconnect(conn));
+                });
 
-            peer.on('error', () => {
+                peer.on('error', () => {
+                    isHost = true;
+                    updateNetworkStatusUI("HOST (SOLO ARENA)");
+                });
+            } catch(e) {
                 isHost = true;
                 updateNetworkStatusUI("HOST (SOLO ARENA)");
-            });
+            }
         }
 
         function handleClientDisconnect(conn) {
@@ -1550,7 +1567,7 @@
                     kills: kills
                 };
                 if (conn) conn.send(welcomeData);
-                broadcastChan.postMessage(welcomeData);
+                if (broadcastChan) broadcastChan.postMessage(welcomeData);
 
                 showKillFeed(`${targetBot.name} JOINED ARENA!`);
             } 
@@ -1620,11 +1637,10 @@
                         if (slot === mySlot) {
                             if (eData.health < player.health && player.health > 0) {
                                 const flash = document.getElementById('damage-flash');
-                                flash.style.opacity = '0.7';
-                                setTimeout(() => { flash.style.opacity = '0'; }, 120);
+                                if (flash) flash.style.opacity = '0.7';
+                                setTimeout(() => { if (flash) flash.style.opacity = '0'; }, 120);
                             }
                             
-                            // Host overrides local score & health
                             player.health = eData.health;
                             player.score = eData.score;
                             kills = player.score; 
@@ -1716,10 +1732,10 @@
                     rotY: player.rotation.y,
                     rotX: player.rotation.x,
                     team: player.team,
-                    wpnId: player.inventory[player.activeSlot].id
+                    wpnId: player.inventory[player.activeSlot] ? player.inventory[player.activeSlot].id : 0
                 };
                 if (hostConnection && hostConnection.open) hostConnection.send(clientPacket);
-                broadcastChan.postMessage(clientPacket);
+                if (broadcastChan) broadcastChan.postMessage(clientPacket);
                 return;
             }
 
@@ -1752,8 +1768,66 @@
                 worldData: worldData
             };
 
-            broadcastChan.postMessage(syncPacket);
-            connectedClients.forEach(c => { if (c.open) c.send(syncPacket); });
+            if (broadcastChan) broadcastChan.postMessage(syncPacket);
+            connectedClients.forEach(c => { try { if (c && c.open) c.send(syncPacket); } catch(e){} });
+        }
+
+        function updateNetworkStatusUI(txt) {
+            const statusEl = document.getElementById('network-status');
+            if (statusEl) statusEl.innerText = `NETWORK: ${txt}`;
+        }
+
+        const player = {
+            position: new THREE.Vector3(0, 0, 0),
+            velocity: new THREE.Vector3(0, 0, 0),
+            rotation: new THREE.Euler(0, 0, 0, 'YXZ'),
+            health: 100, score: 0, name: "YOU", team: 'CYAN',
+            isGrounded: true, isSprinting: false, isSliding: false, isCrouching: false, isADS: false,
+            isWallRunning: false, wallRunTimer: 0,
+            slideTimer: 0, slideDir: new THREE.Vector3(),
+            canDoubleJump: true, jetpackFuel: 100, currentEyeHeight: EYE_HEIGHT_STAND,
+            activeSlot: 0,
+            inventory: [Object.assign({}, weaponsDatabase[0]), Object.assign({}, weaponsDatabase[60]), Object.assign({}, weaponsDatabase[90])],
+            grenades: 2,
+            lastFired: 0, grenadeCookTime: 0, isCookingGrenade: false,
+            recoilAmount: 0, meleeSwingProgress: 0,
+            weaponSwitchTimer: 0, pendingSlot: -1
+        };
+
+        camera.rotation.order = 'YXZ';
+
+        const playerHitMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.8), new THREE.MeshBasicMaterial({ visible: false }));
+        scene.add(playerHitMesh);
+
+        function createBot(id) {
+            const spawnPos = getSafeSpawnPoint();
+            const archetype = BOT_ARCHETYPES[id % BOT_ARCHETYPES.length];
+            const colorHex = Math.random() > 0.5 ? 0x00ffff : 0xff0055;
+
+            const rigObj = create60BoneHumanoidRig(colorHex, false);
+            rigObj.group.position.copy(spawnPos);
+            scene.add(rigObj.group);
+
+            const pWpn = weaponsDatabase[Math.floor(Math.random() * 60)];
+            const sWpn = weaponsDatabase[60 + Math.floor(Math.random() * 30)];
+            const mWpn = weaponsDatabase[90 + Math.floor(Math.random() * 30)];
+
+            const botObj = {
+                id, name: `BOT_${archetype}_${id}`, health: 100, score: 0, team: 'NONE',
+                mesh: rigObj.group, rig: rigObj, velocity: new THREE.Vector3(),
+                inventory: [Object.assign({}, pWpn), Object.assign({}, sWpn), Object.assign({}, mWpn)],
+                activeSlot: 0, weapon: Object.assign({}, pWpn),
+                grenades: 2, lastFired: 0,
+                isGrounded: true, canDoubleJump: true,
+                isSprinting: false, isSliding: false, isCrouching: false, slideTimer: 0, slideDir: new THREE.Vector3(),
+                jumpCooldown: 0, grenadeCooldown: 0, target: null, patrolTarget: null,
+                targetRoom: null,
+                scanTimer: (id % 15) * 0.02,
+                stuckTimer: 0, lastPos: spawnPos.clone(), rotX: 0
+            };
+
+            updateBotHeldWeaponMesh(botObj);
+            return botObj;
         }
 
         const BOT_ARCHETYPES = ['HEAVY_JUGGER', 'ASSASSIN_SPECTRE', 'ENFORCER', 'SCOUT'];
@@ -1778,18 +1852,25 @@
             preMatchCountdown = 5;
 
             const overlay = document.getElementById('pre-match-overlay');
-            overlay.style.display = 'block';
-            overlay.innerText = `MATCH BEGINS IN ${preMatchCountdown}`;
+            if (overlay) {
+                overlay.style.display = 'block';
+                overlay.innerText = `MATCH BEGINS IN ${preMatchCountdown}`;
+            }
 
             const interval = setInterval(() => {
                 preMatchCountdown--;
-                if (preMatchCountdown > 0) {
-                    overlay.innerText = `MATCH BEGINS IN ${preMatchCountdown}`;
-                } else if (preMatchCountdown === 0) {
-                    overlay.innerText = `MATCH STARTED! COMMENCE COMBAT!`;
-                    setTimeout(() => {
-                        overlay.style.display = 'none';
-                    }, 1200);
+                if (overlay) {
+                    if (preMatchCountdown > 0) {
+                        overlay.innerText = `MATCH BEGINS IN ${preMatchCountdown}`;
+                    } else if (preMatchCountdown === 0) {
+                        overlay.innerText = `MATCH STARTED! COMMENCE COMBAT!`;
+                        setTimeout(() => {
+                            overlay.style.display = 'none';
+                        }, 1200);
+                        isPreMatch = false;
+                        clearInterval(interval);
+                    }
+                } else {
                     isPreMatch = false;
                     clearInterval(interval);
                 }
@@ -1797,38 +1878,43 @@
         }
 
         function castPlayerVote(modeKey) {
-            currentMode = modeKey;
-            gameStarted = true;
-            isSpectating = false;
-
-            for (let k in keys) keys[k] = false;
-
-            document.getElementById('start-screen').style.display = 'none';
-            document.getElementById('spectator-bar').style.display = 'none';
-            document.getElementById('cctv-overlay').style.display = 'none';
-            viewmodelGroup.visible = true;
-
-            entitySlots.forEach(p => { if (p && p.mesh) p.mesh.visible = true; });
-
-            initGameMode();
-
-            respawnEntity(player);
-            if (isHost) {
-                players.forEach(bot => respawnEntity(bot));
-
-                // Force connected clients to start the match
-                const startPacket = { type: 'MATCH_START', mode: currentMode };
-                broadcastChan.postMessage(startPacket);
-                connectedClients.forEach(c => { if (c.open) c.send(startPacket); });
-            }
-
-            startPreMatchCountdown();
-
             try {
-                if (!isMobileScreen) {
-                    document.body.requestPointerLock();
+                currentMode = modeKey;
+                gameStarted = true;
+                isSpectating = false;
+
+                for (let k in keys) keys[k] = false;
+
+                const startScreen = document.getElementById('start-screen');
+                if (startScreen) startScreen.style.display = 'none';
+                const specBar = document.getElementById('spectator-bar');
+                if (specBar) specBar.style.display = 'none';
+                const cctvOverlay = document.getElementById('cctv-overlay');
+                if (cctvOverlay) cctvOverlay.style.display = 'none';
+                if (viewmodelGroup) viewmodelGroup.visible = true;
+
+                entitySlots.forEach(p => { if (p && p.mesh) p.mesh.visible = true; });
+
+                initGameMode();
+
+                respawnEntity(player);
+                if (isHost) {
+                    players.forEach(bot => { if (bot) respawnEntity(bot); });
+
+                    // Broadcast match start to all connected client tabs
+                    const startPacket = { type: 'MATCH_START', mode: currentMode };
+                    if (broadcastChan) broadcastChan.postMessage(startPacket);
+                    connectedClients.forEach(c => { try { if (c && c.open) c.send(startPacket); } catch(e){} });
                 }
-            } catch(e) {}
+
+                startPreMatchCountdown();
+
+                if (!isMobileScreen) {
+                    try { document.body.requestPointerLock(); } catch(e) {}
+                }
+            } catch (err) {
+                console.error("Error starting match:", err);
+            }
         }
 
         // --- DUAL-ZONE TOUCH NAVIGATION & FULLSCREEN CONTROLS ---
@@ -1964,7 +2050,8 @@
         });
 
         function initGameMode() {
-            document.getElementById('mode-title-display').innerText = `MODE: ${getModeFullName(currentMode)}`;
+            const titleDisplay = document.getElementById('mode-title-display');
+            if (titleDisplay) titleDisplay.innerText = `MODE: ${getModeFullName(currentMode)}`;
 
             if (currentMode === 'TDM' || currentMode === 'CTF') {
                 player.team = 'CYAN';
@@ -1984,15 +2071,15 @@
             }
 
             if (currentMode === 'CTF') {
-                cyanFlagObj.visible = true;
-                pinkFlagObj.visible = true;
-                cyanFlagBeacon.visible = true;
-                pinkFlagBeacon.visible = true;
+                if (cyanFlagObj) cyanFlagObj.visible = true;
+                if (pinkFlagObj) pinkFlagObj.visible = true;
+                if (cyanFlagBeacon) cyanFlagBeacon.visible = true;
+                if (pinkFlagBeacon) pinkFlagBeacon.visible = true;
             } else {
-                cyanFlagObj.visible = false;
-                pinkFlagObj.visible = false;
-                cyanFlagBeacon.visible = false;
-                pinkFlagBeacon.visible = false;
+                if (cyanFlagObj) cyanFlagObj.visible = false;
+                if (pinkFlagObj) pinkFlagObj.visible = false;
+                if (cyanFlagBeacon) cyanFlagBeacon.visible = false;
+                if (pinkFlagBeacon) pinkFlagBeacon.visible = false;
             }
 
             updateModeHUD();
@@ -2008,6 +2095,7 @@
         function updateModeHUD() {
             const statusEl = document.getElementById('mode-status-hud');
             const scoreEl = document.getElementById('score-display');
+            if (!statusEl || !scoreEl) return;
 
             if (currentMode === 'FFA') {
                 scoreEl.innerText = `${kills} / 60 KILLS`;
@@ -2086,9 +2174,11 @@
         function updatePlayerViewmodel() {
             while(viewmodelGroup.children.length > 0) viewmodelGroup.remove(viewmodelGroup.children[0]);
             const currentWpn = player.inventory[player.activeSlot];
-            const vm = buildWeaponMesh(currentWpn, true);
-            viewmodelGroup.add(vm);
-            spectatedWeaponId = currentWpn.id;
+            if (currentWpn) {
+                const vm = buildWeaponMesh(currentWpn, true);
+                viewmodelGroup.add(vm);
+                spectatedWeaponId = currentWpn.id;
+            }
         }
         updatePlayerViewmodel();
 
@@ -2223,19 +2313,27 @@
 
         function updateWeaponHUD() {
             const currentWpn = player.inventory[player.activeSlot];
-            document.getElementById('weapon-slot').innerText = `[${currentWpn.category}]`;
-            document.getElementById('weapon-name').innerText = currentWpn.name;
-            document.getElementById('weapon-name').style.color = '#' + currentWpn.color.toString(16);
+            if (!currentWpn) return;
+            const slotEl = document.getElementById('weapon-slot');
+            const nameEl = document.getElementById('weapon-name');
+            if (slotEl) slotEl.innerText = `[${currentWpn.category}]`;
+            if (nameEl) {
+                nameEl.innerText = currentWpn.name;
+                nameEl.style.color = '#' + currentWpn.color.toString(16);
+            }
             updateAmmoHUD();
         }
 
         function updateAmmoHUD() {
             const currentWpn = player.inventory[player.activeSlot];
-            document.getElementById('ammo-display').innerText = currentWpn.category === 'MELEE' ? '∞ / ∞' : `${currentWpn.ammo} / ${currentWpn.ammoMax}`;
+            if (!currentWpn) return;
+            const ammoEl = document.getElementById('ammo-display');
+            if (ammoEl) ammoEl.innerText = currentWpn.category === 'MELEE' ? '∞ / ∞' : `${currentWpn.ammo} / ${currentWpn.ammoMax}`;
         }
 
         function updateGrenadeHUD() {
-            document.getElementById('grenade-display').innerText = `GRENADES: ${player.grenades} / 2`;
+            const gEl = document.getElementById('grenade-display');
+            if (gEl) gEl.innerText = `GRENADES: ${player.grenades} / 2`;
         }
 
         function updateWallRun(delta) {
@@ -2269,37 +2367,47 @@
             if (isSpectating) {
                 viewmodelGroup.visible = false;
 
-                document.getElementById('cctv-overlay').style.display = 'block';
+                const cctvOverlay = document.getElementById('cctv-overlay');
+                if (cctvOverlay) cctvOverlay.style.display = 'block';
 
                 entitySlots.forEach(p => {
                     if (p && p.mesh && p !== player) p.mesh.visible = (p.health > 0);
                 });
 
                 const currentCam = cctvCameras[cctvIndex];
-                camera.position.copy(currentCam.pos);
+                if (currentCam) {
+                    camera.position.copy(currentCam.pos);
 
-                const panTime = performance.now() * 0.0008;
-                const baseDir = new THREE.Vector3().subVectors(currentCam.center, currentCam.pos).normalize();
-                const baseAngle = Math.atan2(baseDir.z, baseDir.x);
-                const panAngle = baseAngle + Math.sin(panTime) * 0.45; 
+                    const panTime = performance.now() * 0.0008;
+                    const baseDir = new THREE.Vector3().subVectors(currentCam.center, currentCam.pos).normalize();
+                    const baseAngle = Math.atan2(baseDir.z, baseDir.x);
+                    const panAngle = baseAngle + Math.sin(panTime) * 0.45; 
 
-                const lookTarget = currentCam.pos.clone().add(new THREE.Vector3(
-                    Math.cos(panAngle) * 20,
-                    -3.5 + Math.sin(panTime * 0.5) * 1.0, 
-                    Math.sin(panAngle) * 20
-                ));
-                camera.lookAt(lookTarget);
+                    const lookTarget = currentCam.pos.clone().add(new THREE.Vector3(
+                        Math.cos(panAngle) * 20,
+                        -3.5 + Math.sin(panTime * 0.5) * 1.0, 
+                        Math.sin(panAngle) * 20
+                    ));
+                    camera.lookAt(lookTarget);
 
-                document.getElementById('cctv-cam-title').innerText = currentCam.title;
-                const now = new Date();
-                document.getElementById('cctv-timestamp').innerText = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}.${String(Math.floor(now.getMilliseconds()/100))}`;
+                    const titleEl = document.getElementById('cctv-cam-title');
+                    if (titleEl) titleEl.innerText = currentCam.title;
+                    
+                    const timeEl = document.getElementById('cctv-timestamp');
+                    const now = new Date();
+                    if (timeEl) timeEl.innerText = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}.${String(Math.floor(now.getMilliseconds()/100))}`;
 
-                const survivors = entitySlots.filter(p => p && p.health > 0).length;
-                document.getElementById('spectator-bar').innerText = `CCTV SURVEILLANCE FEED // [A/D or ARROWS] SWITCH CAMERA (${currentCam.id}/27) // COMBATANTS: ${survivors}`;
-                document.getElementById('health-bar').style.width = `0%`;
+                    const survivors = entitySlots.filter(p => p && p.health > 0).length;
+                    const specBar = document.getElementById('spectator-bar');
+                    if (specBar) specBar.innerText = `CCTV SURVEILLANCE FEED // [A/D or ARROWS] SWITCH CAMERA (${currentCam.id}/27) // COMBATANTS: ${survivors}`;
+                    
+                    const hBar = document.getElementById('health-bar');
+                    if (hBar) hBar.style.width = `0%`;
+                }
                 return;
             } else {
-                document.getElementById('cctv-overlay').style.display = 'none';
+                const cctvOverlay = document.getElementById('cctv-overlay');
+                if (cctvOverlay) cctvOverlay.style.display = 'none';
                 if (roofMesh) roofMesh.visible = true;
             }
 
@@ -2419,12 +2527,14 @@
             }
 
             const crosshairEl = document.getElementById('crosshair');
-            if (player.isADS) {
-                crosshairEl.style.transform = 'scale(0.5)';
-                crosshairEl.style.opacity = '0.4';
-            } else {
-                crosshairEl.style.transform = 'scale(1.0)';
-                crosshairEl.style.opacity = '1.0';
+            if (crosshairEl) {
+                if (player.isADS) {
+                    crosshairEl.style.transform = 'scale(0.5)';
+                    crosshairEl.style.opacity = '0.4';
+                } else {
+                    crosshairEl.style.transform = 'scale(1.0)';
+                    crosshairEl.style.opacity = '1.0';
+                }
             }
 
             playerHitMesh.position.set(player.position.x, player.position.y + player.currentEyeHeight / 2, player.position.z);
@@ -2468,9 +2578,14 @@
                 }
             }
 
-            document.getElementById('stance-indicator').innerText = player.isADS ? "STANCE: AIMING DOWN SIGHTS" : (player.isWallRunning ? "STANCE: WALL-RUNNING" : (player.isSliding ? "STANCE: SLIDING" : (player.isCrouching ? "STANCE: CROUCHING" : "STANCE: STANDING")));
-            document.getElementById('jetpack-fill').style.width = `${Math.max(0, player.jetpackFuel)}%`;
-            document.getElementById('health-bar').style.width = `${Math.max(0, player.health)}%`;
+            const stanceEl = document.getElementById('stance-indicator');
+            if (stanceEl) stanceEl.innerText = player.isADS ? "STANCE: AIMING DOWN SIGHTS" : (player.isWallRunning ? "STANCE: WALL-RUNNING" : (player.isSliding ? "STANCE: SLIDING" : (player.isCrouching ? "STANCE: CROUCHING" : "STANCE: STANDING")));
+            
+            const jFill = document.getElementById('jetpack-fill');
+            if (jFill) jFill.style.width = `${Math.max(0, player.jetpackFuel)}%`;
+            
+            const hBar = document.getElementById('health-bar');
+            if (hBar) hBar.style.width = `${Math.max(0, player.health)}%`;
         }
 
         function updateCTFMechanics() {
@@ -2482,7 +2597,7 @@
                 if (cyanFlagCarrier === player) {
                     const backOffset = camera.getWorldDirection(new THREE.Vector3()).negate().multiplyScalar(0.6);
                     cyanFlagObj.position.copy(player.position).add(backOffset).add(new THREE.Vector3(0, 0.8, 0));
-                } else {
+                } else if (cyanFlagCarrier.mesh) {
                     cyanFlagObj.position.copy(cyanFlagCarrier.mesh.position).add(new THREE.Vector3(0, 1.2, 0));
                 }
             } else {
@@ -2493,7 +2608,7 @@
                 if (pinkFlagCarrier === player) {
                     const backOffset = camera.getWorldDirection(new THREE.Vector3()).negate().multiplyScalar(0.6);
                     pinkFlagObj.position.copy(player.position).add(backOffset).add(new THREE.Vector3(0, 0.8, 0));
-                } else {
+                } else if (pinkFlagCarrier.mesh) {
                     pinkFlagObj.position.copy(pinkFlagCarrier.mesh.position).add(new THREE.Vector3(0, 1.2, 0));
                 }
             } else {
@@ -2543,16 +2658,17 @@
             const pinkDist = document.getElementById('pink-flag-dist');
 
             if (currentMode !== 'CTF' || !gameStarted || isSpectating || isRespawning || isPreMatch) {
-                cyanMarker.style.display = 'none';
-                pinkMarker.style.display = 'none';
+                if (cyanMarker) cyanMarker.style.display = 'none';
+                if (pinkMarker) pinkMarker.style.display = 'none';
                 return;
             }
 
-            updateSingleMarker(cyanMarker, cyanDist, cyanFlagObj.position);
-            updateSingleMarker(pinkMarker, pinkDist, pinkFlagObj.position);
+            if (cyanFlagObj) updateSingleMarker(cyanMarker, cyanDist, cyanFlagObj.position);
+            if (pinkFlagObj) updateSingleMarker(pinkMarker, pinkDist, pinkFlagObj.position);
         }
 
         function updateSingleMarker(element, distElement, worldPos) {
+            if (!element) return;
             const projected = worldPos.clone().project(camera);
             
             if (projected.z >= 1 || projected.x < -1 || projected.x > 1 || projected.y < -1 || projected.y > 1) {
@@ -2680,7 +2796,7 @@
             const isHuman = shooter === player;
             const wpn = isHuman ? player.inventory[player.activeSlot] : shooter.weapon;
 
-            if (now - shooter.lastFired < wpn.fireRate) return;
+            if (!wpn || now - shooter.lastFired < wpn.fireRate) return;
 
             if (wpn.category !== 'MELEE' && wpn.ammo <= 0) {
                 let nextSlot = -1;
@@ -2870,19 +2986,19 @@
             const killerText = document.getElementById('killer-title');
             const timerText = document.getElementById('respawn-timer-display');
 
-            deathScreen.classList.add('active');
-            killerText.innerText = `KILLED BY ${killerName.toUpperCase()}`;
+            if (deathScreen) deathScreen.classList.add('active');
+            if (killerText) killerText.innerText = `KILLED BY ${killerName.toUpperCase()}`;
             
             let countdown = 5;
-            timerText.innerText = `RESPAWNING IN ${countdown}`;
+            if (timerText) timerText.innerText = `RESPAWNING IN ${countdown}`;
 
             const countdownInterval = setInterval(() => {
                 countdown--;
                 if (countdown > 0) {
-                    timerText.innerText = `RESPAWNING IN ${countdown}`;
+                    if (timerText) timerText.innerText = `RESPAWNING IN ${countdown}`;
                 } else {
                     clearInterval(countdownInterval);
-                    deathScreen.classList.remove('active');
+                    if (deathScreen) deathScreen.classList.remove('active');
                     isRespawning = false;
                     viewmodelGroup.visible = true;
                     respawnEntity(player);
@@ -2896,8 +3012,8 @@
 
             if (target === player) {
                 const flash = document.getElementById('damage-flash');
-                flash.style.opacity = '0.7';
-                setTimeout(() => { flash.style.opacity = '0'; }, 120);
+                if (flash) flash.style.opacity = '0.7';
+                setTimeout(() => { if (flash) flash.style.opacity = '0'; }, 120);
             }
 
             if (target.health <= 0) {
@@ -2937,7 +3053,8 @@
                         isSpectating = true;
                         cctvIndex = 0;
                         viewmodelGroup.visible = false;
-                        document.getElementById('spectator-bar').style.display = 'block';
+                        const specBar = document.getElementById('spectator-bar');
+                        if (specBar) specBar.style.display = 'block';
                         showPickupPrompt("ELIMINATED! ENTERING CCTV SURVEILLANCE FEED");
                     } else if (target.mesh) {
                         scene.remove(target.mesh);
@@ -2974,19 +3091,18 @@
                 player.velocity.set(0, 0, 0);
                 player.grenades = 2;
                 player.isADS = false;
-                player.inventory[0].ammo = player.inventory[0].ammoMax;
-                player.inventory[1].ammo = player.inventory[1].ammoMax;
+                if (player.inventory[0]) player.inventory[0].ammo = player.inventory[0].ammoMax;
+                if (player.inventory[1]) player.inventory[1].ammo = player.inventory[1].ammoMax;
                 updateGrenadeHUD();
                 updateWeaponHUD();
             } else if (entity.mesh) {
                 entity.mesh.position.copy(safeSpawn);
-                entity.velocity = entity.velocity || new THREE.Vector3();
-                entity.velocity.set(0, 0, 0);
-                if (entity.inventory) entity.inventory.forEach(w => w.ammo = w.ammoMax);
+                if (entity.velocity) entity.velocity.set(0, 0, 0);
+                if (entity.inventory) entity.inventory.forEach(w => { if (w) w.ammo = w.ammoMax; });
                 entity.patrolTarget = null;
                 entity.targetRoom = null;
                 entity.stuckTimer = 0;
-                entity.lastPos = safeSpawn.clone();
+                if (entity.lastPos) entity.lastPos.copy(safeSpawn);
                 entity.rotX = 0;
             }
         }
@@ -3109,14 +3225,14 @@
             if (!isHost) return; 
 
             if (isPreMatch) {
-                players.forEach(bot => bot.velocity.set(0, 0, 0));
+                players.forEach(bot => { if (bot && bot.velocity) bot.velocity.set(0, 0, 0); });
                 return;
             }
 
             const allEntities = entitySlots.filter(e => e && e.health > 0);
 
             players.forEach(bot => {
-                if (bot === player || bot.health <= 0 || bot.isNetworkPlayer) return;
+                if (!bot || bot === player || bot.health <= 0 || bot.isNetworkPlayer) return;
 
                 const b = bot.rig.bones;
                 bot.jumpCooldown = Math.max(0, bot.jumpCooldown - delta);
@@ -3256,14 +3372,14 @@
                     }
 
                     const animTime = performance.now() * 0.012;
-                    b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.6;
-                    b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.6;
-                    b['L_Shin'].rotation.x = Math.max(0, -Math.sin(animTime)) * 0.7;
-                    b['R_Shin'].rotation.x = Math.max(0, Math.sin(animTime)) * 0.7;
-                    b['L_UpperArm'].rotation.x = -Math.sin(animTime) * 0.4;
-                    b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.4;
-                    b['L_Forearm'].rotation.x = -0.3;
-                    b['R_Forearm'].rotation.x = -0.3;
+                    if (b['L_Thigh']) b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.6;
+                    if (b['R_Thigh']) b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.6;
+                    if (b['L_Shin']) b['L_Shin'].rotation.x = Math.max(0, -Math.sin(animTime)) * 0.7;
+                    if (b['R_Shin']) b['R_Shin'].rotation.x = Math.max(0, Math.sin(animTime)) * 0.7;
+                    if (b['L_UpperArm']) b['L_UpperArm'].rotation.x = -Math.sin(animTime) * 0.4;
+                    if (b['R_UpperArm']) b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.4;
+                    if (b['L_Forearm']) b['L_Forearm'].rotation.x = -0.3;
+                    if (b['R_Forearm']) b['R_Forearm'].rotation.x = -0.3;
                     return;
                 }
 
@@ -3276,7 +3392,7 @@
                 let desiredSlot = 0;
                 if (minDist <= 3.5) {
                     desiredSlot = 2;
-                } else if (bot.inventory[0].ammo <= 0) {
+                } else if (bot.inventory[0] && bot.inventory[0].ammo <= 0) {
                     desiredSlot = 1;
                 }
 
@@ -3360,22 +3476,21 @@
                 if (isMoving) {
                     const animTime = performance.now() * (bot.isSprinting ? 0.016 : 0.012);
                     
-                    b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.75;
-                    b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.75;
-                    b['L_Shin'].rotation.x = Math.max(0, -Math.sin(animTime)) * 0.85;
-                    b['R_Shin'].rotation.x = Math.max(0, Math.sin(animTime)) * 0.85;
-
-                    b['L_UpperArm'].rotation.x = -Math.sin(animTime) * 0.6;
-                    b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.6;
-                    b['L_Forearm'].rotation.x = -0.4 - Math.abs(Math.sin(animTime)) * 0.3;
-                    b['R_Forearm'].rotation.x = -0.4 - Math.abs(Math.cos(animTime)) * 0.3;
+                    if (b['L_Thigh']) b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.75;
+                    if (b['R_Thigh']) b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.75;
+                    if (b['L_Shin']) b['L_Shin'].rotation.x = Math.max(0, -Math.sin(animTime)) * 0.85;
+                    if (b['R_Shin']) b['R_Shin'].rotation.x = Math.max(0, Math.sin(animTime)) * 0.85;
+                    if (b['L_UpperArm']) b['L_UpperArm'].rotation.x = -Math.sin(animTime) * 0.6;
+                    if (b['R_UpperArm']) b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.6;
+                    if (b['L_Forearm']) b['L_Forearm'].rotation.x = -0.4 - Math.abs(Math.sin(animTime)) * 0.3;
+                    if (b['R_Forearm']) b['R_Forearm'].rotation.x = -0.4 - Math.abs(Math.cos(animTime)) * 0.3;
                 } else {
-                    b['L_Thigh'].rotation.x = THREE.MathUtils.lerp(b['L_Thigh'].rotation.x, 0, delta * 8);
-                    b['R_Thigh'].rotation.x = THREE.MathUtils.lerp(b['R_Thigh'].rotation.x, 0, delta * 8);
-                    b['L_Shin'].rotation.x = THREE.MathUtils.lerp(b['L_Shin'].rotation.x, 0, delta * 8);
-                    b['R_Shin'].rotation.x = THREE.MathUtils.lerp(b['R_Shin'].rotation.x, 0, delta * 8);
-                    b['L_Forearm'].rotation.x = THREE.MathUtils.lerp(b['L_Forearm'].rotation.x, -0.2, delta * 8);
-                    b['R_Forearm'].rotation.x = THREE.MathUtils.lerp(b['R_Forearm'].rotation.x, -0.2, delta * 8);
+                    if (b['L_Thigh']) b['L_Thigh'].rotation.x = THREE.MathUtils.lerp(b['L_Thigh'].rotation.x, 0, delta * 8);
+                    if (b['R_Thigh']) b['R_Thigh'].rotation.x = THREE.MathUtils.lerp(b['R_Thigh'].rotation.x, 0, delta * 8);
+                    if (b['L_Shin']) b['L_Shin'].rotation.x = THREE.MathUtils.lerp(b['L_Shin'].rotation.x, 0, delta * 8);
+                    if (b['R_Shin']) b['R_Shin'].rotation.x = THREE.MathUtils.lerp(b['R_Shin'].rotation.x, 0, delta * 8);
+                    if (b['L_Forearm']) b['L_Forearm'].rotation.x = THREE.MathUtils.lerp(b['L_Forearm'].rotation.x, -0.2, delta * 8);
+                    if (b['R_Forearm']) b['R_Forearm'].rotation.x = THREE.MathUtils.lerp(b['R_Forearm'].rotation.x, -0.2, delta * 8);
                 }
 
                 // 80% reduced firing aggression vs other bots
@@ -3397,6 +3512,7 @@
 
         function showKillFeed(msg) {
             const feed = document.getElementById('kill-feed');
+            if (!feed) return;
             const item = document.createElement('div');
             item.innerText = msg; feed.appendChild(item);
             setTimeout(() => item.remove(), 3500);
@@ -3426,7 +3542,7 @@
 
             if (gameStarted) {
                 humanMarkersToRotate.forEach(m => {
-                    m.rotation.y += delta * 2.5;
+                    if (m) m.rotation.y += delta * 2.5;
                 });
 
                 updateFacilityMechanics(delta);
