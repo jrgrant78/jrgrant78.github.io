@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>CYBER-STRIKE 2077 // ROOM-AWARE AI & CCTV SPECTATOR</title>
+    <title>CYBER-STRIKE 2077 // MULTIPLAYER & ROOM-AWARE ARENA</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; touch-action: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -311,7 +311,7 @@
         const SLIDE_DURATION = 1.05; 
         const WALL_RUN_DURATION = 0.75; 
 
-        // Detect small screen
+        // Detect mobile screen
         const isMobileScreen = window.innerWidth <= 850;
 
         // Base spawn vectors
@@ -350,11 +350,11 @@
         let mobileMoveX = 0, mobileMoveZ = 0;
         let hasTriggeredJumpGesture = false, hasTriggeredSlideGesture = false;
 
-        // --- NETWORK & FIXED 50-SLOT SYNCHRONIZATION ---
-        let mySlot = 0;
+        // --- AUTHORITATIVE 50-SLOT NETWORK ARCHITECTURE ---
+        let mySlot = 0; // Slot 0 = Host Player, Slot 1..49 = Clients/Bots
         const entitySlots = new Array(TOTAL_COMBATANTS).fill(null);
 
-        // --- ROOM & QUADRANT UTILITIES ---
+        // --- ROOM & QUADRANT NAVIGATION UTILITIES ---
         function getRoomIndex(pos) {
             let f = 0;
             if (pos.y >= 12) f = 2;
@@ -3118,7 +3118,7 @@
             }
         }
 
-        // --- ENHANCED ROOM-AWARE BOT AI WITH REDUCED AGGRESSION ---
+        // --- ENHANCED ROOM-AWARE BOT AI WITH REDUCED BOT-ON-BOT AGGRESSION ---
         function updateBots(delta) {
             if (!isHost) return; 
 
@@ -3143,7 +3143,7 @@
                 const currentRoomIdx = getRoomIndex(bot.mesh.position);
                 const isOccupied = isRoomOccupiedByOthers(bot, currentRoomIdx, allEntities);
 
-                // If room is empty, pick a new room target & traverse doors/stairs/windows
+                // Quadrant navigation logic: navigate to adjacent rooms if current room is unoccupied
                 if (!isOccupied || bot.targetRoom === null) {
                     if (bot.targetRoom === null || currentRoomIdx === bot.targetRoom || bot.mesh.position.distanceTo(getRoomCenter(bot.targetRoom)) < 6.0) {
                         let newRoom = Math.floor(Math.random() * 27);
@@ -3224,7 +3224,7 @@
                     bot.velocity.x = patrolDir.x * moveSpeed;
                     bot.velocity.z = patrolDir.z * moveSpeed;
 
-                    // Vertical Floor Traversal: Jump/Jetpack if target room is on an upper level
+                    // Floor elevation changes via jump & jetpack
                     if (bot.patrolTarget.y > bot.mesh.position.y + 2.0) {
                         if (bot.isGrounded && Math.random() < 0.08) {
                             bot.velocity.y = 13;
@@ -3393,7 +3393,7 @@
                 }
 
                 // REDUCED BOT-VS-BOT AGGRESSION (5x lower fire chance against other bots)
-                const isTargetHuman = (bestTarget === player);
+                const isTargetHuman = (bestTarget === player || (bestTarget && bestTarget.isNetworkPlayer));
                 const fireChance = isTargetHuman ? 0.025 : 0.005;
 
                 if (BOTS_CAN_FIRE && minDist < bot.weapon.range && Math.random() < fireChance) {
