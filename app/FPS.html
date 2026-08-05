@@ -1396,12 +1396,15 @@
             mySlot = assignedSlot;
             isHost = false;
 
-            entitySlots[mySlot] = player;
-            player.slot = mySlot;
-
+            // Re-link entity slots so all non-local combatants receive host stream updates
             for (let i = 0; i < TOTAL_COMBATANTS; i++) {
-                if (i === mySlot) continue;
-                if (!entitySlots[i] || entitySlots[i] === player) {
+                if (i === mySlot) {
+                    entitySlots[i] = player;
+                    player.slot = mySlot;
+                } else {
+                    if (entitySlots[i] && entitySlots[i].mesh && entitySlots[i] !== player) {
+                        scene.remove(entitySlots[i].mesh);
+                    }
                     const remoteEnt = createRemoteEntity(i);
                     entitySlots[i] = remoteEnt;
                 }
@@ -1607,6 +1610,7 @@
                         remote.team = eData.team;
                         remote.isNetworkPlayer = eData.isNetworkPlayer;
 
+                        const prevPos = remote.mesh.position.clone();
                         remote.mesh.position.set(eData.x, eData.y, eData.z);
                         remote.mesh.rotation.y = eData.rotY;
                         remote.rotX = eData.rotX || 0;
@@ -1621,12 +1625,39 @@
                             remote.weapon = weaponsDatabase[eData.wpnId] || remote.weapon;
                             updateRemoteHeldWeaponMesh(remote);
                         }
+
+                        // Animate limbs & vertical aiming pitch on client screen
+                        if (remote.rig && remote.rig.bones) {
+                            const b = remote.rig.bones;
+                            const distMoved = prevPos.distanceTo(remote.mesh.position);
+                            if (distMoved > 0.005) {
+                                const animTime = performance.now() * 0.014;
+                                if (b['L_Thigh']) b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.7;
+                                if (b['R_Thigh']) b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.7;
+                                if (b['L_Shin']) b['L_Shin'].rotation.x = Math.max(0, -Math.sin(animTime)) * 0.8;
+                                if (b['R_Shin']) b['R_Shin'].rotation.x = Math.max(0, Math.sin(animTime)) * 0.8;
+                                if (b['L_UpperArm']) b['L_UpperArm'].rotation.x = -Math.sin(animTime) * 0.5;
+                                if (b['R_UpperArm']) b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.5;
+                            } else {
+                                if (b['L_Thigh']) b['L_Thigh'].rotation.x = 0;
+                                if (b['R_Thigh']) b['R_Thigh'].rotation.x = 0;
+                                if (b['L_Shin']) b['L_Shin'].rotation.x = 0;
+                                if (b['R_Shin']) b['R_Shin'].rotation.x = 0;
+                            }
+                            if (b['Head']) b['Head'].rotation.x = remote.rotX;
+                        }
                     });
                 }
             }
         }
 
+        let lastBroadcastTime = 0;
         function broadcastWorldState() {
+            const now = performance.now();
+            // Throttle sync rate to ~22Hz (45ms) to prevent WebRTC channel congestion
+            if (now - lastBroadcastTime < 45) return; 
+            lastBroadcastTime = now;
+
             if (!isHost) {
                 const clientPacket = {
                     type: 'CLIENT_INPUT',
