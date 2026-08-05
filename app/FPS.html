@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>CYBER-STRIKE 2077 // CCTV SURVEILLANCE SPECTATOR POV</title>
+    <title>CYBER-STRIKE 2077 // ROOM-AWARE AI & CCTV SPECTATOR</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; touch-action: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -314,7 +314,7 @@
         // Detect small screen
         const isMobileScreen = window.innerWidth <= 850;
 
-        // Declared early to avoid TDZ errors during bot generation
+        // Base spawn vectors
         const cyanBasePos = new THREE.Vector3(-75, 0.1, -75);
         const pinkBasePos = new THREE.Vector3(75, 0.1, 75);
 
@@ -351,8 +351,49 @@
         let hasTriggeredJumpGesture = false, hasTriggeredSlideGesture = false;
 
         // --- NETWORK & FIXED 50-SLOT SYNCHRONIZATION ---
-        let mySlot = 0; // Host is Slot 0. Clients receive Slot 1..49
-        const entitySlots = new Array(TOTAL_COMBATANTS).fill(null); // Explicit 50-slot map
+        let mySlot = 0;
+        const entitySlots = new Array(TOTAL_COMBATANTS).fill(null);
+
+        // --- ROOM & QUADRANT UTILITIES ---
+        function getRoomIndex(pos) {
+            let f = 0;
+            if (pos.y >= 12) f = 2;
+            else if (pos.y >= 4) f = 1;
+
+            let xIdx = 0;
+            if (pos.x > 37.5) xIdx = 2;
+            else if (pos.x > -37.5) xIdx = 1;
+
+            let zIdx = 0;
+            if (pos.z > 37.5) zIdx = 2;
+            else if (pos.z > -37.5) zIdx = 1;
+
+            return f * 9 + zIdx * 3 + xIdx;
+        }
+
+        function getRoomCenter(roomIdx) {
+            const f = Math.floor(roomIdx / 9);
+            const rem = roomIdx % 9;
+            const zIdx = Math.floor(rem / 3);
+            const xIdx = rem % 3;
+
+            const fY = f * 8.0;
+            const rX = (xIdx - 1) * 75;
+            const rZ = (zIdx - 1) * 75;
+
+            return new THREE.Vector3(rX, fY + 0.1, rZ);
+        }
+
+        function isRoomOccupiedByOthers(bot, roomIdx, allEntities) {
+            for (let ent of allEntities) {
+                if (!ent || ent === bot || ent.health <= 0) continue;
+                const entPos = (ent === player) ? player.position : ent.mesh.position;
+                if (getRoomIndex(entPos) === roomIdx) {
+                    return true;
+                }
+            }
+            return false;
+        }
 
         function generateCCTVCameras() {
             cctvCameras = [];
@@ -1305,7 +1346,7 @@
         }
 
         function updateFacilityMechanics(delta) {
-            const allEntities = [player, ...players].filter(e => e.health > 0);
+            const allEntities = entitySlots.filter(e => e && e.health > 0);
 
             slidingDoors.forEach(d => {
                 let nearby = false;
@@ -1350,7 +1391,7 @@
             const archetype = BOT_ARCHETYPES[slotId % BOT_ARCHETYPES.length];
             const colorHex = 0x00ffff;
             const rigObj = create60BoneHumanoidRig(colorHex, false);
-            rigObj.group.position.set(0, -100, 0); // Offscreen until state update
+            rigObj.group.position.set(0, -100, 0); 
             scene.add(rigObj.group);
 
             return {
@@ -1364,6 +1405,7 @@
                 rig: rigObj,
                 weapon: Object.assign({}, weaponsDatabase[0]),
                 rotX: 0,
+                targetRoom: null,
                 isNetworkPlayer: false
             };
         }
@@ -2053,6 +2095,7 @@
                 isGrounded: true, canDoubleJump: true,
                 isSprinting: false, isSliding: false, isCrouching: false, slideTimer: 0, slideDir: new THREE.Vector3(),
                 jumpCooldown: 0, grenadeCooldown: 0, target: null, patrolTarget: null,
+                targetRoom: null,
                 scanTimer: (id % 15) * 0.02,
                 stuckTimer: 0, lastPos: spawnPos.clone(), rotX: 0
             };
@@ -2955,6 +2998,7 @@
                 entity.velocity.set(0, 0, 0);
                 if (entity.inventory) entity.inventory.forEach(w => w.ammo = w.ammoMax);
                 entity.patrolTarget = null;
+                entity.targetRoom = null;
                 entity.stuckTimer = 0;
                 entity.lastPos = safeSpawn.clone();
                 entity.rotX = 0;
@@ -3074,6 +3118,7 @@
             }
         }
 
+        // --- ENHANCED ROOM-AWARE BOT AI WITH REDUCED AGGRESSION ---
         function updateBots(delta) {
             if (!isHost) return; 
 
@@ -3095,16 +3140,29 @@
                 const distMoved = bot.mesh.position.distanceTo(bot.lastPos);
                 bot.lastPos.copy(bot.mesh.position);
 
+                const currentRoomIdx = getRoomIndex(bot.mesh.position);
+                const isOccupied = isRoomOccupiedByOthers(bot, currentRoomIdx, allEntities);
+
+                // If room is empty, pick a new room target & traverse doors/stairs/windows
+                if (!isOccupied || bot.targetRoom === null) {
+                    if (bot.targetRoom === null || currentRoomIdx === bot.targetRoom || bot.mesh.position.distanceTo(getRoomCenter(bot.targetRoom)) < 6.0) {
+                        let newRoom = Math.floor(Math.random() * 27);
+                        if (newRoom === currentRoomIdx) newRoom = (currentRoomIdx + 1) % 27;
+                        bot.targetRoom = newRoom;
+                        
+                        const roomCenter = getRoomCenter(newRoom);
+                        bot.patrolTarget = roomCenter.add(new THREE.Vector3((Math.random()-0.5)*14, 0, (Math.random()-0.5)*14));
+                    }
+                }
+
                 if (distMoved < 0.08 * delta * 60) {
                     bot.stuckTimer += delta;
                     if (bot.stuckTimer > 0.45) {
                         bot.velocity.y = 12;
                         bot.isGrounded = false;
                         bot.target = null;
-                        
-                        const sameFloorSpawns = spawnPoints.filter(sp => Math.abs(sp.y - bot.mesh.position.y) < 3.0);
-                        const pool = sameFloorSpawns.length > 0 ? sameFloorSpawns : spawnPoints;
-                        bot.patrolTarget = pool[Math.floor(Math.random() * pool.length)].clone();
+                        bot.targetRoom = Math.floor(Math.random() * 27);
+                        bot.patrolTarget = getRoomCenter(bot.targetRoom);
 
                         const evAngle = Math.random() * Math.PI * 2;
                         bot.mesh.position.x += Math.sin(evAngle) * 0.7;
@@ -3154,18 +3212,33 @@
                         const targetFlagPos = bot.team === 'CYAN' ? pinkBasePos : cyanBasePos;
                         bot.patrolTarget = targetFlagPos.clone();
                     } else if (!bot.patrolTarget || bot.mesh.position.distanceTo(bot.patrolTarget) < 3.0) {
-                        const sameFloorSpawns = spawnPoints.filter(sp => Math.abs(sp.y - bot.mesh.position.y) < 3.0);
-                        const pool = sameFloorSpawns.length > 0 ? sameFloorSpawns : spawnPoints;
-                        bot.patrolTarget = pool[Math.floor(Math.random() * pool.length)].clone();
+                        bot.targetRoom = Math.floor(Math.random() * 27);
+                        bot.patrolTarget = getRoomCenter(bot.targetRoom);
                     }
 
                     const patrolDir = new THREE.Vector3().subVectors(bot.patrolTarget, bot.mesh.position);
                     patrolDir.y = 0;
                     patrolDir.normalize();
 
-                    const moveSpeed = 10.0;
+                    const moveSpeed = 11.0;
                     bot.velocity.x = patrolDir.x * moveSpeed;
                     bot.velocity.z = patrolDir.z * moveSpeed;
+
+                    // Vertical Floor Traversal: Jump/Jetpack if target room is on an upper level
+                    if (bot.patrolTarget.y > bot.mesh.position.y + 2.0) {
+                        if (bot.isGrounded && Math.random() < 0.08) {
+                            bot.velocity.y = 13;
+                            bot.isGrounded = false;
+                        } else if (!bot.isGrounded && bot.velocity.y < 8) {
+                            bot.velocity.y += 18 * delta; // Jetpack upward thrust
+                        }
+                    }
+
+                    // Window / Obstacle jumping logic near room walls
+                    if (bot.isGrounded && Math.random() < 0.04 && (Math.abs(Math.abs(bot.mesh.position.x) - 37.5) < 3.5 || Math.abs(Math.abs(bot.mesh.position.z) - 37.5) < 3.5)) {
+                        bot.velocity.y = 11;
+                        bot.isGrounded = false;
+                    }
 
                     const oldX = bot.mesh.position.x;
                     bot.mesh.position.x += bot.velocity.x * delta;
@@ -3319,8 +3392,12 @@
                     b['R_Forearm'].rotation.x = THREE.MathUtils.lerp(b['R_Forearm'].rotation.x, -0.2, delta * 8);
                 }
 
-                if (BOTS_CAN_FIRE && minDist < bot.weapon.range && Math.random() < 0.025) {
-                    const inaccuracy = 0.32;
+                // REDUCED BOT-VS-BOT AGGRESSION (5x lower fire chance against other bots)
+                const isTargetHuman = (bestTarget === player);
+                const fireChance = isTargetHuman ? 0.025 : 0.005;
+
+                if (BOTS_CAN_FIRE && minDist < bot.weapon.range && Math.random() < fireChance) {
+                    const inaccuracy = isTargetHuman ? 0.28 : 0.45;
                     const inaccurateAimDir = dirToTarget.clone().add(new THREE.Vector3(
                         (Math.random() - 0.5) * inaccuracy,
                         (Math.random() - 0.5) * inaccuracy,
