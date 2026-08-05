@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>CYBER-STRIKE 2077 // MULTIPLAYER & ROOM-AWARE ARENA</title>
+    <title>CYBER-STRIKE 2077</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; touch-action: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -447,6 +447,7 @@
         let peer = null;
         let hostConnection = null;
         let isHost = true;
+        let connectTimeout = null;
         const connectedClients = [];
 
         // --- THREE.JS SETUP & STABILITY IMPROVEMENTS ---
@@ -1344,7 +1345,6 @@
             });
         }
 
-        // Standard setup execution flow
         generateFacilityArena();
 
         function createRemoteEntity(slotId) {
@@ -1396,7 +1396,8 @@
             mySlot = assignedSlot;
             isHost = false;
 
-            // Re-link entity slots so all non-local combatants receive host stream updates
+            players.length = 0; // Clear local AI bot array on client
+
             for (let i = 0; i < TOTAL_COMBATANTS; i++) {
                 if (i === mySlot) {
                     entitySlots[i] = player;
@@ -1407,6 +1408,7 @@
                     }
                     const remoteEnt = createRemoteEntity(i);
                     entitySlots[i] = remoteEnt;
+                    players.push(remoteEnt);
                 }
             }
         }
@@ -1441,6 +1443,9 @@
         function attemptConnectToHost() {
             updateNetworkStatusUI("CONNECTING TO HOST...");
             
+            const joinPacket = { type: 'JOIN_REQUEST', sender: localClientId };
+            broadcastChan.postMessage(joinPacket);
+
             const conn = peer.connect(HOST_PEER_ID, { reliable: true });
             let connected = false;
 
@@ -1448,18 +1453,18 @@
                 connected = true;
                 hostConnection = conn;
                 isHost = false; 
-                conn.send({ type: 'JOIN_REQUEST', sender: localClientId });
+                conn.send(joinPacket);
                 updateNetworkStatusUI("CLIENT (CONNECTED)");
             });
 
-            conn.on('data', (data) => handleIncomingPacket(data));
+            conn.on('data', (data) => handleIncomingPacket(data, conn));
             conn.on('close', () => { isHost = true; updateNetworkStatusUI("HOST DISCONNECTED (SOLO)"); });
 
-            setTimeout(() => {
+            connectTimeout = setTimeout(() => {
                 if (!connected && !gameStarted) {
                     becomeMatchHost();
                 }
-            }, 1200);
+            }, 3500);
         }
 
         function becomeMatchHost() {
@@ -1549,6 +1554,7 @@
                 showKillFeed(`${targetBot.name} JOINED ARENA!`);
             } 
             else if (data.type === 'MATCH_WELCOME' && !gameStarted) {
+                if (connectTimeout) clearTimeout(connectTimeout);
                 isHost = false;
                 currentMode = data.mode;
                 teamCyanScore = data.teamCyanScore || 0;
@@ -1626,7 +1632,7 @@
                             updateRemoteHeldWeaponMesh(remote);
                         }
 
-                        // Animate limbs & vertical aiming pitch on client screen
+                        // Animate limbs on client screen based on movement delta
                         if (remote.rig && remote.rig.bones) {
                             const b = remote.rig.bones;
                             const distMoved = prevPos.distanceTo(remote.mesh.position);
@@ -1643,6 +1649,8 @@
                                 if (b['R_Thigh']) b['R_Thigh'].rotation.x = 0;
                                 if (b['L_Shin']) b['L_Shin'].rotation.x = 0;
                                 if (b['R_Shin']) b['R_Shin'].rotation.x = 0;
+                                if (b['L_UpperArm']) b['L_UpperArm'].rotation.x = 0;
+                                if (b['R_UpperArm']) b['R_UpperArm'].rotation.x = 0;
                             }
                             if (b['Head']) b['Head'].rotation.x = remote.rotX;
                         }
@@ -1654,8 +1662,7 @@
         let lastBroadcastTime = 0;
         function broadcastWorldState() {
             const now = performance.now();
-            // Throttle sync rate to ~22Hz (45ms) to prevent WebRTC channel congestion
-            if (now - lastBroadcastTime < 45) return; 
+            if (now - lastBroadcastTime < 30) return; // 33Hz sync rate
             lastBroadcastTime = now;
 
             if (!isHost) {
