@@ -157,7 +157,7 @@
             pointer-events: none; display: none; z-index: 85;
         }
         .mobile-btn {
-            position: absolute; width: 68px; height: 68px; border-radius: 50%;
+            position: absolute; width: 72px; height: 72px; border-radius: 50%;
             background: rgba(15, 15, 30, 0.75); border: 2px solid #ffe600;
             display: flex; justify-content: center; align-items: center;
             pointer-events: auto; box-shadow: 0 0 15px rgba(255, 230, 0, 0.4);
@@ -167,9 +167,9 @@
             background: rgba(255, 230, 0, 0.3); border-color: #ffe600;
             box-shadow: 0 0 22px #ffe600;
         }
-        #btn-swipe { right: 30px; bottom: 50px; width: 72px; height: 72px; }
+        #btn-swipe { right: 30px; bottom: 50px; }
 
-        @media (max-width: 850px) {
+        @media (max-width: 1024px), (pointer: coarse) {
             #top-hud, #bottom-hud, #kill-feed, #leaderboard {
                 display: none !important;
             }
@@ -303,12 +303,12 @@
         const SLIDE_DURATION = 1.05; 
         const WALL_RUN_DURATION = 0.75; 
 
+        // Touch capability detection
+        const isMobileScreen = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.innerWidth <= 1024);
+
         // Base spawn vectors declared early
         const cyanBasePos = new THREE.Vector3(-75, 0.1, -75);
         const pinkBasePos = new THREE.Vector3(75, 0.1, 75);
-
-        // Detect small screen
-        const isMobileScreen = window.innerWidth <= 850;
 
         window.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -1401,8 +1401,6 @@
                     if (entitySlots[i] && entitySlots[i].mesh && entitySlots[i] !== player) {
                         scene.remove(entitySlots[i].mesh);
                     }
-                    
-                    // Create entity at valid spawn point instead of y = -100
                     const bot = createBot(i);
                     bot.slot = i;
                     entitySlots[i] = bot;
@@ -1531,7 +1529,6 @@
         function handleIncomingPacket(data, conn = null) {
             if (!data || data.sender === localClientId) return;
 
-            // 1. Host processes new join requests
             if (data.type === 'JOIN_REQUEST' && isHost) {
                 let freeSlot = -1;
                 for (let i = 1; i < TOTAL_COMBATANTS; i++) {
@@ -1559,35 +1556,58 @@
                 };
                 if (conn) conn.send(welcomeData);
                 if (broadcastChan) broadcastChan.postMessage(welcomeData);
+
                 showKillFeed(`${targetBot.name} JOINED ARENA!`);
             } 
-            // 2. Client receives slot assignment
             else if (data.type === 'MATCH_WELCOME' && !gameStarted) {
                 if (connectTimeout) clearTimeout(connectTimeout);
                 isHost = false;
                 currentMode = data.mode;
+                teamCyanScore = data.teamCyanScore || 0;
+                teamPinkScore = data.teamPinkScore || 0;
+                
                 setupClientSlots(data.assignedSlot);
+
+                updateNetworkStatusUI(`CLIENT (SLOT ${mySlot})`);
 
                 if (data.gameStarted) {
                     gameStarted = true;
                     isSpectating = false;
-                    document.getElementById('start-screen').style.display = 'none';
+
+                    const startScreen = document.getElementById('start-screen');
+                    if (startScreen) startScreen.style.display = 'none';
+                    const specBar = document.getElementById('spectator-bar');
+                    if (specBar) specBar.style.display = 'none';
+                    const cctvOverlay = document.getElementById('cctv-overlay');
+                    if (cctvOverlay) cctvOverlay.style.display = 'none';
+                    if (viewmodelGroup) viewmodelGroup.visible = true;
+
                     initGameMode();
                     respawnEntity(player);
                     startPreMatchCountdown();
+                    showPickupPrompt(`JOINED ACTIVE MATCH [${getModeFullName(currentMode)}]`);
+                } else {
+                    const statusText = document.getElementById('voting-status-text');
+                    if (statusText) statusText.innerText = "CONNECTED TO HOST. WAITING FOR HOST TO START MATCH...";
                 }
-            }
-            // 3. Match start signal
+            } 
             else if (data.type === 'MATCH_START' && !isHost) {
                 currentMode = data.mode;
                 gameStarted = true;
                 isSpectating = false;
-                document.getElementById('start-screen').style.display = 'none';
+
+                const startScreen = document.getElementById('start-screen');
+                if (startScreen) startScreen.style.display = 'none';
+                const specBar = document.getElementById('spectator-bar');
+                if (specBar) specBar.style.display = 'none';
+                const cctvOverlay = document.getElementById('cctv-overlay');
+                if (cctvOverlay) cctvOverlay.style.display = 'none';
+                if (viewmodelGroup) viewmodelGroup.visible = true;
+
                 initGameMode();
                 respawnEntity(player);
                 startPreMatchCountdown();
             }
-            // 4. Human-Only Position & Room Sync Packet
             else if (data.type === 'HUMAN_SYNC') {
                 const remote = entitySlots[data.slot];
                 if (!remote) return;
@@ -1608,7 +1628,6 @@
                     updateRemoteHeldWeaponMesh(remote);
                 }
 
-                // Render remote players if alive and within immediate floor/room range (within 60m)
                 const distToLocalPlayer = player.position.distanceTo(remote.mesh.position);
                 remote.mesh.visible = (data.health > 0 && distToLocalPlayer < 60.0);
 
@@ -1630,7 +1649,7 @@
         function broadcastWorldState() {
             if (!gameStarted || isPreMatch) return;
             const now = performance.now();
-            if (now - lastBroadcastTime < 30) return; // 33Hz cap
+            if (now - lastBroadcastTime < 30) return;
             lastBroadcastTime = now;
 
             const packet = {
@@ -1729,7 +1748,6 @@
             holder.add(mesh);
         }
 
-        // Initialize explicit 50 slots & connections AFTER entities functions exist
         initEntitySlots();
         initMultiplayerNetworking();
 
@@ -1787,7 +1805,6 @@
                 if (isHost) {
                     players.forEach(bot => { if (bot) respawnEntity(bot); });
 
-                    // Broadcast match start to all connected client tabs
                     const startPacket = { type: 'MATCH_START', mode: currentMode };
                     if (broadcastChan) broadcastChan.postMessage(startPacket);
                     connectedClients.forEach(c => { try { if (c && c.open) c.send(startPacket); } catch(e){} });
@@ -3126,16 +3143,15 @@
             }
         }
 
+        // --- ROOM-AWARE QUADRANT BOT AI ---
         function updateBots(delta) {
             if (isPreMatch || !gameStarted) return;
 
             const allEntities = entitySlots.filter(e => e && e.health > 0);
 
             players.forEach(bot => {
-                // Skip local human player and active remote network players
                 if (!bot || bot === player || bot.health <= 0 || bot.isNetworkPlayer) return;
 
-                // Ensure bot mesh is visible in local arena space
                 if (bot.mesh && !bot.mesh.visible) bot.mesh.visible = true;
 
                 const b = bot.rig.bones;
@@ -3149,7 +3165,6 @@
                 const currentRoomIdx = getRoomIndex(bot.mesh.position);
                 const isOccupied = isRoomOccupiedByOthers(bot, currentRoomIdx, allEntities);
 
-                // Check room status: Move to another room if empty
                 if (!isOccupied || bot.targetRoom === null) {
                     if (bot.targetRoom === null || currentRoomIdx === bot.targetRoom || bot.mesh.position.distanceTo(getRoomCenter(bot.targetRoom)) < 6.0) {
                         let newRoom = Math.floor(Math.random() * 27);
@@ -3230,7 +3245,6 @@
                     bot.velocity.x = patrolDir.x * moveSpeed;
                     bot.velocity.z = patrolDir.z * moveSpeed;
 
-                    // Jetpack or jump to upper floor target
                     if (bot.patrolTarget.y > bot.mesh.position.y + 2.0) {
                         if (bot.isGrounded && Math.random() < 0.08) {
                             bot.velocity.y = 13;
@@ -3240,7 +3254,6 @@
                         }
                     }
 
-                    // Traverse window/door openings
                     if (bot.isGrounded && Math.random() < 0.04 && (Math.abs(Math.abs(bot.mesh.position.x) - 37.5) < 3.5 || Math.abs(Math.abs(bot.mesh.position.z) - 37.5) < 3.5)) {
                         bot.velocity.y = 11;
                         bot.isGrounded = false;
@@ -3397,7 +3410,6 @@
                     if (b['R_Forearm']) b['R_Forearm'].rotation.x = THREE.MathUtils.lerp(b['R_Forearm'].rotation.x, -0.2, delta * 8);
                 }
 
-                // 80% reduced firing aggression vs other bots
                 const isTargetHuman = (bestTarget === player);
                 const fireChance = isTargetHuman ? 0.025 : 0.005;
 
@@ -3451,7 +3463,7 @@
 
                 updateFacilityMechanics(delta);
                 updatePlayerMovement(delta);
-                checkMobileAutofire(); // Mobile crosshair raycast fire check
+                checkMobileAutofire();
 
                 if (isMouseDown && (document.pointerLockElement === document.body) && !isSpectating && !isRespawning && !isPreMatch) {
                     fireActiveWeapon(player, camera.getWorldDirection(new THREE.Vector3()));
