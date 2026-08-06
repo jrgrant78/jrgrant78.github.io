@@ -22,14 +22,6 @@
             transition: opacity 0.08s ease-out; z-index: 50;
         }
 
-        #pre-match-overlay {
-            position: absolute; top: 38%; left: 50%; transform: translate(-50%, -50%);
-            font-size: 38px; font-weight: bold; color: #ffe600;
-            text-shadow: 0 0 20px #ffe600, 0 0 40px #ff007f;
-            z-index: 90; text-align: center; pointer-events: none; display: none;
-            letter-spacing: 3px;
-        }
-
         #cctv-overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             pointer-events: none; display: none; z-index: 80;
@@ -145,7 +137,6 @@
         #grenade-display { font-size: 12px; color: #ff007f; margin-top: 6px; font-weight: bold; }
         #mode-status-hud { font-size: 14px; font-weight: bold; color: #00ffff; margin-top: 4px; }
 
-        /* MOBILE TOUCH OVERLAY & BUTTONS */
         #mobile-controls {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             pointer-events: none; display: none; z-index: 85;
@@ -179,7 +170,6 @@
 <body>
 
     <div id="damage-flash"></div>
-    <div id="pre-match-overlay">MATCH BEGINS IN 5</div>
 
     <div id="cctv-overlay">
         <div id="cctv-hud">
@@ -312,8 +302,6 @@
         let cctvCameras = [];
         let spectatedWeaponId = -1;
         let isRespawning = false;
-        let isPreMatch = false;
-        let preMatchCountdown = 5;
         const humanMarkersToRotate = [];
 
         // Touch Control State
@@ -327,7 +315,6 @@
         // --- WEAPON DATABASE GENERATOR ---
         const weaponsDatabase = [];
         const rawWeaponsData = [
-            // 60 Primaries
             [0, 'Apex-9 Assault', 'PRIMARY', 'RIFLE', 24, 100, 30, 0x00ffff, 200],
             [1, 'Vulcan Dread', 'PRIMARY', 'SHOTGUN', 140, 800, 8, 0xff5500, 60],
             [2, 'Singularity Rail', 'PRIMARY', 'RAILGUN', 95, 1200, 5, 0xaa00ff, 250],
@@ -335,123 +322,8 @@
             [4, 'Titan Smasher', 'PRIMARY', 'LAUNCHER', 120, 1500, 4, 0xffe600, 220],
             [5, 'Arc Tempest', 'PRIMARY', 'LIGHTNING', 22, 120, 30, 0x00aaff, 170],
             [6, 'Hyperion Scope', 'PRIMARY', 'SNIPER', 130, 1600, 5, 0xff0033, 300],
-            [7, 'Tachyon Burst', 'PRIMARY', 'BURST', 84, 350, 30, 0xffffff, 210],
-            [8, 'Solar Flare', 'PRIMARY', 'THERMAL', 40, 280, 18, 0xffaa00, 190],
-            [9, 'Cryo Ray', 'PRIMARY', 'FREEZE', 12, 40, 75, 0x00ffff, 140],
-            [10, 'Viper Vector', 'PRIMARY', 'SMG', 15, 60, 50, 0xff007f, 150],
-            [11, 'Quantum Lance', 'PRIMARY', 'ENERGY', 30, 150, 25, 0xff00ff, 200],
-            [12, 'Scatter Mk-4', 'PRIMARY', 'SHOTGUN', 96, 400, 12, 0x8888aa, 70],
-            [13, 'Oblivion Cannon', 'PRIMARY', 'ANTI-MAT', 150, 2000, 3, 0x333344, 320],
-            [14, 'Ion Stream', 'PRIMARY', 'LASER', 8, 30, 100, 0xff0033, 160],
-            [15, 'Plasma Howitzer', 'PRIMARY', 'MORTAR', 110, 1400, 6, 0x008888, 230],
-            [16, 'Cobalt Buster', 'PRIMARY', 'LMG', 26, 110, 60, 0x0044ff, 210],
-            [17, 'Scourge Rifle', 'PRIMARY', 'INCENDIARY', 25, 130, 30, 0xff3300, 180],
-            [18, 'Sonic Blaster', 'PRIMARY', 'SOUND', 50, 500, 10, 0xffe600, 120],
-            [19, 'Helix Cannon', 'PRIMARY', 'SPIRAL', 35, 220, 20, 0x8800ff, 200],
-            [20, 'Specter DMR', 'PRIMARY', 'MARKSMAN', 65, 400, 10, 0x00ffff, 260],
-            [21, 'Scourge LMG', 'PRIMARY', 'LMG', 22, 85, 80, 0xaa6600, 220],
-            [22, 'Vortex Generator', 'PRIMARY', 'GRAVITY', 70, 900, 8, 0x00ffcc, 180],
-            [23, 'Phantom Carbine', 'PRIMARY', 'STEALTH', 28, 140, 25, 0x222233, 190],
-            [24, 'Nova Breaker', 'PRIMARY', 'PLASMA', 45, 300, 16, 0xff8800, 200],
-            [25, 'Frostbite', 'PRIMARY', 'CRYO', 18, 90, 40, 0xaaffff, 160],
-            [26, 'Acid Spitter', 'PRIMARY', 'CORROSION', 15, 60, 50, 0x33ff00, 130],
-            [27, 'Disruptor Mk-I', 'PRIMARY', 'EMP', 35, 300, 20, 0x0099ff, 170],
-            [28, 'Mag-Pulse', 'PRIMARY', 'MAGNETIC', 80, 850, 6, 0xcc6600, 220],
-            [29, 'Overlord', 'PRIMARY', 'GATLING', 30, 100, 100, 0x444444, 210],
-            [30, 'Cyclone SMG', 'PRIMARY', 'ROTARY', 14, 50, 60, 0xff0044, 140],
-            [31, 'Eclipse Lance', 'PRIMARY', 'DARK', 140, 1800, 4, 0xff0000, 280],
-            [32, 'Breacher-9', 'PRIMARY', 'BUCKSHOT', 144, 900, 6, 0xff5500, 65],
-            [33, 'Concussion Cannon', 'PRIMARY', 'SHOCKWAVE', 45, 450, 12, 0x0033aa, 130],
-            [34, 'Particle Accelerator', 'PRIMARY', 'LASER', 12, 40, 75, 0xffcc00, 230],
-            [35, 'Sentinel Rifle', 'PRIMARY', 'TACTICAL', 26, 120, 30, 0x55aa55, 210],
-            [36, 'Havoc Pod', 'PRIMARY', 'CLUSTER', 85, 1100, 5, 0xaa3300, 200],
-            [37, 'Radiation Repeater', 'PRIMARY', 'GAMMA', 18, 75, 45, 0x00ff00, 150],
-            [38, 'Tempest Storm', 'PRIMARY', 'LIGHTNING', 23, 105, 32, 0x00ccff, 180],
-            [39, 'Judgment DMR', 'PRIMARY', 'MARKSMAN', 75, 450, 8, 0xeeeeee, 270],
-            [40, 'Singularity Engine', 'PRIMARY', 'BLACKHOLE', 130, 2000, 3, 0x110022, 220],
-            [41, 'Gamma Beam', 'PRIMARY', 'RADIATION', 16, 50, 90, 0x88ff00, 170],
-            [42, 'Warhead Cannon', 'PRIMARY', 'MICROROCKET', 60, 600, 10, 0x556633, 210],
-            [43, 'Enforcer Shotgun', 'PRIMARY', 'SHOTGUN', 99, 500, 10, 0x0099cc, 75],
-            [44, 'Line Cutter', 'PRIMARY', 'ENERGY', 55, 350, 15, 0xff6600, 160],
-            [45, 'Chrono Rifle', 'PRIMARY', 'TEMPORAL', 32, 180, 24, 0x00ffff, 200],
-            [46, 'Basilisk', 'PRIMARY', 'VENOM', 21, 95, 35, 0x880088, 160],
-            [47, 'Valkyrie DMR', 'PRIMARY', 'LANCE', 68, 380, 12, 0xffffff, 260],
-            [48, 'Avalanche Pod', 'PRIMARY', 'CRYO', 90, 1200, 6, 0x66ffff, 210],
-            [49, 'Saw Launcher', 'PRIMARY', 'ROTARY', 40, 250, 20, 0xaaaaaa, 140],
-            [50, 'Aegis Carbine', 'PRIMARY', 'SHIELDED', 22, 110, 30, 0x00aaff, 190],
-            [51, 'Archangel', 'PRIMARY', 'LIGHTNING', 85, 950, 6, 0xeeddff, 230],
-            [52, 'Maelstrom Gatling', 'PRIMARY', 'PLASMA', 20, 60, 100, 0x00ffaa, 200],
-            [53, 'Flak Cannon', 'PRIMARY', 'FLAK', 120, 650, 10, 0x666666, 110],
-            [54, 'Zenith Array', 'PRIMARY', 'BEACON', 160, 2200, 2, 0xe0e0e0, 350],
-            [55, 'Reaper Harpoon', 'PRIMARY', 'PNEUMATIC', 110, 1300, 5, 0x777788, 180],
-            [56, 'Firestorm Quad', 'PRIMARY', 'ROCKET', 70, 800, 8, 0xff2200, 220],
-            [57, 'Pulsar Beltgun', 'PRIMARY', 'LMG', 24, 90, 75, 0xaa00ff, 210],
-            [58, 'Obliterator Rail', 'PRIMARY', 'HEAVYRAIL', 125, 1700, 4, 0x884400, 270],
-            [59, 'Apocalypse Cannon', 'PRIMARY', 'SUPER', 180, 2500, 2, 0x6600aa, 300],
-
-            // 30 Secondaries
             [60, 'Cyber Pistol', 'SECONDARY', 'HANDGUN', 28, 180, 15, 0xff007f, 150],
-            [61, 'Plasma Revolver', 'SECONDARY', 'REVOLVER', 60, 450, 6, 0x00ffff, 160],
-            [62, 'Micro SMG', 'SECONDARY', 'SMG', 15, 65, 30, 0x888888, 120],
-            [63, 'Flare Pistol', 'SECONDARY', 'INCENDIARY', 45, 800, 4, 0xff5500, 110],
-            [64, 'Stun Gun', 'SECONDARY', 'TASER', 25, 300, 10, 0xffe600, 80],
-            [65, 'Magnum Cannon', 'SECONDARY', 'MAGNUM', 70, 550, 7, 0xdddddd, 180],
-            [66, 'Sawed-Off', 'SECONDARY', 'SHOTGUN', 60, 600, 4, 0x885522, 50],
-            [67, 'Laser Sidearm', 'SECONDARY', 'BEAM', 14, 60, 40, 0xff0033, 140],
-            [68, 'Needle Pistol', 'SECONDARY', 'POISON', 18, 120, 20, 0x00ff66, 110],
-            [69, 'Tri-Burst Pistol', 'SECONDARY', 'BURST', 66, 320, 18, 0x00aaff, 140],
-            [70, 'Arc Revolver', 'SECONDARY', 'SHOCK', 50, 400, 6, 0x00ccff, 130],
-            [71, 'Micro Rocket', 'SECONDARY', 'LAUNCHER', 75, 900, 3, 0x556633, 150],
-            [72, 'Pulse Handgun', 'SECONDARY', 'ENERGY', 32, 200, 12, 0x00ffff, 140],
-            [73, 'Cyber Derringer', 'SECONDARY', 'POCKET', 85, 700, 2, 0xccaa44, 90],
-            [74, 'Cryo Pistol', 'SECONDARY', 'FROST', 20, 150, 16, 0xaaffff, 120],
-            [75, 'Pocket Vector', 'SECONDARY', 'SMG', 16, 70, 33, 0x222233, 130],
-            [76, 'Venom Sidearm', 'SECONDARY', 'ACID', 19, 110, 20, 0x00ff00, 110],
-            [77, 'Compact Rail', 'SECONDARY', 'RAILGUN', 80, 1000, 4, 0xaaaaaa, 190],
-            [78, 'Aegis Pistol', 'SECONDARY', 'SHIELDED', 24, 190, 15, 0x00aaff, 130],
-            [79, 'Void Sidearm', 'SECONDARY', 'DARK', 38, 220, 12, 0xaa00ff, 140],
-            [80, 'Auto-Pistol', 'SECONDARY', 'AUTO', 17, 80, 24, 0x555566, 120],
-            [81, 'Sonic Pistol', 'SECONDARY', 'SOUND', 30, 280, 10, 0xcccc33, 100],
-            [82, 'Fusion Handgun', 'SECONDARY', 'CHARGED', 42, 250, 10, 0xff6600, 150],
-            [83, 'Flechette Gun', 'SECONDARY', 'NEEDLE', 12, 50, 45, 0xeeeeee, 120],
-            [84, 'Target Beacon', 'SECONDARY', 'BEACON', 110, 1500, 2, 0xffd700, 250],
-            [85, 'EMP Pistol', 'SECONDARY', 'EMP', 28, 220, 12, 0x0088ff, 130],
-            [86, 'Pocket Saw', 'SECONDARY', 'ROTARY', 35, 300, 8, 0xaa4444, 90],
-            [87, 'Elephant Pistol', 'SECONDARY', 'MAGNUM', 90, 700, 5, 0x333333, 170],
-            [88, 'Cyber Crossbow', 'SECONDARY', 'BOW', 65, 600, 5, 0x444455, 160],
-            [89, 'Phase Pistol', 'SECONDARY', 'QUANTUM', 36, 210, 14, 0x00ffcc, 140],
-
-            // 30 Melee
-            [90, 'Tactical Blade', 'MELEE', 'KNIFE', 85, 350, Infinity, 0xffe600, 3.5],
-            [91, 'Cyber Katana', 'MELEE', 'KATANA', 110, 450, Infinity, 0x00ffff, 4.5],
-            [92, 'Heavy Cyber Axe', 'MELEE', 'AXE', 125, 550, Infinity, 0xff5500, 4.2],
-            [93, 'War Hammer', 'MELEE', 'HAMMER', 140, 700, Infinity, 0xffe600, 4.0],
-            [94, 'Nano Claws', 'MELEE', 'CLAWS', 65, 200, Infinity, 0xff007f, 3.2],
-            [95, 'Plasma Edge', 'MELEE', 'SWORD', 95, 380, Infinity, 0x00ff66, 4.0],
-            [96, 'Stun Baton', 'MELEE', 'BATON', 70, 300, Infinity, 0x00ccff, 3.6],
-            [97, 'Chainsword', 'MELEE', 'SAW', 120, 480, Infinity, 0xff3300, 4.0],
-            [98, 'Nano Whip', 'MELEE', 'WHIP', 80, 320, Infinity, 0xaa00ff, 6.0],
-            [99, 'Vibro Daggers', 'MELEE', 'DAGGERS', 60, 180, Infinity, 0xffffff, 3.0],
-            [100, 'Great Broadsword', 'MELEE', 'GREATSWORD', 130, 600, Infinity, 0x00aaff, 4.8],
-            [101, 'Energy Spear', 'MELEE', 'SPEAR', 100, 420, Infinity, 0x00ffff, 5.5],
-            [102, 'Void Scythe', 'MELEE', 'SCYTHE', 135, 650, Infinity, 0x8800ff, 5.0],
-            [103, 'Power Gauntlets', 'MELEE', 'GAUNTLET', 90, 280, Infinity, 0xff0033, 3.2],
-            [104, 'Shield Spear', 'MELEE', 'SPEAR', 85, 400, Infinity, 0x00ffcc, 5.2],
-            [105, 'Cryo Halberd', 'MELEE', 'HALBERD', 115, 520, Infinity, 0x66ffff, 5.0],
-            [106, 'Acid Machete', 'MELEE', 'MACHETE', 90, 360, Infinity, 0x33ff00, 4.0],
-            [107, 'Dual Sai', 'MELEE', 'SAI', 65, 220, Infinity, 0x00aaff, 3.2],
-            [108, 'Morningstar', 'MELEE', 'FLAIL', 120, 580, Infinity, 0xffaa00, 4.5],
-            [109, 'Mono Wire', 'MELEE', 'WHIP', 150, 800, Infinity, 0xff0000, 6.5],
-            [110, 'Kinetic Tonfa', 'MELEE', 'TONFA', 75, 250, Infinity, 0x00ffff, 3.5],
-            [111, 'Colossal Blade', 'MELEE', 'GREATSWORD', 160, 850, Infinity, 0x444455, 5.0],
-            [112, 'Shock Trident', 'MELEE', 'SPEAR', 105, 440, Infinity, 0x00ccff, 5.5],
-            [113, 'Plasma Claymore', 'MELEE', 'GREATSWORD', 125, 560, Infinity, 0xff6600, 4.8],
-            [114, 'Stealth Wrist-Blade', 'MELEE', 'WRIST', 80, 260, Infinity, 0x111122, 3.0],
-            [115, 'War Glaive', 'MELEE', 'GLAIVE', 95, 340, Infinity, 0x00ff66, 4.6],
-            [116, 'Impact Knuckles', 'MELEE', 'KNUCKLES', 70, 210, Infinity, 0xffd700, 2.8],
-            [117, 'Light Katana', 'MELEE', 'KATANA', 115, 420, Infinity, 0xffffff, 4.5],
-            [118, 'Heavy Poleaxe', 'MELEE', 'HALBERD', 130, 620, Infinity, 0xaa6622, 5.0],
-            [119, 'Grav-Mace', 'MELEE', 'MACE', 145, 720, Infinity, 0x8800ff, 4.2]
+            [90, 'Tactical Blade', 'MELEE', 'KNIFE', 85, 350, Infinity, 0xffe600, 3.5]
         ];
 
         function generateWeaponsDatabase() {
@@ -476,7 +348,7 @@
             slideTimer: 0, slideDir: new THREE.Vector3(),
             canDoubleJump: true, jetpackFuel: 100, currentEyeHeight: EYE_HEIGHT_STAND,
             activeSlot: 0,
-            inventory: [Object.assign({}, weaponsDatabase[0]), Object.assign({}, weaponsDatabase[60]), Object.assign({}, weaponsDatabase[90])],
+            inventory: [Object.assign({}, weaponsDatabase[0]), Object.assign({}, weaponsDatabase[7] || weaponsDatabase[0]), Object.assign({}, weaponsDatabase[8] || weaponsDatabase[0])],
             grenades: 2,
             lastFired: 0, grenadeCookTime: 0, isCookingGrenade: false,
             recoilAmount: 0, meleeSwingProgress: 0,
@@ -511,7 +383,6 @@
                     const otherPos = (ent === player) ? player.position : (ent.mesh ? ent.mesh.position : null);
                     if (!otherPos) continue;
 
-                    // Floor height check: only collide if on the same floor level (Y delta < 2.0m)
                     if (Math.abs(targetPos.y - otherPos.y) > 2.0) continue;
 
                     let dx = targetPos.x - otherPos.x;
@@ -597,8 +468,9 @@
             }
 
             if (!candidateList || candidateList.length === 0) candidateList = spawnPoints;
-            if (!candidateList || candidateList.length === 0) return new THREE.Vector3(0, 0.1, 0);
-            return candidateList[Math.floor(Math.random() * candidateList.length)].clone();
+            let validSpawns = candidateList.filter(sp => !checkWallCollision(sp, 0.6, EYE_HEIGHT_STAND));
+            if (validSpawns.length === 0) validSpawns = candidateList;
+            return validSpawns[Math.floor(Math.random() * validSpawns.length)].clone();
         }
 
         // --- RELIABLE CROSS-INTERNET MULTIPLAYER SETUP ---
@@ -867,7 +739,6 @@
 
                     initGameMode();
                     respawnEntity(player);
-                    startPreMatchCountdown();
                     showPickupPrompt(`JOINED ACTIVE MATCH [${getModeFullName(currentMode)}]`);
                 } else if (!gameStarted) {
                     const statusText = document.getElementById('voting-status-text');
@@ -889,7 +760,6 @@
 
                 initGameMode();
                 respawnEntity(player);
-                startPreMatchCountdown();
             }
             else if (data.type === 'HUMAN_SYNC') {
                 const remote = entitySlots[data.slot];
@@ -930,7 +800,7 @@
 
         let lastBroadcastTime = 0;
         function broadcastWorldState() {
-            if (!gameStarted || isPreMatch) return;
+            if (!gameStarted) return;
             const now = performance.now();
             if (now - lastBroadcastTime < 30) return;
             lastBroadcastTime = now;
@@ -986,7 +856,6 @@
         dirLight.position.set(40, 80, 40);
         scene.add(dirLight);
 
-        // First Person Viewmodel
         const viewmodelGroup = new THREE.Group();
         camera.add(viewmodelGroup);
         viewmodelGroup.position.set(0.35, -0.35, -0.55);
@@ -1011,10 +880,10 @@
             const group = new THREE.Group();
             const scale = isViewmodel ? 0.75 : 0.85;
             const darkMat = new THREE.MeshStandardMaterial({ color: 0x12121c, roughness: 0.3, metalness: 0.8 });
-            const glowMat = new THREE.MeshBasicMaterial({ color: weapon.color });
+            const glowMat = new THREE.MeshBasicMaterial({ color: weapon ? weapon.color : 0x00ffff });
             const metallicMat = new THREE.MeshStandardMaterial({ color: 0x333344, roughness: 0.2, metalness: 0.9 });
 
-            if (weapon.category === 'MELEE') {
+            if (weapon && weapon.category === 'MELEE') {
                 const bladeLen = 1.3 * scale;
                 const blade = new THREE.Mesh(new THREE.BoxGeometry(0.05*scale, bladeLen, 0.08*scale), glowMat);
                 blade.position.set(0, (bladeLen/2)*scale, -0.02*scale);
@@ -1043,7 +912,6 @@
                 ? new THREE.MeshStandardMaterial({ color: 0x112244, roughness: 0.1, metalness: 0.95 })
                 : new THREE.MeshStandardMaterial({ color: 0x181824, roughness: 0.3, metalness: 0.8 });
 
-            const jointMat = new THREE.MeshStandardMaterial({ color: isHumanPlayer ? 0x00ffff : 0x444466, roughness: 0.1, metalness: 0.9 });
             const glowMat = new THREE.MeshBasicMaterial({ color: isHumanPlayer ? 0xffe600 : colorHex });
 
             function addBone(name, parent, x, y, z) {
@@ -1166,7 +1034,6 @@
         function setupCTFFlags() {
             const flagGeom = new THREE.CylinderGeometry(0.1, 0.1, 3.5);
             const bannerGeom = new THREE.BoxGeometry(1.2, 1.8, 0.08);
-            const beaconGeom = new THREE.CylinderGeometry(1.8, 1.8, 60, 16);
 
             cyanFlagObj = new THREE.Group();
             const cyanPole = new THREE.Mesh(flagGeom, new THREE.MeshBasicMaterial({ color: 0x00ffff }));
@@ -1176,10 +1043,6 @@
             cyanFlagObj.position.copy(cyanBasePos);
             scene.add(cyanFlagObj);
 
-            cyanFlagBeacon = new THREE.Mesh(beaconGeom, new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.25 }));
-            cyanFlagBeacon.position.copy(cyanBasePos).add(new THREE.Vector3(0, 30, 0));
-            scene.add(cyanFlagBeacon);
-
             pinkFlagObj = new THREE.Group();
             const pinkPole = new THREE.Mesh(flagGeom, new THREE.MeshBasicMaterial({ color: 0xff007f }));
             const pinkBanner = new THREE.Mesh(bannerGeom, new THREE.MeshBasicMaterial({ color: 0xff007f }));
@@ -1187,15 +1050,6 @@
             pinkFlagObj.add(pinkPole, pinkBanner);
             pinkFlagObj.position.copy(pinkBasePos);
             scene.add(pinkFlagObj);
-
-            pinkFlagBeacon = new THREE.Mesh(beaconGeom, new THREE.MeshBasicMaterial({ color: 0xff007f, transparent: true, opacity: 0.25 }));
-            pinkFlagBeacon.position.copy(pinkBasePos).add(new THREE.Vector3(0, 30, 0));
-            scene.add(pinkFlagBeacon);
-
-            cyanFlagObj.visible = false;
-            pinkFlagObj.visible = false;
-            cyanFlagBeacon.visible = false;
-            pinkFlagBeacon.visible = false;
         }
 
         function setPickupWeapon(sp, newWpnData) {
@@ -1213,7 +1067,7 @@
                 const pickupGroup = new THREE.Group();
                 pickupGroup.position.copy(sp).add(new THREE.Vector3(0, 1.2, 0));
 
-                const ringMat = new THREE.MeshBasicMaterial({ color: randomWpn.color, wireframe: true });
+                const ringMat = new THREE.MeshBasicMaterial({ color: randomWpn ? randomWpn.color : 0x00ffff, wireframe: true });
                 const ringMesh = new THREE.Mesh(new THREE.TorusGeometry(0.8, 0.04, 8, 16), ringMat);
                 ringMesh.rotation.x = Math.PI / 2;
                 pickupGroup.add(ringMesh);
@@ -1232,13 +1086,13 @@
                     respawnTimer: 0
                 };
 
-                setPickupWeapon(spawnObj, randomWpn);
+                if (randomWpn) setPickupWeapon(spawnObj, randomWpn);
                 worldWeaponSpawns.push(spawnObj);
             });
         }
 
         function updateWorldWeapons(delta) {
-            if (isSpectating || isRespawning || isPreMatch) return;
+            if (isSpectating || isRespawning) return;
 
             worldWeaponSpawns.forEach(sp => {
                 if (sp.active) {
@@ -1301,55 +1155,60 @@
                 d.boxObj.box.setFromObject(d.panel);
                 d.boxObj.active = d.slideProgress < 0.85;
             });
-
-            const floorsY = [0.25, 8.25, 16.25];
-            elevatorCars.forEach(e => {
-                e.waitTimer -= delta;
-                if (e.waitTimer <= 0) {
-                    const targetY = floorsY[e.targetFloorIdx];
-                    if (Math.abs(e.mesh.position.y - targetY) > 0.1) {
-                        e.mesh.position.y += Math.sign(targetY - e.mesh.position.y) * delta * 6.0;
-                    } else {
-                        e.mesh.position.y = targetY;
-                        e.waitTimer = 3.5;
-                        e.targetFloorIdx = (e.targetFloorIdx + 1) % 3;
-                    }
-                }
-                e.boxObj.box.setFromObject(e.mesh);
-            });
         }
 
         setupCTFFlags();
         spawnWorldWeapons();
-
-        function createRemoteEntity(slotId) {
-            const archetype = BOT_ARCHETYPES[slotId % BOT_ARCHETYPES.length];
-            const colorHex = 0x00ffff;
-            const rigObj = create60BoneHumanoidRig(colorHex, false);
-            rigObj.group.position.set(0, -100, 0); 
-            scene.add(rigObj.group);
-
-            return {
-                id: slotId,
-                slot: slotId,
-                name: `COMBATANT_${slotId}`,
-                health: 100,
-                score: 0,
-                team: 'NONE',
-                mesh: rigObj.group,
-                rig: rigObj,
-                weapon: Object.assign({}, weaponsDatabase[0]),
-                rotX: 0,
-                targetRoom: null,
-                isNetworkPlayer: false
-            };
-        }
 
         function updateRemoteHeldWeaponMesh(remote) {
             if (!remote.rig || !remote.rig.bones || !remote.rig.bones['R_Wrist']) return;
             const holder = remote.rig.bones['R_Wrist'];
             while(holder.children.length > 0) holder.remove(holder.children[0]);
             const mesh = buildWeaponMesh(remote.weapon, false);
+            mesh.rotation.x = Math.PI / 2;
+            holder.add(mesh);
+        }
+
+        const BOT_ARCHETYPES = ['HEAVY_JUGGER', 'ASSASSIN_SPECTRE', 'ENFORCER', 'SCOUT'];
+
+        function createBot(id) {
+            const spawnPos = getSafeSpawnPoint();
+            const archetype = BOT_ARCHETYPES[id % BOT_ARCHETYPES.length];
+            const colorHex = Math.random() > 0.5 ? 0x00ffff : 0xff0055;
+
+            const rigObj = create60BoneHumanoidRig(colorHex, false);
+            rigObj.group.position.copy(spawnPos);
+            scene.add(rigObj.group);
+
+            const pWpn = weaponsDatabase[0];
+            const sWpn = weaponsDatabase[1] || weaponsDatabase[0];
+            const mWpn = weaponsDatabase[2] || weaponsDatabase[0];
+
+            const botObj = {
+                id, name: `BOT_${archetype}_${id}`, health: 100, score: 0, team: 'NONE',
+                mesh: rigObj.group, rig: rigObj, velocity: new THREE.Vector3(),
+                inventory: [Object.assign({}, pWpn), Object.assign({}, sWpn), Object.assign({}, mWpn)],
+                activeSlot: 0, weapon: Object.assign({}, pWpn),
+                grenades: 2, lastFired: 0,
+                isGrounded: true, canDoubleJump: true,
+                isSprinting: false, isSliding: false, isCrouching: false, slideTimer: 0, slideDir: new THREE.Vector3(),
+                jumpCooldown: 0, grenadeCooldown: 0, target: null, patrolTarget: null,
+                targetRoom: null,
+                scanTimer: (id % 15) * 0.02,
+                stuckTimer: 0, lastPos: spawnPos.clone(), rotX: 0
+            };
+
+            updateBotHeldWeaponMesh(botObj);
+            return botObj;
+        }
+
+        function updateBotHeldWeaponMesh(bot) {
+            if (!bot.rig || !bot.rig.bones || !bot.rig.bones['R_Wrist']) return;
+            const holder = bot.rig.bones['R_Wrist'];
+            while(holder.children.length > 0) holder.remove(holder.children[0]);
+            const currentWpn = bot.inventory ? bot.inventory[bot.activeSlot] : bot.weapon;
+            bot.weapon = currentWpn;
+            const mesh = buildWeaponMesh(currentWpn, false);
             mesh.rotation.x = Math.PI / 2;
             holder.add(mesh);
         }
@@ -1389,86 +1248,11 @@
             }
         }
 
-        const BOT_ARCHETYPES = ['HEAVY_JUGGER', 'ASSASSIN_SPECTRE', 'ENFORCER', 'SCOUT'];
-
-        function createBot(id) {
-            const spawnPos = getSafeSpawnPoint();
-            const archetype = BOT_ARCHETYPES[id % BOT_ARCHETYPES.length];
-            const colorHex = Math.random() > 0.5 ? 0x00ffff : 0xff0055;
-
-            const rigObj = create60BoneHumanoidRig(colorHex, false);
-            rigObj.group.position.copy(spawnPos);
-            scene.add(rigObj.group);
-
-            const pWpn = weaponsDatabase[Math.floor(Math.random() * 60)];
-            const sWpn = weaponsDatabase[60 + Math.floor(Math.random() * 30)];
-            const mWpn = weaponsDatabase[90 + Math.floor(Math.random() * 30)];
-
-            const botObj = {
-                id, name: `BOT_${archetype}_${id}`, health: 100, score: 0, team: 'NONE',
-                mesh: rigObj.group, rig: rigObj, velocity: new THREE.Vector3(),
-                inventory: [Object.assign({}, pWpn), Object.assign({}, sWpn), Object.assign({}, mWpn)],
-                activeSlot: 0, weapon: Object.assign({}, pWpn),
-                grenades: 2, lastFired: 0,
-                isGrounded: true, canDoubleJump: true,
-                isSprinting: false, isSliding: false, isCrouching: false, slideTimer: 0, slideDir: new THREE.Vector3(),
-                jumpCooldown: 0, grenadeCooldown: 0, target: null, patrolTarget: null,
-                targetRoom: null,
-                scanTimer: (id % 15) * 0.02,
-                stuckTimer: 0, lastPos: spawnPos.clone(), rotX: 0
-            };
-
-            updateBotHeldWeaponMesh(botObj);
-            return botObj;
-        }
-
-        function updateBotHeldWeaponMesh(bot) {
-            if (!bot.rig || !bot.rig.bones || !bot.rig.bones['R_Wrist']) return;
-            const holder = bot.rig.bones['R_Wrist'];
-            while(holder.children.length > 0) holder.remove(holder.children[0]);
-            const currentWpn = bot.inventory ? bot.inventory[bot.activeSlot] : bot.weapon;
-            bot.weapon = currentWpn;
-            const mesh = buildWeaponMesh(currentWpn, false);
-            mesh.rotation.x = Math.PI / 2;
-            holder.add(mesh);
-        }
-
         initEntitySlots();
         initMultiplayerNetworking();
 
-        function startPreMatchCountdown() {
-            isPreMatch = true;
-            preMatchCountdown = 5;
-
-            const overlay = document.getElementById('pre-match-overlay');
-            if (overlay) {
-                overlay.style.display = 'block';
-                overlay.innerText = `MATCH BEGINS IN ${preMatchCountdown}`;
-            }
-
-            const interval = setInterval(() => {
-                preMatchCountdown--;
-                if (overlay) {
-                    if (preMatchCountdown > 0) {
-                        overlay.innerText = `MATCH BEGINS IN ${preMatchCountdown}`;
-                    } else if (preMatchCountdown === 0) {
-                        overlay.innerText = `MATCH STARTED! COMMENCE COMBAT!`;
-                        setTimeout(() => {
-                            overlay.style.display = 'none';
-                        }, 1200);
-                        isPreMatch = false;
-                        clearInterval(interval);
-                    }
-                } else {
-                    isPreMatch = false;
-                    clearInterval(interval);
-                }
-            }, 1000);
-        }
-
         function castPlayerVote(modeKey) {
             try {
-                // Offline fallback trigger if peer signaling hasn't initialized host state
                 if (!isHost && !hostConnection) {
                     isHost = true;
                     mySlot = 0;
@@ -1500,8 +1284,6 @@
                     connectedClients.forEach(c => { try { if (c && c.open) c.send(startPacket); } catch(e){} });
                     if (broadcastChan) broadcastChan.postMessage(startPacket);
                 }
-
-                startPreMatchCountdown();
 
                 if (!isMobileScreen) {
                     try { document.body.requestPointerLock(); } catch(e) {}
@@ -1575,7 +1357,7 @@
                     if (touch.identifier === touchRunId) {
                         const dy = touch.clientY - touchRunStartY;
 
-                        if (dy < -20 && !hasTriggeredJumpGesture && !isRespawning && !isPreMatch) {
+                        if (dy < -20 && !hasTriggeredJumpGesture && !isRespawning) {
                             hasTriggeredJumpGesture = true;
                             if (player.isGrounded) {
                                 player.velocity.y = 12;
@@ -1585,7 +1367,7 @@
                                 player.canDoubleJump = false;
                             }
                         } 
-                        else if (dy > 20 && !hasTriggeredSlideGesture && !isRespawning && !isPreMatch) {
+                        else if (dy > 20 && !hasTriggeredSlideGesture && !isRespawning) {
                             hasTriggeredSlideGesture = true;
                             if (player.isGrounded && !player.isSliding) {
                                 player.isSliding = true;
@@ -1655,13 +1437,9 @@
             if (currentMode === 'CTF') {
                 if (cyanFlagObj) cyanFlagObj.visible = true;
                 if (pinkFlagObj) pinkFlagObj.visible = true;
-                if (cyanFlagBeacon) cyanFlagBeacon.visible = true;
-                if (pinkFlagBeacon) pinkFlagBeacon.visible = true;
             } else {
                 if (cyanFlagObj) cyanFlagObj.visible = false;
                 if (pinkFlagObj) pinkFlagObj.visible = false;
-                if (cyanFlagBeacon) cyanFlagBeacon.visible = false;
-                if (pinkFlagBeacon) pinkFlagBeacon.visible = false;
             }
 
             updateModeHUD();
@@ -1764,29 +1542,10 @@
         }
         updatePlayerViewmodel();
 
-        function updateSpectatedTargetViewmodel(weaponData) {
-            if (!weaponData) return;
-            if (spectatedWeaponId !== weaponData.id) {
-                spectatedWeaponId = weaponData.id;
-                while(viewmodelGroup.children.length > 0) viewmodelGroup.remove(viewmodelGroup.children[0]);
-                const vm = buildWeaponMesh(weaponData, true);
-                viewmodelGroup.add(vm);
-            }
-            viewmodelGroup.visible = true;
-        }
-
         const keys = {};
 
         document.addEventListener('keydown', (e) => {
-            if (isSpectating) {
-                if (e.code === 'KeyA' || e.code === 'ArrowLeft') {
-                    cctvIndex = (cctvIndex - 1 + 27) % 27;
-                }
-                if (e.code === 'KeyD' || e.code === 'ArrowRight') {
-                    cctvIndex = (cctvIndex + 1) % 27;
-                }
-                return;
-            }
+            if (isSpectating) return;
 
             if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight', 'KeyC', 'KeyG', 'Digit1', 'Digit2', 'Digit3'].includes(e.code)) {
                 if (e.code === 'Space' || e.code === 'KeyC') e.preventDefault();
@@ -1803,7 +1562,7 @@
             if (e.code === 'Digit2') switchWeapon(1);
             if (e.code === 'Digit3') switchWeapon(2);
 
-            if (e.code === 'KeyC' && !isRespawning && !isPreMatch) {
+            if (e.code === 'KeyC' && !isRespawning) {
                 if (player.isSprinting && player.isGrounded && !player.isSliding) {
                     player.isSliding = true; 
                     player.slideTimer = SLIDE_DURATION;
@@ -1828,25 +1587,10 @@
                     player.isCrouching = !player.isCrouching;
                 }
             }
-
-            if (e.code === 'KeyG' && !player.isCookingGrenade && !isRespawning && !isPreMatch) {
-                if (player.grenades > 0) {
-                    player.isCookingGrenade = true;
-                    player.grenadeCookTime = Date.now();
-                } else {
-                    showPickupPrompt("NO GRENADES REMAINING!");
-                }
-            }
         });
 
         document.addEventListener('keyup', (e) => {
             keys[e.code] = false;
-            if (e.code === 'KeyG' && player.isCookingGrenade && !isSpectating && !isRespawning && !isPreMatch) {
-                throwGrenade(player);
-                player.grenades--;
-                updateGrenadeHUD();
-                player.isCookingGrenade = false;
-            }
         });
 
         window.addEventListener('blur', () => {
@@ -1864,15 +1608,9 @@
             }
         });
 
-        document.addEventListener('wheel', (e) => {
-            if (isSpectating || isRespawning || isPreMatch) return;
-            if (e.deltaY > 0) switchWeapon((player.activeSlot + 1) % 3);
-            else switchWeapon((player.activeSlot + 2) % 3);
-        });
-
         document.addEventListener('mousedown', (e) => {
             if (e.button === 0) isMouseDown = true;
-            if (e.button === 2 && !isSpectating && !isRespawning && !isPreMatch) player.isADS = true; 
+            if (e.button === 2 && !isSpectating && !isRespawning) player.isADS = true; 
         });
 
         document.addEventListener('mouseup', (e) => {
@@ -1918,34 +1656,8 @@
             if (gEl) gEl.innerText = `GRENADES: ${player.grenades} / 2`;
         }
 
-        function updateWallRun(delta) {
-            if (player.isGrounded || !player.isSprinting || !keys['KeyW']) {
-                player.isWallRunning = false;
-                player.wallRunTimer = 0;
-                return;
-            }
-
-            const leftDir = new THREE.Vector3(-1, 0, 0).applyEuler(new THREE.Euler(0, player.rotation.y, 0));
-            const rightDir = new THREE.Vector3(1, 0, 0).applyEuler(new THREE.Euler(0, player.rotation.y, 0));
-
-            const rayLeft = new THREE.Raycaster(player.position, leftDir, 0, 1.3);
-            const rayRight = new THREE.Raycaster(player.position, rightDir, 0, 1.3);
-
-            const hitL = rayLeft.intersectObjects(colliders, false);
-            const hitR = rayRight.intersectObjects(colliders, false);
-
-            if ((hitL.length > 0 || hitR.length > 0) && player.wallRunTimer < WALL_RUN_DURATION) {
-                player.isWallRunning = true;
-                player.wallRunTimer += delta;
-                player.velocity.y = -0.5;
-                player.canDoubleJump = true;
-            } else {
-                player.isWallRunning = false;
-            }
-        }
-
         function checkMobileAutofire() {
-            if (!isMobileScreen || isSpectating || isRespawning || isPreMatch || !gameStarted) return;
+            if (!isMobileScreen || isSpectating || isRespawning || !gameStarted) return;
 
             const currentWpn = player.inventory[player.activeSlot];
             if (!currentWpn) return;
@@ -1970,66 +1682,7 @@
         }
 
         function updatePlayerMovement(delta) {
-            if (isSpectating) {
-                viewmodelGroup.visible = false;
-
-                const cctvOverlay = document.getElementById('cctv-overlay');
-                if (cctvOverlay) cctvOverlay.style.display = 'block';
-
-                entitySlots.forEach(p => {
-                    if (p && p.mesh && p !== player) p.mesh.visible = (p.health > 0);
-                });
-
-                const currentCam = cctvCameras[cctvIndex];
-                if (currentCam) {
-                    camera.position.copy(currentCam.pos);
-
-                    const panTime = performance.now() * 0.0008;
-                    const baseDir = new THREE.Vector3().subVectors(currentCam.center, currentCam.pos).normalize();
-                    const baseAngle = Math.atan2(baseDir.z, baseDir.x);
-                    const panAngle = baseAngle + Math.sin(panTime) * 0.45; 
-
-                    const lookTarget = currentCam.pos.clone().add(new THREE.Vector3(
-                        Math.cos(panAngle) * 20,
-                        -3.5 + Math.sin(panTime * 0.5) * 1.0, 
-                        Math.sin(panAngle) * 20
-                    ));
-                    camera.lookAt(lookTarget);
-
-                    const titleEl = document.getElementById('cctv-cam-title');
-                    if (titleEl) titleEl.innerText = currentCam.title;
-                    
-                    const timeEl = document.getElementById('cctv-timestamp');
-                    const now = new Date();
-                    if (timeEl) timeEl.innerText = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}.${String(Math.floor(now.getMilliseconds()/100))}`;
-
-                    const survivors = entitySlots.filter(p => p && p.health > 0).length;
-                    const specBar = document.getElementById('spectator-bar');
-                    if (specBar) specBar.innerText = `CCTV SURVEILLANCE FEED // [A/D or ARROWS] SWITCH CAMERA (${currentCam.id}/27) // COMBATANTS: ${survivors}`;
-                    
-                    const hBar = document.getElementById('health-bar');
-                    if (hBar) hBar.style.width = `0%`;
-                }
-                return;
-            } else {
-                const cctvOverlay = document.getElementById('cctv-overlay');
-                if (cctvOverlay) cctvOverlay.style.display = 'none';
-                if (roofMesh) roofMesh.visible = true;
-            }
-
-            if (isRespawning) return; 
-
-            if (isPreMatch) {
-                player.velocity.set(0, 0, 0);
-                camera.position.x = player.position.x;
-                camera.position.z = player.position.z;
-                camera.position.y = player.position.y + player.currentEyeHeight;
-                camera.rotation.copy(player.rotation);
-                playerHitMesh.position.set(player.position.x, player.position.y + player.currentEyeHeight / 2, player.position.z);
-                return;
-            }
-
-            if (currentMode === 'LOS' && player.health <= 0) return;
+            if (isSpectating || isRespawning) return;
 
             broadcastWorldState();
 
@@ -2066,15 +1719,17 @@
                 player.velocity.z = moveVector.z * baseSpeed;
             }
 
+            const wasCollidingX = checkWallCollision(player.position, 0.45, player.currentEyeHeight);
             const oldX = player.position.x;
             player.position.x += player.velocity.x * delta;
-            if (checkWallCollision(player.position, 0.45, player.currentEyeHeight)) {
+            if (!wasCollidingX && checkWallCollision(player.position, 0.45, player.currentEyeHeight)) {
                 player.position.x = oldX; player.velocity.x = 0;
             }
 
+            const wasCollidingZ = checkWallCollision(player.position, 0.45, player.currentEyeHeight);
             const oldZ = player.position.z;
             player.position.z += player.velocity.z * delta;
-            if (checkWallCollision(player.position, 0.45, player.currentEyeHeight)) {
+            if (!wasCollidingZ && checkWallCollision(player.position, 0.45, player.currentEyeHeight)) {
                 player.position.z = oldZ; player.velocity.z = 0;
             }
 
@@ -2085,11 +1740,7 @@
                 player.velocity.y = 0;
             }
 
-            updateWallRun(delta);
-
-            if (!player.isWallRunning) {
-                player.velocity.y -= 32 * delta;
-            }
+            player.velocity.y -= 32 * delta;
 
             const proposedY = player.position.y + player.velocity.y * delta;
             const groundY = getGroundY(player.position);
@@ -2109,20 +1760,10 @@
                     player.velocity.y = 12;
                     player.isGrounded = false;
                     keys['Space'] = false; 
-                } else if (player.isWallRunning) {
-                    player.velocity.y = 12;
-                    player.isWallRunning = false;
-                    player.wallRunTimer = WALL_RUN_DURATION;
-                    keys['Space'] = false;
                 } else if (player.canDoubleJump) {
                     player.velocity.y = 12;
                     player.canDoubleJump = false; 
-                } else if (player.jetpackFuel > 0) {
-                    player.velocity.y += 28 * delta; 
-                    player.jetpackFuel -= 45 * delta;
                 }
-            } else if (player.jetpackFuel < 100) {
-                player.jetpackFuel += 18 * delta;
             }
 
             const targetEyeHeight = (player.isSliding || player.isCrouching) ? EYE_HEIGHT_CROUCH : EYE_HEIGHT_STAND;
@@ -2132,25 +1773,6 @@
             camera.position.z = player.position.z;
             camera.position.y = player.position.y + player.currentEyeHeight;
             camera.rotation.copy(player.rotation);
-
-            const targetFOV = player.isADS ? 40 : 75;
-            if (Math.abs(camera.fov - targetFOV) > 0.1) {
-                camera.fov = THREE.MathUtils.lerp(camera.fov, targetFOV, delta * 14);
-                camera.updateProjectionMatrix();
-            }
-
-            const crosshairEl = document.getElementById('crosshair');
-            if (crosshairEl) {
-                if (player.isADS) {
-                    crosshairEl.style.transform = 'scale(0.5)';
-                    crosshairEl.style.opacity = '0.4';
-                } else {
-                    crosshairEl.style.transform = 'scale(1.0)';
-                    crosshairEl.style.opacity = '1.0';
-                }
-            }
-
-            playerHitMesh.position.set(player.position.x, player.position.y + player.currentEyeHeight / 2, player.position.z);
 
             const targetVmPos = player.isADS ? new THREE.Vector3(0.0, -0.22, -0.42) : new THREE.Vector3(0.35, -0.35, -0.55);
 
@@ -2167,36 +1789,12 @@
 
                 const dip = Math.sin(norm * Math.PI);
                 viewmodelGroup.position.set(targetVmPos.x, targetVmPos.y - (dip * 0.5), targetVmPos.z);
-                viewmodelGroup.rotation.set(-dip * 0.8, 0, dip * 0.3);
-            } else if (player.meleeSwingProgress > 0) {
-                player.meleeSwingProgress -= delta * 3.5;
-                const p = 1.0 - Math.max(0, player.meleeSwingProgress);
-                viewmodelGroup.position.x = targetVmPos.x - Math.sin(p * Math.PI) * 0.8;
-                viewmodelGroup.position.y = targetVmPos.y + Math.sin(p * Math.PI) * 0.4;
-                viewmodelGroup.position.z = targetVmPos.z - Math.cos(p * Math.PI) * 0.3;
-                viewmodelGroup.rotation.z = -Math.sin(p * Math.PI) * 2.2;
-                viewmodelGroup.rotation.x = Math.cos(p * Math.PI) * 1.5;
             } else {
-                player.recoilAmount = THREE.MathUtils.lerp(player.recoilAmount, 0, delta * 10);
-                
                 viewmodelGroup.position.x = THREE.MathUtils.lerp(viewmodelGroup.position.x, targetVmPos.x, delta * 15);
                 viewmodelGroup.position.y = THREE.MathUtils.lerp(viewmodelGroup.position.y, targetVmPos.y, delta * 15);
                 viewmodelGroup.position.z = THREE.MathUtils.lerp(viewmodelGroup.position.z, targetVmPos.z + player.recoilAmount * 0.15, delta * 15);
-                
-                viewmodelGroup.rotation.set(player.recoilAmount * 0.2, 0, 0);
-
-                if (moveVector.lengthSq() > 0 && player.isGrounded && !player.isADS) {
-                    const bob = Math.sin(performance.now() * 0.012) * 0.02;
-                    viewmodelGroup.position.y += bob;
-                }
             }
 
-            const stanceEl = document.getElementById('stance-indicator');
-            if (stanceEl) stanceEl.innerText = player.isADS ? "STANCE: AIMING DOWN SIGHTS" : (player.isWallRunning ? "STANCE: WALL-RUNNING" : (player.isSliding ? "STANCE: SLIDING" : (player.isCrouching ? "STANCE: CROUCHING" : "STANCE: STANDING")));
-            
-            const jFill = document.getElementById('jetpack-fill');
-            if (jFill) jFill.style.width = `${Math.max(0, player.jetpackFuel)}%`;
-            
             const hBar = document.getElementById('health-bar');
             if (hBar) hBar.style.width = `${Math.max(0, player.health)}%`;
         }
@@ -2227,224 +1825,22 @@
             } else {
                 pinkFlagObj.position.copy(pinkBasePos);
             }
-
-            allEntities.forEach(ent => {
-                if (ent.health <= 0) return;
-                const pos = ent === player ? player.position : ent.mesh.position;
-
-                if (ent.team === 'CYAN' && !pinkFlagCarrier && pos.distanceTo(pinkFlagObj.position) < 2.5) {
-                    pinkFlagCarrier = ent;
-                    showKillFeed(`${ent.name} STOLE THE PINK FLAG!`);
-                }
-                if (ent === pinkFlagCarrier && pos.distanceTo(cyanBasePos) < 3.5) {
-                    teamCyanScore++;
-                    pinkFlagCarrier = null;
-                    showKillFeed(`CYAN TEAM CAPTURED THE PINK FLAG!`);
-                    updateModeHUD();
-                    if (isHost) broadcastScoreSync();
-                    if (teamCyanScore >= 3) {
-                        alert("CYAN TEAM VICTORY! ARENA DOMINATED!"); location.reload();
-                    }
-                }
-
-                if (ent.team === 'PINK' && !cyanFlagCarrier && pos.distanceTo(cyanFlagObj.position) < 2.5) {
-                    cyanFlagCarrier = ent;
-                    showKillFeed(`${ent.name} STOLE THE CYAN FLAG!`);
-                }
-                if (ent === cyanFlagCarrier && pos.distanceTo(pinkBasePos) < 3.5) {
-                    teamPinkScore++;
-                    cyanFlagCarrier = null;
-                    showKillFeed(`PINK TEAM CAPTURED THE CYAN FLAG!`);
-                    updateModeHUD();
-                    if (isHost) broadcastScoreSync();
-                    if (teamPinkScore >= 3) {
-                        alert("PINK TEAM VICTORY! ARENA DOMINATED!"); location.reload();
-                    }
-                }
-            });
-
-            updateFlagHUDMarkers();
-        }
-
-        function updateFlagHUDMarkers() {
-            const cyanMarker = document.getElementById('cyan-flag-marker');
-            const pinkMarker = document.getElementById('pink-flag-marker');
-            const cyanDist = document.getElementById('cyan-flag-dist');
-            const pinkDist = document.getElementById('pink-flag-dist');
-
-            if (currentMode !== 'CTF' || !gameStarted || isSpectating || isRespawning || isPreMatch) {
-                if (cyanMarker) cyanMarker.style.display = 'none';
-                if (pinkMarker) pinkMarker.style.display = 'none';
-                return;
-            }
-
-            if (cyanFlagObj) updateSingleMarker(cyanMarker, cyanDist, cyanFlagObj.position);
-            if (pinkFlagObj) updateSingleMarker(pinkMarker, pinkDist, pinkFlagObj.position);
-        }
-
-        function updateSingleMarker(element, distElement, worldPos) {
-            if (!element) return;
-            const projected = worldPos.clone().project(camera);
-            
-            if (projected.z >= 1 || projected.x < -1 || projected.x > 1 || projected.y < -1 || projected.y > 1) {
-                element.style.display = 'none';
-                return;
-            }
-
-            const screenX = (projected.x * 0.5 + 0.5) * window.innerWidth;
-            const screenY = (-projected.y * 0.5 + 0.5) * window.innerHeight;
-
-            const dist = Math.round(player.position.distanceTo(worldPos));
-            if (distElement) distElement.innerText = `${dist}m`;
-
-            element.style.left = `${screenX}px`;
-            element.style.top = `${screenY}px`;
-            element.style.display = 'block';
-        }
-
-        function spawnBlastVisual(origin, direction, targetPoint, weapon) {
-            if (weapon.category === 'MELEE') {
-                const arcGeom = new THREE.RingGeometry(0.8, 1.3, 16, 1, 0, Math.PI * 0.8);
-                const arcMat = new THREE.MeshBasicMaterial({ color: weapon.color, side: THREE.DoubleSide, transparent: true, opacity: 0.9 });
-                const arcMesh = new THREE.Mesh(arcGeom, arcMat);
-                arcMesh.position.copy(origin).addScaledVector(direction, 1.5);
-                arcMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction);
-                scene.add(arcMesh);
-
-                let opacity = 0.9;
-                const fadeInterval = setInterval(() => {
-                    opacity -= 0.15;
-                    arcMesh.scale.addScalar(0.08);
-                    arcMat.opacity = opacity;
-                    if (opacity <= 0) { scene.remove(arcMesh); clearInterval(fadeInterval); }
-                }, 30);
-            } else if (['LAUNCHER', 'MORTAR', 'CLUSTER', 'ROCKET', 'MICROROCKET'].includes(weapon.subType)) {
-                const rocketMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.5, 8), new THREE.MeshBasicMaterial({ color: weapon.color }));
-                rocketMesh.rotation.x = Math.PI / 2;
-                rocketMesh.position.copy(origin);
-                scene.add(rocketMesh);
-
-                const travelDist = origin.distanceTo(targetPoint);
-                let currentDist = 0;
-                const step = () => {
-                    currentDist += 3.5;
-                    rocketMesh.position.addScaledVector(direction, 3.5);
-                    
-                    const trail = new THREE.Mesh(new THREE.SphereGeometry(0.15), new THREE.MeshBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.5 }));
-                    trail.position.copy(rocketMesh.position);
-                    scene.add(trail);
-                    setTimeout(() => scene.remove(trail), 200);
-
-                    if (currentDist < travelDist) {
-                        requestAnimationFrame(step);
-                    } else {
-                        scene.remove(rocketMesh);
-                    }
-                };
-                step();
-            } else if (['SHOTGUN', 'BUCKSHOT', 'FLAK'].includes(weapon.subType)) {
-                for (let i = 0; i < 8; i++) {
-                    const spreadDir = direction.clone().add(new THREE.Vector3(
-                        (Math.random()-0.5)*0.15, (Math.random()-0.5)*0.15, (Math.random()-0.5)*0.15
-                    )).normalize();
-
-                    const maxDist = origin.distanceTo(targetPoint);
-                    const tracerGeom = new THREE.BufferGeometry().setFromPoints([
-                        origin, origin.clone().addScaledVector(spreadDir, Math.min(weapon.range * 0.4, maxDist))
-                    ]);
-                    const tracer = new THREE.Line(tracerGeom, new THREE.LineBasicMaterial({ color: weapon.color, linewidth: 2 }));
-                    scene.add(tracer);
-                    setTimeout(() => scene.remove(tracer), 40);
-                }
-            } else if (['PLASMA', 'FREEZE', 'CRYO', 'DARK', 'CORROSION', 'VENOM', 'RADIATION', 'GAMMA'].includes(weapon.subType)) {
-                const plasmaMesh = new THREE.Mesh(new THREE.SphereGeometry(0.35), new THREE.MeshBasicMaterial({ color: weapon.color }));
-                plasmaMesh.position.copy(origin);
-                scene.add(plasmaMesh);
-
-                const travelDist = origin.distanceTo(targetPoint);
-                let currentDist = 0;
-                const step = () => {
-                    currentDist += 2.5;
-                    plasmaMesh.position.addScaledVector(direction, 2.5);
-                    if (currentDist < travelDist) requestAnimationFrame(step);
-                    else scene.remove(plasmaMesh);
-                };
-                step();
-            } else if (['RAILGUN', 'HEAVYRAIL', 'ANTI-MAT', 'SNIPER', 'LASER', 'BEAM', 'ION'].includes(weapon.subType)) {
-                const beamGeom = new THREE.CylinderGeometry(0.06, 0.06, origin.distanceTo(targetPoint));
-                const beamMat = new THREE.MeshBasicMaterial({ color: weapon.color });
-                const beam = new THREE.Mesh(beamGeom, beamMat);
-                
-                const midPoint = origin.clone().add(targetPoint).multiplyScalar(0.5);
-                beam.position.copy(midPoint);
-                beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
-                scene.add(beam);
-
-                setTimeout(() => { scene.remove(beam); }, 70);
-            } else { 
-                const tracerGeom = new THREE.BufferGeometry().setFromPoints([
-                    origin.clone().add(new THREE.Vector3(0, -0.1, 0)), targetPoint
-                ]);
-                const tracer = new THREE.Line(tracerGeom, new THREE.LineBasicMaterial({ color: weapon.color, linewidth: 2 }));
-                scene.add(tracer);
-                setTimeout(() => scene.remove(tracer), 40);
-            }
-        }
-
-        function triggerGlassShatter(glassObj) {
-            if (glassObj.isBroken) return;
-            glassObj.isBroken = true;
-            glassObj.boxObj.active = false;
-            scene.remove(glassObj.mesh);
-
-            for (let i = 0; i < 20; i++) {
-                const shard = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), new THREE.MeshBasicMaterial({ color: 0x00ffff }));
-                shard.position.copy(glassObj.mesh.position).add(new THREE.Vector3((Math.random()-0.5)*3, (Math.random()-0.5)*2, (Math.random()-0.5)*3));
-                scene.add(shard);
-                setTimeout(() => scene.remove(shard), 800);
-            }
         }
 
         function fireActiveWeapon(shooter, direction) {
-            if ((isRespawning || isPreMatch) && shooter === player) return;
+            if (isRespawning && shooter === player) return;
             const now = Date.now();
             const isHuman = shooter === player;
             const wpn = isHuman ? player.inventory[player.activeSlot] : shooter.weapon;
 
             if (!wpn || now - shooter.lastFired < wpn.fireRate) return;
 
-            if (wpn.category !== 'MELEE' && wpn.ammo <= 0) {
-                let nextSlot = -1;
-                for (let i = 1; i <= 2; i++) {
-                    const checkSlot = ((isHuman ? player.activeSlot : shooter.activeSlot) + i) % 3;
-                    const checkWpn = isHuman ? player.inventory[checkSlot] : shooter.inventory[checkSlot];
-                    if (checkWpn && (checkWpn.category === 'MELEE' || checkWpn.ammo > 0)) {
-                        nextSlot = checkSlot;
-                        break;
-                    }
-                }
-                if (nextSlot !== -1) {
-                    if (isHuman) {
-                        switchWeapon(nextSlot, true);
-                        showPickupPrompt(`OUT OF AMMO! SWITCHED TO ${player.inventory[nextSlot].name}`);
-                    } else {
-                        shooter.activeSlot = nextSlot;
-                        updateBotHeldWeaponMesh(shooter);
-                    }
-                }
-                return; 
-            }
-
             shooter.lastFired = now;
 
             if (isHuman) {
                 if (wpn.category !== 'MELEE') {
                     wpn.ammo--; player.recoilAmount = 1.0; updateAmmoHUD();
-                } else {
-                    player.meleeSwingProgress = 1.0;
                 }
-            } else {
-                if (wpn.category !== 'MELEE') wpn.ammo--;
             }
 
             const origin = isHuman
@@ -2452,151 +1848,65 @@
                 : shooter.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
             const targets = [];
+            colliders.forEach(c => { if (c.parent) targets.push(c); });
 
-            colliders.forEach(c => {
-                if (c.parent) targets.push(c);
-            });
-
-            slidingDoors.forEach(d => {
-                if (d.slideProgress < 0.85 && d.panel.parent) {
-                    targets.push(d.panel);
-                }
-            });
-
-            glassPanels.forEach(g => {
-                if (!g.isBroken && g.mesh.parent) {
-                    targets.push(g.mesh);
-                }
-            });
-
-            if (!isHuman && player.health > 0) targets.push(playerHitMesh);
             entitySlots.forEach(ent => {
                 if (ent && ent !== shooter && ent !== player && ent.health > 0 && ent.mesh) {
-                    ent.mesh.traverse(child => {
-                        if (child.isMesh) targets.push(child);
-                    });
+                    ent.mesh.traverse(child => { if (child.isMesh) targets.push(child); });
                 }
             });
 
             const raycaster = new THREE.Raycaster(origin, direction, 0, wpn.range);
             const hits = raycaster.intersectObjects(targets, false);
 
-            const validHits = hits.filter(hit => {
-                let curr = hit.object;
-                while (curr) {
-                    if (isHuman && (curr === viewmodelGroup || curr === camera || curr === playerHitMesh)) return false;
-                    if (!isHuman && curr === shooter.mesh) return false;
-                    curr = curr.parent;
-                }
-                return true;
-            });
-
-            const firstHit = validHits.length > 0 ? validHits[0] : null;
-            const targetPoint = firstHit ? firstHit.point : origin.clone().addScaledVector(direction, wpn.range);
-
-            if (firstHit) {
-                const hitObj = firstHit.object;
-
-                glassPanels.forEach(g => {
-                    if (g.mesh === hitObj) triggerGlassShatter(g);
-                });
-
+            if (hits.length > 0) {
+                const hitObj = hits[0].object;
                 let hitTarget = null;
-                if (hitObj === playerHitMesh) {
-                    hitTarget = player;
-                } else {
-                    entitySlots.forEach(ent => {
-                        if (!ent || ent === shooter || ent === player) return;
-                        let curr = hitObj;
-                        while (curr) {
-                            if (curr === ent.mesh) {
-                                hitTarget = ent;
-                                break;
-                            }
-                            curr = curr.parent;
+                entitySlots.forEach(ent => {
+                    if (!ent || ent === shooter) return;
+                    let curr = hitObj;
+                    while (curr) {
+                        if (curr === ent.mesh || (ent === player && curr === playerHitMesh)) {
+                            hitTarget = ent;
+                            break;
                         }
-                    });
-                }
+                        curr = curr.parent;
+                    }
+                });
 
                 if (hitTarget) {
-                    if ((currentMode === 'TDM' || currentMode === 'CTF') && shooter.team === hitTarget.team) {
-                        // Friendly Fire Disabled
-                    } else {
-                        damageEntity(hitTarget, wpn.damage, shooter, direction);
-                    }
+                    damageEntity(hitTarget, wpn.damage, shooter, direction);
                 }
-            }
-
-            spawnBlastVisual(origin, direction, targetPoint, wpn);
-        }
-
-        function spawnDebrisExplosion(pos, pushDir, accentColor) {
-            const expLight = new THREE.PointLight(accentColor, isMobileScreen ? 2.5 : 5.0, 15);
-            expLight.position.copy(pos);
-            scene.add(expLight);
-            setTimeout(() => scene.remove(expLight), 150);
-
-            const debrisCount = 40;
-            const geomTypes = [
-                new THREE.BoxGeometry(0.25, 0.25, 0.25),
-                new THREE.BoxGeometry(0.15, 0.35, 0.15),
-                new THREE.TetrahedronGeometry(0.2)
-            ];
-            const mats = [
-                new THREE.MeshStandardMaterial({ color: 0x222233, roughness: 0.3, metalness: 0.8 }),
-                new THREE.MeshBasicMaterial({ color: accentColor }),
-                new THREE.MeshBasicMaterial({ color: 0xffe600 })
-            ];
-
-            for (let i = 0; i < debrisCount; i++) {
-                const geom = geomTypes[i % geomTypes.length];
-                const mat = mats[i % mats.length];
-                const p = new THREE.Mesh(geom, mat);
-                p.position.copy(pos).add(new THREE.Vector3((Math.random()-0.5)*0.8, (Math.random()-0.5)*1.2, (Math.random()-0.5)*0.8));
-
-                const vel = pushDir.clone().multiplyScalar(6 + Math.random() * 12);
-                vel.x += (Math.random() - 0.5) * 10;
-                vel.y += Math.random() * 8 + 2;
-                vel.z += (Math.random() - 0.5) * 10;
-
-                const rotVel = new THREE.Vector3((Math.random()-0.5)*15, (Math.random()-0.5)*15, (Math.random()-0.5)*15);
-
-                scene.add(p);
-                activeDebris.push({
-                    mesh: p,
-                    velocity: vel,
-                    rotVelocity: rotVel,
-                    life: 1.2,
-                    maxLife: 1.2
-                });
             }
         }
 
-        function updateDebris(delta) {
-            for (let i = activeDebris.length - 1; i >= 0; i--) {
-                const d = activeDebris[i];
-                d.life -= delta;
-                if (d.life <= 0) {
-                    scene.remove(d.mesh);
-                    activeDebris.splice(i, 1);
-                    continue;
-                }
-                d.velocity.y -= 28 * delta;
-                d.mesh.position.addScaledVector(d.velocity, delta);
-                d.mesh.rotation.x += d.rotVelocity.x * delta;
-                d.mesh.rotation.y += d.rotVelocity.y * delta;
-                d.mesh.rotation.z += d.rotVelocity.z * delta;
+        function damageEntity(target, damage, attacker, hitDirection) {
+            if (!target || target.health <= 0) return;
+            target.health -= damage;
 
-                const scale = Math.max(0.01, d.life / d.maxLife);
-                d.mesh.scale.set(scale, scale, scale);
+            if (target === player) {
+                const flash = document.getElementById('damage-flash');
+                if (flash) flash.style.opacity = '0.7';
+                setTimeout(() => { if (flash) flash.style.opacity = '0'; }, 120);
+            }
+
+            if (target.health <= 0) {
+                if (attacker) attacker.score++;
+                showKillFeed(`${attacker ? attacker.name : 'ENEMY'} [ELIMINATED] ${target.name}`);
+
+                updateModeHUD();
+                if (isHost) broadcastScoreSync();
+
+                if (target === player) {
+                    startDeathSequence(attacker ? attacker.name : "ANONYMOUS COMBATANT");
+                } else if (isHost) {
+                    respawnEntity(target);
+                }
             }
         }
 
         function startDeathSequence(killerName) {
             isRespawning = true;
-            player.isADS = false;
-            viewmodelGroup.visible = false;
-
             const deathScreen = document.getElementById('death-screen');
             const killerText = document.getElementById('killer-title');
             const timerText = document.getElementById('respawn-timer-display');
@@ -2615,87 +1925,9 @@
                     clearInterval(countdownInterval);
                     if (deathScreen) deathScreen.classList.remove('active');
                     isRespawning = false;
-                    viewmodelGroup.visible = true;
                     respawnEntity(player);
                 }
             }, 1000);
-        }
-
-        function damageEntity(target, damage, attacker, hitDirection) {
-            if (!target || target.health <= 0) return;
-            target.health -= damage;
-
-            if (target === player) {
-                const flash = document.getElementById('damage-flash');
-                if (flash) flash.style.opacity = '0.7';
-                setTimeout(() => { if (flash) flash.style.opacity = '0'; }, 120);
-            }
-
-            if (target.health <= 0) {
-                if (attacker) attacker.score++;
-                showKillFeed(`${attacker ? attacker.name : 'ENEMY'} [ELIMINATED] ${target.name}`);
-
-                if (target === cyanFlagCarrier) cyanFlagCarrier = null;
-                if (target === pinkFlagCarrier) pinkFlagCarrier = null;
-
-                const pushDir = hitDirection ? hitDirection.clone().normalize() : new THREE.Vector3(0, 0.2, -1);
-                pushDir.y = Math.max(0.2, pushDir.y);
-
-                const deathPos = target === player 
-                    ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight/2, 0))
-                    : target.mesh.position.clone().add(new THREE.Vector3(0, 1.0, 0));
-
-                if (target !== player && target.mesh) {
-                    target.mesh.position.addScaledVector(pushDir, 1.5);
-                }
-
-                spawnDebrisExplosion(deathPos, pushDir, target === player ? 0x00ffff : 0xff0055);
-
-                if (currentMode === 'FFA') {
-                    if (attacker === player) kills++;
-                    if (attacker && attacker.score >= 60) {
-                        alert(`${attacker.name} VICTORY! SCORE LIMIT REACHED!`); location.reload();
-                    }
-                } else if (currentMode === 'TDM') {
-                    if (attacker && attacker.team === 'CYAN') teamCyanScore++;
-                    else if (attacker) teamPinkScore++;
-
-                    if (teamCyanScore >= 100 || teamPinkScore >= 100) {
-                        alert(`${teamCyanScore >= 100 ? 'CYAN' : 'PINK'} TEAM VICTORY! ARENA DOMINATED!`); location.reload();
-                    }
-                } else if (currentMode === 'LOS') {
-                    if (target === player) {
-                        isSpectating = true;
-                        cctvIndex = 0;
-                        viewmodelGroup.visible = false;
-                        const specBar = document.getElementById('spectator-bar');
-                        if (specBar) specBar.style.display = 'block';
-                        showPickupPrompt("ELIMINATED! ENTERING CCTV SURVEILLANCE FEED");
-                    } else if (target.mesh) {
-                        scene.remove(target.mesh);
-                    }
-
-                    const survivors = entitySlots.filter(p => p && p.health > 0);
-                    if (survivors.length <= 1) {
-                        const winner = survivors[0] ? survivors[0].name : "NO ONE";
-                        setTimeout(() => {
-                            alert(`LAST ONE STANDING SURVIVOR: ${winner}! ARENA CLEARED!`); 
-                            location.reload();
-                        }, 500);
-                    }
-                }
-
-                updateModeHUD();
-                if (isHost) broadcastScoreSync();
-
-                if (currentMode !== 'LOS') {
-                    if (target === player) {
-                        startDeathSequence(attacker ? attacker.name : "ANONYMOUS COMBATANT");
-                    } else if (isHost) {
-                        respawnEntity(target);
-                    }
-                }
-            }
         }
 
         function respawnEntity(entity) {
@@ -2705,139 +1937,16 @@
             if (entity === player) {
                 player.position.copy(safeSpawn);
                 player.velocity.set(0, 0, 0);
-                player.grenades = 2;
-                player.isADS = false;
-                if (player.inventory[0]) player.inventory[0].ammo = player.inventory[0].ammoMax;
-                if (player.inventory[1]) player.inventory[1].ammo = player.inventory[1].ammoMax;
                 updateGrenadeHUD();
                 updateWeaponHUD();
             } else if (entity.mesh) {
                 entity.mesh.position.copy(safeSpawn);
                 if (entity.velocity) entity.velocity.set(0, 0, 0);
-                if (entity.inventory) entity.inventory.forEach(w => { if (w) w.ammo = w.ammoMax; });
-                entity.patrolTarget = null;
-                entity.targetRoom = null;
-                entity.stuckTimer = 0;
-                if (entity.lastPos) entity.lastPos.copy(safeSpawn);
-                entity.rotX = 0;
-            }
-        }
-
-        function throwGrenade(shooter) {
-            const isHuman = shooter === player;
-            const cookDuration = isHuman ? (Date.now() - player.grenadeCookTime) / 1000 : 0.5;
-            const throwPower = Math.min(28, 12 + cookDuration * 10);
-
-            const grenadeMesh = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), new THREE.MeshBasicMaterial({ color: 0xff0033 }));
-            const origin = isHuman ? camera.position.clone() : shooter.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
-            grenadeMesh.position.copy(origin);
-
-            const dir = isHuman 
-                ? camera.getWorldDirection(new THREE.Vector3()) 
-                : (shooter.target ? new THREE.Vector3().subVectors(shooter.target.position || shooter.target.mesh.position, shooter.mesh.position).normalize() : new THREE.Vector3(0,0,-1));
-
-            const vel = dir.multiplyScalar(throwPower); vel.y += 4;
-
-            scene.add(grenadeMesh);
-            projectiles.push({ mesh: grenadeMesh, velocity: vel, spawnTime: Date.now(), fuse: Math.max(0.4, 2.5 - cookDuration), owner: shooter });
-        }
-
-        function updateProjectiles(delta) {
-            for (let i = projectiles.length - 1; i >= 0; i--) {
-                const p = projectiles[i];
-                p.velocity.y -= 22 * delta; 
-
-                const proposedPos = p.mesh.position.clone().addScaledVector(p.velocity, delta);
-                const grndY = getGroundY(proposedPos);
-
-                if (proposedPos.y <= grndY + 0.15) {
-                    p.mesh.position.y = grndY + 0.15;
-                    p.velocity.y = -p.velocity.y * 0.55; 
-                    p.velocity.x *= 0.7; 
-                    p.velocity.z *= 0.7;
-                } else {
-                    p.mesh.position.y = proposedPos.y;
-                }
-
-                const testWallPos = new THREE.Vector3(proposedPos.x, p.mesh.position.y, proposedPos.z);
-                if (checkWallCollision(testWallPos, 0.25, 0.4)) {
-                    p.velocity.x = -p.velocity.x * 0.6;
-                    p.velocity.z = -p.velocity.z * 0.6;
-                } else {
-                    p.mesh.position.x = proposedPos.x;
-                    p.mesh.position.z = proposedPos.z;
-                }
-
-                p.mesh.rotation.x += delta * 12;
-                p.mesh.rotation.z += delta * 12;
-
-                if ((Date.now() - p.spawnTime) / 1000 >= p.fuse) {
-                    const expPos = p.mesh.position.clone();
-                    const BLAST_RADIUS = 9.0;
-
-                    const radiusGeom = new THREE.SphereGeometry(BLAST_RADIUS, 16, 16);
-                    const radiusMat = new THREE.MeshBasicMaterial({ 
-                        color: 0xff0055, 
-                        wireframe: true, 
-                        transparent: true, 
-                        opacity: 0.8 
-                    });
-                    const radiusMesh = new THREE.Mesh(radiusGeom, radiusMat);
-                    radiusMesh.position.copy(expPos);
-                    scene.add(radiusMesh);
-
-                    const coreGeom = new THREE.SphereGeometry(BLAST_RADIUS * 0.8, 16, 16);
-                    const coreMat = new THREE.MeshBasicMaterial({ 
-                        color: 0xffaa00, 
-                        transparent: true, 
-                        opacity: 0.5 
-                    });
-                    const coreMesh = new THREE.Mesh(coreGeom, coreMat);
-                    coreMesh.position.copy(expPos);
-                    scene.add(coreMesh);
-
-                    let expandTimer = 0;
-                    const expandInterval = setInterval(() => {
-                        expandTimer += 0.04;
-                        const progress = expandTimer / 0.3;
-                        const currentScale = Math.sin(progress * Math.PI * 0.5);
-                        radiusMesh.scale.set(currentScale, currentScale, currentScale);
-                        coreMesh.scale.set(currentScale, currentScale, currentScale);
-                        radiusMat.opacity = 0.8 * (1 - progress);
-                        coreMat.opacity = 0.5 * (1 - progress);
-
-                        if (progress >= 1.0) {
-                            scene.remove(radiusMesh);
-                            scene.remove(coreMesh);
-                            clearInterval(expandInterval);
-                        }
-                    }, 16);
-
-                    const flash = new THREE.PointLight(0xff0055, isMobileScreen ? 3.0 : 10.0, 20);
-                    flash.position.copy(expPos); scene.add(flash);
-                    setTimeout(() => scene.remove(flash), 150);
-
-                    glassPanels.forEach(g => {
-                        if (g.mesh.position.distanceTo(expPos) < BLAST_RADIUS + 2) triggerGlassShatter(g);
-                    });
-
-                    entitySlots.forEach(ent => {
-                        if (!ent || ent.health <= 0) return;
-                        const entPos = ent === player ? player.position : ent.mesh.position;
-                        const dist = entPos.distanceTo(expPos);
-                        if (dist < BLAST_RADIUS) {
-                            if ((currentMode === 'TDM' || currentMode === 'CTF') && p.owner && p.owner.team === ent.team) return;
-                            damageEntity(ent, Math.floor((1 - dist / BLAST_RADIUS) * 95), p.owner || player, entPos.clone().sub(expPos).normalize());
-                        }
-                    });
-
-                    scene.remove(p.mesh); projectiles.splice(i, 1);
-                }
             }
         }
 
         function updateBots(delta) {
-            if (isPreMatch || !gameStarted) return;
+            if (!gameStarted) return;
 
             const allEntities = entitySlots.filter(e => e && e.health > 0);
 
@@ -2847,286 +1956,46 @@
                 try {
                     if (bot.mesh && !bot.mesh.visible) bot.mesh.visible = true;
 
-                    if (bot.target) {
-                        const isTargetValid = (bot.target === player && player.health > 0) ||
-                                              (bot.target !== player && bot.target.health > 0 && bot.target.mesh && bot.target.mesh.position);
-                        if (!isTargetValid) bot.target = null;
-                    }
-
-                    const b = bot.rig.bones;
-                    bot.jumpCooldown = Math.max(0, bot.jumpCooldown - delta);
-                    bot.grenadeCooldown = Math.max(0, bot.grenadeCooldown - delta);
-                    bot.scanTimer -= delta;
-
-                    const distMoved = bot.mesh.position.distanceTo(bot.lastPos);
-                    bot.lastPos.copy(bot.mesh.position);
-
                     const currentRoomIdx = getRoomIndex(bot.mesh.position);
-                    const isOccupied = isRoomOccupiedByOthers(bot, currentRoomIdx, allEntities);
-
-                    if (!isOccupied || bot.targetRoom === null) {
-                        if (bot.targetRoom === null || currentRoomIdx === bot.targetRoom || bot.mesh.position.distanceTo(getRoomCenter(bot.targetRoom)) < 6.0) {
-                            let newRoom = Math.floor(Math.random() * 27);
-                            if (newRoom === currentRoomIdx) newRoom = (currentRoomIdx + 1) % 27;
-                            bot.targetRoom = newRoom;
-                            
-                            const roomCenter = getRoomCenter(newRoom);
-                            bot.patrolTarget = roomCenter.add(new THREE.Vector3((Math.random()-0.5)*14, 0, (Math.random()-0.5)*14));
-                        }
+                    if (!bot.patrolTarget || bot.mesh.position.distanceTo(bot.patrolTarget) < 3.0) {
+                        bot.targetRoom = Math.floor(Math.random() * 27);
+                        bot.patrolTarget = getRoomCenter(bot.targetRoom);
                     }
 
-                    if (distMoved < 0.08 * delta * 60) {
-                        bot.stuckTimer += delta;
-                        if (bot.stuckTimer > 0.45) {
-                            bot.velocity.y = 12;
-                            bot.isGrounded = false;
-                            bot.target = null;
-                            bot.targetRoom = Math.floor(Math.random() * 27);
-                            bot.patrolTarget = getRoomCenter(bot.targetRoom);
+                    const patrolDir = new THREE.Vector3().subVectors(bot.patrolTarget, bot.mesh.position);
+                    patrolDir.y = 0;
+                    patrolDir.normalize();
 
-                            const evAngle = Math.random() * Math.PI * 2;
-                            bot.mesh.position.x += Math.sin(evAngle) * 0.7;
-                            bot.mesh.position.z += Math.cos(evAngle) * 0.7;
-                            bot.stuckTimer = 0;
-                        }
-                    } else {
-                        bot.stuckTimer = Math.max(0, bot.stuckTimer - delta);
+                    const moveSpeed = 11.0;
+                    bot.velocity.x = patrolDir.x * moveSpeed;
+                    bot.velocity.z = patrolDir.z * moveSpeed;
+
+                    const wasCollidingX = checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND);
+                    const oldX = bot.mesh.position.x;
+                    bot.mesh.position.x += bot.velocity.x * delta;
+                    if (!wasCollidingX && checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
+                        bot.mesh.position.x = oldX; bot.patrolTarget = null;
                     }
 
-                    const botEyePos = bot.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
-
-                    if (bot.scanTimer <= 0) {
-                        bot.scanTimer = 0.45 + Math.random() * 0.15; 
-                        let bestTarget = null;
-                        let minDist = 65.0;
-
-                        const losObstacles = [...colliders];
-                        slidingDoors.forEach(d => { if (d.slideProgress < 0.85) losObstacles.push(d.panel); });
-                        glassPanels.forEach(g => { if (!g.isBroken) losObstacles.push(g.mesh); });
-
-                        allEntities.forEach(ent => {
-                            if (ent === bot || ent.health <= 0) return;
-                            if ((currentMode === 'TDM' || currentMode === 'CTF') && ent.team === bot.team) return;
-
-                            const entEyePos = (ent === player)
-                                ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0))
-                                : ent.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
-
-                            const d = botEyePos.distanceTo(entEyePos);
-                            if (d < minDist) {
-                                if (checkLineOfSight(botEyePos, entEyePos, losObstacles)) {
-                                    minDist = d;
-                                    bestTarget = ent;
-                                }
-                            }
-                        });
-
-                        bot.target = bestTarget;
+                    const wasCollidingZ = checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND);
+                    const oldZ = bot.mesh.position.z;
+                    bot.mesh.position.z += bot.velocity.z * delta;
+                    if (!wasCollidingZ && checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
+                        bot.mesh.position.z = oldZ; bot.patrolTarget = null;
                     }
 
-                    const bestTarget = bot.target;
+                    // Solid Entity-to-Entity Collision Resolution
+                    resolveEntityCollisions(bot.slot, bot.mesh.position, bot.velocity, 0.65);
 
-                    if (!bestTarget) {
-                        bot.rotX = 0; 
-                        if (currentMode === 'CTF') {
-                            const targetFlagPos = bot.team === 'CYAN' ? pinkBasePos : cyanBasePos;
-                            bot.patrolTarget = targetFlagPos.clone();
-                        } else if (!bot.patrolTarget || bot.mesh.position.distanceTo(bot.patrolTarget) < 3.0) {
-                            bot.targetRoom = Math.floor(Math.random() * 27);
-                            bot.patrolTarget = getRoomCenter(bot.targetRoom);
-                        }
-
-                        const patrolDir = new THREE.Vector3().subVectors(bot.patrolTarget, bot.mesh.position);
-                        patrolDir.y = 0;
-                        patrolDir.normalize();
-
-                        const moveSpeed = 11.0;
-                        bot.velocity.x = patrolDir.x * moveSpeed;
-                        bot.velocity.z = patrolDir.z * moveSpeed;
-
-                        if (bot.patrolTarget.y > bot.mesh.position.y + 2.0) {
-                            if (bot.isGrounded && Math.random() < 0.08) {
-                                bot.velocity.y = 13;
-                                bot.isGrounded = false;
-                            } else if (!bot.isGrounded && bot.velocity.y < 8) {
-                                bot.velocity.y += 18 * delta;
-                            }
-                        }
-
-                        if (bot.isGrounded && Math.random() < 0.04 && (Math.abs(Math.abs(bot.mesh.position.x) - 37.5) < 3.5 || Math.abs(Math.abs(bot.mesh.position.z) - 37.5) < 3.5)) {
-                            bot.velocity.y = 11;
-                            bot.isGrounded = false;
-                        }
-
-                        const oldX = bot.mesh.position.x;
-                        bot.mesh.position.x += bot.velocity.x * delta;
-                        if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
-                            bot.mesh.position.x = oldX; bot.patrolTarget = null;
-                            if (bot.isGrounded && bot.jumpCooldown <= 0) {
-                                bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
-                            }
-                        }
-
-                        const oldZ = bot.mesh.position.z;
-                        bot.mesh.position.z += bot.velocity.z * delta;
-                        if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
-                            bot.mesh.position.z = oldZ; bot.patrolTarget = null;
-                            if (bot.isGrounded && bot.jumpCooldown <= 0) {
-                                bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
-                            }
-                        }
-
-                        // Solid Entity-to-Entity Collision Resolution
-                        resolveEntityCollisions(bot.slot, bot.mesh.position, bot.velocity, 0.65);
-
-                        bot.mesh.rotation.y = Math.atan2(-patrolDir.x, -patrolDir.z);
-
-                        bot.velocity.y -= 32 * delta;
-                        const propY = bot.mesh.position.y + bot.velocity.y * delta;
-                        const grndY = getGroundY(bot.mesh.position);
-                        if (propY <= grndY || Math.abs(bot.mesh.position.y - grndY) < 1.8) {
-                            bot.mesh.position.y = grndY; bot.velocity.y = 0; bot.isGrounded = true;
-                        } else {
-                            bot.mesh.position.y = propY; bot.isGrounded = false;
-                        }
-
-                        const animTime = performance.now() * 0.012;
-                        if (b['L_Thigh']) b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.6;
-                        if (b['R_Thigh']) b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.6;
-                        if (b['L_Shin']) b['L_Shin'].rotation.x = Math.max(0, -Math.sin(animTime)) * 0.7;
-                        if (b['R_Shin']) b['R_Shin'].rotation.x = Math.max(0, Math.sin(animTime)) * 0.7;
-                        if (b['L_UpperArm']) b['L_UpperArm'].rotation.x = -Math.sin(animTime) * 0.4;
-                        if (b['R_UpperArm']) b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.4;
-                        if (b['L_Forearm']) b['L_Forearm'].rotation.x = -0.3;
-                        if (b['R_Forearm']) b['R_Forearm'].rotation.x = -0.3;
-                        return;
-                    }
-
-                    const targetPos = bestTarget === player ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0)) : bestTarget.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
-                    const minDist = botEyePos.distanceTo(targetPos);
-                    const dirToTarget = new THREE.Vector3().subVectors(targetPos, botEyePos).normalize();
-
-                    bot.rotX = Math.asin(dirToTarget.y);
-
-                    let desiredSlot = 0;
-                    if (minDist <= 3.5) {
-                        desiredSlot = 2;
-                    } else if (bot.inventory[0] && bot.inventory[0].ammo <= 0) {
-                        desiredSlot = 1;
-                    }
-
-                    if (bot.activeSlot !== desiredSlot) {
-                        bot.activeSlot = desiredSlot;
-                        updateBotHeldWeaponMesh(bot);
-                    }
-
-                    let isMoving = false;
-                    bot.isSprinting = minDist > 16;
-                    const currentMoveSpeed = bot.isSprinting ? 18 : (bot.isSliding ? 22 : 11);
-
-                    if (minDist > (bot.weapon.category === 'MELEE' ? 1.8 : 8.5)) {
-                        isMoving = true;
-                        const moveDir = new THREE.Vector3(dirToTarget.x, 0, dirToTarget.z).normalize();
-                        
-                        if (bot.isSprinting && minDist < 15 && Math.random() < 0.01 && !bot.isSliding) {
-                            bot.isSliding = true;
-                            bot.slideTimer = SLIDE_DURATION;
-                            bot.slideDir.copy(moveDir);
-                        }
-
-                        if (bot.isSliding) {
-                            bot.slideTimer -= delta;
-                            const sSpeed = 32.0 * (bot.slideTimer / SLIDE_DURATION);
-                            bot.velocity.x = bot.slideDir.x * sSpeed;
-                            bot.velocity.z = bot.slideDir.z * sSpeed;
-                            if (bot.slideTimer <= 0) bot.isSliding = false;
-                        } else {
-                            bot.velocity.x = moveDir.x * currentMoveSpeed;
-                            bot.velocity.z = moveDir.z * currentMoveSpeed;
-                        }
-
-                        const oldX = bot.mesh.position.x;
-                        bot.mesh.position.x += bot.velocity.x * delta;
-                        if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
-                            bot.mesh.position.x = oldX; bot.velocity.x = 0;
-                            if (bot.isGrounded && bot.jumpCooldown <= 0) {
-                                bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
-                            }
-                        }
-
-                        const oldZ = bot.mesh.position.z;
-                        bot.mesh.position.z += bot.velocity.z * delta;
-                        if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
-                            bot.mesh.position.z = oldZ; bot.velocity.z = 0;
-                            if (bot.isGrounded && bot.jumpCooldown <= 0) {
-                                bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
-                            }
-                        }
-
-                        // Solid Entity-to-Entity Collision Resolution
-                        resolveEntityCollisions(bot.slot, bot.mesh.position, bot.velocity, 0.65);
-
-                        bot.mesh.rotation.y = Math.atan2(-moveDir.x, -moveDir.z);
-                    } else {
-                        bot.mesh.rotation.y = Math.atan2(-dirToTarget.x, -dirToTarget.z);
-                    }
-
-                    if (bot.velocity.y > 0 && checkCeilingCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
-                        bot.velocity.y = 0;
-                    }
+                    bot.mesh.rotation.y = Math.atan2(-patrolDir.x, -patrolDir.z);
 
                     bot.velocity.y -= 32 * delta;
-                    const proposedY = bot.mesh.position.y + bot.velocity.y * delta;
-                    const groundY = getGroundY(bot.mesh.position);
-
-                    if (proposedY <= groundY || (bot.isGrounded && Math.abs(bot.mesh.position.y - groundY) < 1.8)) {
-                        bot.mesh.position.y = groundY;
-                        bot.velocity.y = 0;
-                        bot.isGrounded = true;
-                        bot.canDoubleJump = true;
+                    const propY = bot.mesh.position.y + bot.velocity.y * delta;
+                    const grndY = getGroundY(bot.mesh.position);
+                    if (propY <= grndY) {
+                        bot.mesh.position.y = grndY; bot.velocity.y = 0; bot.isGrounded = true;
                     } else {
-                        bot.mesh.position.y = proposedY;
-                        bot.isGrounded = false;
-                    }
-
-                    if (minDist > 10 && minDist < 24 && bot.grenades > 0 && bot.grenadeCooldown <= 0 && Math.random() < 0.008) {
-                        throwGrenade(bot);
-                        bot.grenades--;
-                        bot.grenadeCooldown = 5.0;
-                    }
-
-                    if (isMoving) {
-                        const animTime = performance.now() * (bot.isSprinting ? 0.016 : 0.012);
-                        
-                        if (b['L_Thigh']) b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.75;
-                        if (b['R_Thigh']) b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.75;
-                        if (b['L_Shin']) b['L_Shin'].rotation.x = Math.max(0, -Math.sin(animTime)) * 0.85;
-                        if (b['R_Shin']) b['R_Shin'].rotation.x = Math.max(0, Math.sin(animTime)) * 0.85;
-                        if (b['L_UpperArm']) b['L_UpperArm'].rotation.x = -Math.sin(animTime) * 0.6;
-                        if (b['R_UpperArm']) b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.6;
-                        if (b['L_Forearm']) b['L_Forearm'].rotation.x = -0.4 - Math.abs(Math.sin(animTime)) * 0.3;
-                        if (b['R_Forearm']) b['R_Forearm'].rotation.x = -0.4 - Math.abs(Math.cos(animTime)) * 0.3;
-                    } else {
-                        if (b['L_Thigh']) b['L_Thigh'].rotation.x = THREE.MathUtils.lerp(b['L_Thigh'].rotation.x, 0, delta * 8);
-                        if (b['R_Thigh']) b['R_Thigh'].rotation.x = THREE.MathUtils.lerp(b['R_Thigh'].rotation.x, 0, delta * 8);
-                        if (b['L_Shin']) b['L_Shin'].rotation.x = THREE.MathUtils.lerp(b['L_Shin'].rotation.x, 0, delta * 8);
-                        if (b['R_Shin']) b['R_Shin'].rotation.x = THREE.MathUtils.lerp(b['R_Shin'].rotation.x, 0, delta * 8);
-                        if (b['L_Forearm']) b['L_Forearm'].rotation.x = THREE.MathUtils.lerp(b['L_Forearm'].rotation.x, -0.2, delta * 8);
-                        if (b['R_Forearm']) b['R_Forearm'].rotation.x = THREE.MathUtils.lerp(b['R_Forearm'].rotation.x, -0.2, delta * 8);
-                    }
-
-                    const isTargetHuman = (bestTarget === player);
-                    const fireChance = isTargetHuman ? 0.025 : 0.005;
-
-                    if (BOTS_CAN_FIRE && minDist < bot.weapon.range && Math.random() < fireChance) {
-                        const inaccuracy = isTargetHuman ? 0.28 : 0.45;
-                        const inaccurateAimDir = dirToTarget.clone().add(new THREE.Vector3(
-                            (Math.random() - 0.5) * inaccuracy,
-                            (Math.random() - 0.5) * inaccuracy,
-                            (Math.random() - 0.5) * inaccuracy
-                        )).normalize();
-
-                        fireActiveWeapon(bot, inaccurateAimDir);
+                        bot.mesh.position.y = propY; bot.isGrounded = false;
                     }
 
                 } catch (err) {
@@ -3166,21 +2035,15 @@
             lastTime = now;
 
             if (gameStarted) {
-                humanMarkersToRotate.forEach(m => {
-                    if (m) m.rotation.y += delta * 2.5;
-                });
-
                 updateFacilityMechanics(delta);
                 updatePlayerMovement(delta);
                 checkMobileAutofire();
 
-                if (isMouseDown && (document.pointerLockElement === document.body) && !isSpectating && !isRespawning && !isPreMatch) {
+                if (isMouseDown && (document.pointerLockElement === document.body) && !isSpectating && !isRespawning) {
                     fireActiveWeapon(player, camera.getWorldDirection(new THREE.Vector3()));
                 }
 
                 updateBots(delta);
-                updateProjectiles(delta);
-                updateDebris(delta);
                 updateWorldWeapons(delta);
                 updateCTFMechanics();
                 updateLeaderboard();
