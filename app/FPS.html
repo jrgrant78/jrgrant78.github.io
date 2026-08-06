@@ -325,54 +325,61 @@
         let hasTriggeredJumpGesture = false, hasTriggeredSlideGesture = false;
 
         // --- NETWORK & LOBBY SETUP ---
-        const roomKey = (window.location.hash.replace('#', '') || 'cyberstrike_global').toLowerCase();
-        const ROOM_HOST_PEER_ID = "cs2077_host_" + roomKey;
-        const localClientId = "CS2077_CLI_" + Math.random().toString(36).substring(2, 7);
+        const roomKey = (window.location.hash.replace('#', '') || 'global').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const ROOM_HOST_PEER_ID = "cs2077_v2_host_" + roomKey;
+        const localClientId = "cs2077_v2_cli_" + Math.random().toString(36).substring(2, 9);
 
         let mySlot = 0;
         const entitySlots = new Array(TOTAL_COMBATANTS).fill(null);
         let peer = null;
         let hostConnection = null;
         let isHost = false;
+        let isConnecting = false;
         let connectTimeout = null;
         const connectedClients = [];
+
         let broadcastChan = null;
-        try { broadcastChan = new BroadcastChannel("cs2077_net_channel"); } catch(e){}
+        try { broadcastChan = new BroadcastChannel("cs2077_chan_" + roomKey); } catch(e){}
 
-        // --- ENTITY-TO-ENTITY SOLID COLLISION SYSTEM ---
-        function (selfSlot, targetPos, velocity, radius = 0.75) {
-            for (let i = 0; i < TOTAL_COMBATANTS; i++) {
-                if (i === selfSlot) continue; 
-                const ent = entitySlots[i];
-                if (!ent || ent.health <= 0) continue;
+        // --- SOLID ENTITY-TO-ENTITY COLLISION SYSTEM ---
+        function resolveEntityCollisions(selfSlot, targetPos, velocity = null, radius = 0.65) {
+            for (let iter = 0; iter < 3; iter++) {
+                for (let i = 0; i < TOTAL_COMBATANTS; i++) {
+                    if (i === selfSlot) continue; 
+                    const ent = entitySlots[i];
+                    if (!ent || ent.health <= 0) continue;
 
-                const otherPos = (ent === player) ? player.position : (ent.mesh ? ent.mesh.position : null);
-                if (!otherPos) continue;
+                    const otherPos = (ent === player) ? player.position : (ent.mesh ? ent.mesh.position : null);
+                    if (!otherPos) continue;
 
-                // Floor height check: only collide if on the same floor level (Y delta < 2.2m)
-                if (Math.abs(targetPos.y - otherPos.y) > 2.2) continue;
+                    // Floor height check: only collide if on the same floor level (Y delta < 2.0m)
+                    if (Math.abs(targetPos.y - otherPos.y) > 2.0) continue;
 
-                const dx = targetPos.x - otherPos.x;
-                const dz = targetPos.z - otherPos.z;
-                const distSq = dx * dx + dz * dz;
-                const minDist = radius * 2.0; // 1.5m total solid cylinder diameter
+                    let dx = targetPos.x - otherPos.x;
+                    let dz = targetPos.z - otherPos.z;
+                    let distSq = dx * dx + dz * dz;
+                    const minDist = radius * 2.0; 
 
-                if (distSq < minDist * minDist && distSq > 0.00001) {
-                    const dist = Math.sqrt(distSq);
-                    const overlap = minDist - dist;
-                    const nx = dx / dist;
-                    const nz = dz / dist;
+                    if (distSq < minDist * minDist) {
+                        let dist = Math.sqrt(distSq);
+                        if (dist < 0.0001) {
+                            dx = (Math.random() - 0.5) * 0.1 || 0.05;
+                            dz = (Math.random() - 0.5) * 0.1 || 0.05;
+                            dist = Math.sqrt(dx * dx + dz * dz);
+                        }
+                        const overlap = minDist - dist;
+                        const nx = dx / dist;
+                        const nz = dz / dist;
 
-                    // Push position out of physical collision radius
-                    targetPos.x += nx * overlap;
-                    targetPos.z += nz * overlap;
+                        targetPos.x += nx * overlap;
+                        targetPos.z += nz * overlap;
 
-                    // Cancel velocity vector component pointing toward the obstacle
-                    if (velocity) {
-                        const dot = velocity.x * (-nx) + velocity.z * (-nz);
-                        if (dot > 0) {
-                            velocity.x += nx * dot;
-                            velocity.z += nz * dot;
+                        if (velocity) {
+                            const dot = velocity.x * (-nx) + velocity.z * (-nz);
+                            if (dot > 0) {
+                                velocity.x += nx * dot;
+                                velocity.z += nz * dot;
+                            }
                         }
                     }
                 }
@@ -436,22 +443,6 @@
         }
 
         // --- RELIABLE CROSS-INTERNET MULTIPLAYER SETUP ---
-        const roomKey = (window.location.hash.replace('#', '') || 'global').toLowerCase().replace(/[^a-z0-9]/g, '');
-        const ROOM_HOST_PEER_ID = "cs2077_v2_host_" + roomKey;
-        const localClientId = "cs2077_v2_cli_" + Math.random().toString(36).substring(2, 9);
-
-        let mySlot = 0;
-        const entitySlots = new Array(TOTAL_COMBATANTS).fill(null);
-        let peer = null;
-        let hostConnection = null;
-        let isHost = false;
-        let isConnecting = false;
-        let connectTimeout = null;
-        const connectedClients = [];
-
-        let broadcastChan = null;
-        try { broadcastChan = new BroadcastChannel("cs2077_chan_" + roomKey); } catch(e){}
-
         function initMultiplayerNetworking() {
             if (broadcastChan) {
                 broadcastChan.onmessage = (event) => {
@@ -521,7 +512,6 @@
                 });
             }
 
-            // 4.5 second window to allow STUN/WebRTC candidates to resolve before claiming Host
             connectTimeout = setTimeout(() => {
                 if (!handshakeDone && !hostConnection && !isHost) {
                     isConnecting = false;
@@ -600,6 +590,24 @@
             }
         }
 
+        function broadcastScoreSync() {
+            if (!isHost) return;
+            const scoreData = entitySlots.map((ent, idx) => ({
+                slot: idx,
+                score: ent ? ent.score : 0,
+                health: ent ? ent.health : 0
+            }));
+            const packet = {
+                type: 'SCORE_SYNC',
+                sender: localClientId,
+                scores: scoreData,
+                teamCyanScore: teamCyanScore,
+                teamPinkScore: teamPinkScore
+            };
+            connectedClients.forEach(c => { try { if (c && c.open) c.send(packet); } catch(e){} });
+            if (broadcastChan) broadcastChan.postMessage(packet);
+        }
+
         function handleIncomingPacket(data, conn = null) {
             if (!data || data.sender === localClientId) return;
 
@@ -653,7 +661,27 @@
                 if (broadcastChan) broadcastChan.postMessage(welcomeData);
 
                 showKillFeed(`${targetBot.name} JOINED ARENA!`);
+                broadcastScoreSync();
             } 
+            else if (data.type === 'SCORE_SYNC' && !isHost) {
+                teamCyanScore = data.teamCyanScore;
+                teamPinkScore = data.teamPinkScore;
+                if (data.scores) {
+                    data.scores.forEach(s => {
+                        const ent = entitySlots[s.slot];
+                        if (ent) {
+                            ent.score = s.score;
+                            ent.health = s.health;
+                            if (s.slot === mySlot) {
+                                player.score = s.score;
+                                player.health = s.health;
+                                kills = player.score;
+                            }
+                        }
+                    });
+                }
+                updateModeHUD();
+            }
             else if (data.type === 'MATCH_WELCOME') {
                 if (data.targetRecipient && data.targetRecipient !== localClientId) return;
                 if (mySlot !== 0 && mySlot === data.assignedSlot && gameStarted) return;
@@ -767,6 +795,7 @@
             if (isHost) {
                 connectedClients.forEach(c => { try { if (c && c.open) c.send(packet); } catch(e){} });
                 if (broadcastChan) broadcastChan.postMessage(packet);
+                broadcastScoreSync();
             } else {
                 if (hostConnection && hostConnection.open) hostConnection.send(packet);
                 if (broadcastChan) broadcastChan.postMessage(packet);
@@ -1519,7 +1548,7 @@
             }
 
             // Solid Player-to-Entity Collision Resolution
-            resolveEntityCollisionsAxis(mySlot, player.position, player.velocity, 0.75);
+            resolveEntityCollisions(mySlot, player.position, player.velocity, 0.65);
 
             if (player.velocity.y > 0 && checkCeilingCollision(player.position, 0.45, player.currentEyeHeight)) {
                 player.velocity.y = 0;
@@ -1681,6 +1710,7 @@
                     pinkFlagCarrier = null;
                     showKillFeed(`CYAN TEAM CAPTURED THE PINK FLAG!`);
                     updateModeHUD();
+                    if (isHost) broadcastScoreSync();
                     if (teamCyanScore >= 3) {
                         alert("CYAN TEAM VICTORY! ARENA DOMINATED!"); location.reload();
                     }
@@ -1695,6 +1725,7 @@
                     cyanFlagCarrier = null;
                     showKillFeed(`PINK TEAM CAPTURED THE CYAN FLAG!`);
                     updateModeHUD();
+                    if (isHost) broadcastScoreSync();
                     if (teamPinkScore >= 3) {
                         alert("PINK TEAM VICTORY! ARENA DOMINATED!"); location.reload();
                     }
@@ -2124,6 +2155,7 @@
                 }
 
                 updateModeHUD();
+                if (isHost) broadcastScoreSync();
 
                 if (currentMode !== 'LOS') {
                     if (target === player) {
@@ -2281,282 +2313,293 @@
             players.forEach(bot => {
                 if (!bot || bot === player || bot.health <= 0 || bot.isNetworkPlayer) return;
 
-                if (bot.mesh && !bot.mesh.visible) bot.mesh.visible = true;
+                try {
+                    if (bot.mesh && !bot.mesh.visible) bot.mesh.visible = true;
 
-                const b = bot.rig.bones;
-                bot.jumpCooldown = Math.max(0, bot.jumpCooldown - delta);
-                bot.grenadeCooldown = Math.max(0, bot.grenadeCooldown - delta);
-                bot.scanTimer -= delta;
-
-                const distMoved = bot.mesh.position.distanceTo(bot.lastPos);
-                bot.lastPos.copy(bot.mesh.position);
-
-                const currentRoomIdx = getRoomIndex(bot.mesh.position);
-                const isOccupied = isRoomOccupiedByOthers(bot, currentRoomIdx, allEntities);
-
-                if (!isOccupied || bot.targetRoom === null) {
-                    if (bot.targetRoom === null || currentRoomIdx === bot.targetRoom || bot.mesh.position.distanceTo(getRoomCenter(bot.targetRoom)) < 6.0) {
-                        let newRoom = Math.floor(Math.random() * 27);
-                        if (newRoom === currentRoomIdx) newRoom = (currentRoomIdx + 1) % 27;
-                        bot.targetRoom = newRoom;
-                        
-                        const roomCenter = getRoomCenter(newRoom);
-                        bot.patrolTarget = roomCenter.add(new THREE.Vector3((Math.random()-0.5)*14, 0, (Math.random()-0.5)*14));
+                    if (bot.target) {
+                        const isTargetValid = (bot.target === player && player.health > 0) ||
+                                              (bot.target !== player && bot.target.health > 0 && bot.target.mesh && bot.target.mesh.position);
+                        if (!isTargetValid) bot.target = null;
                     }
-                }
 
-                if (distMoved < 0.08 * delta * 60) {
-                    bot.stuckTimer += delta;
-                    if (bot.stuckTimer > 0.45) {
-                        bot.velocity.y = 12;
-                        bot.isGrounded = false;
-                        bot.target = null;
-                        bot.targetRoom = Math.floor(Math.random() * 27);
-                        bot.patrolTarget = getRoomCenter(bot.targetRoom);
+                    const b = bot.rig.bones;
+                    bot.jumpCooldown = Math.max(0, bot.jumpCooldown - delta);
+                    bot.grenadeCooldown = Math.max(0, bot.grenadeCooldown - delta);
+                    bot.scanTimer -= delta;
 
-                        const evAngle = Math.random() * Math.PI * 2;
-                        bot.mesh.position.x += Math.sin(evAngle) * 0.7;
-                        bot.mesh.position.z += Math.cos(evAngle) * 0.7;
-                        bot.stuckTimer = 0;
+                    const distMoved = bot.mesh.position.distanceTo(bot.lastPos);
+                    bot.lastPos.copy(bot.mesh.position);
+
+                    const currentRoomIdx = getRoomIndex(bot.mesh.position);
+                    const isOccupied = isRoomOccupiedByOthers(bot, currentRoomIdx, allEntities);
+
+                    if (!isOccupied || bot.targetRoom === null) {
+                        if (bot.targetRoom === null || currentRoomIdx === bot.targetRoom || bot.mesh.position.distanceTo(getRoomCenter(bot.targetRoom)) < 6.0) {
+                            let newRoom = Math.floor(Math.random() * 27);
+                            if (newRoom === currentRoomIdx) newRoom = (currentRoomIdx + 1) % 27;
+                            bot.targetRoom = newRoom;
+                            
+                            const roomCenter = getRoomCenter(newRoom);
+                            bot.patrolTarget = roomCenter.add(new THREE.Vector3((Math.random()-0.5)*14, 0, (Math.random()-0.5)*14));
+                        }
                     }
-                } else {
-                    bot.stuckTimer = Math.max(0, bot.stuckTimer - delta);
-                }
 
-                const botEyePos = bot.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
+                    if (distMoved < 0.08 * delta * 60) {
+                        bot.stuckTimer += delta;
+                        if (bot.stuckTimer > 0.45) {
+                            bot.velocity.y = 12;
+                            bot.isGrounded = false;
+                            bot.target = null;
+                            bot.targetRoom = Math.floor(Math.random() * 27);
+                            bot.patrolTarget = getRoomCenter(bot.targetRoom);
 
-                if (bot.scanTimer <= 0) {
-                    bot.scanTimer = 0.45 + Math.random() * 0.15; 
-                    let bestTarget = null;
-                    let minDist = 65.0;
+                            const evAngle = Math.random() * Math.PI * 2;
+                            bot.mesh.position.x += Math.sin(evAngle) * 0.7;
+                            bot.mesh.position.z += Math.cos(evAngle) * 0.7;
+                            bot.stuckTimer = 0;
+                        }
+                    } else {
+                        bot.stuckTimer = Math.max(0, bot.stuckTimer - delta);
+                    }
 
-                    const losObstacles = [...colliders];
-                    slidingDoors.forEach(d => { if (d.slideProgress < 0.85) losObstacles.push(d.panel); });
-                    glassPanels.forEach(g => { if (!g.isBroken) losObstacles.push(g.mesh); });
+                    const botEyePos = bot.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
-                    allEntities.forEach(ent => {
-                        if (ent === bot || ent.health <= 0) return;
-                        if ((currentMode === 'TDM' || currentMode === 'CTF') && ent.team === bot.team) return;
+                    if (bot.scanTimer <= 0) {
+                        bot.scanTimer = 0.45 + Math.random() * 0.15; 
+                        let bestTarget = null;
+                        let minDist = 65.0;
 
-                        const entEyePos = (ent === player)
-                            ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0))
-                            : ent.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
+                        const losObstacles = [...colliders];
+                        slidingDoors.forEach(d => { if (d.slideProgress < 0.85) losObstacles.push(d.panel); });
+                        glassPanels.forEach(g => { if (!g.isBroken) losObstacles.push(g.mesh); });
 
-                        const d = botEyePos.distanceTo(entEyePos);
-                        if (d < minDist) {
-                            if (checkLineOfSight(botEyePos, entEyePos, losObstacles)) {
-                                minDist = d;
-                                bestTarget = ent;
+                        allEntities.forEach(ent => {
+                            if (ent === bot || ent.health <= 0) return;
+                            if ((currentMode === 'TDM' || currentMode === 'CTF') && ent.team === bot.team) return;
+
+                            const entEyePos = (ent === player)
+                                ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0))
+                                : ent.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
+
+                            const d = botEyePos.distanceTo(entEyePos);
+                            if (d < minDist) {
+                                if (checkLineOfSight(botEyePos, entEyePos, losObstacles)) {
+                                    minDist = d;
+                                    bestTarget = ent;
+                                }
+                            }
+                        });
+
+                        bot.target = bestTarget;
+                    }
+
+                    const bestTarget = bot.target;
+
+                    if (!bestTarget) {
+                        bot.rotX = 0; 
+                        if (currentMode === 'CTF') {
+                            const targetFlagPos = bot.team === 'CYAN' ? pinkBasePos : cyanBasePos;
+                            bot.patrolTarget = targetFlagPos.clone();
+                        } else if (!bot.patrolTarget || bot.mesh.position.distanceTo(bot.patrolTarget) < 3.0) {
+                            bot.targetRoom = Math.floor(Math.random() * 27);
+                            bot.patrolTarget = getRoomCenter(bot.targetRoom);
+                        }
+
+                        const patrolDir = new THREE.Vector3().subVectors(bot.patrolTarget, bot.mesh.position);
+                        patrolDir.y = 0;
+                        patrolDir.normalize();
+
+                        const moveSpeed = 11.0;
+                        bot.velocity.x = patrolDir.x * moveSpeed;
+                        bot.velocity.z = patrolDir.z * moveSpeed;
+
+                        if (bot.patrolTarget.y > bot.mesh.position.y + 2.0) {
+                            if (bot.isGrounded && Math.random() < 0.08) {
+                                bot.velocity.y = 13;
+                                bot.isGrounded = false;
+                            } else if (!bot.isGrounded && bot.velocity.y < 8) {
+                                bot.velocity.y += 18 * delta;
                             }
                         }
-                    });
 
-                    bot.target = bestTarget;
-                }
-
-                const bestTarget = bot.target;
-
-                if (!bestTarget) {
-                    bot.rotX = 0; 
-                    if (currentMode === 'CTF') {
-                        const targetFlagPos = bot.team === 'CYAN' ? pinkBasePos : cyanBasePos;
-                        bot.patrolTarget = targetFlagPos.clone();
-                    } else if (!bot.patrolTarget || bot.mesh.position.distanceTo(bot.patrolTarget) < 3.0) {
-                        bot.targetRoom = Math.floor(Math.random() * 27);
-                        bot.patrolTarget = getRoomCenter(bot.targetRoom);
-                    }
-
-                    const patrolDir = new THREE.Vector3().subVectors(bot.patrolTarget, bot.mesh.position);
-                    patrolDir.y = 0;
-                    patrolDir.normalize();
-
-                    const moveSpeed = 11.0;
-                    bot.velocity.x = patrolDir.x * moveSpeed;
-                    bot.velocity.z = patrolDir.z * moveSpeed;
-
-                    if (bot.patrolTarget.y > bot.mesh.position.y + 2.0) {
-                        if (bot.isGrounded && Math.random() < 0.08) {
-                            bot.velocity.y = 13;
+                        if (bot.isGrounded && Math.random() < 0.04 && (Math.abs(Math.abs(bot.mesh.position.x) - 37.5) < 3.5 || Math.abs(Math.abs(bot.mesh.position.z) - 37.5) < 3.5)) {
+                            bot.velocity.y = 11;
                             bot.isGrounded = false;
-                        } else if (!bot.isGrounded && bot.velocity.y < 8) {
-                            bot.velocity.y += 18 * delta;
                         }
+
+                        const oldX = bot.mesh.position.x;
+                        bot.mesh.position.x += bot.velocity.x * delta;
+                        if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
+                            bot.mesh.position.x = oldX; bot.patrolTarget = null;
+                            if (bot.isGrounded && bot.jumpCooldown <= 0) {
+                                bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
+                            }
+                        }
+
+                        const oldZ = bot.mesh.position.z;
+                        bot.mesh.position.z += bot.velocity.z * delta;
+                        if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
+                            bot.mesh.position.z = oldZ; bot.patrolTarget = null;
+                            if (bot.isGrounded && bot.jumpCooldown <= 0) {
+                                bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
+                            }
+                        }
+
+                        // Solid Entity-to-Entity Collision Resolution
+                        resolveEntityCollisions(bot.slot, bot.mesh.position, bot.velocity, 0.65);
+
+                        bot.mesh.rotation.y = Math.atan2(-patrolDir.x, -patrolDir.z);
+
+                        bot.velocity.y -= 32 * delta;
+                        const propY = bot.mesh.position.y + bot.velocity.y * delta;
+                        const grndY = getGroundY(bot.mesh.position);
+                        if (propY <= grndY || Math.abs(bot.mesh.position.y - grndY) < 1.8) {
+                            bot.mesh.position.y = grndY; bot.velocity.y = 0; bot.isGrounded = true;
+                        } else {
+                            bot.mesh.position.y = propY; bot.isGrounded = false;
+                        }
+
+                        const animTime = performance.now() * 0.012;
+                        if (b['L_Thigh']) b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.6;
+                        if (b['R_Thigh']) b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.6;
+                        if (b['L_Shin']) b['L_Shin'].rotation.x = Math.max(0, -Math.sin(animTime)) * 0.7;
+                        if (b['R_Shin']) b['R_Shin'].rotation.x = Math.max(0, Math.sin(animTime)) * 0.7;
+                        if (b['L_UpperArm']) b['L_UpperArm'].rotation.x = -Math.sin(animTime) * 0.4;
+                        if (b['R_UpperArm']) b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.4;
+                        if (b['L_Forearm']) b['L_Forearm'].rotation.x = -0.3;
+                        if (b['R_Forearm']) b['R_Forearm'].rotation.x = -0.3;
+                        return;
                     }
 
-                    if (bot.isGrounded && Math.random() < 0.04 && (Math.abs(Math.abs(bot.mesh.position.x) - 37.5) < 3.5 || Math.abs(Math.abs(bot.mesh.position.z) - 37.5) < 3.5)) {
-                        bot.velocity.y = 11;
+                    const targetPos = bestTarget === player ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0)) : bestTarget.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
+                    const minDist = botEyePos.distanceTo(targetPos);
+                    const dirToTarget = new THREE.Vector3().subVectors(targetPos, botEyePos).normalize();
+
+                    bot.rotX = Math.asin(dirToTarget.y);
+
+                    let desiredSlot = 0;
+                    if (minDist <= 3.5) {
+                        desiredSlot = 2;
+                    } else if (bot.inventory[0] && bot.inventory[0].ammo <= 0) {
+                        desiredSlot = 1;
+                    }
+
+                    if (bot.activeSlot !== desiredSlot) {
+                        bot.activeSlot = desiredSlot;
+                        updateBotHeldWeaponMesh(bot);
+                    }
+
+                    let isMoving = false;
+                    bot.isSprinting = minDist > 16;
+                    const currentMoveSpeed = bot.isSprinting ? 18 : (bot.isSliding ? 22 : 11);
+
+                    if (minDist > (bot.weapon.category === 'MELEE' ? 1.8 : 8.5)) {
+                        isMoving = true;
+                        const moveDir = new THREE.Vector3(dirToTarget.x, 0, dirToTarget.z).normalize();
+                        
+                        if (bot.isSprinting && minDist < 15 && Math.random() < 0.01 && !bot.isSliding) {
+                            bot.isSliding = true;
+                            bot.slideTimer = SLIDE_DURATION;
+                            bot.slideDir.copy(moveDir);
+                        }
+
+                        if (bot.isSliding) {
+                            bot.slideTimer -= delta;
+                            const sSpeed = 32.0 * (bot.slideTimer / SLIDE_DURATION);
+                            bot.velocity.x = bot.slideDir.x * sSpeed;
+                            bot.velocity.z = bot.slideDir.z * sSpeed;
+                            if (bot.slideTimer <= 0) bot.isSliding = false;
+                        } else {
+                            bot.velocity.x = moveDir.x * currentMoveSpeed;
+                            bot.velocity.z = moveDir.z * currentMoveSpeed;
+                        }
+
+                        const oldX = bot.mesh.position.x;
+                        bot.mesh.position.x += bot.velocity.x * delta;
+                        if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
+                            bot.mesh.position.x = oldX; bot.velocity.x = 0;
+                            if (bot.isGrounded && bot.jumpCooldown <= 0) {
+                                bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
+                            }
+                        }
+
+                        const oldZ = bot.mesh.position.z;
+                        bot.mesh.position.z += bot.velocity.z * delta;
+                        if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
+                            bot.mesh.position.z = oldZ; bot.velocity.z = 0;
+                            if (bot.isGrounded && bot.jumpCooldown <= 0) {
+                                bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
+                            }
+                        }
+
+                        // Solid Entity-to-Entity Collision Resolution
+                        resolveEntityCollisions(bot.slot, bot.mesh.position, bot.velocity, 0.65);
+
+                        bot.mesh.rotation.y = Math.atan2(-moveDir.x, -moveDir.z);
+                    } else {
+                        bot.mesh.rotation.y = Math.atan2(-dirToTarget.x, -dirToTarget.z);
+                    }
+
+                    if (bot.velocity.y > 0 && checkCeilingCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
+                        bot.velocity.y = 0;
+                    }
+
+                    bot.velocity.y -= 32 * delta;
+                    const proposedY = bot.mesh.position.y + bot.velocity.y * delta;
+                    const groundY = getGroundY(bot.mesh.position);
+
+                    if (proposedY <= groundY || (bot.isGrounded && Math.abs(bot.mesh.position.y - groundY) < 1.8)) {
+                        bot.mesh.position.y = groundY;
+                        bot.velocity.y = 0;
+                        bot.isGrounded = true;
+                        bot.canDoubleJump = true;
+                    } else {
+                        bot.mesh.position.y = proposedY;
                         bot.isGrounded = false;
                     }
 
-                    const oldX = bot.mesh.position.x;
-                    bot.mesh.position.x += bot.velocity.x * delta;
-                    if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
-                        bot.mesh.position.x = oldX; bot.patrolTarget = null;
-                        if (bot.isGrounded && bot.jumpCooldown <= 0) {
-                            bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
-                        }
+                    if (minDist > 10 && minDist < 24 && bot.grenades > 0 && bot.grenadeCooldown <= 0 && Math.random() < 0.008) {
+                        throwGrenade(bot);
+                        bot.grenades--;
+                        bot.grenadeCooldown = 5.0;
                     }
 
-                    const oldZ = bot.mesh.position.z;
-                    bot.mesh.position.z += bot.velocity.z * delta;
-                    if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
-                        bot.mesh.position.z = oldZ; bot.patrolTarget = null;
-                        if (bot.isGrounded && bot.jumpCooldown <= 0) {
-                            bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
-                        }
-                    }
-
-                    // Solid Entity-to-Entity Collision Resolution
-                    resolveEntityCollisionsAxis(bot.slot, bot.mesh.position, bot.velocity, 0.75);
-
-                    bot.mesh.rotation.y = Math.atan2(-patrolDir.x, -patrolDir.z);
-
-                    bot.velocity.y -= 32 * delta;
-                    const propY = bot.mesh.position.y + bot.velocity.y * delta;
-                    const grndY = getGroundY(bot.mesh.position);
-                    if (propY <= grndY || Math.abs(bot.mesh.position.y - grndY) < 1.8) {
-                        bot.mesh.position.y = grndY; bot.velocity.y = 0; bot.isGrounded = true;
+                    if (isMoving) {
+                        const animTime = performance.now() * (bot.isSprinting ? 0.016 : 0.012);
+                        
+                        if (b['L_Thigh']) b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.75;
+                        if (b['R_Thigh']) b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.75;
+                        if (b['L_Shin']) b['L_Shin'].rotation.x = Math.max(0, -Math.sin(animTime)) * 0.85;
+                        if (b['R_Shin']) b['R_Shin'].rotation.x = Math.max(0, Math.sin(animTime)) * 0.85;
+                        if (b['L_UpperArm']) b['L_UpperArm'].rotation.x = -Math.sin(animTime) * 0.6;
+                        if (b['R_UpperArm']) b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.6;
+                        if (b['L_Forearm']) b['L_Forearm'].rotation.x = -0.4 - Math.abs(Math.sin(animTime)) * 0.3;
+                        if (b['R_Forearm']) b['R_Forearm'].rotation.x = -0.4 - Math.abs(Math.cos(animTime)) * 0.3;
                     } else {
-                        bot.mesh.position.y = propY; bot.isGrounded = false;
+                        if (b['L_Thigh']) b['L_Thigh'].rotation.x = THREE.MathUtils.lerp(b['L_Thigh'].rotation.x, 0, delta * 8);
+                        if (b['R_Thigh']) b['R_Thigh'].rotation.x = THREE.MathUtils.lerp(b['R_Thigh'].rotation.x, 0, delta * 8);
+                        if (b['L_Shin']) b['L_Shin'].rotation.x = THREE.MathUtils.lerp(b['L_Shin'].rotation.x, 0, delta * 8);
+                        if (b['R_Shin']) b['R_Shin'].rotation.x = THREE.MathUtils.lerp(b['R_Shin'].rotation.x, 0, delta * 8);
+                        if (b['L_Forearm']) b['L_Forearm'].rotation.x = THREE.MathUtils.lerp(b['L_Forearm'].rotation.x, -0.2, delta * 8);
+                        if (b['R_Forearm']) b['R_Forearm'].rotation.x = THREE.MathUtils.lerp(b['R_Forearm'].rotation.x, -0.2, delta * 8);
                     }
 
-                    const animTime = performance.now() * 0.012;
-                    if (b['L_Thigh']) b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.6;
-                    if (b['R_Thigh']) b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.6;
-                    if (b['L_Shin']) b['L_Shin'].rotation.x = Math.max(0, -Math.sin(animTime)) * 0.7;
-                    if (b['R_Shin']) b['R_Shin'].rotation.x = Math.max(0, Math.sin(animTime)) * 0.7;
-                    if (b['L_UpperArm']) b['L_UpperArm'].rotation.x = -Math.sin(animTime) * 0.4;
-                    if (b['R_UpperArm']) b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.4;
-                    if (b['L_Forearm']) b['L_Forearm'].rotation.x = -0.3;
-                    if (b['R_Forearm']) b['R_Forearm'].rotation.x = -0.3;
-                    return;
-                }
+                    const isTargetHuman = (bestTarget === player);
+                    const fireChance = isTargetHuman ? 0.025 : 0.005;
 
-                const targetPos = bestTarget === player ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0)) : bestTarget.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
-                const minDist = botEyePos.distanceTo(targetPos);
-                const dirToTarget = new THREE.Vector3().subVectors(targetPos, botEyePos).normalize();
+                    if (BOTS_CAN_FIRE && minDist < bot.weapon.range && Math.random() < fireChance) {
+                        const inaccuracy = isTargetHuman ? 0.28 : 0.45;
+                        const inaccurateAimDir = dirToTarget.clone().add(new THREE.Vector3(
+                            (Math.random() - 0.5) * inaccuracy,
+                            (Math.random() - 0.5) * inaccuracy,
+                            (Math.random() - 0.5) * inaccuracy
+                        )).normalize();
 
-                bot.rotX = Math.asin(dirToTarget.y);
-
-                let desiredSlot = 0;
-                if (minDist <= 3.5) {
-                    desiredSlot = 2;
-                } else if (bot.inventory[0] && bot.inventory[0].ammo <= 0) {
-                    desiredSlot = 1;
-                }
-
-                if (bot.activeSlot !== desiredSlot) {
-                    bot.activeSlot = desiredSlot;
-                    updateBotHeldWeaponMesh(bot);
-                }
-
-                let isMoving = false;
-                bot.isSprinting = minDist > 16;
-                const currentMoveSpeed = bot.isSprinting ? 18 : (bot.isSliding ? 22 : 11);
-
-                if (minDist > (bot.weapon.category === 'MELEE' ? 1.8 : 8.5)) {
-                    isMoving = true;
-                    const moveDir = new THREE.Vector3(dirToTarget.x, 0, dirToTarget.z).normalize();
-                    
-                    if (bot.isSprinting && minDist < 15 && Math.random() < 0.01 && !bot.isSliding) {
-                        bot.isSliding = true;
-                        bot.slideTimer = SLIDE_DURATION;
-                        bot.slideDir.copy(moveDir);
+                        fireActiveWeapon(bot, inaccurateAimDir);
                     }
 
-                    if (bot.isSliding) {
-                        bot.slideTimer -= delta;
-                        const sSpeed = 32.0 * (bot.slideTimer / SLIDE_DURATION);
-                        bot.velocity.x = bot.slideDir.x * sSpeed;
-                        bot.velocity.z = bot.slideDir.z * sSpeed;
-                        if (bot.slideTimer <= 0) bot.isSliding = false;
-                    } else {
-                        bot.velocity.x = moveDir.x * currentMoveSpeed;
-                        bot.velocity.z = moveDir.z * currentMoveSpeed;
-                    }
-
-                    const oldX = bot.mesh.position.x;
-                    bot.mesh.position.x += bot.velocity.x * delta;
-                    if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
-                        bot.mesh.position.x = oldX; bot.velocity.x = 0;
-                        if (bot.isGrounded && bot.jumpCooldown <= 0) {
-                            bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
-                        }
-                    }
-
-                    const oldZ = bot.mesh.position.z;
-                    bot.mesh.position.z += bot.velocity.z * delta;
-                    if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
-                        bot.mesh.position.z = oldZ; bot.velocity.z = 0;
-                        if (bot.isGrounded && bot.jumpCooldown <= 0) {
-                            bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
-                        }
-                    }
-
-                    // Solid Entity-to-Entity Collision Resolution
-                    resolveEntityCollisions(bot.slot, bot.mesh.position, 0.5);
-
-                    bot.mesh.rotation.y = Math.atan2(-moveDir.x, -moveDir.z);
-                } else {
-                    bot.mesh.rotation.y = Math.atan2(-dirToTarget.x, -dirToTarget.z);
-                }
-
-                if (bot.velocity.y > 0 && checkCeilingCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
-                    bot.velocity.y = 0;
-                }
-
-                bot.velocity.y -= 32 * delta;
-                const proposedY = bot.mesh.position.y + bot.velocity.y * delta;
-                const groundY = getGroundY(bot.mesh.position);
-
-                if (proposedY <= groundY || (bot.isGrounded && Math.abs(bot.mesh.position.y - groundY) < 1.8)) {
-                    bot.mesh.position.y = groundY;
-                    bot.velocity.y = 0;
-                    bot.isGrounded = true;
-                    bot.canDoubleJump = true;
-                } else {
-                    bot.mesh.position.y = proposedY;
-                    bot.isGrounded = false;
-                }
-
-                if (minDist > 10 && minDist < 24 && bot.grenades > 0 && bot.grenadeCooldown <= 0 && Math.random() < 0.008) {
-                    throwGrenade(bot);
-                    bot.grenades--;
-                    bot.grenadeCooldown = 5.0;
-                }
-
-                if (isMoving) {
-                    const animTime = performance.now() * (bot.isSprinting ? 0.016 : 0.012);
-                    
-                    if (b['L_Thigh']) b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.75;
-                    if (b['R_Thigh']) b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.75;
-                    if (b['L_Shin']) b['L_Shin'].rotation.x = Math.max(0, -Math.sin(animTime)) * 0.85;
-                    if (b['R_Shin']) b['R_Shin'].rotation.x = Math.max(0, Math.sin(animTime)) * 0.85;
-                    if (b['L_UpperArm']) b['L_UpperArm'].rotation.x = -Math.sin(animTime) * 0.6;
-                    if (b['R_UpperArm']) b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.6;
-                    if (b['L_Forearm']) b['L_Forearm'].rotation.x = -0.4 - Math.abs(Math.sin(animTime)) * 0.3;
-                    if (b['R_Forearm']) b['R_Forearm'].rotation.x = -0.4 - Math.abs(Math.cos(animTime)) * 0.3;
-                } else {
-                    if (b['L_Thigh']) b['L_Thigh'].rotation.x = THREE.MathUtils.lerp(b['L_Thigh'].rotation.x, 0, delta * 8);
-                    if (b['R_Thigh']) b['R_Thigh'].rotation.x = THREE.MathUtils.lerp(b['R_Thigh'].rotation.x, 0, delta * 8);
-                    if (b['L_Shin']) b['L_Shin'].rotation.x = THREE.MathUtils.lerp(b['L_Shin'].rotation.x, 0, delta * 8);
-                    if (b['R_Shin']) b['R_Shin'].rotation.x = THREE.MathUtils.lerp(b['R_Shin'].rotation.x, 0, delta * 8);
-                    if (b['L_Forearm']) b['L_Forearm'].rotation.x = THREE.MathUtils.lerp(b['L_Forearm'].rotation.x, -0.2, delta * 8);
-                    if (b['R_Forearm']) b['R_Forearm'].rotation.x = THREE.MathUtils.lerp(b['R_Forearm'].rotation.x, -0.2, delta * 8);
-                }
-
-                const isTargetHuman = (bestTarget === player);
-                const fireChance = isTargetHuman ? 0.025 : 0.005;
-
-                if (BOTS_CAN_FIRE && minDist < bot.weapon.range && Math.random() < fireChance) {
-                    const inaccuracy = isTargetHuman ? 0.28 : 0.45;
-                    const inaccurateAimDir = dirToTarget.clone().add(new THREE.Vector3(
-                        (Math.random() - 0.5) * inaccuracy,
-                        (Math.random() - 0.5) * inaccuracy,
-                        (Math.random() - 0.5) * inaccuracy
-                    )).normalize();
-
-                    fireActiveWeapon(bot, inaccurateAimDir);
+                } catch (err) {
+                    console.error("Bot update exception caught:", err);
                 }
             });
         }
