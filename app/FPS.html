@@ -30,7 +30,6 @@
             letter-spacing: 3px;
         }
 
-        /* CCTV SCANLINE & CRT OVERLAY */
         #cctv-overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             pointer-events: none; display: none; z-index: 80;
@@ -124,17 +123,11 @@
         .vote-card .desc { font-size: 11px; color: #aaa; line-height: 1.3; }
 
         .flag-marker {
-            position: absolute;
-            pointer-events: none;
-            transform: translate(-50%, -100%);
-            display: none;
-            z-index: 60;
-            text-align: center;
+            position: absolute; pointer-events: none; transform: translate(-50%, -100%); display: none; z-index: 60; text-align: center;
         }
         .flag-marker svg { filter: drop-shadow(0 0 8px currentColor); }
         .dist-tag {
-            font-size: 10px; font-weight: bold;
-            background: rgba(10, 10, 20, 0.85); border: 1px solid currentColor;
+            font-size: 10px; font-weight: bold; background: rgba(10, 10, 20, 0.85); border: 1px solid currentColor;
             padding: 2px 6px; border-radius: 3px; margin-top: 2px; display: inline-block;
         }
 
@@ -170,12 +163,8 @@
         #btn-swipe { right: 30px; bottom: 50px; }
 
         @media (max-width: 1024px), (pointer: coarse) {
-            #top-hud, #bottom-hud, #kill-feed, #leaderboard {
-                display: none !important;
-            }
-            #mobile-controls {
-                display: block !important;
-            }
+            #top-hud, #bottom-hud, #kill-feed, #leaderboard { display: none !important; }
+            #mobile-controls { display: block !important; }
             #start-screen h1 { font-size: 28px; }
             .vote-container { grid-template-columns: repeat(2, 160px); gap: 10px; }
             .vote-card { padding: 12px 8px; }
@@ -303,16 +292,13 @@
         const SLIDE_DURATION = 1.05; 
         const WALL_RUN_DURATION = 0.75; 
 
-        // Touch capability detection
         const isMobileScreen = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.innerWidth <= 1024);
 
-        // Base spawn vectors declared early
         const cyanBasePos = new THREE.Vector3(-75, 0.1, -75);
         const pinkBasePos = new THREE.Vector3(75, 0.1, 75);
 
         window.addEventListener('contextmenu', e => e.preventDefault());
 
-        // --- GAME MODE, PRE-MATCH & SPECTATOR STATES ---
         let currentMode = 'FFA'; 
         let teamCyanScore = 0;
         let teamPinkScore = 0;
@@ -328,13 +314,11 @@
         let cctvIndex = 0;
         let cctvCameras = [];
         let spectatedWeaponId = -1;
-        let spectatedRecoilTimer = 0;
         let isRespawning = false;
         let isPreMatch = false;
         let preMatchCountdown = 5;
         const humanMarkersToRotate = [];
 
-        // --- MOBILE TOUCH CONTROLS STATE ---
         let touchMoveId = null, touchLookId = null, touchRunId = null;
         let touchMoveOrigin = { x: 0, y: 0 };
         let touchLookLast = { x: 0, y: 0 };
@@ -342,11 +326,9 @@
         let mobileMoveX = 0, mobileMoveZ = 0;
         let hasTriggeredJumpGesture = false, hasTriggeredSlideGesture = false;
 
-        // --- NETWORK & FIXED 50-SLOT SYNCHRONIZATION ---
         let mySlot = 0;
         const entitySlots = new Array(TOTAL_COMBATANTS).fill(null);
 
-        // --- ROOM & QUADRANT UTILITIES ---
         function getRoomIndex(pos) {
             let f = 0;
             if (pos.y >= 12) f = 2;
@@ -380,9 +362,7 @@
             for (let ent of allEntities) {
                 if (!ent || ent === bot || ent.health <= 0) continue;
                 const entPos = (ent === player) ? player.position : ent.mesh.position;
-                if (getRoomIndex(entPos) === roomIdx) {
-                    return true;
-                }
+                if (getRoomIndex(entPos) === roomIdx) return true;
             }
             return false;
         }
@@ -434,18 +414,101 @@
         }
         generateCCTVCameras();
 
-        // --- NETWORK MULTIPLAYER SETUP ---
-        const HOST_PEER_ID = "cyberstrike2077_host_v1";
-        const localClientId = "CS2077_" + Math.random().toString(36).substring(2, 7);
-        let broadcastChan = null;
-        try { broadcastChan = new BroadcastChannel("cyberstrike_lobby_chan"); } catch(e){}
+        // --- RELIABLE CROSS-INTERNET MULTIPLAYER SETUP ---
+        const roomKey = (window.location.hash.replace('#', '') || 'cyberstrike2077_global').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const ROOM_HOST_PEER_ID = "cs2077_host_room_" + roomKey;
+        const localClientId = "CS2077_CLI_" + Math.random().toString(36).substring(2, 9);
+
         let peer = null;
         let hostConnection = null;
-        let isHost = true;
+        let isHost = false;
         let connectTimeout = null;
         const connectedClients = [];
 
-        // --- THREE.JS SETUP & STABILITY IMPROVEMENTS ---
+        function initMultiplayerNetworking() {
+            peer = new Peer(localClientId);
+
+            peer.on('open', (id) => {
+                updateNetworkStatusUI(`CONNECTING TO LOBBY [${roomKey.toUpperCase()}]...`);
+                attemptConnectToHost();
+            });
+
+            peer.on('connection', (conn) => {
+                if (isHost) {
+                    connectedClients.push(conn);
+                    conn.on('data', (data) => handleIncomingPacket(data, conn));
+                    conn.on('close', () => handleClientDisconnect(conn));
+                    conn.on('error', () => handleClientDisconnect(conn));
+                }
+            });
+
+            peer.on('error', (err) => {
+                if (err.type === 'unavailable-id') {
+                    attemptConnectToHost();
+                } else {
+                    updateNetworkStatusUI("OFFLINE MODE (SOLO)");
+                }
+            });
+        }
+
+        function attemptConnectToHost() {
+            if (!peer || peer.destroyed) return;
+
+            const conn = peer.connect(ROOM_HOST_PEER_ID, { reliable: false });
+            let connected = false;
+
+            conn.on('open', () => {
+                connected = true;
+                if (connectTimeout) clearTimeout(connectTimeout);
+                hostConnection = conn;
+                isHost = false;
+
+                conn.send({ type: 'JOIN_REQUEST', sender: localClientId });
+                updateNetworkStatusUI(`CONNECTED TO HOST [${roomKey.toUpperCase()}]`);
+            });
+
+            conn.on('data', (data) => handleIncomingPacket(data, conn));
+
+            conn.on('close', () => {
+                updateNetworkStatusUI("HOST DISCONNECTED. PROMOTING TO HOST...");
+                becomeMatchHost();
+            });
+
+            connectTimeout = setTimeout(() => {
+                if (!connected && !gameStarted) {
+                    becomeMatchHost();
+                }
+            }, 2500);
+        }
+
+        function becomeMatchHost() {
+            if (peer && !peer.destroyed) peer.destroy();
+
+            peer = new Peer(ROOM_HOST_PEER_ID);
+
+            peer.on('open', () => {
+                isHost = true;
+                updateNetworkStatusUI(`MATCH HOST [LOBBY: ${roomKey.toUpperCase()}]`);
+                const statusText = document.getElementById('voting-status-text');
+                if (statusText) statusText.innerText = `ROOM HOST READY - SHARE LINK (#${roomKey})`;
+            });
+
+            peer.on('connection', (conn) => {
+                connectedClients.push(conn);
+                conn.on('data', (data) => handleIncomingPacket(data, conn));
+                conn.on('close', () => handleClientDisconnect(conn));
+                conn.on('error', () => handleClientDisconnect(conn));
+            });
+
+            peer.on('error', (err) => {
+                if (err.type === 'unavailable-id') {
+                    isHost = false;
+                    attemptConnectToHost();
+                }
+            });
+        }
+
+        // --- THREE.JS SETUP & SCENE ---
         const scene = new THREE.Scene();
         scene.fog = new THREE.FogExp2(0x05050d, 0.008);
 
@@ -470,7 +533,6 @@
         dirLight.position.set(40, 80, 40);
         scene.add(dirLight);
 
-        // --- FIRST PERSON VIEWMODEL HOLDER ---
         const viewmodelGroup = new THREE.Group();
         camera.add(viewmodelGroup);
         viewmodelGroup.position.set(0.35, -0.35, -0.55);
@@ -492,9 +554,7 @@
         const staticBoxes = [];  
         const weaponsDatabase = [];
 
-        // --- 120 WEAPON DATABASE GENERATOR ---
         const rawWeaponsData = [
-            // --- 60 PRIMARIES (0-59) ---
             [0, 'Apex-9 Assault', 'PRIMARY', 'RIFLE', 24, 100, 30, 0x00ffff, 200],
             [1, 'Vulcan Dread', 'PRIMARY', 'SHOTGUN', 140, 800, 8, 0xff5500, 60],
             [2, 'Singularity Rail', 'PRIMARY', 'RAILGUN', 95, 1200, 5, 0xaa00ff, 250],
@@ -555,8 +615,6 @@
             [57, 'Pulsar Beltgun', 'PRIMARY', 'LMG', 24, 90, 75, 0xaa00ff, 210],
             [58, 'Obliterator Rail', 'PRIMARY', 'HEAVYRAIL', 125, 1700, 4, 0x884400, 270],
             [59, 'Apocalypse Cannon', 'PRIMARY', 'SUPER', 180, 2500, 2, 0x6600aa, 300],
-
-            // --- 30 SECONDARIES (60-89) ---
             [60, 'Cyber Pistol', 'SECONDARY', 'HANDGUN', 28, 180, 15, 0xff007f, 150],
             [61, 'Plasma Revolver', 'SECONDARY', 'REVOLVER', 60, 450, 6, 0x00ffff, 160],
             [62, 'Micro SMG', 'SECONDARY', 'SMG', 15, 65, 30, 0x888888, 120],
@@ -587,8 +645,6 @@
             [87, 'Elephant Pistol', 'SECONDARY', 'MAGNUM', 90, 700, 5, 0x333333, 170],
             [88, 'Cyber Crossbow', 'SECONDARY', 'BOW', 65, 600, 5, 0x444455, 160],
             [89, 'Phase Pistol', 'SECONDARY', 'QUANTUM', 36, 210, 14, 0x00ffcc, 140],
-
-            // --- 30 MELEE (90-119) ---
             [90, 'Tactical Blade', 'MELEE', 'KNIFE', 85, 350, Infinity, 0xffe600, 3.5],
             [91, 'Cyber Katana', 'MELEE', 'KATANA', 110, 450, Infinity, 0x00ffff, 4.5],
             [92, 'Heavy Cyber Axe', 'MELEE', 'AXE', 125, 550, Infinity, 0xff5500, 4.2],
@@ -624,16 +680,9 @@
         function generateWeaponsDatabase() {
             rawWeaponsData.forEach(d => {
                 weaponsDatabase.push({
-                    id: d[0],
-                    name: d[1],
-                    category: d[2],
-                    subType: d[3],
-                    damage: d[4],
-                    fireRate: d[5],
-                    ammoMax: d[6],
-                    ammo: d[6],
-                    color: d[7],
-                    range: d[8]
+                    id: d[0], name: d[1], category: d[2], subType: d[3],
+                    damage: d[4], fireRate: d[5], ammoMax: d[6], ammo: d[6],
+                    color: d[7], range: d[8]
                 });
             });
         }
@@ -741,17 +790,13 @@
             const glowMat = new THREE.MeshBasicMaterial({ color: isHumanPlayer ? 0xffe600 : colorHex });
             const accentGlowMat = new THREE.MeshBasicMaterial({ color: isHumanPlayer ? 0x00ffff : colorHex });
 
-            function createJointSphere(radius = 0.07) {
-                return new THREE.Mesh(new THREE.SphereGeometry(radius, 8, 8), jointMat);
-            }
+            function createJointSphere(radius = 0.07) { return new THREE.Mesh(new THREE.SphereGeometry(radius, 8, 8), jointMat); }
 
             function addBone(name, parent, x, y, z) {
                 const b = new THREE.Bone();
-                b.name = name;
-                b.position.set(x, y, z);
+                b.name = name; b.position.set(x, y, z);
                 if (parent) parent.add(b);
-                bones.push(b);
-                boneMap[name] = b;
+                bones.push(b); boneMap[name] = b;
                 return b;
             }
 
@@ -785,24 +830,16 @@
 
                 const wingGeom = new THREE.BoxGeometry(0.04, 0.7, 0.22);
                 const wingL = new THREE.Mesh(wingGeom, accentGlowMat);
-                wingL.position.set(0.28, 0.2, 0.25);
-                wingL.rotation.z = -Math.PI / 6;
+                wingL.position.set(0.28, 0.2, 0.25); wingL.rotation.z = -Math.PI / 6;
 
                 const wingR = new THREE.Mesh(wingGeom, accentGlowMat);
-                wingR.position.set(-0.28, 0.2, 0.25);
-                wingR.rotation.z = Math.PI / 6;
+                wingR.position.set(-0.28, 0.2, 0.25); wingR.rotation.z = Math.PI / 6;
 
                 chest.add(pack, wingL, wingR);
             } else {
                 const wireColors = [0xff0055, 0x00ffff, 0xffe600, 0x222233, 0x00ff66, 0x888888];
-                const circuitBox = new THREE.Mesh(
-                    new THREE.BoxGeometry(0.22, 0.25, 0.18), 
-                    new THREE.MeshStandardMaterial({ color: 0x11111a, roughness: 0.5, metalness: 0.9 })
-                );
-                const circuitBoard = new THREE.Mesh(
-                    new THREE.BoxGeometry(0.23, 0.18, 0.02),
-                    new THREE.MeshBasicMaterial({ color: 0x00ff66, wireframe: true })
-                );
+                const circuitBox = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.25, 0.18), new THREE.MeshStandardMaterial({ color: 0x11111a, roughness: 0.5, metalness: 0.9 }));
+                const circuitBoard = new THREE.Mesh(new THREE.BoxGeometry(0.23, 0.18, 0.02), new THREE.MeshBasicMaterial({ color: 0x00ff66, wireframe: true }));
                 circuitBoard.position.z = -0.09;
                 circuitBox.add(circuitBoard);
                 spine2.add(circuitBox);
@@ -825,14 +862,8 @@
                 const markerGroup = new THREE.Group();
                 markerGroup.position.set(0, 0.65, 0);
 
-                const diamondMesh = new THREE.Mesh(
-                    new THREE.OctahedronGeometry(0.18, 0),
-                    new THREE.MeshBasicMaterial({ color: 0x00ffaa, wireframe: true })
-                );
-                const coreDot = new THREE.Mesh(
-                    new THREE.SphereGeometry(0.06, 8, 8),
-                    new THREE.MeshBasicMaterial({ color: 0xffe600 })
-                );
+                const diamondMesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 0), new THREE.MeshBasicMaterial({ color: 0x00ffaa, wireframe: true }));
+                const coreDot = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffe600 }));
                 markerGroup.add(diamondMesh, coreDot);
                 head.add(markerGroup);
                 humanMarkersToRotate.push(markerGroup);
@@ -905,33 +936,8 @@
             rigGroup.add(root);
 
             return {
-                group: rigGroup,
-                skeleton: skeleton,
-                bones: boneMap,
-                glowMat: glowMat
+                group: rigGroup, skeleton: skeleton, bones: boneMap, glowMat: glowMat
             };
-        }
-
-        function resolveEntityCollisions(entityPos, radius = 0.5) {
-            entitySlots.forEach(ent => {
-                if (!ent || ent.health <= 0) return;
-                const otherPos = (ent === player) ? player.position : ent.mesh.position;
-                if (otherPos === entityPos) return; // Don't collide with self
-
-                const dx = entityPos.x - otherPos.x;
-                const dz = entityPos.z - otherPos.z;
-                const distSq = dx * dx + dz * dz;
-                const minDist = radius * 2.0; // 1.0m total diameter buffer
-
-                if (distSq < minDist * minDist && distSq > 0.0001) {
-                    const dist = Math.sqrt(distSq);
-                    const overlap = (minDist - dist);
-                    
-                    // Push the entity away from the obstacle
-                    entityPos.x += (dx / dist) * overlap;
-                    entityPos.z += (dz / dist) * overlap;
-                }
-            });
         }
 
         function generateFacilityArena() {
@@ -1030,13 +1036,7 @@
                 staticBoxes.push(bObj);
 
                 slidingDoors.push({
-                    group: doorGroup,
-                    panel: doorPanel,
-                    boxObj: bObj,
-                    basePos: doorGroup.position.clone(),
-                    isX: isX,
-                    width: width,
-                    slideProgress: 0.0
+                    group: doorGroup, panel: doorPanel, boxObj: bObj, basePos: doorGroup.position.clone(), isX: isX, width: width, slideProgress: 0.0
                 });
             };
 
@@ -1063,11 +1063,7 @@
                 staticBoxes.push(bObj);
 
                 glassPanels.push({
-                    mesh: glassMesh,
-                    topFrame: topFrame,
-                    botFrame: botFrame,
-                    boxObj: bObj,
-                    isBroken: false
+                    mesh: glassMesh, topFrame: topFrame, botFrame: botFrame, boxObj: bObj, isBroken: false
                 });
             };
 
@@ -1170,11 +1166,7 @@
                 const bObj = registerStaticBox(carMesh, true);
 
                 elevatorCars.push({
-                    mesh: carMesh,
-                    boxObj: bObj,
-                    x: x, z: z,
-                    targetFloorIdx: 0,
-                    waitTimer: 2.0
+                    mesh: carMesh, boxObj: bObj, x: x, z: z, targetFloorIdx: 0, waitTimer: 2.0
                 });
 
                 addRoomLight(x, floorHeight, z, 0xffe600, 3.0);
@@ -1267,12 +1259,8 @@
                 scene.add(pickupGroup);
 
                 const spawnObj = {
-                    group: pickupGroup,
-                    modelHolder: modelHolder,
-                    ringMesh: ringMesh,
-                    weapon: Object.assign({}, randomWpn),
-                    active: true,
-                    respawnTimer: 0
+                    group: pickupGroup, modelHolder: modelHolder, ringMesh: ringMesh,
+                    weapon: Object.assign({}, randomWpn), active: true, respawnTimer: 0
                 };
 
                 setPickupWeapon(spawnObj, randomWpn);
@@ -1364,29 +1352,6 @@
 
         generateFacilityArena();
 
-        function createRemoteEntity(slotId) {
-            const archetype = BOT_ARCHETYPES[slotId % BOT_ARCHETYPES.length];
-            const colorHex = 0x00ffff;
-            const rigObj = create60BoneHumanoidRig(colorHex, false);
-            rigObj.group.position.set(0, -100, 0); 
-            scene.add(rigObj.group);
-
-            return {
-                id: slotId,
-                slot: slotId,
-                name: `COMBATANT_${slotId}`,
-                health: 100,
-                score: 0,
-                team: 'NONE',
-                mesh: rigObj.group,
-                rig: rigObj,
-                weapon: Object.assign({}, weaponsDatabase[0]),
-                rotX: 0,
-                targetRoom: null,
-                isNetworkPlayer: false
-            };
-        }
-
         function updateRemoteHeldWeaponMesh(remote) {
             if (!remote.rig || !remote.rig.bones || !remote.rig.bones['R_Wrist']) return;
             const holder = remote.rig.bones['R_Wrist'];
@@ -1431,106 +1396,6 @@
             }
         }
 
-        // --- RELIABLE CROSS-INTERNET MULTIPLAYER SETUP ---
-        const roomKey = (window.location.hash.replace('#', '') || 'cyberstrike2077_global').toLowerCase();
-        const ROOM_HOST_PEER_ID = "cs2077_host_" + roomKey;
-        const localClientId = "CS2077_CLI_" + Math.random().toString(36).substring(2, 7);
-
-        let peer = null;
-        let hostConnection = null;
-        let isHost = false;
-        let connectTimeout = null;
-        const connectedClients = [];
-
-        function initMultiplayerNetworking() {
-            // Standard PeerJS initialization using cloud signaling
-            peer = new Peer(localClientId);
-
-            peer.on('open', (id) => {
-                updateNetworkStatusUI(`CONNECTING TO LOBBY [${roomKey.toUpperCase()}]...`);
-                attemptConnectToHost();
-            });
-
-            peer.on('connection', (conn) => {
-                if (isHost) {
-                    connectedClients.push(conn);
-                    conn.on('data', (data) => handleIncomingPacket(data, conn));
-                    conn.on('close', () => handleClientDisconnect(conn));
-                    conn.on('error', () => handleClientDisconnect(conn));
-                }
-            });
-
-            peer.on('error', (err) => {
-                // If attempting host registration and ID is taken, retry as client
-                if (err.type === 'unavailable-id') {
-                    attemptConnectToHost();
-                } else {
-                    updateNetworkStatusUI("OFFLINE MODE (SOLO)");
-                }
-            });
-        }
-
-        function attemptConnectToHost() {
-            if (!peer) return;
-
-            const conn = peer.connect(ROOM_HOST_PEER_ID, { reliable: false });
-            let connected = false;
-
-            conn.on('open', () => {
-                connected = true;
-                if (connectTimeout) clearTimeout(connectTimeout);
-                hostConnection = conn;
-                isHost = false;
-
-                // Send join request to the room host
-                conn.send({ type: 'JOIN_REQUEST', sender: localClientId });
-                updateNetworkStatusUI(`CONNECTED TO HOST [${roomKey.toUpperCase()}]`);
-            });
-
-            conn.on('data', (data) => handleIncomingPacket(data, conn));
-
-            conn.on('close', () => {
-                updateNetworkStatusUI("HOST DISCONNECTED. PROMOTING TO HOST...");
-                becomeMatchHost();
-            });
-
-            // If no host responds within 2.5 seconds, claim Host role for this room
-            connectTimeout = setTimeout(() => {
-                if (!connected && !gameStarted) {
-                    becomeMatchHost();
-                }
-            }, 2500);
-        }
-
-        function becomeMatchHost() {
-            if (peer && !peer.destroyed) peer.destroy();
-
-            // Re-initialize PeerJS with the authoritative Host ID
-            peer = new Peer(ROOM_HOST_PEER_ID);
-
-            peer.on('open', () => {
-                isHost = true;
-                updateNetworkStatusUI(`MATCH HOST [LOBBY: ${roomKey.toUpperCase()}]`);
-                const statusText = document.getElementById('voting-status-text');
-                if (statusText) statusText.innerText = `ROOM HOST READY - SHARE LINK (#${roomKey})`;
-            });
-
-            peer.on('connection', (conn) => {
-                connectedClients.push(conn);
-                conn.on('data', (data) => handleIncomingPacket(data, conn));
-                conn.on('close', () => handleClientDisconnect(conn));
-                conn.on('error', () => handleClientDisconnect(conn));
-            });
-
-            peer.on('error', (err) => {
-                // ID taken means another player became host right before us
-                if (err.type === 'unavailable-id') {
-                    isHost = false;
-                    attemptConnectToHost();
-                }
-            });
-        }
-
         function handleClientDisconnect(conn) {
             const idx = connectedClients.indexOf(conn);
             if (idx !== -1) connectedClients.splice(idx, 1);
@@ -1572,7 +1437,7 @@
                 targetBot.isNetworkPlayer = true;
                 targetBot.networkId = data.sender;
                 targetBot.connection = conn;
-                targetBot.name = "PLAYER_" + data.sender.substring(7);
+                targetBot.name = "PLAYER_" + data.sender.substring(11);
 
                 const welcomeData = {
                     type: 'MATCH_WELCOME',
@@ -1583,8 +1448,7 @@
                     teamPinkScore: teamPinkScore,
                     gameStarted: gameStarted
                 };
-                if (conn) conn.send(welcomeData);
-                if (broadcastChan) broadcastChan.postMessage(welcomeData);
+                if (conn && conn.open) conn.send(welcomeData);
 
                 showKillFeed(`${targetBot.name} JOINED ARENA!`);
             } 
@@ -1671,6 +1535,15 @@
                         if (b['R_UpperArm']) b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.5;
                     }
                 }
+
+                // If Host received packet from Client A, relay to Client B, C, D
+                if (isHost) {
+                    connectedClients.forEach(c => {
+                        if (c !== conn && c.open) {
+                            try { c.send(data); } catch(e){}
+                        }
+                    });
+                }
             }
         }
 
@@ -1698,11 +1571,9 @@
             };
 
             if (isHost) {
-                if (broadcastChan) broadcastChan.postMessage(packet);
                 connectedClients.forEach(c => { try { if (c && c.open) c.send(packet); } catch(e){} });
-            } else {
-                if (hostConnection && hostConnection.open) hostConnection.send(packet);
-                if (broadcastChan) broadcastChan.postMessage(packet);
+            } else if (hostConnection && hostConnection.open) {
+                hostConnection.send(packet);
             }
         }
 
@@ -1835,7 +1706,6 @@
                     players.forEach(bot => { if (bot) respawnEntity(bot); });
 
                     const startPacket = { type: 'MATCH_START', mode: currentMode };
-                    if (broadcastChan) broadcastChan.postMessage(startPacket);
                     connectedClients.forEach(c => { try { if (c && c.open) c.send(startPacket); } catch(e){} });
                 }
 
@@ -1849,7 +1719,6 @@
             }
         }
 
-        // --- DUAL-ZONE TOUCH NAVIGATION & FULLSCREEN CONTROLS ---
         function setupTouchSystem() {
             window.addEventListener('touchstart', (e) => {
                 if (!document.fullscreenElement) {
@@ -1914,7 +1783,6 @@
                     if (touch.identifier === touchRunId) {
                         const dy = touch.clientY - touchRunStartY;
 
-                        // SWIPE UP -> JUMP
                         if (dy < -20 && !hasTriggeredJumpGesture && !isRespawning && !isPreMatch) {
                             hasTriggeredJumpGesture = true;
                             if (player.isGrounded) {
@@ -1925,7 +1793,6 @@
                                 player.canDoubleJump = false;
                             }
                         } 
-                        // SWIPE DOWN -> SLIDE / CROUCH
                         else if (dy > 20 && !hasTriggeredSlideGesture && !isRespawning && !isPreMatch) {
                             hasTriggeredSlideGesture = true;
                             if (player.isGrounded && !player.isSliding) {
@@ -2067,6 +1934,29 @@
             return false;
         }
 
+        // --- ENTITY-VS-ENTITY PHYSICAL PUSHBACK SYSTEM ---
+        function resolveEntityCollisions(entityPos, radius = 0.5) {
+            if (!entityPos) return;
+            for (let i = 0; i < TOTAL_COMBATANTS; i++) {
+                const ent = entitySlots[i];
+                if (!ent || ent.health <= 0) continue;
+                const otherPos = (ent === player) ? player.position : ent.mesh.position;
+                if (!otherPos || otherPos === entityPos) continue;
+
+                const dx = entityPos.x - otherPos.x;
+                const dz = entityPos.z - otherPos.z;
+                const distSq = dx * dx + dz * dz;
+                const minDist = radius * 2.0;
+
+                if (distSq < minDist * minDist && distSq > 0.0001) {
+                    const dist = Math.sqrt(distSq);
+                    const overlap = (minDist - dist) * 0.5;
+                    entityPos.x += (dx / dist) * overlap;
+                    entityPos.z += (dz / dist) * overlap;
+                }
+            }
+        }
+
         function checkCeilingCollision(pos, radius = 0.45, height = EYE_HEIGHT_STAND) {
             const headBox = new THREE.Box3(
                 new THREE.Vector3(pos.x - radius, pos.y + height - 0.2, pos.z - radius),
@@ -2104,17 +1994,6 @@
             }
         }
         updatePlayerViewmodel();
-
-        function updateSpectatedTargetViewmodel(weaponData) {
-            if (!weaponData) return;
-            if (spectatedWeaponId !== weaponData.id) {
-                spectatedWeaponId = weaponData.id;
-                while(viewmodelGroup.children.length > 0) viewmodelGroup.remove(viewmodelGroup.children[0]);
-                const vm = buildWeaponMesh(weaponData, true);
-                viewmodelGroup.add(vm);
-            }
-            viewmodelGroup.visible = true;
-        }
 
         const keys = {};
 
@@ -2310,7 +2189,6 @@
             }
         }
 
-        // --- CCTV SPECTATOR MODE & MOVEMENT ---
         function updatePlayerMovement(delta) {
             if (isSpectating) {
                 viewmodelGroup.visible = false;
@@ -2416,10 +2294,11 @@
 
             const oldZ = player.position.z;
             player.position.z += player.velocity.z * delta;
-            resolveEntityCollisions(player.position);
             if (checkWallCollision(player.position, 0.45, player.currentEyeHeight)) {
                 player.position.z = oldZ; player.velocity.z = 0;
             }
+
+            resolveEntityCollisions(player.position, 0.5);
 
             if (player.velocity.y > 0 && checkCeilingCollision(player.position, 0.45, player.currentEyeHeight)) {
                 player.velocity.y = 0;
@@ -2901,11 +2780,7 @@
 
                 scene.add(p);
                 activeDebris.push({
-                    mesh: p,
-                    velocity: vel,
-                    rotVelocity: rotVel,
-                    life: 1.2,
-                    maxLife: 1.2
+                    mesh: p, velocity: vel, rotVelocity: rotVel, life: 1.2, maxLife: 1.2
                 });
             }
         }
@@ -3113,22 +2988,13 @@
                     const BLAST_RADIUS = 9.0;
 
                     const radiusGeom = new THREE.SphereGeometry(BLAST_RADIUS, 16, 16);
-                    const radiusMat = new THREE.MeshBasicMaterial({ 
-                        color: 0xff0055, 
-                        wireframe: true, 
-                        transparent: true, 
-                        opacity: 0.8 
-                    });
+                    const radiusMat = new THREE.MeshBasicMaterial({ color: 0xff0055, wireframe: true, transparent: true, opacity: 0.8 });
                     const radiusMesh = new THREE.Mesh(radiusGeom, radiusMat);
                     radiusMesh.position.copy(expPos);
                     scene.add(radiusMesh);
 
                     const coreGeom = new THREE.SphereGeometry(BLAST_RADIUS * 0.8, 16, 16);
-                    const coreMat = new THREE.MeshBasicMaterial({ 
-                        color: 0xffaa00, 
-                        transparent: true, 
-                        opacity: 0.5 
-                    });
+                    const coreMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.5 });
                     const coreMesh = new THREE.Mesh(coreGeom, coreMat);
                     coreMesh.position.copy(expPos);
                     scene.add(coreMesh);
@@ -3173,7 +3039,6 @@
             }
         }
 
-        // --- ROOM-AWARE QUADRANT BOT AI ---
         function updateBots(delta) {
             if (isPreMatch || !gameStarted) return;
 
@@ -3300,13 +3165,14 @@
 
                     const oldZ = bot.mesh.position.z;
                     bot.mesh.position.z += bot.velocity.z * delta;
-                    resolveEntityCollisions(bot.mesh.position);
                     if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
                         bot.mesh.position.z = oldZ; bot.patrolTarget = null;
                         if (bot.isGrounded && bot.jumpCooldown <= 0) {
                             bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
                         }
                     }
+
+                    resolveEntityCollisions(bot.mesh.position, 0.5);
 
                     bot.mesh.rotation.y = Math.atan2(-patrolDir.x, -patrolDir.z);
 
@@ -3391,6 +3257,8 @@
                             bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
                         }
                     }
+
+                    resolveEntityCollisions(bot.mesh.position, 0.5);
 
                     bot.mesh.rotation.y = Math.atan2(-moveDir.x, -moveDir.z);
                 } else {
@@ -3478,7 +3346,6 @@
             });
         }
 
-        // --- MAIN GAME LOOP ---
         let lastTime = performance.now();
         function gameLoop() {
             requestAnimationFrame(gameLoop);
