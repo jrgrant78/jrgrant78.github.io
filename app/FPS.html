@@ -336,6 +336,8 @@
         let isHost = false;
         let connectTimeout = null;
         const connectedClients = [];
+        let broadcastChan = null;
+        try { broadcastChan = new BroadcastChannel("cs2077_net_channel"); } catch(e){}
 
         // --- ENTITY-TO-ENTITY SOLID COLLISION SYSTEM ---
         function resolveEntityCollisions(selfSlot, targetPos, radius = 0.6) {
@@ -344,8 +346,11 @@
                 const ent = entitySlots[i];
                 if (!ent || ent.health <= 0) continue;
 
-                const otherPos = (ent === player) ? player.position : ent.mesh.position;
+                const otherPos = (ent === player) ? player.position : (ent.mesh ? ent.mesh.position : null);
                 if (!otherPos) continue;
+
+                // Floor height check: only collide if on the same floor level (Y delta < 2.0m)
+                if (Math.abs(targetPos.y - otherPos.y) > 2.0) continue;
 
                 const dx = targetPos.x - otherPos.x;
                 const dz = targetPos.z - otherPos.z;
@@ -419,6 +424,14 @@
 
         // --- RELIABLE CROSS-INTERNET MULTIPLAYER SETUP WITH HOST RELAY ---
         function initMultiplayerNetworking() {
+            if (broadcastChan) {
+                broadcastChan.onmessage = (event) => {
+                    const data = event.data;
+                    if (!data || data.sender === localClientId) return;
+                    handleIncomingPacket(data);
+                };
+            }
+
             peer = new Peer(localClientId);
 
             peer.on('open', (id) => {
@@ -438,25 +451,30 @@
         function attemptConnectToHost() {
             if (!peer) return;
 
-            const conn = peer.connect(ROOM_HOST_PEER_ID, { reliable: true });
+            const joinPacket = { type: 'JOIN_REQUEST', sender: localClientId };
+            if (broadcastChan) broadcastChan.postMessage(joinPacket);
+
             let connected = false;
+            try {
+                const conn = peer.connect(ROOM_HOST_PEER_ID, { reliable: true });
 
-            conn.on('open', () => {
-                connected = true;
-                if (connectTimeout) clearTimeout(connectTimeout);
-                hostConnection = conn;
-                isHost = false;
+                conn.on('open', () => {
+                    connected = true;
+                    if (connectTimeout) clearTimeout(connectTimeout);
+                    hostConnection = conn;
+                    isHost = false;
 
-                conn.send({ type: 'JOIN_REQUEST', sender: localClientId });
-                updateNetworkStatusUI(`CLIENT (JOINED #${roomKey.toUpperCase()})`);
-            });
+                    conn.send(joinPacket);
+                    updateNetworkStatusUI(`CLIENT (JOINED #${roomKey.toUpperCase()})`);
+                });
 
-            conn.on('data', (data) => handleIncomingPacket(data, conn));
+                conn.on('data', (data) => handleIncomingPacket(data, conn));
 
-            conn.on('close', () => {
-                updateNetworkStatusUI("HOST DISCONNECTED. PROMOTING TO HOST...");
-                becomeMatchHost();
-            });
+                conn.on('close', () => {
+                    updateNetworkStatusUI("HOST DISCONNECTED. PROMOTING TO HOST...");
+                    becomeMatchHost();
+                });
+            } catch(e){}
 
             connectTimeout = setTimeout(() => {
                 if (!connected && !gameStarted) {
@@ -519,13 +537,16 @@
         function handleIncomingPacket(data, conn = null) {
             if (!data || data.sender === localClientId) return;
 
-            // CRITICAL FIX: Host relays packet to ALL other connected clients
-            if (isHost && conn) {
-                connectedClients.forEach(c => {
-                    if (c !== conn && c.open) {
-                        try { c.send(data); } catch(e){}
-                    }
-                });
+            // Host relays packet to ALL other connected clients (WebRTC + BroadcastChannel)
+            if (isHost) {
+                if (conn) {
+                    connectedClients.forEach(c => {
+                        if (c !== conn && c.open) {
+                            try { c.send(data); } catch(e){}
+                        }
+                    });
+                }
+                if (broadcastChan) broadcastChan.postMessage(data);
             }
 
             if (data.type === 'JOIN_REQUEST' && isHost) {
@@ -554,6 +575,7 @@
                     gameStarted: gameStarted
                 };
                 if (conn) conn.send(welcomeData);
+                if (broadcastChan) broadcastChan.postMessage(welcomeData);
 
                 showKillFeed(`${targetBot.name} JOINED ARENA!`);
             } 
@@ -667,8 +689,10 @@
 
             if (isHost) {
                 connectedClients.forEach(c => { try { if (c && c.open) c.send(packet); } catch(e){} });
-            } else if (hostConnection && hostConnection.open) {
-                hostConnection.send(packet);
+                if (broadcastChan) broadcastChan.postMessage(packet);
+            } else {
+                if (hostConnection && hostConnection.open) hostConnection.send(packet);
+                if (broadcastChan) broadcastChan.postMessage(packet);
             }
         }
 
@@ -837,6 +861,7 @@
 
                     const startPacket = { type: 'MATCH_START', mode: currentMode };
                     connectedClients.forEach(c => { try { if (c && c.open) c.send(startPacket); } catch(e){} });
+                    if (broadcastChan) broadcastChan.postMessage(startPacket);
                 }
 
                 startPreMatchCountdown();
