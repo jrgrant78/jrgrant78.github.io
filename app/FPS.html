@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>CYBER-STRIKE 2077 // MULTIPLAYER & ROOM-AWARE ARENA</title>
+    <title>CYBER-STRIKE 2077 // MULTIPLAYER ARENA</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; touch-action: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
@@ -123,12 +123,13 @@
         .vote-card .desc { font-size: 11px; color: #aaa; line-height: 1.3; }
 
         .flag-marker {
-            position: absolute; pointer-events: none; transform: translate(-50%, -100%); display: none; z-index: 60; text-align: center;
+            position: absolute; pointer-events: none; transform: translate(-50%, -100%);
+            display: none; z-index: 60; text-align: center;
         }
         .flag-marker svg { filter: drop-shadow(0 0 8px currentColor); }
         .dist-tag {
-            font-size: 10px; font-weight: bold; background: rgba(10, 10, 20, 0.85); border: 1px solid currentColor;
-            padding: 2px 6px; border-radius: 3px; margin-top: 2px; display: inline-block;
+            font-size: 10px; font-weight: bold; background: rgba(10, 10, 20, 0.85);
+            border: 1px solid currentColor; padding: 2px 6px; border-radius: 3px; margin-top: 2px; display: inline-block;
         }
 
         #spectator-bar {
@@ -187,7 +188,6 @@
         </div>
     </div>
 
-    <!-- MOBILE TOUCH CONTROLS -->
     <div id="mobile-controls">
         <div id="btn-swipe" class="mobile-btn">
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#ffe600" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -302,12 +302,9 @@
         let currentMode = 'FFA'; 
         let teamCyanScore = 0;
         let teamPinkScore = 0;
-        let cyanFlagObj = null;
-        let pinkFlagObj = null;
-        let cyanFlagBeacon = null;
-        let pinkFlagBeacon = null;
-        let cyanFlagCarrier = null;
-        let pinkFlagCarrier = null;
+        let cyanFlagObj = null, pinkFlagObj = null;
+        let cyanFlagBeacon = null, pinkFlagBeacon = null;
+        let cyanFlagCarrier = null, pinkFlagCarrier = null;
         let roofMesh = null; 
 
         let isSpectating = false;
@@ -319,6 +316,7 @@
         let preMatchCountdown = 5;
         const humanMarkersToRotate = [];
 
+        // Touch Control State
         let touchMoveId = null, touchLookId = null, touchRunId = null;
         let touchMoveOrigin = { x: 0, y: 0 };
         let touchLookLast = { x: 0, y: 0 };
@@ -326,9 +324,44 @@
         let mobileMoveX = 0, mobileMoveZ = 0;
         let hasTriggeredJumpGesture = false, hasTriggeredSlideGesture = false;
 
+        // --- NETWORK & LOBBY SETUP ---
+        const roomKey = (window.location.hash.replace('#', '') || 'cyberstrike_global').toLowerCase();
+        const ROOM_HOST_PEER_ID = "cs2077_host_" + roomKey;
+        const localClientId = "CS2077_CLI_" + Math.random().toString(36).substring(2, 7);
+
         let mySlot = 0;
         const entitySlots = new Array(TOTAL_COMBATANTS).fill(null);
+        let peer = null;
+        let hostConnection = null;
+        let isHost = false;
+        let connectTimeout = null;
+        const connectedClients = [];
 
+        // --- ENTITY-TO-ENTITY SOLID COLLISION SYSTEM ---
+        function resolveEntityCollisions(selfSlot, targetPos, radius = 0.6) {
+            for (let i = 0; i < TOTAL_COMBATANTS; i++) {
+                if (i === selfSlot) continue; 
+                const ent = entitySlots[i];
+                if (!ent || ent.health <= 0) continue;
+
+                const otherPos = (ent === player) ? player.position : ent.mesh.position;
+                if (!otherPos) continue;
+
+                const dx = targetPos.x - otherPos.x;
+                const dz = targetPos.z - otherPos.z;
+                const distSq = dx * dx + dz * dz;
+                const minDist = radius * 2.0; 
+
+                if (distSq < minDist * minDist && distSq > 0.00001) {
+                    const dist = Math.sqrt(distSq);
+                    const overlap = minDist - dist;
+                    targetPos.x += (dx / dist) * overlap;
+                    targetPos.z += (dz / dist) * overlap;
+                }
+            }
+        }
+
+        // --- ROOM & QUADRANT UTILITIES ---
         function getRoomIndex(pos) {
             let f = 0;
             if (pos.y >= 12) f = 2;
@@ -384,77 +417,28 @@
             return candidateList[Math.floor(Math.random() * candidateList.length)].clone();
         }
 
-        function generateCCTVCameras() {
-            cctvCameras = [];
-            const floorLabels = ["F1", "F2", "F3"];
-            const roomNames = [
-                'COMPUTER LAB', 'SERVER CORRIDOR', 'MEDIC BAY',
-                'WEST ARMORY', 'CENTRAL HUB', 'EAST ARMORY',
-                'BRIEFING ROOM', 'SECURITY CONTROL', 'RESEARCH LAB'
-            ];
-            const floorsY = [0, 8, 16];
-            const gridX = [-75, 0, 75];
-            const gridZ = [-75, 0, 75];
-
-            let idCounter = 1;
-            floorsY.forEach((fY, fIdx) => {
-                gridZ.forEach((rz, zIdx) => {
-                    gridX.forEach((rx, xIdx) => {
-                        const roomIdx = zIdx * 3 + xIdx;
-                        const label = `CAM ${idCounter < 10 ? '0' + idCounter : idCounter} // ${floorLabels[fIdx]}-${roomNames[roomIdx]}`;
-                        cctvCameras.push({
-                            id: idCounter++,
-                            title: label,
-                            pos: new THREE.Vector3(rx + 16, fY + 6.2, rz + 16),
-                            center: new THREE.Vector3(rx, fY + 2.0, rz)
-                        });
-                    });
-                });
-            });
-        }
-        generateCCTVCameras();
-
-        // --- RELIABLE CROSS-INTERNET MULTIPLAYER SETUP ---
-        const roomKey = (window.location.hash.replace('#', '') || 'cyberstrike2077_global').toLowerCase().replace(/[^a-z0-9]/g, '');
-        const ROOM_HOST_PEER_ID = "cs2077_host_room_" + roomKey;
-        const localClientId = "CS2077_CLI_" + Math.random().toString(36).substring(2, 9);
-
-        let peer = null;
-        let hostConnection = null;
-        let isHost = false;
-        let connectTimeout = null;
-        const connectedClients = [];
-
+        // --- RELIABLE CROSS-INTERNET MULTIPLAYER SETUP WITH HOST RELAY ---
         function initMultiplayerNetworking() {
             peer = new Peer(localClientId);
 
             peer.on('open', (id) => {
-                updateNetworkStatusUI(`CONNECTING TO LOBBY [${roomKey.toUpperCase()}]...`);
+                updateNetworkStatusUI(`CONNECTING TO ROOM [#${roomKey.toUpperCase()}]...`);
                 attemptConnectToHost();
-            });
-
-            peer.on('connection', (conn) => {
-                if (isHost) {
-                    connectedClients.push(conn);
-                    conn.on('data', (data) => handleIncomingPacket(data, conn));
-                    conn.on('close', () => handleClientDisconnect(conn));
-                    conn.on('error', () => handleClientDisconnect(conn));
-                }
             });
 
             peer.on('error', (err) => {
                 if (err.type === 'unavailable-id') {
                     attemptConnectToHost();
-                } else {
-                    updateNetworkStatusUI("OFFLINE MODE (SOLO)");
+                } else if (!gameStarted) {
+                    becomeMatchHost();
                 }
             });
         }
 
         function attemptConnectToHost() {
-            if (!peer || peer.destroyed) return;
+            if (!peer) return;
 
-            const conn = peer.connect(ROOM_HOST_PEER_ID, { reliable: false });
+            const conn = peer.connect(ROOM_HOST_PEER_ID, { reliable: true });
             let connected = false;
 
             conn.on('open', () => {
@@ -464,7 +448,7 @@
                 isHost = false;
 
                 conn.send({ type: 'JOIN_REQUEST', sender: localClientId });
-                updateNetworkStatusUI(`CONNECTED TO HOST [${roomKey.toUpperCase()}]`);
+                updateNetworkStatusUI(`CLIENT (JOINED #${roomKey.toUpperCase()})`);
             });
 
             conn.on('data', (data) => handleIncomingPacket(data, conn));
@@ -478,7 +462,7 @@
                 if (!connected && !gameStarted) {
                     becomeMatchHost();
                 }
-            }, 2500);
+            }, 2000);
         }
 
         function becomeMatchHost() {
@@ -488,7 +472,7 @@
 
             peer.on('open', () => {
                 isHost = true;
-                updateNetworkStatusUI(`MATCH HOST [LOBBY: ${roomKey.toUpperCase()}]`);
+                updateNetworkStatusUI(`ROOM HOST (LOBBY: #${roomKey.toUpperCase()})`);
                 const statusText = document.getElementById('voting-status-text');
                 if (statusText) statusText.innerText = `ROOM HOST READY - SHARE LINK (#${roomKey})`;
             });
@@ -506,894 +490,6 @@
                     attemptConnectToHost();
                 }
             });
-        }
-
-        // --- THREE.JS SETUP & SCENE ---
-        const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x05050d, 0.008);
-
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        scene.add(camera);
-
-        const renderer = new THREE.WebGLRenderer({ antialias: !isMobileScreen, powerPreference: "high-performance" });
-        renderer.setClearColor(0x050508, 1.0);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0));
-        renderer.setSize(window.innerWidth, window.innerHeight);
-
-        renderer.shadowMap.enabled = !isMobileScreen;
-        if (renderer.shadowMap.enabled) {
-            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-        }
-        document.body.appendChild(renderer.domElement);
-
-        const ambientLight = new THREE.AmbientLight(0x221133, 1.2);
-        scene.add(ambientLight);
-
-        const dirLight = new THREE.DirectionalLight(0x00ffff, 0.6);
-        dirLight.position.set(40, 80, 40);
-        scene.add(dirLight);
-
-        const viewmodelGroup = new THREE.Group();
-        camera.add(viewmodelGroup);
-        viewmodelGroup.position.set(0.35, -0.35, -0.55);
-
-        let gameStarted = false;
-        let isMouseDown = false;
-        let kills = 0;
-        const players = [];
-        const projectiles = [];
-        const activeDebris = [];
-        const worldWeaponSpawns = [];
-        const spawnPoints = [];
-        const glassPanels = [];
-        const slidingDoors = [];
-        const elevatorCars = [];
-        
-        const colliders = [];       
-        const wallColliders = [];   
-        const staticBoxes = [];  
-        const weaponsDatabase = [];
-
-        const rawWeaponsData = [
-            [0, 'Apex-9 Assault', 'PRIMARY', 'RIFLE', 24, 100, 30, 0x00ffff, 200],
-            [1, 'Vulcan Dread', 'PRIMARY', 'SHOTGUN', 140, 800, 8, 0xff5500, 60],
-            [2, 'Singularity Rail', 'PRIMARY', 'RAILGUN', 95, 1200, 5, 0xaa00ff, 250],
-            [3, 'Pulsar Carbine', 'PRIMARY', 'PLASMA', 32, 180, 24, 0x00ff66, 180],
-            [4, 'Titan Smasher', 'PRIMARY', 'LAUNCHER', 120, 1500, 4, 0xffe600, 220],
-            [5, 'Arc Tempest', 'PRIMARY', 'LIGHTNING', 22, 120, 30, 0x00aaff, 170],
-            [6, 'Hyperion Scope', 'PRIMARY', 'SNIPER', 130, 1600, 5, 0xff0033, 300],
-            [7, 'Tachyon Burst', 'PRIMARY', 'BURST', 84, 350, 30, 0xffffff, 210],
-            [8, 'Solar Flare', 'PRIMARY', 'THERMAL', 40, 280, 18, 0xffaa00, 190],
-            [9, 'Cryo Ray', 'PRIMARY', 'FREEZE', 12, 40, 75, 0x00ffff, 140],
-            [10, 'Viper Vector', 'PRIMARY', 'SMG', 15, 60, 50, 0xff007f, 150],
-            [11, 'Quantum Lance', 'PRIMARY', 'ENERGY', 30, 150, 25, 0xff00ff, 200],
-            [12, 'Scatter Mk-4', 'PRIMARY', 'SHOTGUN', 96, 400, 12, 0x8888aa, 70],
-            [13, 'Oblivion Cannon', 'PRIMARY', 'ANTI-MAT', 150, 2000, 3, 0x333344, 320],
-            [14, 'Ion Stream', 'PRIMARY', 'LASER', 8, 30, 100, 0xff0033, 160],
-            [15, 'Plasma Howitzer', 'PRIMARY', 'MORTAR', 110, 1400, 6, 0x008888, 230],
-            [16, 'Cobalt Buster', 'PRIMARY', 'LMG', 26, 110, 60, 0x0044ff, 210],
-            [17, 'Scourge Rifle', 'PRIMARY', 'INCENDIARY', 25, 130, 30, 0xff3300, 180],
-            [18, 'Sonic Blaster', 'PRIMARY', 'SOUND', 50, 500, 10, 0xffe600, 120],
-            [19, 'Helix Cannon', 'PRIMARY', 'SPIRAL', 35, 220, 20, 0x8800ff, 200],
-            [20, 'Specter DMR', 'PRIMARY', 'MARKSMAN', 65, 400, 10, 0x00ffff, 260],
-            [21, 'Scourge LMG', 'PRIMARY', 'LMG', 22, 85, 80, 0xaa6600, 220],
-            [22, 'Vortex Generator', 'PRIMARY', 'GRAVITY', 70, 900, 8, 0x00ffcc, 180],
-            [23, 'Phantom Carbine', 'PRIMARY', 'STEALTH', 28, 140, 25, 0x222233, 190],
-            [24, 'Nova Breaker', 'PRIMARY', 'PLASMA', 45, 300, 16, 0xff8800, 200],
-            [25, 'Frostbite', 'PRIMARY', 'CRYO', 18, 90, 40, 0xaaffff, 160],
-            [26, 'Acid Spitter', 'PRIMARY', 'CORROSION', 15, 60, 50, 0x33ff00, 130],
-            [27, 'Disruptor Mk-I', 'PRIMARY', 'EMP', 35, 300, 20, 0x0099ff, 170],
-            [28, 'Mag-Pulse', 'PRIMARY', 'MAGNETIC', 80, 850, 6, 0xcc6600, 220],
-            [29, 'Overlord', 'PRIMARY', 'GATLING', 30, 100, 100, 0x444444, 210],
-            [30, 'Cyclone SMG', 'PRIMARY', 'ROTARY', 14, 50, 60, 0xff0044, 140],
-            [31, 'Eclipse Lance', 'PRIMARY', 'DARK', 140, 1800, 4, 0xff0000, 280],
-            [32, 'Breacher-9', 'PRIMARY', 'BUCKSHOT', 144, 900, 6, 0xff5500, 65],
-            [33, 'Concussion Cannon', 'PRIMARY', 'SHOCKWAVE', 45, 450, 12, 0x0033aa, 130],
-            [34, 'Particle Accelerator', 'PRIMARY', 'LASER', 12, 40, 75, 0xffcc00, 230],
-            [35, 'Sentinel Rifle', 'PRIMARY', 'TACTICAL', 26, 120, 30, 0x55aa55, 210],
-            [36, 'Havoc Pod', 'PRIMARY', 'CLUSTER', 85, 1100, 5, 0xaa3300, 200],
-            [37, 'Radiation Repeater', 'PRIMARY', 'GAMMA', 18, 75, 45, 0x00ff00, 150],
-            [38, 'Tempest Storm', 'PRIMARY', 'LIGHTNING', 23, 105, 32, 0x00ccff, 180],
-            [39, 'Judgment DMR', 'PRIMARY', 'MARKSMAN', 75, 450, 8, 0xeeeeee, 270],
-            [40, 'Singularity Engine', 'PRIMARY', 'BLACKHOLE', 130, 2000, 3, 0x110022, 220],
-            [41, 'Gamma Beam', 'PRIMARY', 'RADIATION', 16, 50, 90, 0x88ff00, 170],
-            [42, 'Warhead Cannon', 'PRIMARY', 'MICROROCKET', 60, 600, 10, 0x556633, 210],
-            [43, 'Enforcer Shotgun', 'PRIMARY', 'SHOTGUN', 99, 500, 10, 0x0099cc, 75],
-            [44, 'Line Cutter', 'PRIMARY', 'ENERGY', 55, 350, 15, 0xff6600, 160],
-            [45, 'Chrono Rifle', 'PRIMARY', 'TEMPORAL', 32, 180, 24, 0x00ffff, 200],
-            [46, 'Basilisk', 'PRIMARY', 'VENOM', 21, 95, 35, 0x880088, 160],
-            [47, 'Valkyrie DMR', 'PRIMARY', 'LANCE', 68, 380, 12, 0xffffff, 260],
-            [48, 'Avalanche Pod', 'PRIMARY', 'CRYO', 90, 1200, 6, 0x66ffff, 210],
-            [49, 'Saw Launcher', 'PRIMARY', 'ROTARY', 40, 250, 20, 0xaaaaaa, 140],
-            [50, 'Aegis Carbine', 'PRIMARY', 'SHIELDED', 22, 110, 30, 0x00aaff, 190],
-            [51, 'Archangel', 'PRIMARY', 'LIGHTNING', 85, 950, 6, 0xeeddff, 230],
-            [52, 'Maelstrom Gatling', 'PRIMARY', 'PLASMA', 20, 60, 100, 0x00ffaa, 200],
-            [53, 'Flak Cannon', 'PRIMARY', 'FLAK', 120, 650, 10, 0x666666, 110],
-            [54, 'Zenith Array', 'PRIMARY', 'BEACON', 160, 2200, 2, 0xe0e0e0, 350],
-            [55, 'Reaper Harpoon', 'PRIMARY', 'PNEUMATIC', 110, 1300, 5, 0x777788, 180],
-            [56, 'Firestorm Quad', 'PRIMARY', 'ROCKET', 70, 800, 8, 0xff2200, 220],
-            [57, 'Pulsar Beltgun', 'PRIMARY', 'LMG', 24, 90, 75, 0xaa00ff, 210],
-            [58, 'Obliterator Rail', 'PRIMARY', 'HEAVYRAIL', 125, 1700, 4, 0x884400, 270],
-            [59, 'Apocalypse Cannon', 'PRIMARY', 'SUPER', 180, 2500, 2, 0x6600aa, 300],
-            [60, 'Cyber Pistol', 'SECONDARY', 'HANDGUN', 28, 180, 15, 0xff007f, 150],
-            [61, 'Plasma Revolver', 'SECONDARY', 'REVOLVER', 60, 450, 6, 0x00ffff, 160],
-            [62, 'Micro SMG', 'SECONDARY', 'SMG', 15, 65, 30, 0x888888, 120],
-            [63, 'Flare Pistol', 'SECONDARY', 'INCENDIARY', 45, 800, 4, 0xff5500, 110],
-            [64, 'Stun Gun', 'SECONDARY', 'TASER', 25, 300, 10, 0xffe600, 80],
-            [65, 'Magnum Cannon', 'SECONDARY', 'MAGNUM', 70, 550, 7, 0xdddddd, 180],
-            [66, 'Sawed-Off', 'SECONDARY', 'SHOTGUN', 60, 600, 4, 0x885522, 50],
-            [67, 'Laser Sidearm', 'SECONDARY', 'BEAM', 14, 60, 40, 0xff0033, 140],
-            [68, 'Needle Pistol', 'SECONDARY', 'POISON', 18, 120, 20, 0x00ff66, 110],
-            [69, 'Tri-Burst Pistol', 'SECONDARY', 'BURST', 66, 320, 18, 0x00aaff, 140],
-            [70, 'Arc Revolver', 'SECONDARY', 'SHOCK', 50, 400, 6, 0x00ccff, 130],
-            [71, 'Micro Rocket', 'SECONDARY', 'LAUNCHER', 75, 900, 3, 0x556633, 150],
-            [72, 'Pulse Handgun', 'SECONDARY', 'ENERGY', 32, 200, 12, 0x00ffff, 140],
-            [73, 'Cyber Derringer', 'SECONDARY', 'POCKET', 85, 700, 2, 0xccaa44, 90],
-            [74, 'Cryo Pistol', 'SECONDARY', 'FROST', 20, 150, 16, 0xaaffff, 120],
-            [75, 'Pocket Vector', 'SECONDARY', 'SMG', 16, 70, 33, 0x222233, 130],
-            [76, 'Venom Sidearm', 'SECONDARY', 'ACID', 19, 110, 20, 0x00ff00, 110],
-            [77, 'Compact Rail', 'SECONDARY', 'RAILGUN', 80, 1000, 4, 0xaaaaaa, 190],
-            [78, 'Aegis Pistol', 'SECONDARY', 'SHIELDED', 24, 190, 15, 0x00aaff, 130],
-            [79, 'Void Sidearm', 'SECONDARY', 'DARK', 38, 220, 12, 0xaa00ff, 140],
-            [80, 'Auto-Pistol', 'SECONDARY', 'AUTO', 17, 80, 24, 0x555566, 120],
-            [81, 'Sonic Pistol', 'SECONDARY', 'SOUND', 30, 280, 10, 0xcccc33, 100],
-            [82, 'Fusion Handgun', 'SECONDARY', 'CHARGED', 42, 250, 10, 0xff6600, 150],
-            [83, 'Flechette Gun', 'SECONDARY', 'NEEDLE', 12, 50, 45, 0xeeeeee, 120],
-            [84, 'Target Beacon', 'SECONDARY', 'BEACON', 110, 1500, 2, 0xffd700, 250],
-            [85, 'EMP Pistol', 'SECONDARY', 'EMP', 28, 220, 12, 0x0088ff, 130],
-            [86, 'Pocket Saw', 'SECONDARY', 'ROTARY', 35, 300, 8, 0xaa4444, 90],
-            [87, 'Elephant Pistol', 'SECONDARY', 'MAGNUM', 90, 700, 5, 0x333333, 170],
-            [88, 'Cyber Crossbow', 'SECONDARY', 'BOW', 65, 600, 5, 0x444455, 160],
-            [89, 'Phase Pistol', 'SECONDARY', 'QUANTUM', 36, 210, 14, 0x00ffcc, 140],
-            [90, 'Tactical Blade', 'MELEE', 'KNIFE', 85, 350, Infinity, 0xffe600, 3.5],
-            [91, 'Cyber Katana', 'MELEE', 'KATANA', 110, 450, Infinity, 0x00ffff, 4.5],
-            [92, 'Heavy Cyber Axe', 'MELEE', 'AXE', 125, 550, Infinity, 0xff5500, 4.2],
-            [93, 'War Hammer', 'MELEE', 'HAMMER', 140, 700, Infinity, 0xffe600, 4.0],
-            [94, 'Nano Claws', 'MELEE', 'CLAWS', 65, 200, Infinity, 0xff007f, 3.2],
-            [95, 'Plasma Edge', 'MELEE', 'SWORD', 95, 380, Infinity, 0x00ff66, 4.0],
-            [96, 'Stun Baton', 'MELEE', 'BATON', 70, 300, Infinity, 0x00ccff, 3.6],
-            [97, 'Chainsword', 'MELEE', 'SAW', 120, 480, Infinity, 0xff3300, 4.0],
-            [98, 'Nano Whip', 'MELEE', 'WHIP', 80, 320, Infinity, 0xaa00ff, 6.0],
-            [99, 'Vibro Daggers', 'MELEE', 'DAGGERS', 60, 180, Infinity, 0xffffff, 3.0],
-            [100, 'Great Broadsword', 'MELEE', 'GREATSWORD', 130, 600, Infinity, 0x00aaff, 4.8],
-            [101, 'Energy Spear', 'MELEE', 'SPEAR', 100, 420, Infinity, 0x00ffff, 5.5],
-            [102, 'Void Scythe', 'MELEE', 'SCYTHE', 135, 650, Infinity, 0x8800ff, 5.0],
-            [103, 'Power Gauntlets', 'MELEE', 'GAUNTLET', 90, 280, Infinity, 0xff0033, 3.2],
-            [104, 'Shield Spear', 'MELEE', 'SPEAR', 85, 400, Infinity, 0x00ffcc, 5.2],
-            [105, 'Cryo Halberd', 'MELEE', 'HALBERD', 115, 520, Infinity, 0x66ffff, 5.0],
-            [106, 'Acid Machete', 'MELEE', 'MACHETE', 90, 360, Infinity, 0x33ff00, 4.0],
-            [107, 'Dual Sai', 'MELEE', 'SAI', 65, 220, Infinity, 0x00aaff, 3.2],
-            [108, 'Morningstar', 'MELEE', 'FLAIL', 120, 580, Infinity, 0xffaa00, 4.5],
-            [109, 'Mono Wire', 'MELEE', 'WHIP', 150, 800, Infinity, 0xff0000, 6.5],
-            [110, 'Kinetic Tonfa', 'MELEE', 'TONFA', 75, 250, Infinity, 0x00ffff, 3.5],
-            [111, 'Colossal Blade', 'MELEE', 'GREATSWORD', 160, 850, Infinity, 0x444455, 5.0],
-            [112, 'Shock Trident', 'MELEE', 'SPEAR', 105, 440, Infinity, 0x00ccff, 5.5],
-            [113, 'Plasma Claymore', 'MELEE', 'GREATSWORD', 125, 560, Infinity, 0xff6600, 4.8],
-            [114, 'Stealth Wrist-Blade', 'MELEE', 'WRIST', 80, 260, Infinity, 0x111122, 3.0],
-            [115, 'War Glaive', 'MELEE', 'GLAIVE', 95, 340, Infinity, 0x00ff66, 4.6],
-            [116, 'Impact Knuckles', 'MELEE', 'KNUCKLES', 70, 210, Infinity, 0xffd700, 2.8],
-            [117, 'Light Katana', 'MELEE', 'KATANA', 115, 420, Infinity, 0xffffff, 4.5],
-            [118, 'Heavy Poleaxe', 'MELEE', 'HALBERD', 130, 620, Infinity, 0xaa6622, 5.0],
-            [119, 'Grav-Mace', 'MELEE', 'MACE', 145, 720, Infinity, 0x8800ff, 4.2]
-        ];
-
-        function generateWeaponsDatabase() {
-            rawWeaponsData.forEach(d => {
-                weaponsDatabase.push({
-                    id: d[0], name: d[1], category: d[2], subType: d[3],
-                    damage: d[4], fireRate: d[5], ammoMax: d[6], ammo: d[6],
-                    color: d[7], range: d[8]
-                });
-            });
-        }
-        generateWeaponsDatabase();
-
-        function buildWeaponMesh(weapon, isViewmodel = false) {
-            const group = new THREE.Group();
-            const scale = isViewmodel ? 0.75 : 0.85;
-            const darkMat = new THREE.MeshStandardMaterial({ color: 0x12121c, roughness: 0.3, metalness: 0.8 });
-            const glowMat = new THREE.MeshBasicMaterial({ color: weapon.color });
-            const metallicMat = new THREE.MeshStandardMaterial({ color: 0x333344, roughness: 0.2, metalness: 0.9 });
-
-            if (weapon.category === 'MELEE') {
-                if (['KATANA', 'KNIFE', 'SWORD', 'GREATSWORD', 'MACHETE', 'WRIST', 'DAGGERS'].includes(weapon.subType)) {
-                    const bladeLen = (weapon.subType === 'KNIFE' || weapon.subType === 'WRIST' || weapon.subType === 'DAGGERS') ? 0.7 * scale : (weapon.subType === 'GREATSWORD' ? 1.8 * scale : 1.3 * scale);
-                    const bladeWidth = weapon.subType === 'GREATSWORD' ? 0.12 * scale : 0.05 * scale;
-                    const blade = new THREE.Mesh(new THREE.BoxGeometry(bladeWidth, bladeLen, 0.08*scale), glowMat);
-                    blade.position.set(0, (bladeLen/2)*scale, -0.02*scale);
-                    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.03*scale, 0.03*scale, 0.35*scale), darkMat);
-                    handle.position.y = -0.1*scale;
-                    group.add(blade, handle);
-                } else if (['AXE', 'HALBERD', 'GLAIVE'].includes(weapon.subType)) {
-                    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025*scale, 0.025*scale, 1.3*scale), darkMat);
-                    handle.position.y = 0.4*scale;
-                    const head = new THREE.Mesh(new THREE.BoxGeometry(0.1*scale, 0.45*scale, 0.55*scale), glowMat);
-                    head.position.set(0, 0.85*scale, -0.15*scale);
-                    group.add(handle, head);
-                } else if (['HAMMER', 'MACE', 'FLAIL', 'BATON'].includes(weapon.subType)) {
-                    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.03*scale, 0.03*scale, 1.1*scale), darkMat);
-                    handle.position.y = 0.4*scale;
-                    const head = new THREE.Mesh(new THREE.BoxGeometry(0.25*scale, 0.3*scale, 0.25*scale), glowMat);
-                    head.position.set(0, 0.8*scale, 0);
-                    group.add(handle, head);
-                } else if (['SPEAR', 'SCYTHE', 'WHIP'].includes(weapon.subType)) {
-                    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.02*scale, 0.02*scale, 1.6*scale), metallicMat);
-                    shaft.position.y = 0.5*scale;
-                    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.08*scale, 0.4*scale, 8), glowMat);
-                    tip.position.y = 1.3*scale;
-                    group.add(shaft, tip);
-                } else {
-                    const core = new THREE.Mesh(new THREE.BoxGeometry(0.2*scale, 0.2*scale, 0.3*scale), glowMat);
-                    core.position.y = 0.2*scale;
-                    group.add(core);
-                }
-            } else {
-                if (['SHOTGUN', 'BUCKSHOT', 'FLAK'].includes(weapon.subType)) {
-                    const body = new THREE.Mesh(new THREE.BoxGeometry(0.18*scale, 0.2*scale, 0.55*scale), darkMat);
-                    const barrel1 = new THREE.Mesh(new THREE.CylinderGeometry(0.035*scale, 0.035*scale, 0.65*scale), metallicMat);
-                    barrel1.rotation.x = Math.PI/2;
-                    barrel1.position.set(-0.04*scale, 0.03*scale, -0.4*scale);
-                    const barrel2 = barrel1.clone(); barrel2.position.x = 0.04*scale;
-                    const pump = new THREE.Mesh(new THREE.BoxGeometry(0.14*scale, 0.12*scale, 0.25*scale), glowMat);
-                    pump.position.set(0, -0.04*scale, -0.25*scale);
-                    group.add(body, barrel1, barrel2, pump);
-                } else if (['PLASMA', 'FREEZE', 'CRYO', 'DARK', 'CORROSION', 'VENOM'].includes(weapon.subType)) {
-                    const body = new THREE.Mesh(new THREE.BoxGeometry(0.2*scale, 0.22*scale, 0.6*scale), darkMat);
-                    const ring1 = new THREE.Mesh(new THREE.TorusGeometry(0.08*scale, 0.02*scale, 8, 16), glowMat);
-                    ring1.position.set(0, 0, -0.2*scale);
-                    const ring2 = ring1.clone(); ring2.position.z = -0.35*scale;
-                    group.add(body, ring1, ring2);
-                } else if (['RAILGUN', 'HEAVYRAIL', 'ANTI-MAT', 'SNIPER'].includes(weapon.subType)) {
-                    const body = new THREE.Mesh(new THREE.BoxGeometry(0.12*scale, 0.16*scale, 0.85*scale), darkMat);
-                    const topRail = new THREE.Mesh(new THREE.BoxGeometry(0.03*scale, 0.03*scale, 0.95*scale), glowMat);
-                    topRail.position.set(0, 0.08*scale, -0.4*scale);
-                    const botRail = topRail.clone(); botRail.position.y = -0.08*scale;
-                    group.add(body, topRail, botRail);
-                } else if (['LAUNCHER', 'MORTAR', 'CLUSTER', 'ROCKET', 'MICROROCKET'].includes(weapon.subType)) {
-                    const pod = new THREE.Mesh(new THREE.BoxGeometry(0.35*scale, 0.3*scale, 0.6*scale), darkMat);
-                    const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.12*scale, 0.12*scale, 0.1*scale), glowMat);
-                    nozzle.rotation.x = Math.PI/2;
-                    nozzle.position.set(0, 0, -0.32*scale);
-                    group.add(pod, nozzle);
-                } else if (['HANDGUN', 'REVOLVER', 'MAGNUM', 'POCKET', 'AUTO', 'TASER'].includes(weapon.subType)) {
-                    const body = new THREE.Mesh(new THREE.BoxGeometry(0.09*scale, 0.14*scale, 0.35*scale), darkMat);
-                    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.02*scale, 0.02*scale, 0.3*scale), metallicMat);
-                    barrel.rotation.x = Math.PI/2;
-                    barrel.position.set(0, 0.03*scale, -0.25*scale);
-                    const sight = new THREE.Mesh(new THREE.BoxGeometry(0.02*scale, 0.04*scale, 0.08*scale), glowMat);
-                    sight.position.set(0, 0.08*scale, -0.1*scale);
-                    group.add(body, barrel, sight);
-                } else {
-                    const body = new THREE.Mesh(new THREE.BoxGeometry(0.1*scale, 0.15*scale, 0.58*scale), darkMat);
-                    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.025*scale, 0.025*scale, 0.5*scale), metallicMat);
-                    barrel.rotation.x = Math.PI/2;
-                    barrel.position.set(0, 0.03*scale, -0.45*scale);
-                    const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.03*scale, 0.03*scale, 0.2*scale), glowMat);
-                    scope.rotation.x = Math.PI/2;
-                    scope.position.set(0, 0.12*scale, -0.1*scale);
-                    group.add(body, barrel, scope);
-                }
-            }
-            return group;
-        }
-
-        function create60BoneHumanoidRig(colorHex, isHumanPlayer = false) {
-            const bones = [];
-            const boneMap = {};
-            const rigGroup = new THREE.Group();
-
-            const armorMat = isHumanPlayer 
-                ? new THREE.MeshStandardMaterial({ color: 0x112244, roughness: 0.1, metalness: 0.95 })
-                : new THREE.MeshStandardMaterial({ color: 0x181824, roughness: 0.3, metalness: 0.8 });
-
-            const jointMat = new THREE.MeshStandardMaterial({ color: isHumanPlayer ? 0x00ffff : 0x444466, roughness: 0.1, metalness: 0.9 });
-            const glowMat = new THREE.MeshBasicMaterial({ color: isHumanPlayer ? 0xffe600 : colorHex });
-            const accentGlowMat = new THREE.MeshBasicMaterial({ color: isHumanPlayer ? 0x00ffff : colorHex });
-
-            function createJointSphere(radius = 0.07) { return new THREE.Mesh(new THREE.SphereGeometry(radius, 8, 8), jointMat); }
-
-            function addBone(name, parent, x, y, z) {
-                const b = new THREE.Bone();
-                b.name = name; b.position.set(x, y, z);
-                if (parent) parent.add(b);
-                bones.push(b); boneMap[name] = b;
-                return b;
-            }
-
-            const root = addBone('Root', null, 0, 0, 0);                 
-            const pelvis = addBone('Pelvis', root, 0, 0.9, 0);           
-            const spine1 = addBone('Spine1', pelvis, 0, 0.22, 0);        
-            const spine2 = addBone('Spine2', spine1, 0, 0.22, 0);        
-            const spine3 = addBone('Spine3', spine2, 0, 0.22, 0);        
-            const chest = addBone('Chest', spine3, 0, 0.22, 0);          
-            const neck = addBone('Neck', chest, 0, 0.2, 0);              
-            const head = addBone('Head', neck, 0, 0.18, 0);              
-
-            const pelvisMesh = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.2, 0.26), armorMat);
-            pelvis.add(pelvisMesh, createJointSphere(0.09));
-
-            const chestMesh = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.28, 0.3), armorMat);
-            const chestGlow = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.08, 0.31), glowMat);
-            chest.add(chestMesh, chestGlow, createJointSphere(0.09));
-
-            if (isHumanPlayer) {
-                const powerCore = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.09, 12), accentGlowMat);
-                powerCore.rotation.x = Math.PI / 2;
-                powerCore.position.set(0, 0, -0.16);
-                
-                const chestLight = new THREE.PointLight(0x00ffff, 2.0, 10);
-                chestLight.position.set(0, 0, -0.2);
-                chest.add(powerCore, chestLight);
-
-                const pack = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.35, 0.18), armorMat);
-                pack.position.set(0, 0, 0.2);
-
-                const wingGeom = new THREE.BoxGeometry(0.04, 0.7, 0.22);
-                const wingL = new THREE.Mesh(wingGeom, accentGlowMat);
-                wingL.position.set(0.28, 0.2, 0.25); wingL.rotation.z = -Math.PI / 6;
-
-                const wingR = new THREE.Mesh(wingGeom, accentGlowMat);
-                wingR.position.set(-0.28, 0.2, 0.25); wingR.rotation.z = Math.PI / 6;
-
-                chest.add(pack, wingL, wingR);
-            } else {
-                const wireColors = [0xff0055, 0x00ffff, 0xffe600, 0x222233, 0x00ff66, 0x888888];
-                const circuitBox = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.25, 0.18), new THREE.MeshStandardMaterial({ color: 0x11111a, roughness: 0.5, metalness: 0.9 }));
-                const circuitBoard = new THREE.Mesh(new THREE.BoxGeometry(0.23, 0.18, 0.02), new THREE.MeshBasicMaterial({ color: 0x00ff66, wireframe: true }));
-                circuitBoard.position.z = -0.09;
-                circuitBox.add(circuitBoard);
-                spine2.add(circuitBox);
-
-                for (let i = 0; i < 12; i++) {
-                    const wireMat = new THREE.MeshBasicMaterial({ color: wireColors[i % wireColors.length] });
-                    const wire = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.45, 6), wireMat);
-                    wire.position.set((Math.random() - 0.5) * 0.22, (Math.random() - 0.5) * 0.1, (Math.random() - 0.5) * 0.18);
-                    wire.rotation.set((Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 1.2);
-                    spine2.add(wire);
-                }
-            }
-
-            const headMesh = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), armorMat);
-            const visor = new THREE.Mesh(new THREE.BoxGeometry(0.3, isHumanPlayer ? 0.14 : 0.08, 0.18), isHumanPlayer ? accentGlowMat : glowMat);
-            visor.position.set(0, 0.02, -0.1);
-            head.add(headMesh, visor, createJointSphere(0.08));
-
-            if (isHumanPlayer) {
-                const markerGroup = new THREE.Group();
-                markerGroup.position.set(0, 0.65, 0);
-
-                const diamondMesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 0), new THREE.MeshBasicMaterial({ color: 0x00ffaa, wireframe: true }));
-                const coreDot = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffe600 }));
-                markerGroup.add(diamondMesh, coreDot);
-                head.add(markerGroup);
-                humanMarkersToRotate.push(markerGroup);
-            }
-
-            ['L', 'R'].forEach(side => {
-                const s = side === 'L' ? 1 : -1;
-                const clavicle = addBone(`${side}_Clavicle`, chest, 0.22 * s, 0.08, 0);
-                const upperArm = addBone(`${side}_UpperArm`, clavicle, 0.08 * s, -0.05, 0);
-                const forearm = addBone(`${side}_Forearm`, upperArm, 0, -0.38, 0);
-                const wrist = addBone(`${side}_Wrist`, forearm, 0, -0.35, 0);
-
-                const upperMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.35), armorMat);
-                upperMesh.position.y = -0.18;
-                upperArm.add(upperMesh, createJointSphere(0.07));
-
-                if (isHumanPlayer) {
-                    const pauldron = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.14, 0.18), armorMat);
-                    pauldron.position.set(0.05 * s, 0, 0);
-                    upperArm.add(pauldron);
-                }
-
-                const foreMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.32), armorMat);
-                foreMesh.position.y = -0.16;
-                forearm.add(foreMesh, createJointSphere(0.06));
-
-                const handMesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.04), armorMat);
-                handMesh.position.y = -0.05;
-                wrist.add(handMesh, createJointSphere(0.05));
-
-                const fingerNames = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'];
-                fingerNames.forEach((f, fIdx) => {
-                    let parentJoint = wrist;
-                    const offsetX = (fIdx - 2) * 0.02 * s;
-
-                    for (let j = 1; j <= 3; j++) {
-                        const jointName = `${side}_${f}_${j}`;
-                        parentJoint = addBone(jointName, parentJoint, j === 1 ? offsetX : 0, j === 1 ? -0.1 : -0.04, 0);
-
-                        const phalanxMesh = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.035, 0.015), glowMat);
-                        phalanxMesh.position.y = -0.018;
-                        parentJoint.add(phalanxMesh, createJointSphere(0.012));
-                    }
-                });
-            });
-
-            ['L', 'R'].forEach(side => {
-                const s = side === 'L' ? 1 : -1;
-                const hip = addBone(`${side}_Hip`, pelvis, 0.16 * s, -0.08, 0);
-                const thigh = addBone(`${side}_Thigh`, hip, 0, -0.05, 0);
-                const shin = addBone(`${side}_Shin`, thigh, 0, -0.45, 0);
-                const ankle = addBone(`${side}_Ankle`, shin, 0, -0.42, 0);
-                const foot = addBone(`${side}_Foot`, ankle, 0, -0.08, -0.08);
-                const toe = addBone(`${side}_Toe`, foot, 0, 0, -0.12);
-
-                const thighMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.42), armorMat);
-                thighMesh.position.y = -0.21;
-                thigh.add(thighMesh, createJointSphere(0.085));
-
-                const shinMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.4), armorMat);
-                shinMesh.position.y = -0.2;
-                shin.add(shinMesh, createJointSphere(0.075));
-
-                const footMesh = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.18), armorMat);
-                footMesh.position.set(0, -0.03, -0.06);
-                foot.add(footMesh, createJointSphere(0.05));
-            });
-
-            const skeleton = new THREE.Skeleton(bones);
-            rigGroup.add(root);
-
-            return {
-                group: rigGroup, skeleton: skeleton, bones: boneMap, glowMat: glowMat
-            };
-        }
-
-        function generateFacilityArena() {
-            const floorMat = new THREE.MeshStandardMaterial({ color: 0x080812, roughness: 0.8, metalness: 0.3 });
-            const wallMat = new THREE.MeshStandardMaterial({ color: 0x141428, roughness: 0.4, metalness: 0.6 });
-            const glassMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.45 });
-            const doorMat = new THREE.MeshStandardMaterial({ color: 0x223344, roughness: 0.2, metalness: 0.8 });
-            const neonBlueMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
-            const neonYellowMat = new THREE.MeshBasicMaterial({ color: 0xffe600 });
-
-            const facilitySize = 240;
-            const half = facilitySize / 2; 
-            const floorHeight = 8.0;
-            const floors = [0, floorHeight, floorHeight * 2];
-
-            const activeRoomLights = [];
-            const addRoomLight = (x, y, z, colorHex, intensity = 2.0) => {
-                if (isMobileScreen && activeRoomLights.length >= 6) return;
-                const light = new THREE.PointLight(colorHex, isMobileScreen ? intensity * 0.5 : intensity, 22);
-                light.position.set(x, y + 5.0, z);
-                scene.add(light);
-                activeRoomLights.push(light);
-            };
-
-            const registerStaticBox = (mesh, isWall = true) => {
-                colliders.push(mesh);
-                if (isWall) wallColliders.push(mesh);
-
-                const bObj = { box: new THREE.Box3().setFromObject(mesh), active: true, mesh: mesh };
-                staticBoxes.push(bObj);
-                return bObj;
-            };
-
-            const createStaticWall = (x, y, z, w, h, d, mat = wallMat) => {
-                const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-                wall.position.set(x, y, z);
-                scene.add(wall);
-                return registerStaticBox(wall, true);
-            };
-
-            const totalH = floorHeight * 3 + 2;
-            createStaticWall(0, totalH/2, -half, facilitySize, totalH, 2);
-            createStaticWall(0, totalH/2, half, facilitySize, totalH, 2);
-            createStaticWall(-half, totalH/2, 0, 2, totalH, facilitySize);
-            createStaticWall(half, totalH/2, 0, 2, totalH, facilitySize);
-
-            const roof = new THREE.Mesh(new THREE.BoxGeometry(facilitySize, 1.0, facilitySize), floorMat);
-            roof.position.set(0, floorHeight * 3 + 0.5, 0);
-            scene.add(roof);
-            registerStaticBox(roof, true);
-            roofMesh = roof;
-
-            floors.forEach((fY, fIdx) => {
-                if (fIdx === 0) {
-                    const mainFloor = new THREE.Mesh(new THREE.BoxGeometry(facilitySize, 1.0, facilitySize), floorMat);
-                    mainFloor.position.set(0, fY - 0.5, 0);
-                    scene.add(mainFloor);
-                    registerStaticBox(mainFloor, false);
-                } else {
-                    const tileSize = 20;
-                    for (let x = -half + tileSize/2; x < half; x += tileSize) {
-                        for (let z = -half + tileSize/2; z < half; z += tileSize) {
-                            const isElevator1 = (Math.abs(x - (-90)) < 12 && Math.abs(z - 0) < 12);
-                            const isElevator2 = (Math.abs(x - 90) < 12 && Math.abs(z - 0) < 12);
-                            const isStair1 = (Math.abs(x - 0) < 12 && Math.abs(z - (-60)) < 15);
-                            const isStair2 = (Math.abs(x - 0) < 12 && Math.abs(z - 60) < 15);
-
-                            if (isElevator1 || isElevator2 || isStair1 || isStair2) continue;
-
-                            const tile = new THREE.Mesh(new THREE.BoxGeometry(tileSize, 1.0, tileSize), floorMat);
-                            tile.position.set(x, fY - 0.5, z);
-                            scene.add(tile);
-                            registerStaticBox(tile, false);
-                        }
-                    }
-                }
-
-                const gridWire = new THREE.Mesh(new THREE.PlaneGeometry(facilitySize, facilitySize, 16, 16), 
-                    new THREE.MeshBasicMaterial({ color: fIdx === 0 ? 0x00ffff : (fIdx === 1 ? 0xff007f : 0xffe600), wireframe: true }));
-                gridWire.rotation.x = -Math.PI / 2;
-                gridWire.position.set(0, fY + 0.02, 0);
-                scene.add(gridWire);
-            });
-
-            const createDoor = (x, y, z, width = 6.0, isX = true) => {
-                const doorGroup = new THREE.Group();
-                doorGroup.position.set(x, y + 3.0, z);
-
-                const doorPanel = new THREE.Mesh(new THREE.BoxGeometry(isX ? width : 0.4, 6.0, isX ? 0.4 : width), doorMat);
-                const strip = new THREE.Mesh(new THREE.BoxGeometry(isX ? width : 0.42, 0.15, isX ? 0.42 : width), neonBlueMat);
-                strip.position.y = 0.5;
-                doorGroup.add(doorPanel, strip);
-                scene.add(doorGroup);
-
-                const bObj = { box: new THREE.Box3().setFromObject(doorPanel), active: true, mesh: doorPanel };
-                staticBoxes.push(bObj);
-
-                slidingDoors.push({
-                    group: doorGroup, panel: doorPanel, boxObj: bObj, basePos: doorGroup.position.clone(), isX: isX, width: width, slideProgress: 0.0
-                });
-            };
-
-            const createBreakableGlassWindow = (x, y, z, w = 10.0, h = 4.0, isX = true) => {
-                const wallThick = 1.5;
-                const sillH = 2.0;
-                const headerH = 1.0;
-
-                createStaticWall(x, y + sillH / 2, z, isX ? w : wallThick, sillH, isX ? wallThick : w);
-                createStaticWall(x, y + sillH + h + headerH / 2, z, isX ? w : wallThick, headerH, isX ? wallThick : w);
-
-                const glassMesh = new THREE.Mesh(new THREE.BoxGeometry(isX ? w : 0.25, h, isX ? 0.25 : w), glassMat);
-                glassMesh.position.set(x, y + sillH + h / 2, z);
-
-                const topFrame = new THREE.Mesh(new THREE.BoxGeometry(isX ? w : 0.35, 0.15, isX ? 0.35 : w), neonBlueMat);
-                topFrame.position.set(x, y + sillH + h, z);
-
-                const botFrame = new THREE.Mesh(new THREE.BoxGeometry(isX ? w : 0.35, 0.15, isX ? 0.35 : w), neonBlueMat);
-                botFrame.position.set(x, y + sillH, z);
-
-                scene.add(glassMesh, topFrame, botFrame);
-
-                const bObj = { box: new THREE.Box3().setFromObject(glassMesh), active: true, mesh: glassMesh };
-                staticBoxes.push(bObj);
-
-                glassPanels.push({
-                    mesh: glassMesh, topFrame: topFrame, botFrame: botFrame, boxObj: bObj, isBroken: false
-                });
-            };
-
-            const buildRoomProps = (roomType, cX, cY, cZ) => {
-                if (roomType === 'COMPUTER_LAB') {
-                    addRoomLight(cX, cY, cZ, 0x00ffff, 2.5);
-                    for (let i = -10; i <= 10; i += 5) {
-                        const rack = new THREE.Mesh(new THREE.BoxGeometry(1.8, 5.5, 1.8), wallMat);
-                        rack.position.set(cX + i, cY + 2.75, cZ - 10);
-                        const glowStrip = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.12, 1.82), neonBlueMat);
-                        glowStrip.position.set(cX + i, cY + 4.5, cZ - 10);
-                        scene.add(rack, glowStrip);
-                        registerStaticBox(rack, true);
-                    }
-                } else if (roomType === 'MEDIC_BAY') {
-                    addRoomLight(cX, cY, cZ, 0xff007f, 2.5);
-                    for (let i = -8; i <= 8; i += 8) {
-                        const bed = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.8, 5.0), wallMat);
-                        bed.position.set(cX + i, cY + 0.4, cZ);
-                        scene.add(bed);
-                        registerStaticBox(bed, true);
-                    }
-                } else if (roomType === 'BRIEFING_ROOM') {
-                    addRoomLight(cX, cY, cZ, 0xffe600, 2.5);
-                    const table = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 4.5, 1.0, 12), wallMat);
-                    table.position.set(cX, cY + 0.5, cZ);
-                    scene.add(table);
-                    registerStaticBox(table, true);
-                } else if (roomType === 'ARMORY') {
-                    addRoomLight(cX, cY, cZ, 0x00ffaa, 2.5);
-                    const rack = new THREE.Mesh(new THREE.BoxGeometry(14.0, 4.5, 1.0), wallMat);
-                    rack.position.set(cX, cY + 2.25, cZ - 10);
-                    scene.add(rack);
-                    registerStaticBox(rack, true);
-                } else {
-                    addRoomLight(cX, cY, cZ, 0x9900ff, 2.5);
-                    const barrier1 = new THREE.Mesh(new THREE.BoxGeometry(8.0, 3.5, 1.0), wallMat);
-                    barrier1.position.set(cX - 4, cY + 1.75, cZ);
-                    const barrier2 = new THREE.Mesh(new THREE.BoxGeometry(1.0, 3.5, 8.0), wallMat);
-                    barrier2.position.set(cX + 4, cY + 1.75, cZ);
-                    scene.add(barrier1, barrier2);
-                    registerStaticBox(barrier1, true);
-                    registerStaticBox(barrier2, true);
-                }
-            };
-
-            floors.forEach((fY) => {
-                const roomGrid = [
-                    { type: 'COMPUTER_LAB', x: -75, z: -75 },
-                    { type: 'SERVER_CORRIDOR', x: 0, z: -75 },
-                    { type: 'MEDIC_BAY', x: 75, z: -75 },
-                    { type: 'ARMORY', x: -75, z: 0 },
-                    { type: 'CENTRAL_HUB', x: 0, z: 0 },
-                    { type: 'ARMORY', x: 75, z: 0 },
-                    { type: 'BRIEFING_ROOM', x: -75, z: 75 },
-                    { type: 'SECURITY_CONTROL', x: 0, z: 75 },
-                    { type: 'RESEARCH_LAB', x: 75, z: 75 }
-                ];
-
-                [-37.5, 37.5].forEach(px => {
-                    createStaticWall(px, fY + 3.5, -94, 1.5, 7.0, 52);
-                    createBreakableGlassWindow(px, fY, -63, 10.0, 4.0, false);
-                    createStaticWall(px, fY + 3.5, -30.5, 1.5, 7.0, 55);
-                    createDoor(px, fY, 0, 6.0, false);
-                    createStaticWall(px, fY + 3.5, 30.5, 1.5, 7.0, 55);
-                    createBreakableGlassWindow(px, fY, 63, 10.0, 4.0, false);
-                    createStaticWall(px, fY + 3.5, 94, 1.5, 7.0, 52);
-                });
-
-                [-37.5, 37.5].forEach(pz => {
-                    createStaticWall(-94, fY + 3.5, pz, 52, 7.0, 1.5);
-                    createBreakableGlassWindow(-63, fY, pz, 10.0, 4.0, true);
-                    createStaticWall(-30.5, fY + 3.5, pz, 55, 7.0, 1.5);
-                    createDoor(0, fY, pz, 6.0, true);
-                    createStaticWall(30.5, fY + 3.5, pz, 55, 7.0, 1.5);
-                    createBreakableGlassWindow(63, fY, pz, 10.0, 4.0, true);
-                    createStaticWall(94, fY + 3.5, pz, 52, 7.0, 1.5);
-                });
-
-                roomGrid.forEach(r => {
-                    buildRoomProps(r.type, r.x, fY, r.z);
-                    spawnPoints.push(new THREE.Vector3(r.x + (Math.random()-0.5)*12, fY + 0.1, r.z + (Math.random()-0.5)*12));
-                });
-            });
-
-            const createElevatorShaft = (x, z) => {
-                for (let f = 0; f < 3; f++) {
-                    const fY = floors[f];
-                    createStaticWall(x - 5, fY + 3.5, z, 1, 7.0, 10);
-                    createStaticWall(x + 5, fY + 3.5, z, 1, 7.0, 10);
-                    createStaticWall(x, fY + 3.5, z - 5, 10, 7.0, 1);
-                }
-
-                const carMesh = new THREE.Mesh(new THREE.BoxGeometry(9.0, 0.5, 9.0), doorMat);
-                const carTrim = new THREE.Mesh(new THREE.BoxGeometry(9.2, 0.1, 9.2), neonYellowMat);
-                carMesh.add(carTrim);
-                carMesh.position.set(x, 0.25, z);
-                scene.add(carMesh);
-
-                const bObj = registerStaticBox(carMesh, true);
-
-                elevatorCars.push({
-                    mesh: carMesh, boxObj: bObj, x: x, z: z, targetFloorIdx: 0, waitTimer: 2.0
-                });
-
-                addRoomLight(x, floorHeight, z, 0xffe600, 3.0);
-            };
-
-            createElevatorShaft(-90, 0);
-            createElevatorShaft(90, 0);
-
-            const createStairwell = (x, z) => {
-                for (let f = 0; f < 2; f++) {
-                    const fY = floors[f];
-                    const rampLen = 16;
-                    const rampAngle = Math.atan2(floorHeight, rampLen);
-                    
-                    const ramp = new THREE.Mesh(new THREE.BoxGeometry(7, 0.5, Math.hypot(floorHeight, rampLen)), floorMat);
-                    ramp.position.set(x, fY + floorHeight / 2, z);
-                    ramp.rotation.x = rampAngle;
-                    scene.add(ramp);
-                    colliders.push(ramp);
-                    wallColliders.push(ramp);
-                }
-                addRoomLight(x, floorHeight, z, 0x00ffff, 2.0);
-            };
-
-            createStairwell(0, -60);
-            createStairwell(0, 60);
-
-            setupCTFFlags();
-            spawnWorldWeapons();
-        }
-
-        function setupCTFFlags() {
-            const flagGeom = new THREE.CylinderGeometry(0.1, 0.1, 3.5);
-            const bannerGeom = new THREE.BoxGeometry(1.2, 1.8, 0.08);
-            const beaconGeom = new THREE.CylinderGeometry(1.8, 1.8, 60, 16);
-
-            cyanFlagObj = new THREE.Group();
-            const cyanPole = new THREE.Mesh(flagGeom, new THREE.MeshBasicMaterial({ color: 0x00ffff }));
-            const cyanBanner = new THREE.Mesh(bannerGeom, new THREE.MeshBasicMaterial({ color: 0x00ffff }));
-            cyanBanner.position.set(0.6, 0.8, 0);
-            cyanFlagObj.add(cyanPole, cyanBanner);
-            cyanFlagObj.position.copy(cyanBasePos);
-            scene.add(cyanFlagObj);
-
-            cyanFlagBeacon = new THREE.Mesh(beaconGeom, new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.25 }));
-            cyanFlagBeacon.position.copy(cyanBasePos).add(new THREE.Vector3(0, 30, 0));
-            scene.add(cyanFlagBeacon);
-
-            pinkFlagObj = new THREE.Group();
-            const pinkPole = new THREE.Mesh(flagGeom, new THREE.MeshBasicMaterial({ color: 0xff007f }));
-            const pinkBanner = new THREE.Mesh(bannerGeom, new THREE.MeshBasicMaterial({ color: 0xff007f }));
-            pinkBanner.position.set(0.6, 0.8, 0);
-            pinkFlagObj.add(pinkPole, pinkBanner);
-            pinkFlagObj.position.copy(pinkBasePos);
-            scene.add(pinkFlagObj);
-
-            pinkFlagBeacon = new THREE.Mesh(beaconGeom, new THREE.MeshBasicMaterial({ color: 0xff007f, transparent: true, opacity: 0.25 }));
-            pinkFlagBeacon.position.copy(pinkBasePos).add(new THREE.Vector3(0, 30, 0));
-            scene.add(pinkFlagBeacon);
-
-            cyanFlagObj.visible = false;
-            pinkFlagObj.visible = false;
-            cyanFlagBeacon.visible = false;
-            pinkFlagBeacon.visible = false;
-        }
-
-        function setPickupWeapon(sp, newWpnData) {
-            sp.weapon = Object.assign({}, newWpnData);
-            while(sp.modelHolder.children.length > 0) sp.modelHolder.remove(sp.modelHolder.children[0]);
-            
-            const model = buildWeaponMesh(newWpnData, false);
-            sp.modelHolder.add(model);
-            sp.ringMesh.material.color.setHex(newWpnData.color);
-        }
-
-        function spawnWorldWeapons() {
-            spawnPoints.forEach((sp) => {
-                const randomWpn = weaponsDatabase[Math.floor(Math.random() * weaponsDatabase.length)];
-                const pickupGroup = new THREE.Group();
-                pickupGroup.position.copy(sp).add(new THREE.Vector3(0, 1.2, 0));
-
-                const ringMat = new THREE.MeshBasicMaterial({ color: randomWpn.color, wireframe: true });
-                const ringMesh = new THREE.Mesh(new THREE.TorusGeometry(0.8, 0.04, 8, 16), ringMat);
-                ringMesh.rotation.x = Math.PI / 2;
-                pickupGroup.add(ringMesh);
-
-                const modelHolder = new THREE.Group();
-                pickupGroup.add(modelHolder);
-
-                scene.add(pickupGroup);
-
-                const spawnObj = {
-                    group: pickupGroup, modelHolder: modelHolder, ringMesh: ringMesh,
-                    weapon: Object.assign({}, randomWpn), active: true, respawnTimer: 0
-                };
-
-                setPickupWeapon(spawnObj, randomWpn);
-                worldWeaponSpawns.push(spawnObj);
-            });
-        }
-
-        function updateWorldWeapons(delta) {
-            if (isSpectating || isRespawning || isPreMatch) return;
-
-            worldWeaponSpawns.forEach(sp => {
-                if (sp.active) {
-                    sp.group.rotation.y += delta * 1.8;
-                    sp.group.position.y += Math.sin(performance.now() * 0.003) * 0.002;
-
-                    if (player.position.distanceTo(sp.group.position) < 2.2) {
-                        const slot = sp.weapon.category === 'PRIMARY' ? 0 : (sp.weapon.category === 'SECONDARY' ? 1 : 2);
-                        player.inventory[slot] = Object.assign({}, sp.weapon);
-                        
-                        switchWeapon(slot, true);
-
-                        player.grenades = 2;
-                        updateGrenadeHUD();
-
-                        showPickupPrompt(`ACQUIRED: ${sp.weapon.name} + GRENADES REFILLED`);
-                        sp.active = false;
-                        sp.group.visible = false;
-                        sp.respawnTimer = 10.0;
-                    }
-                } else {
-                    sp.respawnTimer -= delta;
-                    if (sp.respawnTimer <= 0) {
-                        const newRandomWpn = weaponsDatabase[Math.floor(Math.random() * weaponsDatabase.length)];
-                        setPickupWeapon(sp, newRandomWpn);
-
-                        sp.active = true;
-                        sp.group.visible = true;
-                    }
-                }
-            });
-        }
-
-        function showPickupPrompt(txt) {
-            const el = document.getElementById('pickup-prompt');
-            el.innerText = txt;
-            el.style.display = 'block';
-            setTimeout(() => el.style.display = 'none', 2500);
-        }
-
-        function updateFacilityMechanics(delta) {
-            const allEntities = entitySlots.filter(e => e && e.health > 0);
-
-            slidingDoors.forEach(d => {
-                let nearby = false;
-                allEntities.forEach(ent => {
-                    const pos = ent === player ? player.position : ent.mesh.position;
-                    if (pos.distanceTo(d.basePos) < 5.5) nearby = true;
-                });
-
-                if (nearby) {
-                    d.slideProgress = Math.min(1.0, d.slideProgress + delta * 3.0);
-                } else {
-                    d.slideProgress = Math.max(0.0, d.slideProgress - delta * 3.0);
-                }
-
-                d.panel.position.x = d.isX ? d.width * d.slideProgress : 0;
-                d.panel.position.z = !d.isX ? d.width * d.slideProgress : 0;
-
-                d.boxObj.box.setFromObject(d.panel);
-                d.boxObj.active = d.slideProgress < 0.85;
-            });
-
-            const floorsY = [0.25, 8.25, 16.25];
-            elevatorCars.forEach(e => {
-                e.waitTimer -= delta;
-                if (e.waitTimer <= 0) {
-                    const targetY = floorsY[e.targetFloorIdx];
-                    if (Math.abs(e.mesh.position.y - targetY) > 0.1) {
-                        e.mesh.position.y += Math.sign(targetY - e.mesh.position.y) * delta * 6.0;
-                    } else {
-                        e.mesh.position.y = targetY;
-                        e.waitTimer = 3.5;
-                        e.targetFloorIdx = (e.targetFloorIdx + 1) % 3;
-                    }
-                }
-                e.boxObj.box.setFromObject(e.mesh);
-            });
-        }
-
-        generateFacilityArena();
-
-        function updateRemoteHeldWeaponMesh(remote) {
-            if (!remote.rig || !remote.rig.bones || !remote.rig.bones['R_Wrist']) return;
-            const holder = remote.rig.bones['R_Wrist'];
-            while(holder.children.length > 0) holder.remove(holder.children[0]);
-            const mesh = buildWeaponMesh(remote.weapon, false);
-            mesh.rotation.x = Math.PI / 2;
-            holder.add(mesh);
-        }
-
-        function initEntitySlots() {
-            entitySlots[0] = player;
-            player.slot = 0;
-            player.id = 0;
-
-            for (let i = 1; i < TOTAL_COMBATANTS; i++) {
-                const bot = createBot(i);
-                bot.slot = i;
-                entitySlots[i] = bot;
-                players.push(bot);
-            }
-        }
-
-        function setupClientSlots(assignedSlot) {
-            mySlot = assignedSlot;
-            isHost = false;
-
-            players.length = 0;
-
-            for (let i = 0; i < TOTAL_COMBATANTS; i++) {
-                if (i === mySlot) {
-                    entitySlots[i] = player;
-                    player.slot = mySlot;
-                } else {
-                    if (entitySlots[i] && entitySlots[i].mesh && entitySlots[i] !== player) {
-                        scene.remove(entitySlots[i].mesh);
-                    }
-                    const bot = createBot(i);
-                    bot.slot = i;
-                    entitySlots[i] = bot;
-                    players.push(bot);
-                }
-            }
         }
 
         function handleClientDisconnect(conn) {
@@ -1423,6 +519,15 @@
         function handleIncomingPacket(data, conn = null) {
             if (!data || data.sender === localClientId) return;
 
+            // CRITICAL FIX: Host relays packet to ALL other connected clients
+            if (isHost && conn) {
+                connectedClients.forEach(c => {
+                    if (c !== conn && c.open) {
+                        try { c.send(data); } catch(e){}
+                    }
+                });
+            }
+
             if (data.type === 'JOIN_REQUEST' && isHost) {
                 let freeSlot = -1;
                 for (let i = 1; i < TOTAL_COMBATANTS; i++) {
@@ -1437,7 +542,7 @@
                 targetBot.isNetworkPlayer = true;
                 targetBot.networkId = data.sender;
                 targetBot.connection = conn;
-                targetBot.name = "PLAYER_" + data.sender.substring(11);
+                targetBot.name = "PLAYER_" + data.sender.substring(7);
 
                 const welcomeData = {
                     type: 'MATCH_WELCOME',
@@ -1448,7 +553,7 @@
                     teamPinkScore: teamPinkScore,
                     gameStarted: gameStarted
                 };
-                if (conn && conn.open) conn.send(welcomeData);
+                if (conn) conn.send(welcomeData);
 
                 showKillFeed(`${targetBot.name} JOINED ARENA!`);
             } 
@@ -1460,7 +565,6 @@
                 teamPinkScore = data.teamPinkScore || 0;
                 
                 setupClientSlots(data.assignedSlot);
-
                 updateNetworkStatusUI(`CLIENT (SLOT ${mySlot})`);
 
                 if (data.gameStarted) {
@@ -1481,7 +585,7 @@
                     showPickupPrompt(`JOINED ACTIVE MATCH [${getModeFullName(currentMode)}]`);
                 } else {
                     const statusText = document.getElementById('voting-status-text');
-                    if (statusText) statusText.innerText = "CONNECTED TO HOST. WAITING FOR HOST TO START MATCH...";
+                    if (statusText) statusText.innerText = "CONNECTED TO ROOM HOST. WAITING FOR HOST TO START...";
                 }
             } 
             else if (data.type === 'MATCH_START' && !isHost) {
@@ -1522,7 +626,7 @@
                 }
 
                 const distToLocalPlayer = player.position.distanceTo(remote.mesh.position);
-                remote.mesh.visible = (data.health > 0 && distToLocalPlayer < 60.0);
+                remote.mesh.visible = (data.health > 0 && distToLocalPlayer < 80.0);
 
                 if (remote.rig && remote.rig.bones) {
                     const b = remote.rig.bones;
@@ -1534,15 +638,6 @@
                         if (b['L_UpperArm']) b['L_UpperArm'].rotation.x = -Math.sin(animTime) * 0.5;
                         if (b['R_UpperArm']) b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.5;
                     }
-                }
-
-                // If Host received packet from Client A, relay to Client B, C, D
-                if (isHost) {
-                    connectedClients.forEach(c => {
-                        if (c !== conn && c.open) {
-                            try { c.send(data); } catch(e){}
-                        }
-                    });
                 }
             }
         }
@@ -1646,6 +741,41 @@
             const mesh = buildWeaponMesh(currentWpn, false);
             mesh.rotation.x = Math.PI / 2;
             holder.add(mesh);
+        }
+
+        function initEntitySlots() {
+            entitySlots[0] = player;
+            player.slot = 0;
+            player.id = 0;
+
+            for (let i = 1; i < TOTAL_COMBATANTS; i++) {
+                const bot = createBot(i);
+                bot.slot = i;
+                entitySlots[i] = bot;
+                players.push(bot);
+            }
+        }
+
+        function setupClientSlots(assignedSlot) {
+            mySlot = assignedSlot;
+            isHost = false;
+
+            players.length = 0;
+
+            for (let i = 0; i < TOTAL_COMBATANTS; i++) {
+                if (i === mySlot) {
+                    entitySlots[i] = player;
+                    player.slot = mySlot;
+                } else {
+                    if (entitySlots[i] && entitySlots[i].mesh && entitySlots[i] !== player) {
+                        scene.remove(entitySlots[i].mesh);
+                    }
+                    const bot = createBot(i);
+                    bot.slot = i;
+                    entitySlots[i] = bot;
+                    players.push(bot);
+                }
+            }
         }
 
         initEntitySlots();
@@ -1934,29 +1064,6 @@
             return false;
         }
 
-        // --- ENTITY-VS-ENTITY PHYSICAL PUSHBACK SYSTEM ---
-        function resolveEntityCollisions(entityPos, radius = 0.5) {
-            if (!entityPos) return;
-            for (let i = 0; i < TOTAL_COMBATANTS; i++) {
-                const ent = entitySlots[i];
-                if (!ent || ent.health <= 0) continue;
-                const otherPos = (ent === player) ? player.position : ent.mesh.position;
-                if (!otherPos || otherPos === entityPos) continue;
-
-                const dx = entityPos.x - otherPos.x;
-                const dz = entityPos.z - otherPos.z;
-                const distSq = dx * dx + dz * dz;
-                const minDist = radius * 2.0;
-
-                if (distSq < minDist * minDist && distSq > 0.0001) {
-                    const dist = Math.sqrt(distSq);
-                    const overlap = (minDist - dist) * 0.5;
-                    entityPos.x += (dx / dist) * overlap;
-                    entityPos.z += (dz / dist) * overlap;
-                }
-            }
-        }
-
         function checkCeilingCollision(pos, radius = 0.45, height = EYE_HEIGHT_STAND) {
             const headBox = new THREE.Box3(
                 new THREE.Vector3(pos.x - radius, pos.y + height - 0.2, pos.z - radius),
@@ -1994,6 +1101,17 @@
             }
         }
         updatePlayerViewmodel();
+
+        function updateSpectatedTargetViewmodel(weaponData) {
+            if (!weaponData) return;
+            if (spectatedWeaponId !== weaponData.id) {
+                spectatedWeaponId = weaponData.id;
+                while(viewmodelGroup.children.length > 0) viewmodelGroup.remove(viewmodelGroup.children[0]);
+                const vm = buildWeaponMesh(weaponData, true);
+                viewmodelGroup.add(vm);
+            }
+            viewmodelGroup.visible = true;
+        }
 
         const keys = {};
 
@@ -2298,7 +1416,8 @@
                 player.position.z = oldZ; player.velocity.z = 0;
             }
 
-            resolveEntityCollisions(player.position, 0.5);
+            // Solid Player-to-Entity Collision Resolution
+            resolveEntityCollisions(mySlot, player.position, 0.5);
 
             if (player.velocity.y > 0 && checkCeilingCollision(player.position, 0.45, player.currentEyeHeight)) {
                 player.velocity.y = 0;
@@ -2780,7 +1899,11 @@
 
                 scene.add(p);
                 activeDebris.push({
-                    mesh: p, velocity: vel, rotVelocity: rotVel, life: 1.2, maxLife: 1.2
+                    mesh: p,
+                    velocity: vel,
+                    rotVelocity: rotVel,
+                    life: 1.2,
+                    maxLife: 1.2
                 });
             }
         }
@@ -2988,13 +2111,22 @@
                     const BLAST_RADIUS = 9.0;
 
                     const radiusGeom = new THREE.SphereGeometry(BLAST_RADIUS, 16, 16);
-                    const radiusMat = new THREE.MeshBasicMaterial({ color: 0xff0055, wireframe: true, transparent: true, opacity: 0.8 });
+                    const radiusMat = new THREE.MeshBasicMaterial({ 
+                        color: 0xff0055, 
+                        wireframe: true, 
+                        transparent: true, 
+                        opacity: 0.8 
+                    });
                     const radiusMesh = new THREE.Mesh(radiusGeom, radiusMat);
                     radiusMesh.position.copy(expPos);
                     scene.add(radiusMesh);
 
                     const coreGeom = new THREE.SphereGeometry(BLAST_RADIUS * 0.8, 16, 16);
-                    const coreMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.5 });
+                    const coreMat = new THREE.MeshBasicMaterial({ 
+                        color: 0xffaa00, 
+                        transparent: true, 
+                        opacity: 0.5 
+                    });
                     const coreMesh = new THREE.Mesh(coreGeom, coreMat);
                     coreMesh.position.copy(expPos);
                     scene.add(coreMesh);
@@ -3172,7 +2304,8 @@
                         }
                     }
 
-                    resolveEntityCollisions(bot.mesh.position, 0.5);
+                    // Solid Entity-to-Entity Collision Resolution
+                    resolveEntityCollisions(bot.slot, bot.mesh.position, 0.5);
 
                     bot.mesh.rotation.y = Math.atan2(-patrolDir.x, -patrolDir.z);
 
@@ -3258,7 +2391,8 @@
                         }
                     }
 
-                    resolveEntityCollisions(bot.mesh.position, 0.5);
+                    // Solid Entity-to-Entity Collision Resolution
+                    resolveEntityCollisions(bot.slot, bot.mesh.position, 0.5);
 
                     bot.mesh.rotation.y = Math.atan2(-moveDir.x, -moveDir.z);
                 } else {
@@ -3346,6 +2480,7 @@
             });
         }
 
+        // --- MAIN GAME LOOP ---
         let lastTime = performance.now();
         function gameLoop() {
             requestAnimationFrame(gameLoop);
