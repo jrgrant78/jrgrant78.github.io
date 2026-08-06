@@ -158,17 +158,16 @@
         }
         .mobile-btn {
             position: absolute; width: 68px; height: 68px; border-radius: 50%;
-            background: rgba(15, 15, 30, 0.75); border: 2px solid #00ffff;
+            background: rgba(15, 15, 30, 0.75); border: 2px solid #ffe600;
             display: flex; justify-content: center; align-items: center;
-            pointer-events: auto; box-shadow: 0 0 15px rgba(0, 255, 255, 0.4);
+            pointer-events: auto; box-shadow: 0 0 15px rgba(255, 230, 0, 0.4);
             touch-action: none;
         }
         .mobile-btn:active, .mobile-btn.active {
-            background: rgba(255, 0, 127, 0.8); border-color: #ff007f;
-            box-shadow: 0 0 22px #ff007f;
+            background: rgba(255, 230, 0, 0.3); border-color: #ffe600;
+            box-shadow: 0 0 22px #ffe600;
         }
-        #btn-fire { right: 25px; bottom: 45px; width: 78px; height: 78px; border-color: #ff007f; }
-        #btn-run { right: 115px; bottom: 50px; width: 58px; height: 58px; border-color: #ffe600; }
+        #btn-swipe { right: 30px; bottom: 50px; width: 72px; height: 72px; }
 
         @media (max-width: 850px) {
             #top-hud, #bottom-hud, #kill-feed, #leaderboard {
@@ -201,16 +200,10 @@
 
     <!-- MOBILE TOUCH CONTROLS -->
     <div id="mobile-controls">
-        <div id="btn-fire" class="mobile-btn">
-            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#ff007f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 2C9.5 5 8 9 8 13v7c0 1.1.9 2 2 2h4c1.1 0 2-.9 2-2v-7c0-4-1.5-8-4-11z" fill="rgba(255,0,127,0.3)"/>
-                <line x1="8" y1="16" x2="16" y2="16"/>
-            </svg>
-        </div>
-        <div id="btn-run" class="mobile-btn">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ffe600" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="15" cy="4" r="2.5" fill="#ffe600"/>
-                <path d="M9 20l2.5-5.5L14 17v4M6 11l4-2 3 3 4-2M13 8l-3 4-3-1"/>
+        <div id="btn-swipe" class="mobile-btn">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#ffe600" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="7 9 12 4 17 9"/>
+                <polyline points="7 15 12 20 17 15"/>
             </svg>
         </div>
     </div>
@@ -1821,17 +1814,12 @@
                     const touch = e.changedTouches[i];
                     const targetEl = touch.target;
 
-                    if (targetEl.closest('#btn-fire')) {
-                        isMouseDown = true;
-                        continue;
-                    }
-                    if (targetEl.closest('#btn-run')) {
+                    if (targetEl.closest('#btn-swipe')) {
                         touchRunId = touch.identifier;
                         touchRunStartY = touch.clientY;
-                        keys['ShiftLeft'] = true; 
                         hasTriggeredJumpGesture = false;
                         hasTriggeredSlideGesture = false;
-                        document.getElementById('btn-run').classList.add('active');
+                        document.getElementById('btn-swipe').classList.add('active');
                         continue;
                     }
 
@@ -1880,7 +1868,8 @@
                     if (touch.identifier === touchRunId) {
                         const dy = touch.clientY - touchRunStartY;
 
-                        if (dy < -25 && !hasTriggeredJumpGesture && !isRespawning && !isPreMatch) {
+                        // SWIPE UP -> JUMP
+                        if (dy < -20 && !hasTriggeredJumpGesture && !isRespawning && !isPreMatch) {
                             hasTriggeredJumpGesture = true;
                             if (player.isGrounded) {
                                 player.velocity.y = 12;
@@ -1889,9 +1878,11 @@
                                 player.velocity.y = 12;
                                 player.canDoubleJump = false;
                             }
-                        } else if (dy > 25 && !hasTriggeredSlideGesture && !isRespawning && !isPreMatch) {
+                        } 
+                        // SWIPE DOWN -> SLIDE / CROUCH
+                        else if (dy > 20 && !hasTriggeredSlideGesture && !isRespawning && !isPreMatch) {
                             hasTriggeredSlideGesture = true;
-                            if (player.isSprinting && player.isGrounded && !player.isSliding) {
+                            if (player.isGrounded && !player.isSliding) {
                                 player.isSliding = true;
                                 player.slideTimer = SLIDE_DURATION;
                                 const camDir = new THREE.Vector3();
@@ -1908,23 +1899,16 @@
             const handleTouchEnd = (e) => {
                 for (let i = 0; i < e.changedTouches.length; i++) {
                     const touch = e.changedTouches[i];
-                    const targetEl = touch.target;
-
-                    if (targetEl.closest('#btn-fire')) {
-                        isMouseDown = false;
-                    }
 
                     if (touch.identifier === touchRunId) {
                         touchRunId = null;
-                        keys['ShiftLeft'] = false; 
-                        document.getElementById('btn-run').classList.remove('active');
+                        const btn = document.getElementById('btn-swipe');
+                        if (btn) btn.classList.remove('active');
                     }
-
                     if (touch.identifier === touchMoveId) {
                         touchMoveId = null;
                         mobileMoveX = 0; mobileMoveZ = 0;
                     }
-
                     if (touch.identifier === touchLookId) {
                         touchLookId = null;
                     }
@@ -2255,6 +2239,31 @@
             }
         }
 
+        function checkMobileAutofire() {
+            if (!isMobileScreen || isSpectating || isRespawning || isPreMatch || !gameStarted) return;
+
+            const currentWpn = player.inventory[player.activeSlot];
+            if (!currentWpn) return;
+
+            const origin = camera.position.clone();
+            const dir = camera.getWorldDirection(new THREE.Vector3());
+
+            const targetObjects = [];
+            entitySlots.forEach(ent => {
+                if (ent && ent !== player && ent.health > 0 && ent.mesh) {
+                    if ((currentMode === 'TDM' || currentMode === 'CTF') && ent.team === player.team) return;
+                    ent.mesh.traverse(child => { if (child.isMesh) targetObjects.push(child); });
+                }
+            });
+
+            const raycaster = new THREE.Raycaster(origin, dir, 0, currentWpn.range);
+            const hits = raycaster.intersectObjects(targetObjects, false);
+
+            if (hits.length > 0) {
+                fireActiveWeapon(player, dir);
+            }
+        }
+
         // --- CCTV SPECTATOR MODE & MOVEMENT ---
         function updatePlayerMovement(delta) {
             if (isSpectating) {
@@ -2320,7 +2329,11 @@
 
             broadcastWorldState();
 
-            player.isSprinting = (keys['ShiftLeft'] || keys['ShiftRight']) && !player.isCrouching && !player.isADS;
+            if (isMobileScreen) {
+                player.isSprinting = (mobileMoveX !== 0 || mobileMoveZ !== 0) && !player.isCrouching;
+            } else {
+                player.isSprinting = (keys['ShiftLeft'] || keys['ShiftRight']) && !player.isCrouching && !player.isADS;
+            }
 
             let baseSpeed = player.isSprinting ? 18 : (player.isCrouching ? 6 : 11);
             if (player.isADS) baseSpeed *= 0.52; 
@@ -3438,8 +3451,9 @@
 
                 updateFacilityMechanics(delta);
                 updatePlayerMovement(delta);
+                checkMobileAutofire(); // Mobile crosshair raycast fire check
 
-                if (isMouseDown && (document.pointerLockElement === document.body || isMobileScreen) && !isSpectating && !isRespawning && !isPreMatch) {
+                if (isMouseDown && (document.pointerLockElement === document.body) && !isSpectating && !isRespawning && !isPreMatch) {
                     fireActiveWeapon(player, camera.getWorldDirection(new THREE.Vector3()));
                 }
 
