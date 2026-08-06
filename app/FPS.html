@@ -912,6 +912,28 @@
             };
         }
 
+        function resolveEntityCollisions(entityPos, radius = 0.5) {
+            entitySlots.forEach(ent => {
+                if (!ent || ent.health <= 0) return;
+                const otherPos = (ent === player) ? player.position : ent.mesh.position;
+                if (otherPos === entityPos) return; // Don't collide with self
+
+                const dx = entityPos.x - otherPos.x;
+                const dz = entityPos.z - otherPos.z;
+                const distSq = dx * dx + dz * dz;
+                const minDist = radius * 2.0; // 1.0m total diameter buffer
+
+                if (distSq < minDist * minDist && distSq > 0.0001) {
+                    const dist = Math.sqrt(distSq);
+                    const overlap = (minDist - dist);
+                    
+                    // Push the entity away from the obstacle
+                    entityPos.x += (dx / dist) * overlap;
+                    entityPos.z += (dz / dist) * overlap;
+                }
+            });
+        }
+
         function generateFacilityArena() {
             const floorMat = new THREE.MeshStandardMaterial({ color: 0x080812, roughness: 0.8, metalness: 0.3 });
             const wallMat = new THREE.MeshStandardMaterial({ color: 0x141428, roughness: 0.4, metalness: 0.6 });
@@ -1409,97 +1431,104 @@
             }
         }
 
+        // --- RELIABLE CROSS-INTERNET MULTIPLAYER SETUP ---
+        const roomKey = (window.location.hash.replace('#', '') || 'cyberstrike2077_global').toLowerCase();
+        const ROOM_HOST_PEER_ID = "cs2077_host_" + roomKey;
+        const localClientId = "CS2077_CLI_" + Math.random().toString(36).substring(2, 7);
+
+        let peer = null;
+        let hostConnection = null;
+        let isHost = false;
+        let connectTimeout = null;
+        const connectedClients = [];
+
         function initMultiplayerNetworking() {
-            if (broadcastChan) {
-                broadcastChan.onmessage = (event) => {
-                    const data = event.data;
-                    if (!data || data.sender === localClientId) return;
-                    handleIncomingPacket(data);
-                };
-            }
+            // Standard PeerJS initialization using cloud signaling
+            peer = new Peer(localClientId);
 
-            try {
-                peer = new Peer(localClientId);
+            peer.on('open', (id) => {
+                updateNetworkStatusUI(`CONNECTING TO LOBBY [${roomKey.toUpperCase()}]...`);
+                attemptConnectToHost();
+            });
 
-                peer.on('open', () => {
-                    attemptConnectToHost();
-                });
-
-                peer.on('connection', (conn) => {
+            peer.on('connection', (conn) => {
+                if (isHost) {
                     connectedClients.push(conn);
                     conn.on('data', (data) => handleIncomingPacket(data, conn));
                     conn.on('close', () => handleClientDisconnect(conn));
                     conn.on('error', () => handleClientDisconnect(conn));
-                });
+                }
+            });
 
-                peer.on('error', (err) => {
-                    if (!gameStarted) {
-                        becomeMatchHost();
-                    }
-                });
-            } catch (err) {
-                becomeMatchHost();
-            }
+            peer.on('error', (err) => {
+                // If attempting host registration and ID is taken, retry as client
+                if (err.type === 'unavailable-id') {
+                    attemptConnectToHost();
+                } else {
+                    updateNetworkStatusUI("OFFLINE MODE (SOLO)");
+                }
+            });
         }
 
         function attemptConnectToHost() {
-            updateNetworkStatusUI("CONNECTING TO HOST...");
-            
-            const joinPacket = { type: 'JOIN_REQUEST', sender: localClientId };
-            if (broadcastChan) broadcastChan.postMessage(joinPacket);
+            if (!peer) return;
 
+            const conn = peer.connect(ROOM_HOST_PEER_ID, { reliable: false });
             let connected = false;
-            if (peer) {
-                try {
-                    const conn = peer.connect(HOST_PEER_ID); 
 
-                    conn.on('open', () => {
-                        connected = true;
-                        hostConnection = conn;
-                        isHost = false; 
-                        conn.send(joinPacket);
-                        updateNetworkStatusUI("CLIENT (CONNECTED)");
-                    });
+            conn.on('open', () => {
+                connected = true;
+                if (connectTimeout) clearTimeout(connectTimeout);
+                hostConnection = conn;
+                isHost = false;
 
-                    conn.on('data', (data) => handleIncomingPacket(data, conn));
-                    conn.on('close', () => { isHost = true; updateNetworkStatusUI("HOST DISCONNECTED (SOLO)"); });
-                } catch(e){}
-            }
+                // Send join request to the room host
+                conn.send({ type: 'JOIN_REQUEST', sender: localClientId });
+                updateNetworkStatusUI(`CONNECTED TO HOST [${roomKey.toUpperCase()}]`);
+            });
 
+            conn.on('data', (data) => handleIncomingPacket(data, conn));
+
+            conn.on('close', () => {
+                updateNetworkStatusUI("HOST DISCONNECTED. PROMOTING TO HOST...");
+                becomeMatchHost();
+            });
+
+            // If no host responds within 2.5 seconds, claim Host role for this room
             connectTimeout = setTimeout(() => {
                 if (!connected && !gameStarted) {
                     becomeMatchHost();
                 }
-            }, 3500);
+            }, 2500);
         }
 
         function becomeMatchHost() {
             if (peer && !peer.destroyed) peer.destroy();
-            try {
-                peer = new Peer(HOST_PEER_ID);
 
-                peer.on('open', () => {
-                    isHost = true;
-                    updateNetworkStatusUI("MATCH HOST (AUTHORITATIVE)");
-                    const statusText = document.getElementById('voting-status-text');
-                    if (statusText) statusText.innerText = "HOST READY - CHOOSE MATCH MODE TO BEGIN";
-                });
+            // Re-initialize PeerJS with the authoritative Host ID
+            peer = new Peer(ROOM_HOST_PEER_ID);
 
-                peer.on('connection', (conn) => {
-                    connectedClients.push(conn);
-                    conn.on('data', (data) => handleIncomingPacket(data, conn));
-                    conn.on('close', () => handleClientDisconnect(conn));
-                    conn.on('error', () => handleClientDisconnect(conn));
-                });
-
-                peer.on('error', () => {
-                    isHost = true;
-                    updateNetworkStatusUI("HOST (SOLO ARENA)");
-                });
-            } catch(e) {
+            peer.on('open', () => {
                 isHost = true;
-                updateNetworkStatusUI("HOST (SOLO ARENA)");
-            }
+                updateNetworkStatusUI(`MATCH HOST [LOBBY: ${roomKey.toUpperCase()}]`);
+                const statusText = document.getElementById('voting-status-text');
+                if (statusText) statusText.innerText = `ROOM HOST READY - SHARE LINK (#${roomKey})`;
+            });
+
+            peer.on('connection', (conn) => {
+                connectedClients.push(conn);
+                conn.on('data', (data) => handleIncomingPacket(data, conn));
+                conn.on('close', () => handleClientDisconnect(conn));
+                conn.on('error', () => handleClientDisconnect(conn));
+            });
+
+            peer.on('error', (err) => {
+                // ID taken means another player became host right before us
+                if (err.type === 'unavailable-id') {
+                    isHost = false;
+                    attemptConnectToHost();
+                }
+            });
         }
 
         function handleClientDisconnect(conn) {
@@ -2387,6 +2416,7 @@
 
             const oldZ = player.position.z;
             player.position.z += player.velocity.z * delta;
+            resolveEntityCollisions(player.position);
             if (checkWallCollision(player.position, 0.45, player.currentEyeHeight)) {
                 player.position.z = oldZ; player.velocity.z = 0;
             }
@@ -3270,6 +3300,7 @@
 
                     const oldZ = bot.mesh.position.z;
                     bot.mesh.position.z += bot.velocity.z * delta;
+                    resolveEntityCollisions(bot.mesh.position);
                     if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
                         bot.mesh.position.z = oldZ; bot.patrolTarget = null;
                         if (bot.isGrounded && bot.jumpCooldown <= 0) {
