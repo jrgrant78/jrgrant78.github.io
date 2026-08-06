@@ -340,7 +340,7 @@
         try { broadcastChan = new BroadcastChannel("cs2077_net_channel"); } catch(e){}
 
         // --- ENTITY-TO-ENTITY SOLID COLLISION SYSTEM ---
-        function resolveEntityCollisions(selfSlot, targetPos, radius = 0.6) {
+        function (selfSlot, targetPos, velocity, radius = 0.75) {
             for (let i = 0; i < TOTAL_COMBATANTS; i++) {
                 if (i === selfSlot) continue; 
                 const ent = entitySlots[i];
@@ -349,19 +349,32 @@
                 const otherPos = (ent === player) ? player.position : (ent.mesh ? ent.mesh.position : null);
                 if (!otherPos) continue;
 
-                // Floor height check: only collide if on the same floor level (Y delta < 2.0m)
-                if (Math.abs(targetPos.y - otherPos.y) > 2.0) continue;
+                // Floor height check: only collide if on the same floor level (Y delta < 2.2m)
+                if (Math.abs(targetPos.y - otherPos.y) > 2.2) continue;
 
                 const dx = targetPos.x - otherPos.x;
                 const dz = targetPos.z - otherPos.z;
                 const distSq = dx * dx + dz * dz;
-                const minDist = radius * 2.0; 
+                const minDist = radius * 2.0; // 1.5m total solid cylinder diameter
 
                 if (distSq < minDist * minDist && distSq > 0.00001) {
                     const dist = Math.sqrt(distSq);
                     const overlap = minDist - dist;
-                    targetPos.x += (dx / dist) * overlap;
-                    targetPos.z += (dz / dist) * overlap;
+                    const nx = dx / dist;
+                    const nz = dz / dist;
+
+                    // Push position out of physical collision radius
+                    targetPos.x += nx * overlap;
+                    targetPos.z += nz * overlap;
+
+                    // Cancel velocity vector component pointing toward the obstacle
+                    if (velocity) {
+                        const dot = velocity.x * (-nx) + velocity.z * (-nz);
+                        if (dot > 0) {
+                            velocity.x += nx * dot;
+                            velocity.z += nz * dot;
+                        }
+                    }
                 }
             }
         }
@@ -422,7 +435,23 @@
             return candidateList[Math.floor(Math.random() * candidateList.length)].clone();
         }
 
-        // --- RELIABLE CROSS-INTERNET MULTIPLAYER SETUP WITH HOST RELAY ---
+        // --- RELIABLE CROSS-INTERNET MULTIPLAYER SETUP ---
+        const roomKey = (window.location.hash.replace('#', '') || 'global').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const ROOM_HOST_PEER_ID = "cs2077_v2_host_" + roomKey;
+        const localClientId = "cs2077_v2_cli_" + Math.random().toString(36).substring(2, 9);
+
+        let mySlot = 0;
+        const entitySlots = new Array(TOTAL_COMBATANTS).fill(null);
+        let peer = null;
+        let hostConnection = null;
+        let isHost = false;
+        let isConnecting = false;
+        let connectTimeout = null;
+        const connectedClients = [];
+
+        let broadcastChan = null;
+        try { broadcastChan = new BroadcastChannel("cs2077_chan_" + roomKey); } catch(e){}
+
         function initMultiplayerNetworking() {
             if (broadcastChan) {
                 broadcastChan.onmessage = (event) => {
@@ -432,82 +461,119 @@
                 };
             }
 
-            peer = new Peer(localClientId);
+            peer = new Peer(localClientId, {
+                debug: 1,
+                config: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' }
+                    ]
+                }
+            });
 
             peer.on('open', (id) => {
-                updateNetworkStatusUI(`CONNECTING TO ROOM [#${roomKey.toUpperCase()}]...`);
-                attemptConnectToHost();
+                updateNetworkStatusUI(`LOOKING FOR LOBBY [#${roomKey.toUpperCase()}]...`);
+                tryConnectToHost();
             });
 
             peer.on('error', (err) => {
                 if (err.type === 'unavailable-id') {
-                    attemptConnectToHost();
-                } else if (!gameStarted) {
-                    becomeMatchHost();
+                    setTimeout(tryConnectToHost, 1000);
                 }
             });
         }
 
-        function attemptConnectToHost() {
-            if (!peer) return;
+        function tryConnectToHost() {
+            if (isHost || isConnecting) return;
+            isConnecting = true;
 
-            const joinPacket = { type: 'JOIN_REQUEST', sender: localClientId };
-            if (broadcastChan) broadcastChan.postMessage(joinPacket);
+            updateNetworkStatusUI(`CONNECTING TO HOST...`);
 
-            let connected = false;
+            const joinMsg = { type: 'JOIN_REQUEST', sender: localClientId };
+            if (broadcastChan) broadcastChan.postMessage(joinMsg);
+
+            let conn = null;
             try {
-                const conn = peer.connect(ROOM_HOST_PEER_ID, { reliable: true });
+                conn = peer.connect(ROOM_HOST_PEER_ID, { reliable: true });
+            } catch(e){}
 
+            let handshakeDone = false;
+
+            if (conn) {
                 conn.on('open', () => {
-                    connected = true;
+                    handshakeDone = true;
+                    isConnecting = false;
                     if (connectTimeout) clearTimeout(connectTimeout);
                     hostConnection = conn;
                     isHost = false;
 
-                    conn.send(joinPacket);
-                    updateNetworkStatusUI(`CLIENT (JOINED #${roomKey.toUpperCase()})`);
+                    conn.send(joinMsg);
+                    updateNetworkStatusUI(`CONNECTED TO HOST (#${roomKey.toUpperCase()})`);
                 });
 
                 conn.on('data', (data) => handleIncomingPacket(data, conn));
 
                 conn.on('close', () => {
-                    updateNetworkStatusUI("HOST DISCONNECTED. PROMOTING TO HOST...");
-                    becomeMatchHost();
+                    updateNetworkStatusUI(`HOST DISCONNECTED. RECONNECTING...`);
+                    hostConnection = null;
+                    isConnecting = false;
+                    setTimeout(tryConnectToHost, 1500);
                 });
-            } catch(e){}
+            }
 
+            // 4.5 second window to allow STUN/WebRTC candidates to resolve before claiming Host
             connectTimeout = setTimeout(() => {
-                if (!connected && !gameStarted) {
-                    becomeMatchHost();
+                if (!handshakeDone && !hostConnection && !isHost) {
+                    isConnecting = false;
+                    claimHostRole();
                 }
-            }, 2000);
+            }, 4500);
         }
 
-        function becomeMatchHost() {
+        function claimHostRole() {
+            if (isHost) return;
+            updateNetworkStatusUI(`REGISTERING AS ROOM HOST...`);
+
             if (peer && !peer.destroyed) peer.destroy();
 
-            peer = new Peer(ROOM_HOST_PEER_ID);
+            peer = new Peer(ROOM_HOST_PEER_ID, {
+                debug: 1,
+                config: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' }
+                    ]
+                }
+            });
 
             peer.on('open', () => {
                 isHost = true;
+                mySlot = 0;
                 updateNetworkStatusUI(`ROOM HOST (LOBBY: #${roomKey.toUpperCase()})`);
                 const statusText = document.getElementById('voting-status-text');
-                if (statusText) statusText.innerText = `ROOM HOST READY - SHARE LINK (#${roomKey})`;
+                if (statusText) statusText.innerText = `ROOM HOST READY - SHARE ROOM (#${roomKey})`;
             });
 
             peer.on('connection', (conn) => {
-                connectedClients.push(conn);
-                conn.on('data', (data) => handleIncomingPacket(data, conn));
-                conn.on('close', () => handleClientDisconnect(conn));
-                conn.on('error', () => handleClientDisconnect(conn));
+                setupHostClientConn(conn);
             });
 
             peer.on('error', (err) => {
                 if (err.type === 'unavailable-id') {
                     isHost = false;
-                    attemptConnectToHost();
+                    peer = new Peer(localClientId);
+                    peer.on('open', () => tryConnectToHost());
                 }
             });
+        }
+
+        function setupHostClientConn(conn) {
+            if (!connectedClients.includes(conn)) {
+                connectedClients.push(conn);
+            }
+            conn.on('data', (data) => handleIncomingPacket(data, conn));
+            conn.on('close', () => handleClientDisconnect(conn));
+            conn.on('error', () => handleClientDisconnect(conn));
         }
 
         function handleClientDisconnect(conn) {
@@ -537,7 +603,6 @@
         function handleIncomingPacket(data, conn = null) {
             if (!data || data.sender === localClientId) return;
 
-            // Host relays packet to ALL other connected clients (WebRTC + BroadcastChannel)
             if (isHost) {
                 if (conn) {
                     connectedClients.forEach(c => {
@@ -550,46 +615,58 @@
             }
 
             if (data.type === 'JOIN_REQUEST' && isHost) {
-                let freeSlot = -1;
+                let assignedSlot = -1;
                 for (let i = 1; i < TOTAL_COMBATANTS; i++) {
-                    if (entitySlots[i] && !entitySlots[i].isNetworkPlayer) {
-                        freeSlot = i;
+                    if (entitySlots[i] && entitySlots[i].isNetworkPlayer && entitySlots[i].networkId === data.sender) {
+                        assignedSlot = i;
                         break;
                     }
                 }
-                if (freeSlot === -1) freeSlot = 1;
+                if (assignedSlot === -1) {
+                    for (let i = 1; i < TOTAL_COMBATANTS; i++) {
+                        if (entitySlots[i] && !entitySlots[i].isNetworkPlayer) {
+                            assignedSlot = i;
+                            break;
+                        }
+                    }
+                }
+                if (assignedSlot === -1) assignedSlot = 1;
 
-                const targetBot = entitySlots[freeSlot];
+                const targetBot = entitySlots[assignedSlot];
                 targetBot.isNetworkPlayer = true;
                 targetBot.networkId = data.sender;
                 targetBot.connection = conn;
-                targetBot.name = "PLAYER_" + data.sender.substring(7);
+                targetBot.name = "PLAYER_" + data.sender.substring(data.sender.length - 4).toUpperCase();
 
                 const welcomeData = {
                     type: 'MATCH_WELCOME',
                     sender: localClientId,
-                    assignedSlot: freeSlot,
+                    targetRecipient: data.sender,
+                    assignedSlot: assignedSlot,
                     mode: currentMode,
                     teamCyanScore: teamCyanScore,
                     teamPinkScore: teamPinkScore,
                     gameStarted: gameStarted
                 };
-                if (conn) conn.send(welcomeData);
+
+                if (conn && conn.open) conn.send(welcomeData);
                 if (broadcastChan) broadcastChan.postMessage(welcomeData);
 
                 showKillFeed(`${targetBot.name} JOINED ARENA!`);
             } 
-            else if (data.type === 'MATCH_WELCOME' && !gameStarted) {
-                if (connectTimeout) clearTimeout(connectTimeout);
+            else if (data.type === 'MATCH_WELCOME') {
+                if (data.targetRecipient && data.targetRecipient !== localClientId) return;
+                if (mySlot !== 0 && mySlot === data.assignedSlot && gameStarted) return;
+
                 isHost = false;
                 currentMode = data.mode;
                 teamCyanScore = data.teamCyanScore || 0;
                 teamPinkScore = data.teamPinkScore || 0;
                 
                 setupClientSlots(data.assignedSlot);
-                updateNetworkStatusUI(`CLIENT (SLOT ${mySlot})`);
+                updateNetworkStatusUI(`CLIENT (SLOT ${mySlot} IN #${roomKey.toUpperCase()})`);
 
-                if (data.gameStarted) {
+                if (data.gameStarted && !gameStarted) {
                     gameStarted = true;
                     isSpectating = false;
 
@@ -605,7 +682,7 @@
                     respawnEntity(player);
                     startPreMatchCountdown();
                     showPickupPrompt(`JOINED ACTIVE MATCH [${getModeFullName(currentMode)}]`);
-                } else {
+                } else if (!gameStarted) {
                     const statusText = document.getElementById('voting-status-text');
                     if (statusText) statusText.innerText = "CONNECTED TO ROOM HOST. WAITING FOR HOST TO START...";
                 }
@@ -1442,7 +1519,7 @@
             }
 
             // Solid Player-to-Entity Collision Resolution
-            resolveEntityCollisions(mySlot, player.position, 0.5);
+            resolveEntityCollisionsAxis(mySlot, player.position, player.velocity, 0.75);
 
             if (player.velocity.y > 0 && checkCeilingCollision(player.position, 0.45, player.currentEyeHeight)) {
                 player.velocity.y = 0;
@@ -2330,7 +2407,7 @@
                     }
 
                     // Solid Entity-to-Entity Collision Resolution
-                    resolveEntityCollisions(bot.slot, bot.mesh.position, 0.5);
+                    resolveEntityCollisionsAxis(bot.slot, bot.mesh.position, bot.velocity, 0.75);
 
                     bot.mesh.rotation.y = Math.atan2(-patrolDir.x, -patrolDir.z);
 
