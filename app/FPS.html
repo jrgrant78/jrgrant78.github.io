@@ -569,7 +569,7 @@
             registerStaticBox(roof, true);
             roofMesh = roof;
 
-            // Multi-Floor Slab & Grid wire layout
+            // Multi-Floor Slab Layout
             floors.forEach((fY, fIdx) => {
                 if (fIdx === 0) {
                     const mainFloor = new THREE.Mesh(new THREE.BoxGeometry(facilitySize, 1.0, facilitySize), floorMat);
@@ -580,13 +580,7 @@
                     const tileSize = 20;
                     for (let x = -half + tileSize/2; x < half; x += tileSize) {
                         for (let z = -half + tileSize/2; z < half; z += tileSize) {
-                            const isElevator1 = (Math.abs(x - (-90)) < 12 && Math.abs(z - 0) < 12);
-                            const isElevator2 = (Math.abs(x - 90) < 12 && Math.abs(z - 0) < 12);
-                            const isStair1 = (Math.abs(x - 0) < 12 && Math.abs(z - (-60)) < 15);
-                            const isStair2 = (Math.abs(x - 0) < 12 && Math.abs(z - 60) < 15);
-
-                            if (isElevator1 || isElevator2 || isStair1 || isStair2) continue;
-
+                            if ((Math.abs(x - (-90)) < 12 && Math.abs(z - 0) < 12) || (Math.abs(x - 90) < 12 && Math.abs(z - 0) < 12) || (Math.abs(x - 0) < 12 && Math.abs(z - (-60)) < 15) || (Math.abs(x - 0) < 12 && Math.abs(z - 60) < 15)) continue;
                             const tile = new THREE.Mesh(new THREE.BoxGeometry(tileSize, 1.0, tileSize), floorMat);
                             tile.position.set(x, fY - 0.5, z);
                             scene.add(tile);
@@ -594,129 +588,41 @@
                         }
                     }
                 }
-
-                const gridWire = new THREE.Mesh(new THREE.PlaneGeometry(facilitySize, facilitySize, 16, 16), 
-                    new THREE.MeshBasicMaterial({ color: fIdx === 0 ? 0x00ffff : (fIdx === 1 ? 0xff007f : 0xffe600), wireframe: true }));
-                gridWire.rotation.x = -Math.PI / 2;
-                gridWire.position.set(0, fY + 0.02, 0);
-                scene.add(gridWire);
             });
 
             // Door builder
             const createDoor = (x, y, z, width = 6.0, isX = true) => {
                 const doorGroup = new THREE.Group();
                 doorGroup.position.set(x, y + 3.0, z);
-
                 const doorPanel = new THREE.Mesh(new THREE.BoxGeometry(isX ? width : 0.4, 6.0, isX ? 0.4 : width), doorMat);
-                const strip = new THREE.Mesh(new THREE.BoxGeometry(isX ? width : 0.42, 0.15, isX ? 0.42 : width), neonBlueMat);
-                strip.position.y = 0.5;
-                doorGroup.add(doorPanel, strip);
+                doorGroup.add(doorPanel);
                 scene.add(doorGroup);
 
                 const bObj = { box: new THREE.Box3().setFromObject(doorPanel), active: true, mesh: doorPanel };
                 staticBoxes.push(bObj);
 
                 slidingDoors.push({
-                    group: doorGroup,
-                    panel: doorPanel,
-                    boxObj: bObj,
-                    basePos: doorGroup.position.clone(),
-                    isX: isX,
-                    width: width,
-                    slideProgress: 0.0
+                    group: doorGroup, panel: doorPanel, boxObj: bObj,
+                    basePos: doorGroup.position.clone(), isX: isX, width: width, slideProgress: 0.0
                 });
             };
 
-            // Breakable Glass Windows builder
+            // Glass Windows builder
             const createBreakableGlassWindow = (x, y, z, w = 10.0, h = 4.0, isX = true) => {
-                const wallThick = 1.5;
-                const sillH = 2.0;
-                const headerH = 1.0;
-
-                createStaticWall(x, y + sillH / 2, z, isX ? w : wallThick, sillH, isX ? wallThick : w);
-                createStaticWall(x, y + sillH + h + headerH / 2, z, isX ? w : wallThick, headerH, isX ? wallThick : w);
+                createStaticWall(x, y + 1.0, z, isX ? w : 1.5, 2.0, isX ? 1.5 : w);
+                createStaticWall(x, y + 7.0, z, isX ? w : 1.5, 1.0, isX ? 1.5 : w);
 
                 const glassMesh = new THREE.Mesh(new THREE.BoxGeometry(isX ? w : 0.25, h, isX ? 0.25 : w), glassMat);
-                glassMesh.position.set(x, y + sillH + h / 2, z);
-
-                const topFrame = new THREE.Mesh(new THREE.BoxGeometry(isX ? w : 0.35, 0.15, isX ? 0.35 : w), neonBlueMat);
-                topFrame.position.set(x, y + sillH + h, z);
-
-                const botFrame = new THREE.Mesh(new THREE.BoxGeometry(isX ? w : 0.35, 0.15, isX ? 0.35 : w), neonBlueMat);
-                botFrame.position.set(x, y + sillH, z);
-
-                scene.add(glassMesh, topFrame, botFrame);
+                glassMesh.position.set(x, y + 4.0, z);
+                scene.add(glassMesh);
 
                 const bObj = { box: new THREE.Box3().setFromObject(glassMesh), active: true, mesh: glassMesh };
                 staticBoxes.push(bObj);
-
-                glassPanels.push({
-                    mesh: glassMesh,
-                    topFrame: topFrame,
-                    botFrame: botFrame,
-                    boxObj: bObj,
-                    isBroken: false
-                });
+                glassPanels.push({ mesh: glassMesh, boxObj: bObj, isBroken: false });
             };
 
-            // Room Props Generator
-            const buildRoomProps = (roomType, cX, cY, cZ) => {
-                if (roomType === 'COMPUTER_LAB') {
-                    addRoomLight(cX, cY, cZ, 0x00ffff, 2.5);
-                    for (let i = -10; i <= 10; i += 5) {
-                        const rack = new THREE.Mesh(new THREE.BoxGeometry(1.8, 5.5, 1.8), wallMat);
-                        rack.position.set(cX + i, cY + 2.75, cZ - 10);
-                        const glowStrip = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.12, 1.82), neonBlueMat);
-                        glowStrip.position.set(cX + i, cY + 4.5, cZ - 10);
-                        scene.add(rack, glowStrip);
-                        registerStaticBox(rack, true);
-                    }
-                } else if (roomType === 'MEDIC_BAY') {
-                    addRoomLight(cX, cY, cZ, 0xff007f, 2.5);
-                    for (let i = -8; i <= 8; i += 8) {
-                        const bed = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.8, 5.0), wallMat);
-                        bed.position.set(cX + i, cY + 0.4, cZ);
-                        scene.add(bed);
-                        registerStaticBox(bed, true);
-                    }
-                } else if (roomType === 'BRIEFING_ROOM') {
-                    addRoomLight(cX, cY, cZ, 0xffe600, 2.5);
-                    const table = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 4.5, 1.0, 12), wallMat);
-                    table.position.set(cX, cY + 0.5, cZ);
-                    scene.add(table);
-                    registerStaticBox(table, true);
-                } else if (roomType === 'ARMORY') {
-                    addRoomLight(cX, cY, cZ, 0x00ffaa, 2.5);
-                    const rack = new THREE.Mesh(new THREE.BoxGeometry(14.0, 4.5, 1.0), wallMat);
-                    rack.position.set(cX, cY + 2.25, cZ - 10);
-                    scene.add(rack);
-                    registerStaticBox(rack, true);
-                } else {
-                    addRoomLight(cX, cY, cZ, 0x9900ff, 2.5);
-                    const barrier1 = new THREE.Mesh(new THREE.BoxGeometry(8.0, 3.5, 1.0), wallMat);
-                    barrier1.position.set(cX - 4, cY + 1.75, cZ);
-                    const barrier2 = new THREE.Mesh(new THREE.BoxGeometry(1.0, 3.5, 8.0), wallMat);
-                    barrier2.position.set(cX + 4, cY + 1.75, cZ);
-                    scene.add(barrier1, barrier2);
-                    registerStaticBox(barrier1, true);
-                    registerStaticBox(barrier2, true);
-                }
-            };
-
-            // Grid Partition Wall Layout Across 3 Floors (27 Rooms)
+            // Room Partitions
             floors.forEach((fY) => {
-                const roomGrid = [
-                    { type: 'COMPUTER_LAB', x: -75, z: -75 },
-                    { type: 'SERVER_CORRIDOR', x: 0, z: -75 },
-                    { type: 'MEDIC_BAY', x: 75, z: -75 },
-                    { type: 'ARMORY', x: -75, z: 0 },
-                    { type: 'CENTRAL_HUB', x: 0, z: 0 },
-                    { type: 'ARMORY', x: 75, z: 0 },
-                    { type: 'BRIEFING_ROOM', x: -75, z: 75 },
-                    { type: 'SECURITY_CONTROL', x: 0, z: 75 },
-                    { type: 'RESEARCH_LAB', x: 75, z: 75 }
-                ];
-
                 [-37.5, 37.5].forEach(px => {
                     createStaticWall(px, fY + 3.5, -94, 1.5, 7.0, 52);
                     createBreakableGlassWindow(px, fY, -63, 10.0, 4.0, false);
@@ -737,62 +643,23 @@
                     createStaticWall(94, fY + 3.5, pz, 52, 7.0, 1.5);
                 });
 
-                roomGrid.forEach(r => {
-                    buildRoomProps(r.type, r.x, fY, r.z);
-                    spawnPoints.push(new THREE.Vector3(r.x + (Math.random()-0.5)*12, fY + 0.1, r.z + (Math.random()-0.5)*12));
-                });
+                for (let rx = -75; rx <= 75; rx += 75) {
+                    for (let rz = -75; rz <= 75; rz += 75) {
+                        spawnPoints.push(new THREE.Vector3(rx + (Math.random()-0.5)*12, fY + 0.1, rz + (Math.random()-0.5)*12));
+                    }
+                }
             });
 
-            // Elevator Shafts & Cars
+            // Elevators
             const createElevatorShaft = (x, z) => {
-                for (let f = 0; f < 3; f++) {
-                    const fY = floors[f];
-                    createStaticWall(x - 5, fY + 3.5, z, 1, 7.0, 10);
-                    createStaticWall(x + 5, fY + 3.5, z, 1, 7.0, 10);
-                    createStaticWall(x, fY + 3.5, z - 5, 10, 7.0, 1);
-                }
-
                 const carMesh = new THREE.Mesh(new THREE.BoxGeometry(9.0, 0.5, 9.0), doorMat);
-                const carTrim = new THREE.Mesh(new THREE.BoxGeometry(9.2, 0.1, 9.2), neonYellowMat);
-                carMesh.add(carTrim);
                 carMesh.position.set(x, 0.25, z);
                 scene.add(carMesh);
-
                 const bObj = registerStaticBox(carMesh, true);
-
-                elevatorCars.push({
-                    mesh: carMesh,
-                    boxObj: bObj,
-                    x: x, z: z,
-                    targetFloorIdx: 0,
-                    waitTimer: 2.0
-                });
-
-                addRoomLight(x, floorHeight, z, 0xffe600, 3.0);
+                elevatorCars.push({ mesh: carMesh, boxObj: bObj, x: x, z: z, targetFloorIdx: 0, waitTimer: 2.0 });
             };
-
             createElevatorShaft(-90, 0);
             createElevatorShaft(90, 0);
-
-            // Stairwells & Ramps
-            const createStairwell = (x, z) => {
-                for (let f = 0; f < 2; f++) {
-                    const fY = floors[f];
-                    const rampLen = 16;
-                    const rampAngle = Math.atan2(floorHeight, rampLen);
-                    
-                    const ramp = new THREE.Mesh(new THREE.BoxGeometry(7, 0.5, Math.hypot(floorHeight, rampLen)), floorMat);
-                    ramp.position.set(x, fY + floorHeight / 2, z);
-                    ramp.rotation.x = rampAngle;
-                    scene.add(ramp);
-                    colliders.push(ramp);
-                    wallColliders.push(ramp);
-                }
-                addRoomLight(x, floorHeight, z, 0x00ffff, 2.0);
-            };
-
-            createStairwell(0, -60);
-            createStairwell(0, 60);
 
             generateCCTVCameras();
             setupCTFFlags();
@@ -801,25 +668,13 @@
 
         function generateCCTVCameras() {
             cctvCameras = [];
-            const floorLabels = ["F1", "F2", "F3"];
-            const roomNames = [
-                'COMPUTER LAB', 'SERVER CORRIDOR', 'MEDIC BAY',
-                'WEST ARMORY', 'CENTRAL HUB', 'EAST ARMORY',
-                'BRIEFING ROOM', 'SECURITY CONTROL', 'RESEARCH LAB'
-            ];
-            const floorsY = [0, 8, 16];
-            const gridX = [-75, 0, 75];
-            const gridZ = [-75, 0, 75];
-
             let idCounter = 1;
-            floorsY.forEach((fY, fIdx) => {
-                gridZ.forEach((rz, zIdx) => {
-                    gridX.forEach((rx, xIdx) => {
-                        const roomIdx = zIdx * 3 + xIdx;
-                        const label = `CAM ${idCounter < 10 ? '0' + idCounter : idCounter} // ${floorLabels[fIdx]}-${roomNames[roomIdx]}`;
+            [0, 8, 16].forEach((fY, fIdx) => {
+                [-75, 0, 75].forEach((rz) => {
+                    [-75, 0, 75].forEach((rx) => {
                         cctvCameras.push({
                             id: idCounter++,
-                            title: label,
+                            title: `CAM ${idCounter < 10 ? '0' + idCounter : idCounter} // F${fIdx + 1}-SECTOR`,
                             pos: new THREE.Vector3(rx + 16, fY + 6.2, rz + 16),
                             center: new THREE.Vector3(rx, fY + 2.0, rz)
                         });
@@ -831,7 +686,6 @@
         function setupCTFFlags() {
             const flagGeom = new THREE.CylinderGeometry(0.1, 0.1, 3.5);
             const bannerGeom = new THREE.BoxGeometry(1.2, 1.8, 0.08);
-            const beaconGeom = new THREE.CylinderGeometry(1.8, 1.8, 60, 16);
 
             cyanFlagObj = new THREE.Group();
             const cyanPole = new THREE.Mesh(flagGeom, new THREE.MeshBasicMaterial({ color: 0x00ffff }));
@@ -841,10 +695,6 @@
             cyanFlagObj.position.copy(cyanBasePos);
             scene.add(cyanFlagObj);
 
-            cyanFlagBeacon = new THREE.Mesh(beaconGeom, new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.25 }));
-            cyanFlagBeacon.position.copy(cyanBasePos).add(new THREE.Vector3(0, 30, 0));
-            scene.add(cyanFlagBeacon);
-
             pinkFlagObj = new THREE.Group();
             const pinkPole = new THREE.Mesh(flagGeom, new THREE.MeshBasicMaterial({ color: 0xff007f }));
             const pinkBanner = new THREE.Mesh(bannerGeom, new THREE.MeshBasicMaterial({ color: 0xff007f }));
@@ -852,21 +702,11 @@
             pinkFlagObj.add(pinkPole, pinkBanner);
             pinkFlagObj.position.copy(pinkBasePos);
             scene.add(pinkFlagObj);
-
-            pinkFlagBeacon = new THREE.Mesh(beaconGeom, new THREE.MeshBasicMaterial({ color: 0xff007f, transparent: true, opacity: 0.25 }));
-            pinkFlagBeacon.position.copy(pinkBasePos).add(new THREE.Vector3(0, 30, 0));
-            scene.add(pinkFlagBeacon);
-
-            cyanFlagObj.visible = false;
-            pinkFlagObj.visible = false;
-            cyanFlagBeacon.visible = false;
-            pinkFlagBeacon.visible = false;
         }
 
         function setPickupWeapon(sp, newWpnData) {
             sp.weapon = Object.assign({}, newWpnData);
             while(sp.modelHolder.children.length > 0) sp.modelHolder.remove(sp.modelHolder.children[0]);
-            
             const model = buildWeaponMesh(newWpnData, false);
             sp.modelHolder.add(model);
             sp.ringMesh.material.color.setHex(newWpnData.color);
@@ -885,20 +725,47 @@
 
                 const modelHolder = new THREE.Group();
                 pickupGroup.add(modelHolder);
-
                 scene.add(pickupGroup);
 
-                const spawnObj = {
-                    group: pickupGroup,
-                    modelHolder: modelHolder,
-                    ringMesh: ringMesh,
-                    weapon: Object.assign({}, randomWpn),
-                    active: true,
-                    respawnTimer: 0
-                };
-
+                const spawnObj = { group: pickupGroup, modelHolder: modelHolder, ringMesh: ringMesh, weapon: Object.assign({}, randomWpn), active: true, respawnTimer: 0 };
                 setPickupWeapon(spawnObj, randomWpn);
                 worldWeaponSpawns.push(spawnObj);
+            });
+        }
+
+        function updateFacilityMechanics(delta) {
+            const allEntities = entitySlots.filter(e => e && e.health > 0);
+
+            slidingDoors.forEach(d => {
+                let nearby = false;
+                allEntities.forEach(ent => {
+                    const pos = ent === player ? player.position : ent.mesh.position;
+                    if (pos.distanceTo(d.basePos) < 5.5) nearby = true;
+                });
+
+                if (nearby) d.slideProgress = Math.min(1.0, d.slideProgress + delta * 3.0);
+                else d.slideProgress = Math.max(0.0, d.slideProgress - delta * 3.0);
+
+                d.panel.position.x = d.isX ? d.width * d.slideProgress : 0;
+                d.panel.position.z = !d.isX ? d.width * d.slideProgress : 0;
+                d.boxObj.box.setFromObject(d.panel);
+                d.boxObj.active = d.slideProgress < 0.85;
+            });
+
+            const floorsY = [0.25, 8.25, 16.25];
+            elevatorCars.forEach(e => {
+                e.waitTimer -= delta;
+                if (e.waitTimer <= 0) {
+                    const targetY = floorsY[e.targetFloorIdx];
+                    if (Math.abs(e.mesh.position.y - targetY) > 0.1) {
+                        e.mesh.position.y += Math.sign(targetY - e.mesh.position.y) * delta * 6.0;
+                    } else {
+                        e.mesh.position.y = targetY;
+                        e.waitTimer = 3.5;
+                        e.targetFloorIdx = (e.targetFloorIdx + 1) % 3;
+                    }
+                }
+                e.boxObj.box.setFromObject(e.mesh);
             });
         }
 
@@ -1679,8 +1546,11 @@
                 new THREE.Vector3(pos.x + radius, pos.y + height, pos.z + radius)
             );
 
-            for (let i = 0; i < staticBoxes.length; i++) {
-                if (staticBoxes[i].active && box.intersectsBox(staticBoxes[i].box)) return true;
+            for (let i = 0; i < wallColliders.length; i++) {
+                if (wallColliders[i].parent) {
+                    const wBox = new THREE.Box3().setFromObject(wallColliders[i]);
+                    if (box.intersectsBox(wBox)) return true;
+                }
             }
             return false;
         }
@@ -2194,9 +2064,6 @@
                     showKillFeed(`CYAN TEAM CAPTURED THE PINK FLAG!`);
                     updateModeHUD();
                     if (isHost) broadcastScoreSync();
-                    if (teamCyanScore >= 3) {
-                        alert("CYAN TEAM VICTORY! ARENA DOMINATED!"); location.reload();
-                    }
                 }
 
                 if (ent.team === 'PINK' && !cyanFlagCarrier && pos.distanceTo(cyanFlagObj.position) < 2.5) {
@@ -2209,13 +2076,8 @@
                     showKillFeed(`PINK TEAM CAPTURED THE CYAN FLAG!`);
                     updateModeHUD();
                     if (isHost) broadcastScoreSync();
-                    if (teamPinkScore >= 3) {
-                        alert("PINK TEAM VICTORY! ARENA DOMINATED!"); location.reload();
-                    }
                 }
             });
-
-            updateFlagHUDMarkers();
         }
 
         function updateFlagHUDMarkers() {
@@ -3121,7 +2983,6 @@
                         player.inventory[slot] = Object.assign({}, sp.weapon);
                         
                         switchWeapon(slot, true);
-
                         player.grenades = 2;
                         updateGrenadeHUD();
 
@@ -3135,7 +2996,6 @@
                     if (sp.respawnTimer <= 0) {
                         const newRandomWpn = weaponsDatabase[Math.floor(Math.random() * weaponsDatabase.length)];
                         setPickupWeapon(sp, newRandomWpn);
-
                         sp.active = true;
                         sp.group.visible = true;
                     }
