@@ -3258,7 +3258,7 @@
             }
         }
 
-        // --- ROOM PORTAL FINDER (PERPENDICULAR APPROACH WAYPOINTS) ---
+        // --- ROOM PORTAL FINDER (ORTHOGONAL DOOR PROJECTION) ---
         function findNearestRoomPortal(bot, targetRoomIdx) {
             const botPos = bot.mesh.position;
             const curRoom = getRoomIndex(botPos);
@@ -3268,17 +3268,19 @@
 
             const candidates = [];
 
+            // Doors near current room
             slidingDoors.forEach(d => {
                 const doorPos = d.basePos;
                 if (getRoomIndex(doorPos) === curRoom || doorPos.distanceTo(curCenter) < 42.0) {
-                    candidates.push({ pos: doorPos.clone(), type: 'DOOR', obj: d, isX: d.isX });
+                    candidates.push({ pos: doorPos.clone(), type: 'DOOR', obj: d });
                 }
             });
 
+            // Windows near current room
             glassPanels.forEach(g => {
                 const winPos = g.mesh.position;
                 if (getRoomIndex(winPos) === curRoom || winPos.distanceTo(curCenter) < 42.0) {
-                    candidates.push({ pos: winPos.clone(), type: 'WINDOW', obj: g, isX: g.mesh.geometry.parameters.width > 2 });
+                    candidates.push({ pos: winPos.clone(), type: 'WINDOW', obj: g });
                 }
             });
 
@@ -3291,19 +3293,25 @@
             });
 
             if (bestPortal) {
-                // Determine perpendicular normal axis into doorway
-                const normal = bestPortal.isX ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
-                const botToDoor = new THREE.Vector3().subVectors(bestPortal.pos, botPos);
-                if (botToDoor.dot(normal) < 0) normal.negate();
+                const destPos = bestPortal.pos.clone();
 
-                // Approach point (1.8m before doorway) & Exit point (2.5m past doorway)
-                const approachPos = bestPortal.pos.clone().subScaledVector(normal, 1.8);
-                const exitPos = bestPortal.pos.clone().addScaledVector(normal, 2.5);
+                if (bestPortal.type === 'DOOR') {
+                    // Project strictly perpendicular to the wall plane based on door orientation
+                    if (bestPortal.obj.isX) {
+                        // Wall lies along X axis -> passage goes along Z axis
+                        destPos.z += (botPos.z < bestPortal.pos.z) ? 4.5 : -4.5;
+                    } else {
+                        // Wall lies along Z axis -> passage goes along X axis
+                        destPos.x += (botPos.x < bestPortal.pos.x) ? 4.5 : -4.5;
+                    }
+                } else {
+                    const straightDir = new THREE.Vector3().subVectors(bestPortal.pos, botPos).setY(0).normalize();
+                    destPos.addScaledVector(straightDir, 4.0);
+                }
 
                 return {
                     pos: bestPortal.pos,
-                    approachPos: approachPos,
-                    targetThroughPos: exitPos,
+                    targetThroughPos: destPos,
                     type: bestPortal.type,
                     obj: bestPortal.obj
                 };
@@ -3312,7 +3320,7 @@
             return null;
         }
 
-        // --- ROOM-AWARE BOT AI WITH COMBAT DISTANCE & FIRING FIX ---
+        // --- INTELLIGENT ROOM-AWARE BOT AI ENGINE ---
         function updateBots(delta) {
             if (isPreMatch || !gameStarted) return;
 
@@ -3331,16 +3339,18 @@
                     bot.grenadeCooldown = Math.max(0, bot.grenadeCooldown - delta);
                     bot.scanTimer -= delta;
 
-                    bot.lastPos.copy(bot.mesh.position);
                     const botPos = bot.mesh.position;
+                    const distMoved = botPos.distanceTo(bot.lastPos);
+                    bot.lastPos.copy(botPos);
+
                     const botRoomIdx = getRoomIndex(botPos);
                     const botEyePos = botPos.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
-                    // --- STEP 1: TARGET SCANNING (LINE OF SIGHT & RANGE) ---
+                    // --- STEP 1: SAME-ROOM OPPONENT SCANNING ---
                     if (bot.scanTimer <= 0) {
                         bot.scanTimer = 0.25 + Math.random() * 0.15;
-                        let bestTarget = null;
-                        let bestDist = Infinity;
+                        let sameRoomEnemy = null;
+                        let sameRoomMinDist = Infinity;
 
                         const losObstacles = [...colliders];
                         slidingDoors.forEach(d => { if (d.slideProgress < 0.85) losObstacles.push(d.panel); });
@@ -3351,60 +3361,52 @@
                             if ((currentMode === 'TDM' || currentMode === 'CTF') && ent.team === bot.team) return;
 
                             const entPos = (ent === player) ? player.position : ent.mesh.position;
-                            const dist = botPos.distanceTo(entPos);
+                            const entRoomIdx = getRoomIndex(entPos);
 
-                            if (dist < 50.0) {
-                                const entEyePos = (ent === player)
-                                    ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0))
-                                    : entPos.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
-
-                                if (checkLineOfSight(botEyePos, entEyePos, losObstacles)) {
-                                    if (dist < bestDist) {
-                                        bestDist = dist;
-                                        bestTarget = ent;
-                                    }
+                            if (entRoomIdx === botRoomIdx) {
+                                const dist = botPos.distanceTo(entPos);
+                                if (dist < sameRoomMinDist && checkLineOfSight(botEyePos, entPos, losObstacles)) {
+                                    sameRoomMinDist = dist;
+                                    sameRoomEnemy = ent;
                                 }
                             }
                         });
 
-                        bot.target = bestTarget;
+                        bot.target = sameRoomEnemy;
                     }
 
-                    // --- STEP 2: ENGAGE OPPONENT OR NAVIGATE PORTAL ---
+                    // --- STEP 2: SEARCH / PATROL TARGET GUARANTEE ---
                     let moveTarget = null;
                     let isNavigatingPortal = false;
                     let activePortal = null;
 
                     if (bot.target && bot.target.health > 0) {
+                        // Combat state: Fight enemy in same room
                         const enemyPos = (bot.target === player) ? player.position.clone() : bot.target.mesh.position.clone();
-                        distToEnemy = botPos.distanceTo(enemyPos);
+                        const distToEnemy = botPos.distanceTo(enemyPos);
                         const stopDist = (bot.weapon && bot.weapon.category === 'MELEE') ? 1.5 : 5.0;
 
                         if (distToEnemy > stopDist) {
                             moveTarget = enemyPos;
                         } else {
-                            const aimDir = new THREE.Vector3().subVectors(enemyPos, botPos);
-                            aimDir.y = 0;
-                            if (aimDir.lengthSq() > 0.01) {
-                                bot.mesh.rotation.y = Math.atan2(-aimDir.x, -aimDir.z);
-                            }
+                            const aimDir = new THREE.Vector3().subVectors(enemyPos, botPos).setY(0);
+                            if (aimDir.lengthSq() > 0.01) bot.mesh.rotation.y = Math.atan2(-aimDir.x, -aimDir.z);
                             bot.velocity.x = 0;
                             bot.velocity.z = 0;
                         }
                     } else {
-                        bot.target = null;
+                        // Search Mode: Find nearest door/window to move through
                         if (!bot.portalCooldown || bot.portalCooldown <= 0) {
                             activePortal = findNearestRoomPortal(bot, bot.targetRoom);
                         }
 
                         if (activePortal) {
-                            const distToApproach = botPos.distanceTo(activePortal.approachPos);
-                            // First align with approach point in front of doorway, then target exit point past doorway
-                            moveTarget = (distToApproach > 0.8) ? activePortal.approachPos : activePortal.targetThroughPos;
+                            moveTarget = activePortal.targetThroughPos;
                             isNavigatingPortal = true;
                         } else {
+                            // Fallback: Head to another room center (Guarantees bot never stands idle)
                             if (!bot.patrolTarget || botPos.distanceTo(bot.patrolTarget) < 3.0) {
-                                bot.targetRoom = (botRoomIdx + 1) % 27;
+                                bot.targetRoom = (botRoomIdx + Math.floor(Math.random() * 25) + 1) % 27;
                                 bot.patrolTarget = getRoomCenter(bot.targetRoom);
                             }
                             moveTarget = bot.patrolTarget;
@@ -3413,10 +3415,19 @@
 
                     if (bot.portalCooldown > 0) bot.portalCooldown -= delta;
 
-                    // --- STEP 3: DOORWAY CENTER ALIGNMENT & WINDOW HANDLING ---
+                    // --- STEP 3: DOORWAY & WINDOW HANDLING ---
                     const distToPortalCenter = (isNavigatingPortal && activePortal) ? botPos.distanceTo(activePortal.pos) : Infinity;
 
                     if (isNavigatingPortal && activePortal) {
+                        if (activePortal.type === 'DOOR') {
+                            // Guide cross-axis position toward the door center line
+                            if (activePortal.obj.isX) {
+                                botPos.z = THREE.MathUtils.lerp(botPos.z, activePortal.pos.z, delta * 12.0);
+                            } else {
+                                botPos.x = THREE.MathUtils.lerp(botPos.x, activePortal.pos.x, delta * 12.0);
+                            }
+                        }
+
                         if (activePortal.type === 'WINDOW') {
                             if (!activePortal.obj.isBroken && distToPortalCenter < 16.0) {
                                 const aimDir = new THREE.Vector3().subVectors(activePortal.pos, botEyePos).normalize();
@@ -3433,46 +3444,58 @@
                             }
                         }
 
-                        if (distToPortalCenter < 2.0) {
+                        if (distToPortalCenter < 2.2) {
                             bot.portalCooldown = 2.5;
                         }
                     }
 
-                    // --- STEP 4: MULTI-RAY OBSTACLE PROBING & DETOUR LOCK ---
+                    // --- STEP 4: MULTI-RAY STEERING & STUCK RECOVERY ---
                     if (moveTarget) {
-                        let moveDir = new THREE.Vector3().subVectors(moveTarget, botPos);
-                        moveDir.y = 0;
+                        const moveDir = new THREE.Vector3().subVectors(moveTarget, botPos).setY(0);
 
                         if (moveDir.lengthSq() > 0.04) {
                             moveDir.normalize();
 
-                            // Active detour memory (locks detour direction for 0.8s so bot doesn't forget obstacles)
-                            if (bot.detourTimer && bot.detourTimer > 0) {
-                                bot.detourTimer -= delta;
-                                moveDir.copy(bot.detourDir);
+                            // Detect if stuck against obstacle
+                            if (distMoved < 0.08 * delta * 60) {
+                                bot.stuckTimer = (bot.stuckTimer || 0) + delta;
                             } else {
-                                // Cast 3 Probes: Center (1.8m), Left (-30°), Right (+30°)
-                                const centerProbe = botPos.clone().addScaledVector(moveDir, 1.8);
-                                const leftProbeDir = moveDir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 6);
-                                const rightProbeDir = moveDir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 6);
+                                bot.stuckTimer = Math.max(0, (bot.stuckTimer || 0) - delta * 2.0);
+                            }
 
-                                const centerBlocked = checkWallCollision(centerProbe, 0.4, EYE_HEIGHT_STAND);
+                            // Emergency Stuck Escape: Redirect & Jump
+                            if (bot.stuckTimer > 0.35) {
+                                const escapeSign = (bot.id % 2 === 0) ? 1 : -1;
+                                moveDir.set(-moveDir.z * escapeSign, 0, moveDir.x * escapeSign).normalize();
+                                if (bot.isGrounded && bot.jumpCooldown <= 0) {
+                                    bot.velocity.y = 11;
+                                    bot.isGrounded = false;
+                                    bot.jumpCooldown = 0.8;
+                                }
+                                if (bot.stuckTimer > 0.7) {
+                                    bot.stuckTimer = 0;
+                                    bot.portalCooldown = 3.0;
+                                    bot.patrolTarget = null;
+                                }
+                            } else {
+                                // 3-Point Multi-Ray Obstacle Probing
+                                const probeCenter = botPos.clone().addScaledVector(moveDir, 1.4);
+                                const leftDir = new THREE.Vector3(-moveDir.z, 0, moveDir.x);
+                                const rightDir = new THREE.Vector3(moveDir.z, 0, -moveDir.x);
 
-                                if (centerBlocked) {
-                                    const leftBlocked = checkWallCollision(botPos.clone().addScaledVector(leftProbeDir, 1.8), 0.4, EYE_HEIGHT_STAND);
-                                    const rightBlocked = checkWallCollision(botPos.clone().addScaledVector(rightProbeDir, 1.8), 0.4, EYE_HEIGHT_STAND);
+                                const probeLeft = botPos.clone().addScaledVector(moveDir, 1.2).addScaledVector(leftDir, 0.8);
+                                const probeRight = botPos.clone().addScaledVector(moveDir, 1.2).addScaledVector(rightDir, 0.8);
 
-                                    // Choose clear side and lock detour direction
+                                const centerBlocked = checkWallCollision(probeCenter, 0.4, EYE_HEIGHT_STAND);
+                                const leftBlocked = checkWallCollision(probeLeft, 0.4, EYE_HEIGHT_STAND);
+                                const rightBlocked = checkWallCollision(probeRight, 0.4, EYE_HEIGHT_STAND);
+
+                                if (centerBlocked || leftBlocked || rightBlocked) {
                                     if (!leftBlocked) {
-                                        bot.detourDir = leftProbeDir.clone().normalize();
-                                        bot.detourTimer = 0.8;
-                                        moveDir.copy(bot.detourDir);
+                                        moveDir.addScaledVector(leftDir, 1.8).normalize();
                                     } else if (!rightBlocked) {
-                                        bot.detourDir = rightProbeDir.clone().normalize();
-                                        bot.detourTimer = 0.8;
-                                        moveDir.copy(bot.detourDir);
+                                        moveDir.addScaledVector(rightDir, 1.8).normalize();
                                     } else if (bot.isGrounded && bot.jumpCooldown <= 0) {
-                                        // Jump over low half-walls or pedestals
                                         bot.velocity.y = 11;
                                         bot.isGrounded = false;
                                         bot.jumpCooldown = 0.9;
@@ -3484,22 +3507,15 @@
                             bot.velocity.x = moveDir.x * moveSpeed;
                             bot.velocity.z = moveDir.z * moveSpeed;
 
-                            const inDoorThreshold = activePortal && activePortal.type === 'DOOR' && distToPortalCenter < 2.2;
+                            const inDoorPassage = activePortal && activePortal.type === 'DOOR' && distToPortalCenter < 2.5;
 
-                            // Position movement with wall sliding fallback
                             const oldX = botPos.x;
                             botPos.x += bot.velocity.x * delta;
-                            if (!inDoorThreshold && checkWallCollision(botPos, 0.28, EYE_HEIGHT_STAND)) {
-                                botPos.x = oldX;
-                                botPos.z += (bot.id % 2 === 0 ? 1 : -1) * moveSpeed * delta; // Slide along wall
-                            }
+                            if (!inDoorPassage && checkWallCollision(botPos, 0.28, EYE_HEIGHT_STAND)) botPos.x = oldX;
 
                             const oldZ = botPos.z;
                             botPos.z += bot.velocity.z * delta;
-                            if (!inDoorThreshold && checkWallCollision(botPos, 0.28, EYE_HEIGHT_STAND)) {
-                                botPos.z = oldZ;
-                                botPos.x += (bot.id % 2 === 0 ? -1 : 1) * moveSpeed * delta; // Slide along wall
-                            }
+                            if (!inDoorPassage && checkWallCollision(botPos, 0.28, EYE_HEIGHT_STAND)) botPos.z = oldZ;
 
                             resolveEntityCollisions(bot.slot, botPos, bot.velocity, 0.5);
 
@@ -3525,8 +3541,10 @@
                         bot.isGrounded = false;
                     }
 
-                    // --- STEP 5: COMBAT ATTACK EXECUTION ---
+                    // --- STEP 5: COMBAT FIRING EXECUTION ---
                     if (bot.target && bot.target.health > 0) {
+                        const enemyPos = (bot.target === player) ? player.position : bot.target.mesh.position;
+                        const distToEnemy = botPos.distanceTo(enemyPos);
                         const enemyEyePos = (bot.target === player)
                             ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0))
                             : bot.target.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
