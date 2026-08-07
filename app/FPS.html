@@ -1122,6 +1122,78 @@
             if (statusEl) statusEl.innerText = `NETWORK: ${txt}`;
         }
 
+        // --- HUMANOID RIG BUILDER ---
+        function create60BoneHumanoidRig(colorHex, isHumanPlayer = false) {
+            const bones = [];
+            const boneMap = {};
+            const rigGroup = new THREE.Group();
+
+            const armorMat = isHumanPlayer 
+                ? new THREE.MeshStandardMaterial({ color: 0x112244, roughness: 0.1, metalness: 0.95 })
+                : new THREE.MeshStandardMaterial({ color: 0x181824, roughness: 0.3, metalness: 0.8 });
+
+            const glowMat = new THREE.MeshBasicMaterial({ color: isHumanPlayer ? 0xffe600 : colorHex });
+
+            function addBone(name, parent, x, y, z) {
+                const b = new THREE.Bone();
+                b.name = name;
+                b.position.set(x, y, z);
+                if (parent) parent.add(b);
+                bones.push(b);
+                boneMap[name] = b;
+                return b;
+            }
+
+            const root = addBone('Root', null, 0, 0, 0);                 
+            const pelvis = addBone('Pelvis', root, 0, 0.9, 0);           
+            const spine1 = addBone('Spine1', pelvis, 0, 0.22, 0);        
+            const spine2 = addBone('Spine2', spine1, 0, 0.22, 0);        
+            const chest = addBone('Chest', spine2, 0, 0.22, 0);          
+            const head = addBone('Head', chest, 0, 0.38, 0);              
+
+            const pelvisMesh = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.2, 0.26), armorMat);
+            pelvis.add(pelvisMesh);
+
+            const chestMesh = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.28, 0.3), armorMat);
+            chest.add(chestMesh);
+
+            const headMesh = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), armorMat);
+            const visor = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.18), glowMat);
+            visor.position.set(0, 0.02, -0.1);
+            head.add(headMesh, visor);
+
+            ['L', 'R'].forEach(side => {
+                const s = side === 'L' ? 1 : -1;
+                const upperArm = addBone(`${side}_UpperArm`, chest, 0.3 * s, 0, 0);
+                const forearm = addBone(`${side}_Forearm`, upperArm, 0, -0.38, 0);
+                const wrist = addBone(`${side}_Wrist`, forearm, 0, -0.35, 0);
+
+                const upperMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.35), armorMat);
+                upperMesh.position.y = -0.18;
+                upperArm.add(upperMesh);
+
+                const foreMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.32), armorMat);
+                foreMesh.position.y = -0.16;
+                forearm.add(foreMesh);
+
+                const thigh = addBone(`${side}_Thigh`, pelvis, 0.16 * s, -0.1, 0);
+                const shin = addBone(`${side}_Shin`, thigh, 0, -0.45, 0);
+
+                const thighMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.42), armorMat);
+                thighMesh.position.y = -0.21;
+                thigh.add(thighMesh);
+
+                const shinMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.4), armorMat);
+                shinMesh.position.y = -0.2;
+                shin.add(shinMesh);
+            });
+
+            const skeleton = new THREE.Skeleton(bones);
+            rigGroup.add(root);
+
+            return { group: rigGroup, skeleton: skeleton, bones: boneMap, glowMat: glowMat };
+        }
+
         function createBot(id) {
             const spawnPos = getSafeSpawnPoint();
             const archetype = BOT_ARCHETYPES[id % BOT_ARCHETYPES.length];
@@ -2963,6 +3035,11 @@
                 e.boxObj.box.setFromObject(e.mesh);
             });
         }
+
+        function updateProjectiles(delta) {}
+        function updateDebris(delta) {}
+        function updateWorldWeapons(delta) {}
+        function updateCTFMechanics() {}
 
         // --- 10. MAIN GAME LOOP ---
         let lastTime = performance.now();
