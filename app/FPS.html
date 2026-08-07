@@ -3258,7 +3258,7 @@
             }
         }
 
-        // --- ROOM PORTAL FINDER (ORTHOGONAL DOOR PROJECTION) ---
+        // --- ROOM PORTAL FINDER (CORRECTED ORTHOGONAL PROJECTION) ---
         function findNearestRoomPortal(bot, targetRoomIdx) {
             const botPos = bot.mesh.position;
             const curRoom = getRoomIndex(botPos);
@@ -3272,7 +3272,7 @@
             slidingDoors.forEach(d => {
                 const doorPos = d.basePos;
                 if (getRoomIndex(doorPos) === curRoom || doorPos.distanceTo(curCenter) < 42.0) {
-                    candidates.push({ pos: doorPos.clone(), type: 'DOOR', obj: d });
+                    candidates.push({ pos: doorPos.clone(), type: 'DOOR', obj: d, isX: d.isX });
                 }
             });
 
@@ -3280,7 +3280,9 @@
             glassPanels.forEach(g => {
                 const winPos = g.mesh.position;
                 if (getRoomIndex(winPos) === curRoom || winPos.distanceTo(curCenter) < 42.0) {
-                    candidates.push({ pos: winPos.clone(), type: 'WINDOW', obj: g });
+                    // Windows in room partitions share the same orientation grid
+                    const isX = Math.abs(winPos.z % 75) < 5; 
+                    candidates.push({ pos: winPos.clone(), type: 'WINDOW', obj: g, isX: isX });
                 }
             });
 
@@ -3295,25 +3297,21 @@
             if (bestPortal) {
                 const destPos = bestPortal.pos.clone();
 
-                if (bestPortal.type === 'DOOR') {
-                    // Project strictly perpendicular to the wall plane based on door orientation
-                    if (bestPortal.obj.isX) {
-                        // Wall lies along X axis -> passage goes along Z axis
-                        destPos.z += (botPos.z < bestPortal.pos.z) ? 4.5 : -4.5;
-                    } else {
-                        // Wall lies along Z axis -> passage goes along X axis
-                        destPos.x += (botPos.x < bestPortal.pos.x) ? 4.5 : -4.5;
-                    }
+                // Project through-waypoint perpendicular to wall plane
+                if (bestPortal.isX) {
+                    // Wall extends along X-axis -> Pass through along Z-axis
+                    destPos.z += (botPos.z < bestPortal.pos.z) ? 5.0 : -5.0;
                 } else {
-                    const straightDir = new THREE.Vector3().subVectors(bestPortal.pos, botPos).setY(0).normalize();
-                    destPos.addScaledVector(straightDir, 4.0);
+                    // Wall extends along Z-axis -> Pass through along X-axis
+                    destPos.x += (botPos.x < bestPortal.pos.x) ? 5.0 : -5.0;
                 }
 
                 return {
                     pos: bestPortal.pos,
                     targetThroughPos: destPos,
                     type: bestPortal.type,
-                    obj: bestPortal.obj
+                    obj: bestPortal.obj,
+                    isX: bestPortal.isX
                 };
             }
 
@@ -3415,20 +3413,21 @@
 
                     if (bot.portalCooldown > 0) bot.portalCooldown -= delta;
 
-                    // --- STEP 3: DOORWAY & WINDOW HANDLING ---
+                    // --- STEP 3: DOORWAY/WINDOW CENTER ALIGNMENT & VAULTING ---
                     const distToPortalCenter = (isNavigatingPortal && activePortal) ? botPos.distanceTo(activePortal.pos) : Infinity;
 
                     if (isNavigatingPortal && activePortal) {
-                        if (activePortal.type === 'DOOR') {
-                            // Guide cross-axis position toward the door center line
-                            if (activePortal.obj.isX) {
-                                botPos.z = THREE.MathUtils.lerp(botPos.z, activePortal.pos.z, delta * 12.0);
-                            } else {
-                                botPos.x = THREE.MathUtils.lerp(botPos.x, activePortal.pos.x, delta * 12.0);
-                            }
+                        // Align cross-axis coordinate with the opening center
+                        if (activePortal.isX) {
+                            // Wall runs along X -> Center bot's X position in doorway/window
+                            botPos.x = THREE.MathUtils.lerp(botPos.x, activePortal.pos.x, delta * 10.0);
+                        } else {
+                            // Wall runs along Z -> Center bot's Z position in doorway/window
+                            botPos.z = THREE.MathUtils.lerp(botPos.z, activePortal.pos.z, delta * 10.0);
                         }
 
                         if (activePortal.type === 'WINDOW') {
+                            // Shoot sealed window glass when approaching
                             if (!activePortal.obj.isBroken && distToPortalCenter < 16.0) {
                                 const aimDir = new THREE.Vector3().subVectors(activePortal.pos, botEyePos).normalize();
                                 bot.mesh.rotation.y = Math.atan2(-aimDir.x, -aimDir.z);
@@ -3437,8 +3436,9 @@
                                 }
                             }
 
-                            if (distToPortalCenter < 3.5 && bot.isGrounded && bot.jumpCooldown <= 0) {
-                                bot.velocity.y = 12;
+                            // Vault cleanly over window sill frame
+                            if (distToPortalCenter < 3.8 && bot.isGrounded && bot.jumpCooldown <= 0) {
+                                bot.velocity.y = 13;
                                 bot.isGrounded = false;
                                 bot.jumpCooldown = 0.8;
                             }
@@ -3449,21 +3449,21 @@
                         }
                     }
 
-                    // --- STEP 4: MULTI-RAY STEERING & STUCK RECOVERY ---
+                    // --- STEP 4: STEERING & PORTAL COLLISION BYPASS ---
                     if (moveTarget) {
                         const moveDir = new THREE.Vector3().subVectors(moveTarget, botPos).setY(0);
 
                         if (moveDir.lengthSq() > 0.04) {
                             moveDir.normalize();
 
-                            // Detect if stuck against obstacle
+                            // Detect if stuck
                             if (distMoved < 0.08 * delta * 60) {
                                 bot.stuckTimer = (bot.stuckTimer || 0) + delta;
                             } else {
                                 bot.stuckTimer = Math.max(0, (bot.stuckTimer || 0) - delta * 2.0);
                             }
 
-                            // Emergency Stuck Escape: Redirect & Jump
+                            // Emergency Stuck Escape
                             if (bot.stuckTimer > 0.35) {
                                 const escapeSign = (bot.id % 2 === 0) ? 1 : -1;
                                 moveDir.set(-moveDir.z * escapeSign, 0, moveDir.x * escapeSign).normalize();
@@ -3507,15 +3507,16 @@
                             bot.velocity.x = moveDir.x * moveSpeed;
                             bot.velocity.z = moveDir.z * moveSpeed;
 
-                            const inDoorPassage = activePortal && activePortal.type === 'DOOR' && distToPortalCenter < 2.5;
+                            // Allow smooth passage through doorways and windows by bypassing wall checks when near openings
+                            const inPortalPassage = activePortal && distToPortalCenter < 3.2;
 
                             const oldX = botPos.x;
                             botPos.x += bot.velocity.x * delta;
-                            if (!inDoorPassage && checkWallCollision(botPos, 0.28, EYE_HEIGHT_STAND)) botPos.x = oldX;
+                            if (!inPortalPassage && checkWallCollision(botPos, 0.28, EYE_HEIGHT_STAND)) botPos.x = oldX;
 
                             const oldZ = botPos.z;
                             botPos.z += bot.velocity.z * delta;
-                            if (!inDoorPassage && checkWallCollision(botPos, 0.28, EYE_HEIGHT_STAND)) botPos.z = oldZ;
+                            if (!inPortalPassage && checkWallCollision(botPos, 0.28, EYE_HEIGHT_STAND)) botPos.z = oldZ;
 
                             resolveEntityCollisions(bot.slot, botPos, bot.velocity, 0.5);
 
