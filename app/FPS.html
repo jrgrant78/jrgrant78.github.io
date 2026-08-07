@@ -3237,40 +3237,39 @@
             }
         }
 
-        // --- ROOM OPENING & PORTAL FINDER ---
-        function getNearestRoomPortal(botPos) {
-            const curRoom = getRoomIndex(botPos);
-            const curCenter = getRoomCenter(curRoom);
-            let bestPortal = null;
+        // --- NEAREST DOOR OR WINDOW OPENING FINDER ---
+        function getNearestRoomOpening(botPos) {
+            let nearestPortal = null;
             let minDist = Infinity;
 
-            // Find doors in current room
+            // Search sliding doors on the same floor level
             slidingDoors.forEach(d => {
-                if (Math.abs(d.basePos.y - botPos.y) < 3.0 && d.basePos.distanceTo(curCenter) < 45.0) {
-                    const dist = botPos.distanceTo(d.basePos);
-                    if (dist < minDist) {
+                const doorPos = d.basePos;
+                if (Math.abs(doorPos.y - botPos.y) < 3.0) {
+                    const dist = botPos.distanceTo(doorPos);
+                    if (dist < minDist && dist > 1.0) {
                         minDist = dist;
-                        bestPortal = { pos: d.basePos.clone(), type: 'DOOR', obj: d };
+                        nearestPortal = { pos: doorPos.clone(), type: 'DOOR', obj: d };
                     }
                 }
             });
 
-            // Find windows in current room
+            // Search glass windows on the same floor level
             glassPanels.forEach(g => {
-                const wPos = g.mesh.position.clone();
-                if (Math.abs(wPos.y - botPos.y) < 3.0 && wPos.distanceTo(curCenter) < 45.0) {
-                    const dist = botPos.distanceTo(wPos);
-                    if (dist < minDist) {
+                const winPos = g.mesh.position;
+                if (Math.abs(winPos.y - botPos.y) < 3.0) {
+                    const dist = botPos.distanceTo(winPos);
+                    if (dist < minDist && dist > 1.0) {
                         minDist = dist;
-                        bestPortal = { pos: wPos, type: 'WINDOW', obj: g };
+                        nearestPortal = { pos: winPos.clone(), type: 'WINDOW', obj: g };
                     }
                 }
             });
 
-            return bestPortal;
+            return nearestPortal;
         }
 
-        // --- ROOM-AWARE BOT AI ENGINE ---
+        // --- ROOM-AWARE BOT SEARCH & COMBAT AI ---
         function updateBots(delta) {
             if (!gameStarted || isPreMatch) return;
 
@@ -3286,88 +3285,93 @@
                     if (!b) return;
 
                     bot.jumpCooldown = Math.max(0, bot.jumpCooldown - delta);
-                    bot.grenadeCooldown = Math.max(0, bot.grenadeCooldown - delta);
+                    bot.scanTimer -= delta;
 
-                    const currentRoomIdx = getRoomIndex(bot.mesh.position);
+                    const curRoom = getRoomIndex(bot.mesh.position);
                     const botEyePos = bot.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
-                    // Reset portal target when transitioning into a new room
-                    if (bot.lastRoomIdx !== currentRoomIdx) {
-                        bot.lastRoomIdx = currentRoomIdx;
-                        bot.currentTargetPortal = null;
-                    }
-
-                    // --- STEP 1: SAME ROOM OPPONENT DETECTION ---
-                    let sameRoomOpponent = null;
-                    let nearestDist = Infinity;
+                    // --- 1. CHECK FOR OPPONENT IN SAME ROOM / QUADRANT ---
+                    let roomEnemy = null;
+                    let minEnemyDist = Infinity;
 
                     allEntities.forEach(ent => {
                         if (ent === bot || ent.health <= 0) return;
                         if ((currentMode === 'TDM' || currentMode === 'CTF') && ent.team === bot.team) return;
 
                         const entPos = (ent === player) ? player.position : ent.mesh.position;
-                        if (getRoomIndex(entPos) === currentRoomIdx) {
+                        if (getRoomIndex(entPos) === curRoom) {
                             const d = bot.mesh.position.distanceTo(entPos);
-                            if (d < nearestDist) {
-                                nearestDist = d;
-                                sameRoomOpponent = ent;
+                            if (d < minEnemyDist) {
+                                minEnemyDist = d;
+                                roomEnemy = ent;
                             }
                         }
                     });
 
-                    bot.target = sameRoomOpponent;
+                    // --- 2. BATTLE OPPONENT IN SAME ROOM ---
+                    if (roomEnemy) {
+                        bot.target = roomEnemy;
+                        bot.activePortal = null; // Clear navigation portal
 
-                    // --- STEP 2: BEHAVIOR EXECUTION ---
-                    if (bot.target) {
-                        // --- IN-ROOM COMBAT MODE ---
-                        bot.currentTargetPortal = null;
-                        const targetPos = (bot.target === player) 
+                        const enemyPos = (roomEnemy === player) 
                             ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0)) 
-                            : bot.target.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
+                            : roomEnemy.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
-                        const distToEnemy = botEyePos.distanceTo(targetPos);
-                        const dirToEnemy = new THREE.Vector3().subVectors(targetPos, botEyePos).normalize();
+                        const distToEnemy = botEyePos.distanceTo(enemyPos);
+                        const dirToEnemy = new THREE.Vector3().subVectors(enemyPos, botEyePos).normalize();
 
+                        // Face enemy
                         bot.rotX = Math.asin(dirToEnemy.y);
                         bot.mesh.rotation.y = Math.atan2(-dirToEnemy.x, -dirToEnemy.z);
 
-                        // Move toward target if out of range
-                        if (distToEnemy > (bot.weapon.category === 'MELEE' ? 1.8 : 6.0)) {
+                        // Walk toward enemy if out of close range
+                        if (distToEnemy > (bot.weapon.category === 'MELEE' ? 1.8 : 7.0)) {
                             const moveDir = new THREE.Vector3(dirToEnemy.x, 0, dirToEnemy.z).normalize();
                             bot.velocity.x = moveDir.x * 12.0;
                             bot.velocity.z = moveDir.z * 12.0;
+
+                            const oldX = bot.mesh.position.x;
+                            bot.mesh.position.x += bot.velocity.x * delta;
+                            if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) bot.mesh.position.x = oldX;
+
+                            const oldZ = bot.mesh.position.z;
+                            bot.mesh.position.z += bot.velocity.z * delta;
+                            if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) bot.mesh.position.z = oldZ;
                         } else {
                             bot.velocity.x = 0;
                             bot.velocity.z = 0;
                         }
 
-                        // Fire at opponent
-                        const isTargetHuman = (bot.target === player);
-                        if (BOTS_CAN_FIRE && distToEnemy < bot.weapon.range && Math.random() < (isTargetHuman ? 0.035 : 0.015)) {
-                            const inaccuracy = isTargetHuman ? 0.20 : 0.35;
-                            const aimDir = dirToEnemy.clone().add(new THREE.Vector3(
+                        // Combat firing
+                        if (BOTS_CAN_FIRE && distToEnemy < bot.weapon.range && Math.random() < 0.03) {
+                            const inaccuracy = (roomEnemy === player) ? 0.22 : 0.40;
+                            const inaccurateDir = dirToEnemy.clone().add(new THREE.Vector3(
                                 (Math.random() - 0.5) * inaccuracy,
                                 (Math.random() - 0.5) * inaccuracy,
                                 (Math.random() - 0.5) * inaccuracy
                             )).normalize();
+                            fireActiveWeapon(bot, inaccurateDir);
+                        }
+                    } 
+                    // --- 3. NO OPPONENT IN ROOM -> SEARCH FOR NEAREST DOOR OR WINDOW ---
+                    else {
+                        bot.target = null;
 
-                            fireActiveWeapon(bot, aimDir);
+                        // Acquire nearest opening if not actively heading to one
+                        if (!bot.activePortal || bot.mesh.position.distanceTo(bot.activePortal.pos) < 0.8) {
+                            bot.activePortal = getNearestRoomOpening(bot.mesh.position);
                         }
 
-                    } else {
-                        // --- SEARCH MODE: TRAVERSE ROOMS VIA DOORS / WINDOWS ---
-                        if (!bot.currentTargetPortal) {
-                            bot.currentTargetPortal = getNearestRoomPortal(bot.mesh.position);
-                        }
-
-                        let waypoint = bot.currentTargetPortal ? bot.currentTargetPortal.pos : getRoomCenter(currentRoomIdx);
-
-                        if (bot.currentTargetPortal) {
-                            const portal = bot.currentTargetPortal;
+                        if (bot.activePortal) {
+                            const portal = bot.activePortal;
                             const distToPortal = bot.mesh.position.distanceTo(portal.pos);
+                            const dirToPortal = new THREE.Vector3().subVectors(portal.pos, bot.mesh.position);
+                            dirToPortal.y = 0;
+                            if (dirToPortal.lengthSq() > 0.001) dirToPortal.normalize();
 
-                            // Window Traversal: Shoot glass if intact, jump cleanly when close
+                            // WINDOW ACTIONS
                             if (portal.type === 'WINDOW') {
+                                // Shoot sealed glass when approaching
                                 if (!portal.obj.isBroken && distToPortal < 16.0) {
                                     const aimDir = new THREE.Vector3().subVectors(portal.pos, botEyePos).normalize();
                                     bot.mesh.rotation.y = Math.atan2(-aimDir.x, -aimDir.z);
@@ -3376,52 +3380,52 @@
                                     }
                                 }
 
-                                if (distToPortal < 3.2 && bot.isGrounded && bot.jumpCooldown <= 0) {
+                                // Cleanly jump through broken window into next room
+                                if (portal.obj.isBroken && distToPortal < 3.2 && bot.isGrounded) {
                                     bot.velocity.y = 12;
                                     bot.isGrounded = false;
-                                    bot.jumpCooldown = 1.0;
+                                    bot.mesh.position.addScaledVector(dirToPortal, 2.5);
+                                    bot.activePortal = null;
                                 }
                             }
 
-                            // Portal Threshold: Step cleanly through into the next room
-                            if (distToPortal < 1.8) {
-                                const passDir = new THREE.Vector3().subVectors(portal.pos, bot.mesh.position).normalize();
-                                passDir.y = 0;
-                                bot.mesh.position.addScaledVector(passDir, 2.5); // Nudge past frame sill
-                                bot.currentTargetPortal = null; // Seek next room's opening
+                            // DOOR ACTIONS
+                            if (portal.type === 'DOOR' && distToPortal < 2.0) {
+                                // Walk through door into next room
+                                bot.mesh.position.addScaledVector(dirToPortal, 2.5);
+                                bot.activePortal = null;
+                            }
+
+                            // NAVIGATE TOWARD OPENING
+                            bot.velocity.x = dirToPortal.x * 11.0;
+                            bot.velocity.z = dirToPortal.z * 11.0;
+
+                            // Face movement direction (prevents spinning/backward movement)
+                            if (dirToPortal.lengthSq() > 0.001) {
+                                bot.mesh.rotation.y = Math.atan2(-dirToPortal.x, -dirToPortal.z);
+                            }
+
+                            // Intelligent wall avoidance while navigating
+                            const oldX = bot.mesh.position.x;
+                            bot.mesh.position.x += bot.velocity.x * delta;
+                            if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
+                                bot.mesh.position.x = oldX;
+                                bot.mesh.position.z += (dirToPortal.x > 0 ? 1 : -1) * 6.0 * delta;
+                            }
+
+                            const oldZ = bot.mesh.position.z;
+                            bot.mesh.position.z += bot.velocity.z * delta;
+                            if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
+                                bot.mesh.position.z = oldZ;
+                                bot.mesh.position.x += (dirToPortal.z > 0 ? -1 : 1) * 6.0 * delta;
                             }
                         }
-
-                        const moveDir = new THREE.Vector3().subVectors(waypoint, bot.mesh.position);
-                        moveDir.y = 0;
-
-                        if (moveDir.lengthSq() > 0.001) {
-                            moveDir.normalize();
-                            bot.velocity.x = moveDir.x * 11.0;
-                            bot.velocity.z = moveDir.z * 11.0;
-                            bot.mesh.rotation.y = Math.atan2(-moveDir.x, -moveDir.z);
-                        }
                     }
 
-                    // --- STEP 3: MOVEMENT PHYSICS & COLLISIONS ---
-                    const oldX = bot.mesh.position.x;
-                    bot.mesh.position.x += bot.velocity.x * delta;
-                    if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
-                        bot.mesh.position.x = oldX;
-                        bot.velocity.x = 0;
-                    }
-
-                    const oldZ = bot.mesh.position.z;
-                    bot.mesh.position.z += bot.velocity.z * delta;
-                    if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
-                        bot.mesh.position.z = oldZ;
-                        bot.velocity.z = 0;
-                    }
-
-                    // Solid Entity-to-Entity Collision Resolution
+                    // Solid Entity-to-Entity Pushback
                     resolveEntityCollisions(bot.slot, bot.mesh.position, bot.velocity, 0.65);
 
-                    // Gravity & Grounding
+                    // Gravity & Ground snap
                     bot.velocity.y -= 32 * delta;
                     const propY = bot.mesh.position.y + bot.velocity.y * delta;
                     const grndY = getGroundY(bot.mesh.position);
@@ -3433,6 +3437,16 @@
                     } else {
                         bot.mesh.position.y = propY;
                         bot.isGrounded = false;
+                    }
+
+                    // Walking limb animation
+                    const isMoving = Math.abs(bot.velocity.x) > 0.1 || Math.abs(bot.velocity.z) > 0.1;
+                    if (isMoving && b) {
+                        const animTime = performance.now() * 0.012;
+                        if (b['L_Thigh']) b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.65;
+                        if (b['R_Thigh']) b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.65;
+                        if (b['L_UpperArm']) b['L_UpperArm'].rotation.x = -Math.sin(animTime) * 0.4;
+                        if (b['R_UpperArm']) b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.4;
                     }
 
                 } catch (err) {
