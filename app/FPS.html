@@ -434,16 +434,20 @@
         }
         generateCCTVCameras();
 
-        // --- NETWORK MULTIPLAYER SETUP ---
-        const HOST_PEER_ID = "cyberstrike2077_host_v1";
-        const localClientId = "CS2077_" + Math.random().toString(36).substring(2, 7);
-        let broadcastChan = null;
-        try { broadcastChan = new BroadcastChannel("cyberstrike_lobby_chan"); } catch(e){}
+        // --- ROOM-AWARE MULTIPLAYER & SCORE SYNC ---
+        const roomKey = (window.location.hash.replace('#', '') || 'global').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const ROOM_HOST_PEER_ID = "cs2077_v2_host_" + roomKey;
+        const localClientId = "cs2077_v2_cli_" + Math.random().toString(36).substring(2, 9);
+
         let peer = null;
         let hostConnection = null;
-        let isHost = true;
+        let isHost = false;
+        let isConnecting = false;
         let connectTimeout = null;
         const connectedClients = [];
+
+        let broadcastChan = null;
+        try { broadcastChan = new BroadcastChannel("cs2077_chan_" + roomKey); } catch(e){}
 
         // --- THREE.JS SETUP & STABILITY IMPROVEMENTS ---
         const scene = new THREE.Scene();
@@ -1418,88 +1422,93 @@
                 };
             }
 
-            try {
-                peer = new Peer(localClientId);
+            peer = new Peer(localClientId, {
+                debug: 1,
+                config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+            });
 
-                peer.on('open', () => {
-                    attemptConnectToHost();
-                });
+            peer.on('open', () => {
+                updateNetworkStatusUI(`SEARCHING LOBBY [#${roomKey.toUpperCase()}]...`);
+                tryConnectToHost();
+            });
 
-                peer.on('connection', (conn) => {
-                    connectedClients.push(conn);
-                    conn.on('data', (data) => handleIncomingPacket(data, conn));
-                    conn.on('close', () => handleClientDisconnect(conn));
-                    conn.on('error', () => handleClientDisconnect(conn));
-                });
-
-                peer.on('error', (err) => {
-                    if (!gameStarted) {
-                        becomeMatchHost();
-                    }
-                });
-            } catch (err) {
-                becomeMatchHost();
-            }
+            peer.on('error', (err) => {
+                if (err.type === 'unavailable-id' || err.type === 'peer-unavailable') {
+                    setTimeout(tryConnectToHost, 1000);
+                }
+            });
         }
 
-        function attemptConnectToHost() {
-            updateNetworkStatusUI("CONNECTING TO HOST...");
-            
-            const joinPacket = { type: 'JOIN_REQUEST', sender: localClientId };
-            if (broadcastChan) broadcastChan.postMessage(joinPacket);
+        function tryConnectToHost() {
+            if (isHost || isConnecting) return;
+            isConnecting = true;
 
-            let connected = false;
-            if (peer) {
-                try {
-                    const conn = peer.connect(HOST_PEER_ID); 
+            updateNetworkStatusUI("CONNECTING TO ROOM HOST...");
+            const joinMsg = { type: 'JOIN_REQUEST', sender: localClientId };
+            if (broadcastChan) { try { broadcastChan.postMessage(joinMsg); } catch(e){} }
 
-                    conn.on('open', () => {
-                        connected = true;
-                        hostConnection = conn;
-                        isHost = false; 
-                        conn.send(joinPacket);
-                        updateNetworkStatusUI("CLIENT (CONNECTED)");
-                    });
+            let conn = null;
+            try { conn = peer.connect(ROOM_HOST_PEER_ID, { reliable: true }); } catch(e){}
 
-                    conn.on('data', (data) => handleIncomingPacket(data, conn));
-                    conn.on('close', () => { isHost = true; updateNetworkStatusUI("HOST DISCONNECTED (SOLO)"); });
-                } catch(e){}
+            let handshakeDone = false;
+            if (conn) {
+                conn.on('open', () => {
+                    handshakeDone = true;
+                    isConnecting = false;
+                    if (connectTimeout) clearTimeout(connectTimeout);
+                    hostConnection = conn;
+                    isHost = false;
+                    conn.send(joinMsg);
+                    updateNetworkStatusUI(`CONNECTED TO HOST (#${roomKey.toUpperCase()})`);
+                });
+                conn.on('data', (data) => handleIncomingPacket(data, conn));
+                conn.on('close', () => {
+                    updateNetworkStatusUI("HOST DISCONNECTED. RECONNECTING...");
+                    hostConnection = null;
+                    isConnecting = false;
+                    setTimeout(tryConnectToHost, 1500);
+                });
             }
 
             connectTimeout = setTimeout(() => {
-                if (!connected && !gameStarted) {
-                    becomeMatchHost();
+                if (!handshakeDone && !hostConnection && !isHost) {
+                    isConnecting = false;
+                    claimHostRole();
                 }
             }, 3500);
         }
 
-        function becomeMatchHost() {
+        function claimHostRole() {
+            if (isHost) return;
+            updateNetworkStatusUI("REGISTERING AS ROOM HOST...");
             if (peer && !peer.destroyed) peer.destroy();
-            try {
-                peer = new Peer(HOST_PEER_ID);
 
-                peer.on('open', () => {
-                    isHost = true;
-                    updateNetworkStatusUI("MATCH HOST (AUTHORITATIVE)");
-                    const statusText = document.getElementById('voting-status-text');
-                    if (statusText) statusText.innerText = "HOST READY - CHOOSE MATCH MODE TO BEGIN";
-                });
+            peer = new Peer(ROOM_HOST_PEER_ID, {
+                debug: 1,
+                config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+            });
 
-                peer.on('connection', (conn) => {
-                    connectedClients.push(conn);
-                    conn.on('data', (data) => handleIncomingPacket(data, conn));
-                    conn.on('close', () => handleClientDisconnect(conn));
-                    conn.on('error', () => handleClientDisconnect(conn));
-                });
-
-                peer.on('error', () => {
-                    isHost = true;
-                    updateNetworkStatusUI("HOST (SOLO ARENA)");
-                });
-            } catch(e) {
+            peer.on('open', () => {
                 isHost = true;
-                updateNetworkStatusUI("HOST (SOLO ARENA)");
-            }
+                mySlot = 0;
+                updateNetworkStatusUI(`ROOM HOST (#${roomKey.toUpperCase()})`);
+                const statusText = document.getElementById('voting-status-text');
+                if (statusText) statusText.innerText = `ROOM HOST READY - SHARE ROOM (#${roomKey})`;
+            });
+
+            peer.on('connection', (conn) => setupHostClientConn(conn));
+            peer.on('error', () => {
+                isHost = true;
+                mySlot = 0;
+                updateNetworkStatusUI(`ROOM HOST (LOCAL)`);
+            });
+        }
+
+        function setupHostClientConn(conn) {
+            if (!connectedClients.includes(conn)) connectedClients.push(conn);
+            conn.on('data', (data) => handleIncomingPacket(data, conn));
+            conn.on('close', () => handleClientDisconnect(conn));
+            conn.on('error', () => handleClientDisconnect(conn));
         }
 
         function handleClientDisconnect(conn) {
@@ -1520,75 +1529,127 @@
                     ent.rig = newRig;
                     scene.add(ent.mesh);
                     updateBotHeldWeaponMesh(ent);
-                    showKillFeed(`${ent.name} DISCONNECTED (SLOT RESTORED TO BOT)`);
+                    showKillFeed(`${ent.name} DISCONNECTED`);
                     break;
                 }
             }
         }
 
+        function broadcastScoreSync() {
+            if (!isHost) return;
+            const scoreData = entitySlots.map((ent, idx) => ({
+                slot: idx,
+                score: ent ? ent.score : 0,
+                health: ent ? ent.health : 0
+            }));
+            const packet = {
+                type: 'SCORE_SYNC',
+                sender: localClientId,
+                scores: scoreData,
+                teamCyanScore: teamCyanScore,
+                teamPinkScore: teamPinkScore
+            };
+            connectedClients.forEach(c => { try { if (c && c.open) c.send(packet); } catch(e){} });
+            if (broadcastChan) { try { broadcastChan.postMessage(packet); } catch(e){} }
+        }
+
         function handleIncomingPacket(data, conn = null) {
             if (!data || data.sender === localClientId) return;
 
+            if (isHost) {
+                if (conn) {
+                    connectedClients.forEach(c => {
+                        if (c !== conn && c.open) { try { c.send(data); } catch(e){} }
+                    });
+                }
+                if (broadcastChan) { try { broadcastChan.postMessage(data); } catch(e){} }
+            }
+
             if (data.type === 'JOIN_REQUEST' && isHost) {
-                let freeSlot = -1;
+                let assignedSlot = -1;
                 for (let i = 1; i < TOTAL_COMBATANTS; i++) {
-                    if (entitySlots[i] && !entitySlots[i].isNetworkPlayer) {
-                        freeSlot = i;
-                        break;
+                    if (entitySlots[i] && entitySlots[i].isNetworkPlayer && entitySlots[i].networkId === data.sender) {
+                        assignedSlot = i; break;
                     }
                 }
-                if (freeSlot === -1) freeSlot = 1;
+                if (assignedSlot === -1) {
+                    for (let i = 1; i < TOTAL_COMBATANTS; i++) {
+                        if (entitySlots[i] && !entitySlots[i].isNetworkPlayer) {
+                            assignedSlot = i; break;
+                        }
+                    }
+                }
+                if (assignedSlot === -1) assignedSlot = 1;
 
-                const targetBot = entitySlots[freeSlot];
+                const targetBot = entitySlots[assignedSlot];
                 targetBot.isNetworkPlayer = true;
                 targetBot.networkId = data.sender;
                 targetBot.connection = conn;
-                targetBot.name = "PLAYER_" + data.sender.substring(7);
+                targetBot.name = "PLAYER_" + data.sender.substring(data.sender.length - 4).toUpperCase();
 
                 const welcomeData = {
                     type: 'MATCH_WELCOME',
                     sender: localClientId,
-                    assignedSlot: freeSlot,
+                    targetRecipient: data.sender,
+                    assignedSlot: assignedSlot,
                     mode: currentMode,
                     teamCyanScore: teamCyanScore,
                     teamPinkScore: teamPinkScore,
                     gameStarted: gameStarted
                 };
-                if (conn) conn.send(welcomeData);
-                if (broadcastChan) broadcastChan.postMessage(welcomeData);
+
+                if (conn && conn.open) conn.send(welcomeData);
+                if (broadcastChan) { try { broadcastChan.postMessage(welcomeData); } catch(e){} }
 
                 showKillFeed(`${targetBot.name} JOINED ARENA!`);
+                broadcastScoreSync();
             } 
-            else if (data.type === 'MATCH_WELCOME' && !gameStarted) {
-                if (connectTimeout) clearTimeout(connectTimeout);
+            else if (data.type === 'SCORE_SYNC' && !isHost) {
+                teamCyanScore = data.teamCyanScore;
+                teamPinkScore = data.teamPinkScore;
+                if (data.scores) {
+                    data.scores.forEach(s => {
+                        const ent = entitySlots[s.slot];
+                        if (ent) {
+                            ent.score = s.score;
+                            ent.health = s.health;
+                            if (s.slot === mySlot) {
+                                player.score = s.score;
+                                player.health = s.health;
+                                kills = player.score;
+                            }
+                        }
+                    });
+                }
+                updateModeHUD();
+            }
+            else if (data.type === 'MATCH_WELCOME') {
+                if (data.targetRecipient && data.targetRecipient !== localClientId) return;
+                if (mySlot !== 0 && mySlot === data.assignedSlot && gameStarted) return;
+
                 isHost = false;
                 currentMode = data.mode;
                 teamCyanScore = data.teamCyanScore || 0;
                 teamPinkScore = data.teamPinkScore || 0;
                 
                 setupClientSlots(data.assignedSlot);
+                updateNetworkStatusUI(`CLIENT (SLOT ${mySlot} IN #${roomKey.toUpperCase()})`);
 
-                updateNetworkStatusUI(`CLIENT (SLOT ${mySlot})`);
-
-                if (data.gameStarted) {
+                if (data.gameStarted && !gameStarted) {
                     gameStarted = true;
                     isSpectating = false;
 
-                    const startScreen = document.getElementById('start-screen');
-                    if (startScreen) startScreen.style.display = 'none';
-                    const specBar = document.getElementById('spectator-bar');
-                    if (specBar) specBar.style.display = 'none';
-                    const cctvOverlay = document.getElementById('cctv-overlay');
-                    if (cctvOverlay) cctvOverlay.style.display = 'none';
+                    const ss = document.getElementById('start-screen');
+                    if (ss) ss.style.display = 'none';
+                    const sb = document.getElementById('spectator-bar');
+                    if (sb) sb.style.display = 'none';
+                    const co = document.getElementById('cctv-overlay');
+                    if (co) co.style.display = 'none';
                     if (viewmodelGroup) viewmodelGroup.visible = true;
 
                     initGameMode();
                     respawnEntity(player);
-                    startPreMatchCountdown();
-                    showPickupPrompt(`JOINED ACTIVE MATCH [${getModeFullName(currentMode)}]`);
-                } else {
-                    const statusText = document.getElementById('voting-status-text');
-                    if (statusText) statusText.innerText = "CONNECTED TO HOST. WAITING FOR HOST TO START MATCH...";
+                    showPickupPrompt(`JOINED MATCH [${getModeFullName(currentMode)}]`);
                 }
             } 
             else if (data.type === 'MATCH_START' && !isHost) {
@@ -1596,17 +1657,16 @@
                 gameStarted = true;
                 isSpectating = false;
 
-                const startScreen = document.getElementById('start-screen');
-                if (startScreen) startScreen.style.display = 'none';
-                const specBar = document.getElementById('spectator-bar');
-                if (specBar) specBar.style.display = 'none';
-                const cctvOverlay = document.getElementById('cctv-overlay');
-                if (cctvOverlay) cctvOverlay.style.display = 'none';
+                const ss = document.getElementById('start-screen');
+                if (ss) ss.style.display = 'none';
+                const sb = document.getElementById('spectator-bar');
+                if (sb) sb.style.display = 'none';
+                const co = document.getElementById('cctv-overlay');
+                if (co) co.style.display = 'none';
                 if (viewmodelGroup) viewmodelGroup.visible = true;
 
                 initGameMode();
                 respawnEntity(player);
-                startPreMatchCountdown();
             }
             else if (data.type === 'HUMAN_SYNC') {
                 const remote = entitySlots[data.slot];
@@ -1615,7 +1675,6 @@
                 remote.isNetworkPlayer = true;
                 remote.networkId = data.sender;
 
-                const prevPos = remote.mesh.position.clone();
                 remote.mesh.position.set(data.x, data.y, data.z);
                 remote.mesh.rotation.y = data.rotY;
                 remote.rotX = data.rotX || 0;
@@ -1629,19 +1688,7 @@
                 }
 
                 const distToLocalPlayer = player.position.distanceTo(remote.mesh.position);
-                remote.mesh.visible = (data.health > 0 && distToLocalPlayer < 60.0);
-
-                if (remote.rig && remote.rig.bones) {
-                    const b = remote.rig.bones;
-                    const distMoved = prevPos.distanceTo(remote.mesh.position);
-                    if (distMoved > 0.005) {
-                        const animTime = performance.now() * 0.014;
-                        if (b['L_Thigh']) b['L_Thigh'].rotation.x = Math.sin(animTime) * 0.7;
-                        if (b['R_Thigh']) b['R_Thigh'].rotation.x = -Math.sin(animTime) * 0.7;
-                        if (b['L_UpperArm']) b['L_UpperArm'].rotation.x = -Math.sin(animTime) * 0.5;
-                        if (b['R_UpperArm']) b['R_UpperArm'].rotation.x = Math.sin(animTime) * 0.5;
-                    }
-                }
+                remote.mesh.visible = (data.health > 0 && distToLocalPlayer < 80.0);
             }
         }
 
@@ -1661,7 +1708,6 @@
                 z: player.position.z,
                 rotY: player.rotation.y,
                 rotX: player.rotation.x,
-                roomIdx: getRoomIndex(player.position),
                 health: player.health,
                 score: player.score,
                 team: player.team,
@@ -1669,11 +1715,12 @@
             };
 
             if (isHost) {
-                if (broadcastChan) broadcastChan.postMessage(packet);
                 connectedClients.forEach(c => { try { if (c && c.open) c.send(packet); } catch(e){} });
+                if (broadcastChan) { try { broadcastChan.postMessage(packet); } catch(e){} }
+                broadcastScoreSync();
             } else {
-                if (hostConnection && hostConnection.open) hostConnection.send(packet);
-                if (broadcastChan) broadcastChan.postMessage(packet);
+                if (hostConnection && hostConnection.open) { try { hostConnection.send(packet); } catch(e){} }
+                if (broadcastChan) { try { broadcastChan.postMessage(packet); } catch(e){} }
             }
         }
 
@@ -2281,6 +2328,51 @@
             }
         }
 
+        // --- ENTITY-TO-ENTITY SOLID PUSHBACK COLLISION ---
+        function resolveEntityCollisions(selfSlot, targetPos, velocity = null, radius = 0.65) {
+            for (let iter = 0; iter < 3; iter++) {
+                for (let i = 0; i < TOTAL_COMBATANTS; i++) {
+                    if (i === selfSlot) continue; 
+                    const ent = entitySlots[i];
+                    if (!ent || ent.health <= 0) continue;
+
+                    const otherPos = (ent === player) ? player.position : (ent.mesh ? ent.mesh.position : null);
+                    if (!otherPos) continue;
+
+                    // Height check: only collide if on the same floor level
+                    if (Math.abs(targetPos.y - otherPos.y) > 2.0) continue;
+
+                    let dx = targetPos.x - otherPos.x;
+                    let dz = targetPos.z - otherPos.z;
+                    let distSq = dx * dx + dz * dz;
+                    const minDist = radius * 2.0; 
+
+                    if (distSq < minDist * minDist) {
+                        let dist = Math.sqrt(distSq);
+                        if (dist < 0.0001) {
+                            dx = (Math.random() - 0.5) * 0.1 || 0.05;
+                            dz = (Math.random() - 0.5) * 0.1 || 0.05;
+                            dist = Math.sqrt(dx * dx + dz * dz);
+                        }
+                        const overlap = minDist - dist;
+                        const nx = dx / dist;
+                        const nz = dz / dist;
+
+                        targetPos.x += nx * overlap;
+                        targetPos.z += nz * overlap;
+
+                        if (velocity) {
+                            const dot = velocity.x * (-nx) + velocity.z * (-nz);
+                            if (dot > 0) {
+                                velocity.x += nx * dot;
+                                velocity.z += nz * dot;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // --- CCTV SPECTATOR MODE & MOVEMENT ---
         function updatePlayerMovement(delta) {
             if (isSpectating) {
@@ -2390,6 +2482,8 @@
             if (checkWallCollision(player.position, 0.45, player.currentEyeHeight)) {
                 player.position.z = oldZ; player.velocity.z = 0;
             }
+
+            resolveEntityCollisions(mySlot, player.position, player.velocity, 0.65);
 
             if (player.velocity.y > 0 && checkCeilingCollision(player.position, 0.45, player.currentEyeHeight)) {
                 player.velocity.y = 0;
@@ -3276,6 +3370,8 @@
                             bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
                         }
                     }
+
+                    resolveEntityCollisions(bot.slot, bot.mesh.position, bot.velocity, 0.65);
 
                     bot.mesh.rotation.y = Math.atan2(-patrolDir.x, -patrolDir.z);
 
