@@ -3405,7 +3405,7 @@
                         }
                     }
 
-                    // --- 3. MOVEMENT PHYSICS & WALL RECOVERY ---
+                    // --- 3. MOVEMENT PHYSICS & OBSTACLE EVASION ---
                     const moveDir = new THREE.Vector3().subVectors(activeWaypoint, bot.mesh.position);
                     moveDir.y = 0;
                     moveDir.normalize();
@@ -3414,32 +3414,54 @@
                     bot.velocity.x = moveDir.x * moveSpeed;
                     bot.velocity.z = moveDir.z * moveSpeed;
 
+                    let hitWall = false;
+
+                    // X-Axis Wall Check
                     const oldX = bot.mesh.position.x;
                     bot.mesh.position.x += bot.velocity.x * delta;
                     if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
                         bot.mesh.position.x = oldX;
-                        // Slide laterally instead of getting stuck on wall faces
-                        bot.velocity.z += (Math.random() > 0.5 ? 1 : -1) * moveSpeed;
-                        if (bot.isGrounded && bot.jumpCooldown <= 0) {
-                            bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
-                        }
+                        bot.velocity.x = 0;
+                        hitWall = true;
                     }
 
+                    // Z-Axis Wall Check
                     const oldZ = bot.mesh.position.z;
                     bot.mesh.position.z += bot.velocity.z * delta;
                     if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
                         bot.mesh.position.z = oldZ;
-                        // Slide laterally instead of getting stuck on wall faces
-                        bot.velocity.x += (Math.random() > 0.5 ? 1 : -1) * moveSpeed;
-                        if (bot.isGrounded && bot.jumpCooldown <= 0) {
-                            bot.velocity.y = 12; bot.isGrounded = false; bot.jumpCooldown = 0.8;
+                        bot.velocity.z = 0;
+                        hitWall = true;
+                    }
+
+                    // Handle Wall Bumping without Endless Hopping
+                    if (hitWall) {
+                        bot.stuckTimer += delta;
+
+                        // Slide laterally along wall face instead of jumping into it
+                        const detourSign = (bot.id % 2 === 0) ? 1 : -1;
+                        const tangentDir = new THREE.Vector3(-moveDir.z * detourSign, 0, moveDir.x * detourSign);
+
+                        bot.velocity.x = tangentDir.x * moveSpeed;
+                        bot.velocity.z = tangentDir.z * moveSpeed;
+                        bot.mesh.rotation.y = Math.atan2(-tangentDir.x, -tangentDir.z);
+
+                        // Only jump as a last resort if stuck for >0.5s, then recalculate room path
+                        if (bot.stuckTimer > 0.5 && bot.isGrounded && bot.jumpCooldown <= 0) {
+                            bot.velocity.y = 11;
+                            bot.isGrounded = false;
+                            bot.jumpCooldown = 1.2;
+                            bot.stuckTimer = 0;
+                            bot.targetRoom = null;
+                            bot.target = null;
                         }
+                    } else {
+                        bot.stuckTimer = Math.max(0, bot.stuckTimer - delta * 2.0);
+                        bot.mesh.rotation.y = Math.atan2(-moveDir.x, -moveDir.z);
                     }
 
                     // Solid Entity-to-Entity Collision Resolution
                     resolveEntityCollisions(bot.slot, bot.mesh.position, bot.velocity, 0.65);
-
-                    bot.mesh.rotation.y = Math.atan2(-moveDir.x, -moveDir.z);
 
                     // Gravity & Ground snap
                     bot.velocity.y -= 32 * delta;
