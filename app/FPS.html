@@ -521,24 +521,11 @@
         function generateFacilityArena() {
             const floorMat = new THREE.MeshStandardMaterial({ color: 0x080812, roughness: 0.8, metalness: 0.3 });
             const wallMat = new THREE.MeshStandardMaterial({ color: 0x141428, roughness: 0.4, metalness: 0.6 });
-            const glassMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.45 });
-            const doorMat = new THREE.MeshStandardMaterial({ color: 0x223344, roughness: 0.2, metalness: 0.8 });
-            const neonBlueMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
-            const neonYellowMat = new THREE.MeshBasicMaterial({ color: 0xffe600 });
 
             const facilitySize = 240;
             const half = facilitySize / 2; 
             const floorHeight = 8.0;
             const floors = [0, floorHeight, floorHeight * 2];
-
-            const activeRoomLights = [];
-            const addRoomLight = (x, y, z, colorHex, intensity = 2.0) => {
-                if (isMobileScreen && activeRoomLights.length >= 6) return;
-                const light = new THREE.PointLight(colorHex, isMobileScreen ? intensity * 0.5 : intensity, 22);
-                light.position.set(x, y + 5.0, z);
-                scene.add(light);
-                activeRoomLights.push(light);
-            };
 
             const registerStaticBox = (mesh, isWall = true) => {
                 colliders.push(mesh);
@@ -548,100 +535,30 @@
                 return bObj;
             };
 
-            const createStaticWall = (x, y, z, w, h, d, mat = wallMat) => {
-                const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+            const createStaticWall = (x, y, z, w, h, d) => {
+                const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
                 wall.position.set(x, y, z);
                 scene.add(wall);
                 return registerStaticBox(wall, true);
             };
 
-            // Outer Perimeter Walls
             const totalH = floorHeight * 3 + 2;
             createStaticWall(0, totalH/2, -half, facilitySize, totalH, 2);
             createStaticWall(0, totalH/2, half, facilitySize, totalH, 2);
             createStaticWall(-half, totalH/2, 0, 2, totalH, facilitySize);
             createStaticWall(half, totalH/2, 0, 2, totalH, facilitySize);
 
-            // Roof
             const roof = new THREE.Mesh(new THREE.BoxGeometry(facilitySize, 1.0, facilitySize), floorMat);
             roof.position.set(0, floorHeight * 3 + 0.5, 0);
             scene.add(roof);
             registerStaticBox(roof, true);
             roofMesh = roof;
 
-            // Multi-Floor Slab Layout
-            floors.forEach((fY, fIdx) => {
-                if (fIdx === 0) {
-                    const mainFloor = new THREE.Mesh(new THREE.BoxGeometry(facilitySize, 1.0, facilitySize), floorMat);
-                    mainFloor.position.set(0, fY - 0.5, 0);
-                    scene.add(mainFloor);
-                    registerStaticBox(mainFloor, false);
-                } else {
-                    const tileSize = 20;
-                    for (let x = -half + tileSize/2; x < half; x += tileSize) {
-                        for (let z = -half + tileSize/2; z < half; z += tileSize) {
-                            if ((Math.abs(x - (-90)) < 12 && Math.abs(z - 0) < 12) || (Math.abs(x - 90) < 12 && Math.abs(z - 0) < 12) || (Math.abs(x - 0) < 12 && Math.abs(z - (-60)) < 15) || (Math.abs(x - 0) < 12 && Math.abs(z - 60) < 15)) continue;
-                            const tile = new THREE.Mesh(new THREE.BoxGeometry(tileSize, 1.0, tileSize), floorMat);
-                            tile.position.set(x, fY - 0.5, z);
-                            scene.add(tile);
-                            registerStaticBox(tile, false);
-                        }
-                    }
-                }
-            });
-
-            // Door builder
-            const createDoor = (x, y, z, width = 6.0, isX = true) => {
-                const doorGroup = new THREE.Group();
-                doorGroup.position.set(x, y + 3.0, z);
-                const doorPanel = new THREE.Mesh(new THREE.BoxGeometry(isX ? width : 0.4, 6.0, isX ? 0.4 : width), doorMat);
-                doorGroup.add(doorPanel);
-                scene.add(doorGroup);
-
-                const bObj = { box: new THREE.Box3().setFromObject(doorPanel), active: true, mesh: doorPanel };
-                staticBoxes.push(bObj);
-
-                slidingDoors.push({
-                    group: doorGroup, panel: doorPanel, boxObj: bObj,
-                    basePos: doorGroup.position.clone(), isX: isX, width: width, slideProgress: 0.0
-                });
-            };
-
-            // Glass Windows builder
-            const createBreakableGlassWindow = (x, y, z, w = 10.0, h = 4.0, isX = true) => {
-                createStaticWall(x, y + 1.0, z, isX ? w : 1.5, 2.0, isX ? 1.5 : w);
-                createStaticWall(x, y + 7.0, z, isX ? w : 1.5, 1.0, isX ? 1.5 : w);
-
-                const glassMesh = new THREE.Mesh(new THREE.BoxGeometry(isX ? w : 0.25, h, isX ? 0.25 : w), glassMat);
-                glassMesh.position.set(x, y + 4.0, z);
-                scene.add(glassMesh);
-
-                const bObj = { box: new THREE.Box3().setFromObject(glassMesh), active: true, mesh: glassMesh };
-                staticBoxes.push(bObj);
-                glassPanels.push({ mesh: glassMesh, boxObj: bObj, isBroken: false });
-            };
-
-            // Room Partitions
             floors.forEach((fY) => {
-                [-37.5, 37.5].forEach(px => {
-                    createStaticWall(px, fY + 3.5, -94, 1.5, 7.0, 52);
-                    createBreakableGlassWindow(px, fY, -63, 10.0, 4.0, false);
-                    createStaticWall(px, fY + 3.5, -30.5, 1.5, 7.0, 55);
-                    createDoor(px, fY, 0, 6.0, false);
-                    createStaticWall(px, fY + 3.5, 30.5, 1.5, 7.0, 55);
-                    createBreakableGlassWindow(px, fY, 63, 10.0, 4.0, false);
-                    createStaticWall(px, fY + 3.5, 94, 1.5, 7.0, 52);
-                });
-
-                [-37.5, 37.5].forEach(pz => {
-                    createStaticWall(-94, fY + 3.5, pz, 52, 7.0, 1.5);
-                    createBreakableGlassWindow(-63, fY, pz, 10.0, 4.0, true);
-                    createStaticWall(-30.5, fY + 3.5, pz, 55, 7.0, 1.5);
-                    createDoor(0, fY, pz, 6.0, true);
-                    createStaticWall(30.5, fY + 3.5, pz, 55, 7.0, 1.5);
-                    createBreakableGlassWindow(63, fY, pz, 10.0, 4.0, true);
-                    createStaticWall(94, fY + 3.5, pz, 52, 7.0, 1.5);
-                });
+                const mainFloor = new THREE.Mesh(new THREE.BoxGeometry(facilitySize, 1.0, facilitySize), floorMat);
+                mainFloor.position.set(0, fY - 0.5, 0);
+                scene.add(mainFloor);
+                registerStaticBox(mainFloor, false);
 
                 for (let rx = -75; rx <= 75; rx += 75) {
                     for (let rz = -75; rz <= 75; rz += 75) {
@@ -650,21 +567,9 @@
                 }
             });
 
-            // Elevators
-            const createElevatorShaft = (x, z) => {
-                const carMesh = new THREE.Mesh(new THREE.BoxGeometry(9.0, 0.5, 9.0), doorMat);
-                carMesh.position.set(x, 0.25, z);
-                scene.add(carMesh);
-                const bObj = registerStaticBox(carMesh, true);
-                elevatorCars.push({ mesh: carMesh, boxObj: bObj, x: x, z: z, targetFloorIdx: 0, waitTimer: 2.0 });
-            };
-            createElevatorShaft(-90, 0);
-            createElevatorShaft(90, 0);
-
-            generateCCTVCameras();
             setupCTFFlags();
-            spawnWorldWeapons();
         }
+        generateFacilityArena();
 
         function generateCCTVCameras() {
             cctvCameras = [];
@@ -702,6 +607,9 @@
             pinkFlagObj.add(pinkPole, pinkBanner);
             pinkFlagObj.position.copy(pinkBasePos);
             scene.add(pinkFlagObj);
+
+            cyanFlagObj.visible = false;
+            pinkFlagObj.visible = false;
         }
 
         function setPickupWeapon(sp, newWpnData) {
@@ -768,8 +676,6 @@
                 e.boxObj.box.setFromObject(e.mesh);
             });
         }
-
-        generateFacilityArena();
 
         // --- LOCAL PLAYER DECLARATION ---
         const player = {
@@ -1033,7 +939,9 @@
                 teamPinkScore: teamPinkScore
             };
             connectedClients.forEach(c => { try { if (c && c.open) c.send(packet); } catch(e){} });
-            if (broadcastChan) broadcastChan.postMessage(packet);
+            if (broadcastChan) {
+                try { broadcastChan.postMessage(packet); } catch(e){}
+            }
         }
 
         function handleIncomingPacket(data, conn = null) {
@@ -1195,11 +1103,17 @@
 
             if (isHost) {
                 connectedClients.forEach(c => { try { if (c && c.open) c.send(packet); } catch(e){} });
-                if (broadcastChan) broadcastChan.postMessage(packet);
+                if (broadcastChan) {
+                    try { broadcastChan.postMessage(packet); } catch(e){}
+                }
                 broadcastScoreSync();
             } else {
-                if (hostConnection && hostConnection.open) hostConnection.send(packet);
-                if (broadcastChan) broadcastChan.postMessage(packet);
+                if (hostConnection && hostConnection.open) {
+                    try { hostConnection.send(packet); } catch(e){}
+                }
+                if (broadcastChan) {
+                    try { broadcastChan.postMessage(packet); } catch(e){}
+                }
             }
         }
 
@@ -2024,7 +1938,7 @@
 
         // --- CTF MECHANICS & HUD MARKERS ---
         function updateCTFMechanics() {
-            if (currentMode !== 'CTF') return;
+            if (currentMode !== 'CTF' || !cyanFlagObj || !pinkFlagObj) return;
 
             const allEntities = entitySlots.filter(e => e && e.health > 0);
 
