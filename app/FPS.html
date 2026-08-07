@@ -2072,15 +2072,29 @@
             return maxFloorY;
         }
 
-        function checkWallCollision(pos, radius = 0.45, height = EYE_HEIGHT_STAND) {
-            const footOffset = 0.2;
+        function checkWallCollision(pos, radius = 0.32, height = EYE_HEIGHT_STAND) {
+            const footOffset = 0.3; // Raised foot offset avoids catching on ground tiles
             const box = new THREE.Box3(
                 new THREE.Vector3(pos.x - radius, pos.y + footOffset, pos.z - radius),
-                new THREE.Vector3(pos.x + radius, pos.y + height, pos.z + radius)
+                new THREE.Vector3(pos.x + radius, pos.y + height - 0.2, pos.z + radius)
             );
 
-            for (let i = 0; i < staticBoxes.length; i++) {
-                if (staticBoxes[i].active && box.intersectsBox(staticBoxes[i].box)) return true;
+            for (let i = 0; i < wallColliders.length; i++) {
+                const wallMesh = wallColliders[i];
+                if (!wallMesh || !wallMesh.parent) continue;
+
+                // Skip active door panels that are sliding open
+                let isOpenedDoor = false;
+                for (let j = 0; j < slidingDoors.length; j++) {
+                    if (slidingDoors[j].panel === wallMesh && slidingDoors[j].slideProgress > 0.6) {
+                        isOpenedDoor = true;
+                        break;
+                    }
+                }
+                if (isOpenedDoor) continue;
+
+                const wBox = new THREE.Box3().setFromObject(wallMesh);
+                if (box.intersectsBox(wBox)) return true;
             }
             return false;
         }
@@ -2329,8 +2343,8 @@
         }
 
         // --- ENTITY-TO-ENTITY SOLID PUSHBACK COLLISION ---
-        function resolveEntityCollisions(selfSlot, targetPos, velocity = null, radius = 0.65) {
-            for (let iter = 0; iter < 3; iter++) {
+        function resolveEntityCollisions(selfSlot, targetPos, velocity = null, radius = 0.5) {
+            for (let iter = 0; iter < 2; iter++) {
                 for (let i = 0; i < TOTAL_COMBATANTS; i++) {
                     if (i === selfSlot) continue; 
                     const ent = entitySlots[i];
@@ -2339,7 +2353,6 @@
                     const otherPos = (ent === player) ? player.position : (ent.mesh ? ent.mesh.position : null);
                     if (!otherPos) continue;
 
-                    // Height check: only collide if on the same floor level
                     if (Math.abs(targetPos.y - otherPos.y) > 2.0) continue;
 
                     let dx = targetPos.x - otherPos.x;
@@ -2354,18 +2367,24 @@
                             dz = (Math.random() - 0.5) * 0.1 || 0.05;
                             dist = Math.sqrt(dx * dx + dz * dz);
                         }
-                        const overlap = minDist - dist;
+                        const overlap = (minDist - dist) * 0.5;
                         const nx = dx / dist;
                         const nz = dz / dist;
 
-                        targetPos.x += nx * overlap;
-                        targetPos.z += nz * overlap;
+                        const testX = targetPos.x + nx * overlap;
+                        const testZ = targetPos.z + nz * overlap;
+
+                        // Only apply pushback if it doesn't shove the entity into a solid wall
+                        if (!checkWallCollision(new THREE.Vector3(testX, targetPos.y, testZ), 0.32)) {
+                            targetPos.x = testX;
+                            targetPos.z = testZ;
+                        }
 
                         if (velocity) {
                             const dot = velocity.x * (-nx) + velocity.z * (-nz);
                             if (dot > 0) {
-                                velocity.x += nx * dot;
-                                velocity.z += nz * dot;
+                                velocity.x += nx * dot * 0.5;
+                                velocity.z += nz * dot * 0.5;
                             }
                         }
                     }
@@ -3357,7 +3376,7 @@
                     // --- STEP 3: DOOR & WINDOW HANDLING ---
                     if (isNavigatingPortal && activePortal) {
                         if (activePortal.type === 'WINDOW') {
-                            // If window glass exists, aim and shoot to shatter it
+                            // Shoot sealed window glass when approaching
                             if (!activePortal.obj.isBroken && distToTarget < 16.0) {
                                 const aimDir = new THREE.Vector3().subVectors(activePortal.pos, botEyePos).normalize();
                                 bot.mesh.rotation.y = Math.atan2(-aimDir.x, -aimDir.z);
@@ -3366,21 +3385,28 @@
                                 }
                             }
 
-                            // Cleanly jump through open window sill
-                            if (distToTarget < 3.5 && bot.isGrounded && bot.jumpCooldown <= 0) {
+                            // Jump over window frame sill
+                            if (distToTarget < 3.2 && bot.isGrounded && bot.jumpCooldown <= 0) {
                                 bot.velocity.y = 12;
                                 bot.isGrounded = false;
                                 bot.jumpCooldown = 0.8;
                             }
                         }
 
-                        // Step cleanly through door/window into next room
-                        if (distToTarget < 1.8) {
-                            const stepThroughDir = new THREE.Vector3().subVectors(moveTarget, bot.mesh.position).normalize();
-                            stepThroughDir.y = 0;
-                            bot.mesh.position.addScaledVector(stepThroughDir, 3.0);
-                            bot.patrolTarget = null;
-                            return;
+                        // Align trajectory through the opening center without getting stuck
+                        if (distToTarget < 2.2) {
+                            const throughDir = new THREE.Vector3().subVectors(activePortal.pos, bot.mesh.position).normalize();
+                            throughDir.y = 0;
+                            
+                            // Guide velocity through doorway center
+                            bot.velocity.x = throughDir.x * 12.0;
+                            bot.velocity.z = throughDir.z * 12.0;
+                            
+                            // Clear portal waypoint once passed through
+                            if (distToTarget < 1.0) {
+                                activePortal = null;
+                                isNavigatingPortal = false;
+                            }
                         }
                     }
 
