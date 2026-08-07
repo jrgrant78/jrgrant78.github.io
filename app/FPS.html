@@ -714,6 +714,7 @@
                 currentMode = data.mode;
                 gameStarted = true;
                 isSpectating = false;
+                isPreMatch = false; // Unlocks client movement immediately
 
                 const startScreen = document.getElementById('start-screen');
                 if (startScreen) startScreen.style.display = 'none';
@@ -721,11 +722,13 @@
                 if (specBar) specBar.style.display = 'none';
                 const cctvOverlay = document.getElementById('cctv-overlay');
                 if (cctvOverlay) cctvOverlay.style.display = 'none';
+                const preOverlay = document.getElementById('pre-match-overlay');
+                if (preOverlay) preOverlay.style.display = 'none';
+
                 if (viewmodelGroup) viewmodelGroup.visible = true;
 
                 initGameMode();
                 respawnEntity(player);
-                startPreMatchCountdown();
             }
             else if (data.type === 'HUMAN_SYNC') {
                 const remote = entitySlots[data.slot];
@@ -957,9 +960,16 @@
 
         function castPlayerVote(modeKey) {
             try {
+                // Force local Host assignment if offline or not connected to an external host
+                if (!isHost && !hostConnection) {
+                    isHost = true;
+                    mySlot = 0;
+                }
+
                 currentMode = modeKey;
                 gameStarted = true;
                 isSpectating = false;
+                isPreMatch = false; // Unlocks movement immediately
 
                 for (let k in keys) keys[k] = false;
 
@@ -969,13 +979,16 @@
                 if (specBar) specBar.style.display = 'none';
                 const cctvOverlay = document.getElementById('cctv-overlay');
                 if (cctvOverlay) cctvOverlay.style.display = 'none';
+                const preOverlay = document.getElementById('pre-match-overlay');
+                if (preOverlay) preOverlay.style.display = 'none';
+
                 if (viewmodelGroup) viewmodelGroup.visible = true;
 
                 entitySlots.forEach(p => { if (p && p.mesh) p.mesh.visible = true; });
 
                 initGameMode();
-
                 respawnEntity(player);
+
                 if (isHost) {
                     players.forEach(bot => { if (bot) respawnEntity(bot); });
 
@@ -983,8 +996,6 @@
                     connectedClients.forEach(c => { try { if (c && c.open) c.send(startPacket); } catch(e){} });
                     if (broadcastChan) broadcastChan.postMessage(startPacket);
                 }
-
-                startPreMatchCountdown();
 
                 if (!isMobileScreen) {
                     try { document.body.requestPointerLock(); } catch(e) {}
@@ -1501,16 +1512,6 @@
             }
 
             if (isRespawning) return; 
-
-            if (isPreMatch) {
-                player.velocity.set(0, 0, 0);
-                camera.position.x = player.position.x;
-                camera.position.z = player.position.z;
-                camera.position.y = player.position.y + player.currentEyeHeight;
-                camera.rotation.copy(player.rotation);
-                playerHitMesh.position.set(player.position.x, player.position.y + player.currentEyeHeight / 2, player.position.z);
-                return;
-            }
 
             if (currentMode === 'LOS' && player.health <= 0) return;
 
