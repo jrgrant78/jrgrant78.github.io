@@ -3313,7 +3313,8 @@
 
             return null;
         }
-        // --- ROOM-AWARE INTELLIGENT BOT AI ENGINE ---
+
+        // --- ROOM-AWARE BOT AI WITH COMBAT DISTANCE & FIRING FIX ---
         function updateBots(delta) {
             if (isPreMatch || !gameStarted) return;
 
@@ -3333,14 +3334,15 @@
                     bot.scanTimer -= delta;
 
                     bot.lastPos.copy(bot.mesh.position);
-                    const botRoomIdx = getRoomIndex(bot.mesh.position);
-                    const botEyePos = bot.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
+                    const botPos = bot.mesh.position;
+                    const botRoomIdx = getRoomIndex(botPos);
+                    const botEyePos = botPos.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
-                    // --- STEP 1: SAME-ROOM OPPONENT DETECTION ---
+                    // --- STEP 1: TARGET SCANNING (LINE OF SIGHT & RANGE) ---
                     if (bot.scanTimer <= 0) {
-                        bot.scanTimer = 0.3 + Math.random() * 0.15;
-                        let sameRoomEnemy = null;
-                        let sameRoomMinDist = Infinity;
+                        bot.scanTimer = 0.25 + Math.random() * 0.15;
+                        let bestTarget = null;
+                        let bestDist = Infinity;
 
                         const losObstacles = [...colliders];
                         slidingDoors.forEach(d => { if (d.slideProgress < 0.85) losObstacles.push(d.panel); });
@@ -3351,44 +3353,62 @@
                             if ((currentMode === 'TDM' || currentMode === 'CTF') && ent.team === bot.team) return;
 
                             const entPos = (ent === player) ? player.position : ent.mesh.position;
-                            const entRoomIdx = getRoomIndex(entPos);
+                            const dist = botPos.distanceTo(entPos);
 
-                            // Check if opponent is in the SAME room/quadrant
-                            if (entRoomIdx === botRoomIdx) {
-                                const dist = bot.mesh.position.distanceTo(entPos);
-                                if (dist < sameRoomMinDist) {
-                                    sameRoomMinDist = dist;
-                                    sameRoomEnemy = ent;
+                            if (dist < 50.0) {
+                                const entEyePos = (ent === player)
+                                    ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0))
+                                    : entPos.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
+
+                                if (checkLineOfSight(botEyePos, entEyePos, losObstacles)) {
+                                    if (dist < bestDist) {
+                                        bestDist = dist;
+                                        bestTarget = ent;
+                                    }
                                 }
                             }
                         });
 
-                        bot.target = sameRoomEnemy;
+                        bot.target = bestTarget;
                     }
 
-                    // --- STEP 2: ENGAGE OPPONENT OR NAVIGATE PORTAL ---
+                    // --- STEP 2: MOVEMENT & COMBAT DISTANCE HOLDING ---
                     let moveTarget = null;
                     let isNavigatingPortal = false;
                     let activePortal = null;
+                    let distToEnemy = Infinity;
 
                     if (bot.target && bot.target.health > 0) {
-                        // Combat state: Fight opponent in same room
-                        moveTarget = (bot.target === player) ? player.position.clone() : bot.target.mesh.position.clone();
-                    } else {
-                        // Search state: Locate nearest door/window opening
-                        bot.target = null;
+                        const enemyPos = (bot.target === player) ? player.position.clone() : bot.target.mesh.position.clone();
+                        distToEnemy = botPos.distanceTo(enemyPos);
+
+                        // Stop bulldozing: hold distance at 1.5m for melee, 5.0m for guns
+                        const stopDist = (bot.weapon && bot.weapon.category === 'MELEE') ? 1.5 : 5.0;
                         
-                        // Ignore portal selection briefly after crossing a room line
+                        if (distToEnemy > stopDist) {
+                            moveTarget = enemyPos;
+                        } else {
+                            // In ideal combat range: halt forward movement and face target
+                            const aimDir = new THREE.Vector3().subVectors(enemyPos, botPos);
+                            aimDir.y = 0;
+                            if (aimDir.lengthSq() > 0.01) {
+                                bot.mesh.rotation.y = Math.atan2(-aimDir.x, -aimDir.z);
+                            }
+                            bot.velocity.x = 0;
+                            bot.velocity.z = 0;
+                        }
+                    } else {
+                        // Search Mode: Locate nearest room opening
+                        bot.target = null;
                         if (!bot.portalCooldown || bot.portalCooldown <= 0) {
                             activePortal = findNearestRoomPortal(bot, bot.targetRoom);
                         }
 
                         if (activePortal) {
-                            // Target the projected point PAST the doorway, not the door line itself
                             moveTarget = activePortal.targetThroughPos;
                             isNavigatingPortal = true;
                         } else {
-                            if (!bot.patrolTarget || bot.mesh.position.distanceTo(bot.patrolTarget) < 3.0) {
+                            if (!bot.patrolTarget || botPos.distanceTo(bot.patrolTarget) < 3.0) {
                                 bot.targetRoom = (botRoomIdx + 1) % 27;
                                 bot.patrolTarget = getRoomCenter(bot.targetRoom);
                             }
@@ -3397,23 +3417,20 @@
                     }
 
                     if (bot.portalCooldown > 0) bot.portalCooldown -= delta;
-                    if (!moveTarget) return;
 
-                    const distToPortalCenter = activePortal ? bot.mesh.position.distanceTo(activePortal.pos) : Infinity;
-
-                    // --- STEP 3: DOOR & WINDOW HANDLING ---
+                    // --- STEP 3: DOORWAY & WINDOW HANDLING ---
                     if (isNavigatingPortal && activePortal) {
+                        const distToPortalCenter = botPos.distanceTo(activePortal.pos);
+
                         if (activePortal.type === 'WINDOW') {
-                            // Shoot sealed window glass when approaching
                             if (!activePortal.obj.isBroken && distToPortalCenter < 16.0) {
                                 const aimDir = new THREE.Vector3().subVectors(activePortal.pos, botEyePos).normalize();
                                 bot.mesh.rotation.y = Math.atan2(-aimDir.x, -aimDir.z);
-                                if (BOTS_CAN_FIRE && Math.random() < 0.25) {
+                                if (BOTS_CAN_FIRE && Math.random() < 0.3) {
                                     fireActiveWeapon(bot, aimDir);
                                 }
                             }
 
-                            // Jump over window frame sill
                             if (distToPortalCenter < 3.5 && bot.isGrounded && bot.jumpCooldown <= 0) {
                                 bot.velocity.y = 12;
                                 bot.isGrounded = false;
@@ -3421,123 +3438,98 @@
                             }
                         }
 
-                        // Trigger 2.5s portal cooldown upon passing through doorway threshold
                         if (distToPortalCenter < 2.0) {
                             bot.portalCooldown = 2.5;
                         }
                     }
 
-                    // --- STEP 4: OBSTACLE PROBING & STEERING ---
-                    const moveDir = new THREE.Vector3().subVectors(moveTarget, bot.mesh.position);
-                    moveDir.y = 0;
+                    // --- STEP 4: STEERING & NAVIGATION ---
+                    if (moveTarget) {
+                        const moveDir = new THREE.Vector3().subVectors(moveTarget, botPos);
+                        moveDir.y = 0;
 
-                    // Prevent near-zero vector angle flipping (stops rapid spinning)
-                    const vectorLenSq = moveDir.lengthSq();
-                    if (vectorLenSq > 0.04) {
-                        moveDir.normalize();
+                        if (moveDir.lengthSq() > 0.04) {
+                            moveDir.normalize();
 
-                        // Forward probe to steer around half-walls, pillars, and pedestals
-                        const forwardProbe = bot.mesh.position.clone().addScaledVector(moveDir, 1.4);
-                        if (checkWallCollision(forwardProbe, 0.45, EYE_HEIGHT_STAND)) {
-                            const leftProbeDir = new THREE.Vector3(-moveDir.z, 0, moveDir.x);
-                            const rightProbeDir = new THREE.Vector3(moveDir.z, 0, -moveDir.x);
+                            const forwardProbe = botPos.clone().addScaledVector(moveDir, 1.4);
+                            if (checkWallCollision(forwardProbe, 0.45, EYE_HEIGHT_STAND)) {
+                                const leftProbeDir = new THREE.Vector3(-moveDir.z, 0, moveDir.x);
+                                const rightProbeDir = new THREE.Vector3(moveDir.z, 0, -moveDir.x);
 
-                            const leftClear = !checkWallCollision(bot.mesh.position.clone().addScaledVector(leftProbeDir, 1.5), 0.45, EYE_HEIGHT_STAND);
-                            const rightClear = !checkWallCollision(bot.mesh.position.clone().addScaledVector(rightProbeDir, 1.5), 0.45, EYE_HEIGHT_STAND);
+                                const leftClear = !checkWallCollision(botPos.clone().addScaledVector(leftProbeDir, 1.5), 0.45, EYE_HEIGHT_STAND);
+                                const rightClear = !checkWallCollision(botPos.clone().addScaledVector(rightProbeDir, 1.5), 0.45, EYE_HEIGHT_STAND);
 
-                            if (leftClear) {
-                                moveDir.addScaledVector(leftProbeDir, 1.6).normalize();
-                            } else if (rightClear) {
-                                moveDir.addScaledVector(rightProbeDir, 1.6).normalize();
-                            } else if (bot.isGrounded && bot.jumpCooldown <= 0) {
-                                bot.velocity.y = 11;
-                                bot.isGrounded = false;
-                                bot.jumpCooldown = 0.9;
+                                if (leftClear) {
+                                    moveDir.addScaledVector(leftProbeDir, 1.6).normalize();
+                                } else if (rightClear) {
+                                    moveDir.addScaledVector(rightProbeDir, 1.6).normalize();
+                                } else if (bot.isGrounded && bot.jumpCooldown <= 0) {
+                                    bot.velocity.y = 11;
+                                    bot.isGrounded = false;
+                                    bot.jumpCooldown = 0.9;
+                                }
                             }
+
+                            const moveSpeed = bot.target ? 13.0 : 10.0;
+                            bot.velocity.x = moveDir.x * moveSpeed;
+                            bot.velocity.z = moveDir.z * moveSpeed;
+
+                            const oldX = botPos.x;
+                            botPos.x += bot.velocity.x * delta;
+                            if (checkWallCollision(botPos, 0.32, EYE_HEIGHT_STAND)) botPos.x = oldX;
+
+                            const oldZ = botPos.z;
+                            botPos.z += bot.velocity.z * delta;
+                            if (checkWallCollision(botPos, 0.32, EYE_HEIGHT_STAND)) botPos.z = oldZ;
+
+                            resolveEntityCollisions(bot.slot, botPos, bot.velocity, 0.5);
+
+                            const desiredAngle = Math.atan2(-moveDir.x, -moveDir.z);
+                            let angleDiff = desiredAngle - bot.mesh.rotation.y;
+                            while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+                            while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+                            bot.mesh.rotation.y += angleDiff * Math.min(1.0, delta * 8.0);
                         }
-
-                        const moveSpeed = bot.target ? 13.0 : 10.0;
-                        bot.velocity.x = moveDir.x * moveSpeed;
-                        bot.velocity.z = moveDir.z * moveSpeed;
-
-                        // Position updates
-                        const oldX = bot.mesh.position.x;
-                        bot.mesh.position.x += bot.velocity.x * delta;
-                        if (checkWallCollision(bot.mesh.position, 0.32, EYE_HEIGHT_STAND)) {
-                            bot.mesh.position.x = oldX;
-                        }
-
-                        const oldZ = bot.mesh.position.z;
-                        bot.mesh.position.z += bot.velocity.z * delta;
-                        if (checkWallCollision(bot.mesh.position, 0.32, EYE_HEIGHT_STAND)) {
-                            bot.mesh.position.z = oldZ;
-                        }
-
-                        resolveEntityCollisions(bot.slot, bot.mesh.position, bot.velocity, 0.5);
-
-                        // Smooth rotation interpolation (prevents instant 180° snaps)
-                        const desiredAngle = Math.atan2(-moveDir.x, -moveDir.z);
-                        let angleDiff = desiredAngle - bot.mesh.rotation.y;
-                        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-                        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-                        bot.mesh.rotation.y += angleDiff * Math.min(1.0, delta * 8.0);
                     }
-
-                    const moveSpeed = bot.target ? 13.0 : 10.0;
-                    bot.velocity.x = moveDir.x * moveSpeed;
-                    bot.velocity.z = moveDir.z * moveSpeed;
-
-                    // Apply position updates with collision checks
-                    const oldX = bot.mesh.position.x;
-                    bot.mesh.position.x += bot.velocity.x * delta;
-                    if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
-                        bot.mesh.position.x = oldX;
-                    }
-
-                    const oldZ = bot.mesh.position.z;
-                    bot.mesh.position.z += bot.velocity.z * delta;
-                    if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
-                        bot.mesh.position.z = oldZ;
-                    }
-
-                    resolveEntityCollisions(bot.slot, bot.mesh.position, bot.velocity, 0.65);
-
-                    // Smooth rotation interpolation (prevents rapid spinning)
-                    const desiredAngle = Math.atan2(-moveDir.x, -moveDir.z);
-                    let angleDiff = desiredAngle - bot.mesh.rotation.y;
-                    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-                    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-                    bot.mesh.rotation.y += angleDiff * Math.min(1.0, delta * 12.0);
 
                     // Gravity & Grounding
                     bot.velocity.y -= 32 * delta;
-                    const propY = bot.mesh.position.y + bot.velocity.y * delta;
-                    const grndY = getGroundY(bot.mesh.position);
+                    const propY = botPos.y + bot.velocity.y * delta;
+                    const grndY = getGroundY(botPos);
 
-                    if (propY <= grndY || (bot.isGrounded && Math.abs(bot.mesh.position.y - grndY) < 1.8)) {
-                        bot.mesh.position.y = grndY;
+                    if (propY <= grndY || (bot.isGrounded && Math.abs(botPos.y - grndY) < 1.8)) {
+                        botPos.y = grndY;
                         bot.velocity.y = 0;
                         bot.isGrounded = true;
                     } else {
-                        bot.mesh.position.y = propY;
+                        botPos.y = propY;
                         bot.isGrounded = false;
                     }
 
-                    // --- STEP 5: COMBAT FIRING ---
-                    if (bot.target && distToTarget < bot.weapon.range) {
-                        const enemyPos = (bot.target === player) ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0)) : bot.target.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
-                        const aimDir = new THREE.Vector3().subVectors(enemyPos, botEyePos).normalize();
+                    // --- STEP 5: COMBAT ATTACK EXECUTION ---
+                    if (bot.target && bot.target.health > 0) {
+                        const enemyEyePos = (bot.target === player)
+                            ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0))
+                            : bot.target.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
+
+                        const aimDir = new THREE.Vector3().subVectors(enemyEyePos, botEyePos).normalize();
                         bot.rotX = Math.asin(aimDir.y);
 
-                        if (BOTS_CAN_FIRE && Math.random() < 0.03) {
-                            const inaccuracy = (bot.target === player) ? 0.22 : 0.40;
-                            const inaccurateAim = aimDir.clone().add(new THREE.Vector3(
-                                (Math.random() - 0.5) * inaccuracy,
-                                (Math.random() - 0.5) * inaccuracy,
-                                (Math.random() - 0.5) * inaccuracy
-                            )).normalize();
+                        const maxRange = bot.weapon ? bot.weapon.range : 20.0;
+                        if (BOTS_CAN_FIRE && distToEnemy <= maxRange) {
+                            const isTargetHuman = (bot.target === player);
+                            const fireChance = isTargetHuman ? 0.35 : 0.20;
 
-                            fireActiveWeapon(bot, inaccurateAim);
+                            if (Math.random() < fireChance) {
+                                const inaccuracy = isTargetHuman ? 0.15 : 0.30;
+                                const inaccurateAim = aimDir.clone().add(new THREE.Vector3(
+                                    (Math.random() - 0.5) * inaccuracy,
+                                    (Math.random() - 0.5) * inaccuracy,
+                                    (Math.random() - 0.5) * inaccuracy
+                                )).normalize();
+
+                                fireActiveWeapon(bot, inaccurateAim);
+                            }
                         }
                     }
 
