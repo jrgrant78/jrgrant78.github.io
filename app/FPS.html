@@ -7,175 +7,53 @@
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; touch-action: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Courier New', Courier, monospace; color: #00ffff; }
-        
         #gameCanvas { width: 100%; height: 100%; display: block; }
-
-        #ui-layer {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 20px;
-            box-shadow: inset 0 0 100px rgba(0, 255, 255, 0.15);
-        }
-
-        #damage-flash {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(255, 0, 50, 0.5); pointer-events: none; opacity: 0;
-            transition: opacity 0.08s ease-out; z-index: 50;
-        }
-
-        #pre-match-overlay {
-            position: absolute; top: 38%; left: 50%; transform: translate(-50%, -50%);
-            font-size: 38px; font-weight: bold; color: #ffe600;
-            text-shadow: 0 0 20px #ffe600, 0 0 40px #ff007f;
-            z-index: 90; text-align: center; pointer-events: none; display: none;
-            letter-spacing: 3px;
-        }
-
-        /* CCTV SCANLINE & CRT OVERLAY */
-        #cctv-overlay {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none; display: none; z-index: 80;
-            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.4) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
-            background-size: 100% 4px, 6px 100%;
-            box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.9);
-            backdrop-filter: saturate(0.2) contrast(1.3) brightness(0.85);
-        }
-        #cctv-hud {
-            position: absolute; top: 25px; left: 25px; font-family: 'Courier New', Courier, monospace;
-            color: #00ffaa; text-shadow: 0 0 8px #00ffaa; font-size: 15px; font-weight: bold;
-            line-height: 1.6;
-        }
-        .rec-dot {
-            display: inline-block; width: 12px; height: 12px; background: #ff0044;
-            border-radius: 50%; margin-right: 8px; box-shadow: 0 0 10px #ff0044;
-            animation: recBlink 1s infinite;
-        }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 20px; box-shadow: inset 0 0 100px rgba(0, 255, 255, 0.15); }
+        #damage-flash { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255, 0, 50, 0.5); pointer-events: none; opacity: 0; transition: opacity 0.08s ease-out; z-index: 50; }
+        #pre-match-overlay { position: absolute; top: 38%; left: 50%; transform: translate(-50%, -50%); font-size: 38px; font-weight: bold; color: #ffe600; text-shadow: 0 0 20px #ffe600, 0 0 40px #ff007f; z-index: 90; text-align: center; pointer-events: none; display: none; letter-spacing: 3px; }
+        #cctv-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none; z-index: 80; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.4) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03)); background-size: 100% 4px, 6px 100%; box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.9); backdrop-filter: saturate(0.2) contrast(1.3) brightness(0.85); }
+        #cctv-hud { position: absolute; top: 25px; left: 25px; font-family: 'Courier New', Courier, monospace; color: #00ffaa; text-shadow: 0 0 8px #00ffaa; font-size: 15px; font-weight: bold; line-height: 1.6; }
+        .rec-dot { display: inline-block; width: 12px; height: 12px; background: #ff0044; border-radius: 50%; margin-right: 8px; box-shadow: 0 0 10px #ff0044; animation: recBlink 1s infinite; }
         @keyframes recBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
-
-        #death-screen {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(15, 0, 10, 0.88); display: none; flex-direction: column;
-            justify-content: center; align-items: center; z-index: 95;
-            pointer-events: none;
-        }
-        #death-screen.active {
-            display: flex;
-            animation: electricZap 0.12s infinite alternate;
-        }
-        @keyframes electricZap {
-            0% { box-shadow: inset 0 0 60px rgba(0, 255, 255, 0.5), inset 0 0 120px rgba(255, 0, 127, 0.3); background: rgba(20, 0, 15, 0.88); }
-            100% { box-shadow: inset 0 0 140px rgba(255, 0, 127, 0.8), inset 0 0 80px rgba(0, 255, 255, 0.6); background: rgba(45, 0, 28, 0.95); }
-        }
-        .electric-overlay {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: radial-gradient(circle, transparent 30%, rgba(0, 255, 255, 0.35) 85%);
-            mix-blend-mode: screen; pointer-events: none;
-        }
-        #killer-title {
-            font-size: 32px; color: #ff0055; text-shadow: 0 0 15px #ff0055, 0 0 30px #ff0055;
-            margin-bottom: 15px; font-weight: bold; letter-spacing: 3px; z-index: 96;
-        }
-        #respawn-timer-display {
-            font-size: 24px; color: #00ffff; text-shadow: 0 0 12px #00ffff;
-            font-weight: bold; letter-spacing: 2px; z-index: 96;
-        }
-
-        #crosshair {
-            position: absolute; top: 50%; left: 50%;
-            width: 10px; height: 10px; margin-left: -5px; margin-top: -5px;
-            border: 2px solid #ff007f; border-radius: 50%;
-            box-shadow: 0 0 10px #ff007f;
-            transition: transform 0.1s, opacity 0.1s;
-        }
-
-        .hud-panel {
-            background: rgba(10, 10, 20, 0.85); border: 1px solid #00ffff;
-            padding: 12px 20px; border-radius: 4px; box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
-            text-shadow: 0 0 5px #00ffff;
-        }
-
+        #death-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 0, 10, 0.88); display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 95; pointer-events: none; }
+        #death-screen.active { display: flex; animation: electricZap 0.12s infinite alternate; }
+        @keyframes electricZap { 0% { box-shadow: inset 0 0 60px rgba(0, 255, 255, 0.5), inset 0 0 120px rgba(255, 0, 127, 0.3); background: rgba(20, 0, 15, 0.88); } 100% { box-shadow: inset 0 0 140px rgba(255, 0, 127, 0.8), inset 0 0 80px rgba(0, 255, 255, 0.6); background: rgba(45, 0, 28, 0.95); } }
+        .electric-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: radial-gradient(circle, transparent 30%, rgba(0, 255, 255, 0.35) 85%); mix-blend-mode: screen; pointer-events: none; }
+        #killer-title { font-size: 32px; color: #ff0055; text-shadow: 0 0 15px #ff0055, 0 0 30px #ff0055; margin-bottom: 15px; font-weight: bold; letter-spacing: 3px; z-index: 96; }
+        #respawn-timer-display { font-size: 24px; color: #00ffff; text-shadow: 0 0 12px #00ffff; font-weight: bold; letter-spacing: 2px; z-index: 96; }
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; margin-left: -5px; margin-top: -5px; border: 2px solid #ff007f; border-radius: 50%; box-shadow: 0 0 10px #ff007f; transition: transform 0.1s, opacity 0.1s; }
+        .hud-panel { background: rgba(10, 10, 20, 0.85); border: 1px solid #00ffff; padding: 12px 20px; border-radius: 4px; box-shadow: 0 0 15px rgba(0, 255, 255, 0.3); text-shadow: 0 0 5px #00ffff; }
         #top-hud { position: absolute; top: 20px; left: 20px; right: 20px; display: flex; justify-content: space-between; }
         #bottom-hud { position: absolute; bottom: 20px; left: 20px; right: 20px; display: flex; justify-content: space-between; align-items: flex-end; }
-
         .bar-container { width: 200px; height: 12px; background: rgba(255,255,255,0.1); border: 1px solid #00ffff; margin-top: 5px; }
         .bar-fill { height: 100%; width: 100%; background: #00ffff; transition: width 0.1s; box-shadow: 0 0 10px #00ffff; }
         #jetpack-bar .bar-fill { background: #ff007f; box-shadow: 0 0 10px #ff007f; }
-
         #kill-feed { position: absolute; top: 90px; right: 20px; text-align: right; font-size: 13px; color: #ff007f; text-shadow: 0 0 5px #ff007f; }
         #pickup-prompt { position: absolute; top: 58%; left: 50%; transform: translate(-50%, -50%); font-size: 15px; color: #ffe600; text-shadow: 0 0 10px #ffe600; display: none; text-align: center; }
-
-        #start-screen {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(5, 5, 10, 0.95); display: flex; flex-direction: column;
-            justify-content: center; align-items: center; z-index: 100; padding: 20px;
-        }
+        #start-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(5, 5, 10, 0.95); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; padding: 20px; }
         #start-screen h1 { font-size: 42px; color: #ff007f; text-shadow: 0 0 20px #ff007f; margin-bottom: 5px; }
         #start-screen p { font-size: 16px; color: #00ffff; text-shadow: 0 0 10px #00ffff; margin-bottom: 25px; }
-
-        .vote-container {
-            display: grid; grid-template-columns: repeat(2, 220px); gap: 15px; margin-bottom: 25px;
-        }
-        .vote-card {
-            background: rgba(15, 15, 30, 0.9); border: 2px solid #00ffff; border-radius: 6px;
-            padding: 20px 15px; text-align: center; cursor: pointer; transition: all 0.2s;
-            box-shadow: 0 0 10px rgba(0, 255, 255, 0.2);
-        }
+        .vote-container { display: grid; grid-template-columns: repeat(2, 220px); gap: 15px; margin-bottom: 25px; }
+        .vote-card { background: rgba(15, 15, 30, 0.9); border: 2px solid #00ffff; border-radius: 6px; padding: 20px 15px; text-align: center; cursor: pointer; transition: all 0.2s; box-shadow: 0 0 10px rgba(0, 255, 255, 0.2); }
         .vote-card:hover { transform: translateY(-4px); border-color: #ff007f; box-shadow: 0 0 20px #ff007f; }
         .vote-card h3 { font-size: 18px; color: #fff; margin-bottom: 8px; }
         .vote-card .desc { font-size: 11px; color: #aaa; line-height: 1.3; }
-
-        .flag-marker {
-            position: absolute;
-            pointer-events: none;
-            transform: translate(-50%, -100%);
-            display: none;
-            z-index: 60;
-            text-align: center;
-        }
+        .flag-marker { position: absolute; pointer-events: none; transform: translate(-50%, -100%); display: none; z-index: 60; text-align: center; }
         .flag-marker svg { filter: drop-shadow(0 0 8px currentColor); }
-        .dist-tag {
-            font-size: 10px; font-weight: bold;
-            background: rgba(10, 10, 20, 0.85); border: 1px solid currentColor;
-            padding: 2px 6px; border-radius: 3px; margin-top: 2px; display: inline-block;
-        }
-
-        #spectator-bar {
-            position: absolute; bottom: 85px; left: 50%; transform: translateX(-50%);
-            background: rgba(10, 10, 20, 0.9); border: 1px solid #ffe600;
-            padding: 8px 18px; border-radius: 4px; color: #ffe600; font-size: 13px;
-            font-weight: bold; display: none; text-shadow: 0 0 8px #ffe600; z-index: 70;
-        }
-
+        .dist-tag { font-size: 10px; font-weight: bold; background: rgba(10, 10, 20, 0.85); border: 1px solid currentColor; padding: 2px 6px; border-radius: 3px; margin-top: 2px; display: inline-block; }
+        #spectator-bar { position: absolute; bottom: 85px; left: 50%; transform: translateX(-50%); background: rgba(10, 10, 20, 0.9); border: 1px solid #ffe600; padding: 8px 18px; border-radius: 4px; color: #ffe600; font-size: 13px; font-weight: bold; display: none; text-shadow: 0 0 8px #ffe600; z-index: 70; }
         #network-status { font-size: 12px; color: #00ffaa; margin-top: 4px; font-weight: bold; }
         #leaderboard { position: absolute; top: 90px; left: 20px; font-size: 12px; line-height: 1.5; }
         #stance-indicator { font-size: 12px; color: #ffe600; margin-top: 4px; }
         #grenade-display { font-size: 12px; color: #ff007f; margin-top: 6px; font-weight: bold; }
         #mode-status-hud { font-size: 14px; font-weight: bold; color: #00ffff; margin-top: 4px; }
-
-        /* MOBILE TOUCH OVERLAY & BUTTONS */
-        #mobile-controls {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none; display: none; z-index: 85;
-        }
-        .mobile-btn {
-            position: absolute; width: 72px; height: 72px; border-radius: 50%;
-            background: rgba(15, 15, 30, 0.75); border: 2px solid #ffe600;
-            display: flex; justify-content: center; align-items: center;
-            pointer-events: auto; box-shadow: 0 0 15px rgba(255, 230, 0, 0.4);
-            touch-action: none;
-        }
-        .mobile-btn:active, .mobile-btn.active {
-            background: rgba(255, 230, 0, 0.3); border-color: #ffe600;
-            box-shadow: 0 0 22px #ffe600;
-        }
+        #mobile-controls { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none; z-index: 85; }
+        .mobile-btn { position: absolute; width: 72px; height: 72px; border-radius: 50%; background: rgba(15, 15, 30, 0.75); border: 2px solid #ffe600; display: flex; justify-content: center; align-items: center; pointer-events: auto; box-shadow: 0 0 15px rgba(255, 230, 0, 0.4); touch-action: none; }
+        .mobile-btn:active, .mobile-btn.active { background: rgba(255, 230, 0, 0.3); border-color: #ffe600; box-shadow: 0 0 22px #ffe600; }
         #btn-swipe { right: 30px; bottom: 50px; }
-
         @media (max-width: 1024px), (pointer: coarse) {
-            #top-hud, #bottom-hud, #kill-feed, #leaderboard {
-                display: none !important;
-            }
-            #mobile-controls {
-                display: block !important;
-            }
+            #top-hud, #bottom-hud, #kill-feed, #leaderboard { display: none !important; }
+            #mobile-controls { display: block !important; }
             #start-screen h1 { font-size: 28px; }
             .vote-container { grid-template-columns: repeat(2, 160px); gap: 10px; }
             .vote-card { padding: 12px 8px; }
@@ -198,7 +76,6 @@
         </div>
     </div>
 
-    <!-- MOBILE TOUCH CONTROLS -->
     <div id="mobile-controls">
         <div id="btn-swipe" class="mobile-btn">
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#ffe600" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -217,7 +94,6 @@
     <div id="start-screen">
         <h1>CYBER-STRIKE 2077</h1>
         <p>[ CHOOSE MATCH MODE TO START ]</p>
-        
         <div class="vote-container">
             <div class="vote-card" onclick="castPlayerVote('FFA')">
                 <h3>FREE-FOR-ALL</h3>
@@ -236,7 +112,6 @@
                 <div class="desc">1 Life. No Respawns. Battle Royale elimination.</div>
             </div>
         </div>
-
         <p id="voting-status-text" style="font-size: 13px; color: #ffe600; margin-bottom: 0;">CONNECTING TO GLOBAL MATCHMAKER...</p>
     </div>
 
@@ -259,7 +134,6 @@
     <div id="ui-layer">
         <div id="crosshair"></div>
         <div id="pickup-prompt">[WEAPON PICKED UP]</div>
-
         <div id="top-hud">
             <div class="hud-panel">
                 <div id="mode-title-display">MODE: FREE-FOR-ALL</div>
@@ -272,9 +146,7 @@
                 <div id="leaderboard-list"></div>
             </div>
         </div>
-
         <div id="kill-feed"></div>
-
         <div id="bottom-hud">
             <div class="hud-panel">
                 <div>HEALTH</div>
@@ -283,7 +155,6 @@
                 <div class="bar-container" id="jetpack-bar"><div id="jetpack-fill" class="bar-fill"></div></div>
                 <div id="grenade-display">GRENADES: 2 / 2</div>
             </div>
-
             <div class="hud-panel" style="text-align: right;">
                 <div id="stance-indicator">STANCE: STANDING</div>
                 <div id="weapon-slot" style="font-size: 12px; color: #ffe600;">[PRIMARY]</div>
@@ -292,9 +163,7 @@
             </div>
         </div>
     </div>
-
     <script>
-        // --- CONFIG & GLOBAL DECLARATIONS ---
         const BOTS_CAN_FIRE = true;
         const TOTAL_COMBATANTS = 50; 
         const WEAPON_COUNT = 120;
@@ -303,16 +172,13 @@
         const SLIDE_DURATION = 1.05; 
         const WALL_RUN_DURATION = 0.75; 
 
-        // Touch capability detection
         const isMobileScreen = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.innerWidth <= 1024);
 
-        // Base spawn vectors declared early
         const cyanBasePos = new THREE.Vector3(-75, 0.1, -75);
         const pinkBasePos = new THREE.Vector3(75, 0.1, 75);
 
         window.addEventListener('contextmenu', e => e.preventDefault());
 
-        // --- GAME MODE, PRE-MATCH & SPECTATOR STATES ---
         let currentMode = 'FFA'; 
         let teamCyanScore = 0;
         let teamPinkScore = 0;
@@ -334,7 +200,6 @@
         let preMatchCountdown = 5;
         const humanMarkersToRotate = [];
 
-        // --- MOBILE TOUCH CONTROLS STATE ---
         let touchMoveId = null, touchLookId = null, touchRunId = null;
         let touchMoveOrigin = { x: 0, y: 0 };
         let touchLookLast = { x: 0, y: 0 };
@@ -342,11 +207,9 @@
         let mobileMoveX = 0, mobileMoveZ = 0;
         let hasTriggeredJumpGesture = false, hasTriggeredSlideGesture = false;
 
-        // --- NETWORK & FIXED 50-SLOT SYNCHRONIZATION ---
         let mySlot = 0;
         const entitySlots = new Array(TOTAL_COMBATANTS).fill(null);
 
-        // --- ROOM & QUADRANT UTILITIES ---
         function getRoomIndex(pos) {
             let f = 0;
             if (pos.y >= 12) f = 2;
@@ -434,7 +297,6 @@
         }
         generateCCTVCameras();
 
-        // --- ROOM-AWARE MULTIPLAYER & SCORE SYNC ---
         const roomKey = (window.location.hash.replace('#', '') || 'global').toLowerCase().replace(/[^a-z0-9]/g, '');
         const ROOM_HOST_PEER_ID = "cs2077_v2_host_" + roomKey;
         const localClientId = "cs2077_v2_cli_" + Math.random().toString(36).substring(2, 9);
@@ -449,7 +311,6 @@
         let broadcastChan = null;
         try { broadcastChan = new BroadcastChannel("cs2077_chan_" + roomKey); } catch(e){}
 
-        // --- THREE.JS SETUP & STABILITY IMPROVEMENTS ---
         const scene = new THREE.Scene();
         scene.fog = new THREE.FogExp2(0x05050d, 0.008);
 
@@ -474,7 +335,6 @@
         dirLight.position.set(40, 80, 40);
         scene.add(dirLight);
 
-        // --- FIRST PERSON VIEWMODEL HOLDER ---
         const viewmodelGroup = new THREE.Group();
         camera.add(viewmodelGroup);
         viewmodelGroup.position.set(0.35, -0.35, -0.55);
@@ -496,9 +356,7 @@
         const staticBoxes = [];  
         const weaponsDatabase = [];
 
-        // --- 120 WEAPON DATABASE GENERATOR ---
         const rawWeaponsData = [
-            // --- 60 PRIMARIES (0-59) ---
             [0, 'Apex-9 Assault', 'PRIMARY', 'RIFLE', 24, 100, 30, 0x00ffff, 200],
             [1, 'Vulcan Dread', 'PRIMARY', 'SHOTGUN', 140, 800, 8, 0xff5500, 60],
             [2, 'Singularity Rail', 'PRIMARY', 'RAILGUN', 95, 1200, 5, 0xaa00ff, 250],
@@ -559,8 +417,6 @@
             [57, 'Pulsar Beltgun', 'PRIMARY', 'LMG', 24, 90, 75, 0xaa00ff, 210],
             [58, 'Obliterator Rail', 'PRIMARY', 'HEAVYRAIL', 125, 1700, 4, 0x884400, 270],
             [59, 'Apocalypse Cannon', 'PRIMARY', 'SUPER', 180, 2500, 2, 0x6600aa, 300],
-
-            // --- 30 SECONDARIES (60-89) ---
             [60, 'Cyber Pistol', 'SECONDARY', 'HANDGUN', 28, 180, 15, 0xff007f, 150],
             [61, 'Plasma Revolver', 'SECONDARY', 'REVOLVER', 60, 450, 6, 0x00ffff, 160],
             [62, 'Micro SMG', 'SECONDARY', 'SMG', 15, 65, 30, 0x888888, 120],
@@ -591,8 +447,6 @@
             [87, 'Elephant Pistol', 'SECONDARY', 'MAGNUM', 90, 700, 5, 0x333333, 170],
             [88, 'Cyber Crossbow', 'SECONDARY', 'BOW', 65, 600, 5, 0x444455, 160],
             [89, 'Phase Pistol', 'SECONDARY', 'QUANTUM', 36, 210, 14, 0x00ffcc, 140],
-
-            // --- 30 MELEE (90-119) ---
             [90, 'Tactical Blade', 'MELEE', 'KNIFE', 85, 350, Infinity, 0xffe600, 3.5],
             [91, 'Cyber Katana', 'MELEE', 'KATANA', 110, 450, Infinity, 0x00ffff, 4.5],
             [92, 'Heavy Cyber Axe', 'MELEE', 'AXE', 125, 550, Infinity, 0xff5500, 4.2],
@@ -628,16 +482,9 @@
         function generateWeaponsDatabase() {
             rawWeaponsData.forEach(d => {
                 weaponsDatabase.push({
-                    id: d[0],
-                    name: d[1],
-                    category: d[2],
-                    subType: d[3],
-                    damage: d[4],
-                    fireRate: d[5],
-                    ammoMax: d[6],
-                    ammo: d[6],
-                    color: d[7],
-                    range: d[8]
+                    id: d[0], name: d[1], category: d[2], subType: d[3],
+                    damage: d[4], fireRate: d[5], ammoMax: d[6], ammo: d[6],
+                    color: d[7], range: d[8]
                 });
             });
         }
@@ -1049,7 +896,8 @@
                     topFrame: topFrame,
                     botFrame: botFrame,
                     boxObj: bObj,
-                    isBroken: false
+                    isBroken: false,
+                    isX: isX
                 });
             };
 
@@ -1314,7 +1162,6 @@
                     if (pos.distanceTo(d.basePos) < 7.5) nearby = true;
                 });
 
-                // Fast slide speed so doors are fully open before bots arrive
                 if (nearby) {
                     d.slideProgress = Math.min(1.0, d.slideProgress + delta * 12.0);
                 } else {
@@ -1325,7 +1172,6 @@
                 d.panel.position.z = !d.isX ? d.width * d.slideProgress : 0;
 
                 d.boxObj.box.setFromObject(d.panel);
-                // Deactivate door panel collider as soon as sliding begins
                 d.boxObj.active = d.slideProgress < 0.2;
             });
 
@@ -1869,7 +1715,6 @@
             }
         }
 
-        // --- DUAL-ZONE TOUCH NAVIGATION & FULLSCREEN CONTROLS ---
         function setupTouchSystem() {
             window.addEventListener('touchstart', (e) => {
                 if (!document.fullscreenElement) {
@@ -1934,7 +1779,6 @@
                     if (touch.identifier === touchRunId) {
                         const dy = touch.clientY - touchRunStartY;
 
-                        // SWIPE UP -> JUMP
                         if (dy < -20 && !hasTriggeredJumpGesture && !isRespawning && !isPreMatch) {
                             hasTriggeredJumpGesture = true;
                             if (player.isGrounded) {
@@ -1945,7 +1789,6 @@
                                 player.canDoubleJump = false;
                             }
                         } 
-                        // SWIPE DOWN -> SLIDE / CROUCH
                         else if (dy > 20 && !hasTriggeredSlideGesture && !isRespawning && !isPreMatch) {
                             hasTriggeredSlideGesture = true;
                             if (player.isGrounded && !player.isSliding) {
@@ -2075,7 +1918,7 @@
         }
 
         function checkWallCollision(pos, radius = 0.32, height = EYE_HEIGHT_STAND) {
-            const footOffset = 0.3; // Raised foot offset avoids catching on ground tiles
+            const footOffset = 0.3;
             const box = new THREE.Box3(
                 new THREE.Vector3(pos.x - radius, pos.y + footOffset, pos.z - radius),
                 new THREE.Vector3(pos.x + radius, pos.y + height - 0.2, pos.z + radius)
@@ -2085,7 +1928,6 @@
                 const wallMesh = wallColliders[i];
                 if (!wallMesh || !wallMesh.parent) continue;
 
-                // Skip active door panels that are sliding open
                 let isOpenedDoor = false;
                 for (let j = 0; j < slidingDoors.length; j++) {
                     if (slidingDoors[j].panel === wallMesh && slidingDoors[j].slideProgress > 0.6) {
@@ -2344,7 +2186,6 @@
             }
         }
 
-        // --- ENTITY-TO-ENTITY SOLID PUSHBACK COLLISION ---
         function resolveEntityCollisions(selfSlot, targetPos, velocity = null, radius = 0.5) {
             for (let iter = 0; iter < 2; iter++) {
                 for (let i = 0; i < TOTAL_COMBATANTS; i++) {
@@ -2376,7 +2217,6 @@
                         const testX = targetPos.x + nx * overlap;
                         const testZ = targetPos.z + nz * overlap;
 
-                        // Only apply pushback if it doesn't shove the entity into a solid wall
                         if (!checkWallCollision(new THREE.Vector3(testX, targetPos.y, testZ), 0.32)) {
                             targetPos.x = testX;
                             targetPos.z = testZ;
@@ -2394,7 +2234,6 @@
             }
         }
 
-        // --- CCTV SPECTATOR MODE & MOVEMENT ---
         function updatePlayerMovement(delta) {
             if (isSpectating) {
                 viewmodelGroup.visible = false;
@@ -3258,7 +3097,6 @@
             }
         }
 
-        // --- ROOM PORTAL FINDER (CORRECTED ORTHOGONAL PROJECTION) ---
         function findNearestRoomPortal(bot, targetRoomIdx) {
             const botPos = bot.mesh.position;
             const curRoom = getRoomIndex(botPos);
@@ -3268,7 +3106,6 @@
 
             const candidates = [];
 
-            // Doors near current room
             slidingDoors.forEach(d => {
                 const doorPos = d.basePos;
                 if (getRoomIndex(doorPos) === curRoom || doorPos.distanceTo(curCenter) < 42.0) {
@@ -3276,11 +3113,9 @@
                 }
             });
 
-            // Windows near current room
             glassPanels.forEach(g => {
                 const winPos = g.mesh.position;
                 if (getRoomIndex(winPos) === curRoom || winPos.distanceTo(curCenter) < 42.0) {
-                    // Windows in room partitions share the same orientation grid
                     const isX = Math.abs(winPos.z % 75) < 5; 
                     candidates.push({ pos: winPos.clone(), type: 'WINDOW', obj: g, isX: isX });
                 }
@@ -3297,12 +3132,9 @@
             if (bestPortal) {
                 const destPos = bestPortal.pos.clone();
 
-                // Project through-waypoint perpendicular to wall plane
                 if (bestPortal.isX) {
-                    // Wall extends along X-axis -> Pass through along Z-axis
                     destPos.z += (botPos.z < bestPortal.pos.z) ? 5.0 : -5.0;
                 } else {
-                    // Wall extends along Z-axis -> Pass through along X-axis
                     destPos.x += (botPos.x < bestPortal.pos.x) ? 5.0 : -5.0;
                 }
 
@@ -3318,7 +3150,6 @@
             return null;
         }
 
-        // --- INTELLIGENT ROOM-AWARE BOT AI ENGINE ---
         function updateBots(delta) {
             if (isPreMatch || !gameStarted) return;
 
@@ -3344,7 +3175,6 @@
                     const botRoomIdx = getRoomIndex(botPos);
                     const botEyePos = botPos.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
 
-                    // --- STEP 1: SAME-ROOM OPPONENT SCANNING ---
                     if (bot.scanTimer <= 0) {
                         bot.scanTimer = 0.25 + Math.random() * 0.15;
                         let sameRoomEnemy = null;
@@ -3373,13 +3203,11 @@
                         bot.target = sameRoomEnemy;
                     }
 
-                    // --- STEP 2: SEARCH / PATROL TARGET GUARANTEE ---
                     let moveTarget = null;
                     let isNavigatingPortal = false;
                     let activePortal = null;
 
                     if (bot.target && bot.target.health > 0) {
-                        // Combat state: Fight enemy in same room
                         const enemyPos = (bot.target === player) ? player.position.clone() : bot.target.mesh.position.clone();
                         const distToEnemy = botPos.distanceTo(enemyPos);
                         const stopDist = (bot.weapon && bot.weapon.category === 'MELEE') ? 1.5 : 5.0;
@@ -3393,7 +3221,6 @@
                             bot.velocity.z = 0;
                         }
                     } else {
-                        // Search Mode: Find nearest door/window to move through
                         if (!bot.portalCooldown || bot.portalCooldown <= 0) {
                             activePortal = findNearestRoomPortal(bot, bot.targetRoom);
                         }
@@ -3402,7 +3229,6 @@
                             moveTarget = activePortal.targetThroughPos;
                             isNavigatingPortal = true;
                         } else {
-                            // Fallback: Head to another room center (Guarantees bot never stands idle)
                             if (!bot.patrolTarget || botPos.distanceTo(bot.patrolTarget) < 3.0) {
                                 bot.targetRoom = (botRoomIdx + Math.floor(Math.random() * 25) + 1) % 27;
                                 bot.patrolTarget = getRoomCenter(bot.targetRoom);
@@ -3413,21 +3239,16 @@
 
                     if (bot.portalCooldown > 0) bot.portalCooldown -= delta;
 
-                    // --- STEP 3: DOORWAY/WINDOW CENTER ALIGNMENT & VAULTING ---
                     const distToPortalCenter = (isNavigatingPortal && activePortal) ? botPos.distanceTo(activePortal.pos) : Infinity;
 
                     if (isNavigatingPortal && activePortal) {
-                        // Align cross-axis coordinate with the opening center
                         if (activePortal.isX) {
-                            // Wall runs along X -> Center bot's X position in doorway/window
                             botPos.x = THREE.MathUtils.lerp(botPos.x, activePortal.pos.x, delta * 10.0);
                         } else {
-                            // Wall runs along Z -> Center bot's Z position in doorway/window
                             botPos.z = THREE.MathUtils.lerp(botPos.z, activePortal.pos.z, delta * 10.0);
                         }
 
                         if (activePortal.type === 'WINDOW') {
-                            // Shoot sealed window glass when approaching
                             if (!activePortal.obj.isBroken && distToPortalCenter < 16.0) {
                                 const aimDir = new THREE.Vector3().subVectors(activePortal.pos, botEyePos).normalize();
                                 bot.mesh.rotation.y = Math.atan2(-aimDir.x, -aimDir.z);
@@ -3436,7 +3257,6 @@
                                 }
                             }
 
-                            // Vault cleanly over window sill frame
                             if (distToPortalCenter < 3.8 && bot.isGrounded && bot.jumpCooldown <= 0) {
                                 bot.velocity.y = 13;
                                 bot.isGrounded = false;
@@ -3449,21 +3269,18 @@
                         }
                     }
 
-                    // --- STEP 4: STEERING & PORTAL COLLISION BYPASS ---
                     if (moveTarget) {
                         const moveDir = new THREE.Vector3().subVectors(moveTarget, botPos).setY(0);
 
                         if (moveDir.lengthSq() > 0.04) {
                             moveDir.normalize();
 
-                            // Detect if stuck
                             if (distMoved < 0.08 * delta * 60) {
                                 bot.stuckTimer = (bot.stuckTimer || 0) + delta;
                             } else {
                                 bot.stuckTimer = Math.max(0, (bot.stuckTimer || 0) - delta * 2.0);
                             }
 
-                            // Emergency Stuck Escape
                             if (bot.stuckTimer > 0.35) {
                                 const escapeSign = (bot.id % 2 === 0) ? 1 : -1;
                                 moveDir.set(-moveDir.z * escapeSign, 0, moveDir.x * escapeSign).normalize();
@@ -3478,7 +3295,6 @@
                                     bot.patrolTarget = null;
                                 }
                             } else {
-                                // 3-Point Multi-Ray Obstacle Probing
                                 const probeCenter = botPos.clone().addScaledVector(moveDir, 1.4);
                                 const leftDir = new THREE.Vector3(-moveDir.z, 0, moveDir.x);
                                 const rightDir = new THREE.Vector3(moveDir.z, 0, -moveDir.x);
@@ -3507,7 +3323,6 @@
                             bot.velocity.x = moveDir.x * moveSpeed;
                             bot.velocity.z = moveDir.z * moveSpeed;
 
-                            // Allow smooth passage through doorways and windows by bypassing wall checks when near openings
                             const inPortalPassage = activePortal && distToPortalCenter < 3.2;
 
                             const oldX = botPos.x;
@@ -3528,7 +3343,6 @@
                         }
                     }
 
-                    // Gravity & Grounding
                     bot.velocity.y -= 32 * delta;
                     const propY = botPos.y + bot.velocity.y * delta;
                     const grndY = getGroundY(botPos);
@@ -3542,7 +3356,6 @@
                         bot.isGrounded = false;
                     }
 
-                    // --- STEP 5: COMBAT FIRING EXECUTION ---
                     if (bot.target && bot.target.health > 0) {
                         const enemyPos = (bot.target === player) ? player.position : bot.target.mesh.position;
                         const distToEnemy = botPos.distanceTo(enemyPos);
@@ -3598,7 +3411,6 @@
             });
         }
 
-        // --- MAIN GAME LOOP ---
         let lastTime = performance.now();
         function gameLoop() {
             requestAnimationFrame(gameLoop);
