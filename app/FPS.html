@@ -1311,20 +1311,22 @@
                 let nearby = false;
                 allEntities.forEach(ent => {
                     const pos = ent === player ? player.position : ent.mesh.position;
-                    if (pos.distanceTo(d.basePos) < 5.5) nearby = true;
+                    if (pos.distanceTo(d.basePos) < 7.5) nearby = true;
                 });
 
+                // Fast slide speed so doors are fully open before bots arrive
                 if (nearby) {
-                    d.slideProgress = Math.min(1.0, d.slideProgress + delta * 3.0);
+                    d.slideProgress = Math.min(1.0, d.slideProgress + delta * 12.0);
                 } else {
-                    d.slideProgress = Math.max(0.0, d.slideProgress - delta * 3.0);
+                    d.slideProgress = Math.max(0.0, d.slideProgress - delta * 4.0);
                 }
 
                 d.panel.position.x = d.isX ? d.width * d.slideProgress : 0;
                 d.panel.position.z = !d.isX ? d.width * d.slideProgress : 0;
 
                 d.boxObj.box.setFromObject(d.panel);
-                d.boxObj.active = d.slideProgress < 0.85;
+                // Deactivate door panel collider as soon as sliding begins
+                d.boxObj.active = d.slideProgress < 0.2;
             });
 
             const floorsY = [0.25, 8.25, 16.25];
@@ -3418,9 +3420,18 @@
 
                     if (bot.portalCooldown > 0) bot.portalCooldown -= delta;
 
-                    // --- STEP 3: DOORWAY & WINDOW HANDLING ---
+                    // --- STEP 3: DOORWAY CENTER ALIGNMENT & WINDOW HANDLING ---
+                    const distToPortalCenter = (isNavigatingPortal && activePortal) ? botPos.distanceTo(activePortal.pos) : Infinity;
+
                     if (isNavigatingPortal && activePortal) {
-                        const distToPortalCenter = botPos.distanceTo(activePortal.pos);
+                        if (activePortal.type === 'DOOR') {
+                            // Guide cross-axis position toward the door center line to avoid clipping frame edges
+                            if (activePortal.obj.isX) {
+                                botPos.z = THREE.MathUtils.lerp(botPos.z, activePortal.pos.z, delta * 10.0);
+                            } else {
+                                botPos.x = THREE.MathUtils.lerp(botPos.x, activePortal.pos.x, delta * 10.0);
+                            }
+                        }
 
                         if (activePortal.type === 'WINDOW') {
                             if (!activePortal.obj.isBroken && distToPortalCenter < 16.0) {
@@ -3443,7 +3454,7 @@
                         }
                     }
 
-                    // --- STEP 4: STEERING & NAVIGATION ---
+                    // --- STEP 4: STEERING & THRESHOLD CLEARANCE ---
                     if (moveTarget) {
                         const moveDir = new THREE.Vector3().subVectors(moveTarget, botPos);
                         moveDir.y = 0;
@@ -3474,13 +3485,16 @@
                             bot.velocity.x = moveDir.x * moveSpeed;
                             bot.velocity.z = moveDir.z * moveSpeed;
 
+                            // Bypass wall collisions when within threshold distance of a door portal
+                            const inDoorPassage = activePortal && activePortal.type === 'DOOR' && distToPortalCenter < 2.5;
+
                             const oldX = botPos.x;
                             botPos.x += bot.velocity.x * delta;
-                            if (checkWallCollision(botPos, 0.32, EYE_HEIGHT_STAND)) botPos.x = oldX;
+                            if (!inDoorPassage && checkWallCollision(botPos, 0.28, EYE_HEIGHT_STAND)) botPos.x = oldX;
 
                             const oldZ = botPos.z;
                             botPos.z += bot.velocity.z * delta;
-                            if (checkWallCollision(botPos, 0.32, EYE_HEIGHT_STAND)) botPos.z = oldZ;
+                            if (!inDoorPassage && checkWallCollision(botPos, 0.28, EYE_HEIGHT_STAND)) botPos.z = oldZ;
 
                             resolveEntityCollisions(bot.slot, botPos, bot.velocity, 0.5);
 
