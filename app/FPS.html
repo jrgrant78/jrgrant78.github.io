@@ -3237,6 +3237,38 @@
             }
         }
 
+        // --- PORTAL PATHFINDING (DOORS & WINDOWS) ---
+        function getPortalToTarget(botPos, targetPos) {
+            let bestPortal = null;
+            let minDist = Infinity;
+
+            // Search sliding doors on the same floor level
+            slidingDoors.forEach(d => {
+                const doorPos = d.basePos;
+                if (Math.abs(doorPos.y - botPos.y) < 3.0) {
+                    const dist = botPos.distanceTo(doorPos) + doorPos.distanceTo(targetPos);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        bestPortal = { pos: doorPos.clone(), type: 'DOOR', obj: d };
+                    }
+                }
+            });
+
+            // Search glass windows on the same floor level
+            glassPanels.forEach(g => {
+                const windowPos = g.mesh.position;
+                if (Math.abs(windowPos.y - botPos.y) < 3.0) {
+                    const dist = botPos.distanceTo(windowPos) + windowPos.distanceTo(targetPos);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        bestPortal = { pos: windowPos.clone(), type: 'WINDOW', obj: g };
+                    }
+                }
+            });
+
+            return bestPortal;
+        }
+
         // --- ROOM-AWARE QUADRANT BOT AI ---
         function updateBots(delta) {
             if (isPreMatch || !gameStarted) return;
@@ -3319,17 +3351,72 @@
                     bot.target = bestTarget;
                 }
 
+                // --- 1. ACTIVE SEARCH & SEEKING LOGIC ---
+                if (!bot.target) {
+                    let nearestEnemy = null;
+                    let nearestEnemyDist = Infinity;
+
+                    // Locate closest opponent across the entire facility
+                    allEntities.forEach(ent => {
+                        if (ent === bot || ent.health <= 0) return;
+                        if ((currentMode === 'TDM' || currentMode === 'CTF') && ent.team === bot.team) return;
+                        const entPos = (ent === player) ? player.position : ent.mesh.position;
+                        const dist = bot.mesh.position.distanceTo(entPos);
+                        if (dist < nearestEnemyDist) {
+                            nearestEnemyDist = dist;
+                            nearestEnemy = ent;
+                        }
+                    });
+
+                    if (nearestEnemy) {
+                        const enemyPos = (nearestEnemy === player) ? player.position : nearestEnemy.mesh.position;
+                        bot.targetRoom = getRoomIndex(enemyPos);
+                    }
+                }
+
                 const bestTarget = bot.target;
 
                 if (!bestTarget) {
-                    bot.rotX = 0; 
-                    if (currentMode === 'CTF') {
-                        const targetFlagPos = bot.team === 'CYAN' ? pinkBasePos : cyanBasePos;
-                        bot.patrolTarget = targetFlagPos.clone();
-                    } else if (!bot.patrolTarget || bot.mesh.position.distanceTo(bot.patrolTarget) < 3.0) {
-                        bot.targetRoom = Math.floor(Math.random() * 27);
-                        bot.patrolTarget = getRoomCenter(bot.targetRoom);
+                    bot.rotX = 0;
+                    
+                    const destinationPos = (bot.targetRoom !== null) ? getRoomCenter(bot.targetRoom) : bot.patrolTarget;
+
+                    if (destinationPos) {
+                        const currentRoom = getRoomIndex(bot.mesh.position);
+                        const destRoom = getRoomIndex(destinationPos);
+
+                        // --- 2. DOOR & WINDOW TRAVERSAL ---
+                        if (currentRoom !== destRoom) {
+                            const portal = getPortalToTarget(bot.mesh.position, destinationPos);
+                            if (portal) {
+                                bot.patrolTarget = portal.pos;
+
+                                // Handle sealed or broken windows
+                                if (portal.type === 'WINDOW') {
+                                    const distToWindow = bot.mesh.position.distanceTo(portal.pos);
+
+                                    // Shoot sealed glass when approaching
+                                    if (!portal.obj.isBroken && distToWindow < 16.0) {
+                                        const aimDir = new THREE.Vector3().subVectors(portal.pos, botEyePos).normalize();
+                                        bot.mesh.rotation.y = Math.atan2(-aimDir.x, -aimDir.z);
+                                        if (BOTS_CAN_FIRE && Math.random() < 0.2) {
+                                            fireActiveWeapon(bot, aimDir);
+                                        }
+                                    }
+
+                                    // Jump over windowsill to enter adjacent room
+                                    if (portal.obj.isBroken && distToWindow < 3.5 && bot.isGrounded) {
+                                        bot.velocity.y = 12;
+                                        bot.isGrounded = false;
+                                    }
+                                }
+                            }
+                        } else {
+                            bot.patrolTarget = destinationPos;
+                        }
                     }
+
+                    if (!bot.patrolTarget) return;
 
                     const patrolDir = new THREE.Vector3().subVectors(bot.patrolTarget, bot.mesh.position);
                     patrolDir.y = 0;
@@ -3338,20 +3425,6 @@
                     const moveSpeed = 11.0;
                     bot.velocity.x = patrolDir.x * moveSpeed;
                     bot.velocity.z = patrolDir.z * moveSpeed;
-
-                    if (bot.patrolTarget.y > bot.mesh.position.y + 2.0) {
-                        if (bot.isGrounded && Math.random() < 0.08) {
-                            bot.velocity.y = 13;
-                            bot.isGrounded = false;
-                        } else if (!bot.isGrounded && bot.velocity.y < 8) {
-                            bot.velocity.y += 18 * delta;
-                        }
-                    }
-
-                    if (bot.isGrounded && Math.random() < 0.04 && (Math.abs(Math.abs(bot.mesh.position.x) - 37.5) < 3.5 || Math.abs(Math.abs(bot.mesh.position.z) - 37.5) < 3.5)) {
-                        bot.velocity.y = 11;
-                        bot.isGrounded = false;
-                    }
 
                     const oldX = bot.mesh.position.x;
                     bot.mesh.position.x += bot.velocity.x * delta;
