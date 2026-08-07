@@ -3237,47 +3237,53 @@
             }
         }
 
-        // --- ROOM OPENING & PORTAL FINDER ---
+        // --- STABLE ROOM OPENING / PORTAL FINDER ---
         function getRoomOpening(botPos, targetPos) {
             const curRoom = getRoomIndex(botPos);
             const targetRoom = getRoomIndex(targetPos);
             if (curRoom === targetRoom) return null;
 
-            const curCenter = getRoomCenter(curRoom);
-            let bestOpening = null;
-            let bestDist = Infinity;
-            const candidates = [];
+            let bestPortal = null;
+            let minTotalDist = Infinity;
 
-            // Find doors leading out of current room
-            slidingDoors.forEach(d => {
-                if (Math.abs(d.basePos.y - botPos.y) < 3.0 && d.basePos.distanceTo(curCenter) < 45.0) {
-                    candidates.push({ pos: d.basePos.clone(), type: 'DOOR', obj: d });
+            // Check doors on the same floor level
+            for (let i = 0; i < slidingDoors.length; i++) {
+                const d = slidingDoors[i];
+                const dPos = d.basePos;
+                if (Math.abs(dPos.y - botPos.y) > 3.0) continue;
+
+                const distFromBot = botPos.distanceTo(dPos);
+                if (distFromBot > 45.0) continue;
+
+                const totalDist = distFromBot + dPos.distanceTo(targetPos);
+                if (totalDist < minTotalDist) {
+                    minTotalDist = totalDist;
+                    bestPortal = { pos: dPos.clone(), type: 'DOOR', obj: d };
                 }
-            });
+            }
 
-            // Find windows leading out of current room
-            glassPanels.forEach(g => {
-                const wPos = g.mesh.position.clone();
-                if (Math.abs(wPos.y - botPos.y) < 3.0 && wPos.distanceTo(curCenter) < 45.0) {
-                    candidates.push({ pos: wPos, type: 'WINDOW', obj: g });
+            // Check windows on the same floor level
+            for (let i = 0; i < glassPanels.length; i++) {
+                const g = glassPanels[i];
+                const wPos = g.mesh.position;
+                if (Math.abs(wPos.y - botPos.y) > 3.0) continue;
+
+                const distFromBot = botPos.distanceTo(wPos);
+                if (distFromBot > 45.0) continue;
+
+                const totalDist = distFromBot + wPos.distanceTo(targetPos);
+                if (totalDist < minTotalDist) {
+                    minTotalDist = totalDist;
+                    bestPortal = { pos: wPos.clone(), type: 'WINDOW', obj: g };
                 }
-            });
+            }
 
-            // Select the opening that minimizes path distance to target room
-            candidates.forEach(cand => {
-                const totalDist = botPos.distanceTo(cand.pos) + cand.pos.distanceTo(targetPos);
-                if (totalDist < bestDist) {
-                    bestDist = totalDist;
-                    bestOpening = cand;
-                }
-            });
-
-            return bestOpening;
+            return bestPortal;
         }
 
         // --- ROOM-AWARE BOT AI ENGINE ---
         function updateBots(delta) {
-            if (!gameStarted) return;
+            if (!gameStarted || isPreMatch) return;
 
             const allEntities = entitySlots.filter(e => e && e.health > 0);
 
@@ -3287,7 +3293,7 @@
                 try {
                     if (bot.mesh && !bot.mesh.visible) bot.mesh.visible = true;
 
-                    // Null guard to prevent bot lockups when target is removed
+                    // Validate target existence
                     if (bot.target) {
                         const isTargetValid = (bot.target === player && player.health > 0) ||
                                               (bot.target !== player && bot.target.health > 0 && bot.target.mesh && bot.target.mesh.position);
@@ -3301,15 +3307,12 @@
                     bot.grenadeCooldown = Math.max(0, bot.grenadeCooldown - delta);
                     bot.scanTimer -= delta;
 
-                    const distMoved = bot.mesh.position.distanceTo(bot.lastPos);
-                    bot.lastPos.copy(bot.mesh.position);
-
-                    const currentRoomIdx = getRoomIndex(bot.mesh.position);
                     const botEyePos = bot.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
+                    const currentRoomIdx = getRoomIndex(bot.mesh.position);
 
-                    // --- 1. ENEMY DISCOVERY & SEARCHING ---
+                    // --- 1. TARGET SCANNING & SEEKING ---
                     if (bot.scanTimer <= 0) {
-                        bot.scanTimer = 0.45 + Math.random() * 0.15; 
+                        bot.scanTimer = 0.4 + Math.random() * 0.2; 
                         let bestTarget = null;
                         let minDist = 65.0;
 
@@ -3335,135 +3338,105 @@
                         });
 
                         bot.target = bestTarget;
-
-                        // If no line-of-sight target, seek out nearest opponent's room
-                        if (!bestTarget) {
-                            let nearestEnemy = null;
-                            let nearestEnemyDist = Infinity;
-                            allEntities.forEach(ent => {
-                                if (ent === bot || ent.health <= 0) return;
-                                if ((currentMode === 'TDM' || currentMode === 'CTF') && ent.team === bot.team) return;
-                                const entPos = (ent === player) ? player.position : ent.mesh.position;
-                                const dist = bot.mesh.position.distanceTo(entPos);
-                                if (dist < nearestEnemyDist) {
-                                    nearestEnemyDist = dist;
-                                    nearestEnemy = ent;
-                                }
-                            });
-
-                            if (nearestEnemy) {
-                                const enemyPos = (nearestEnemy === player) ? player.position : nearestEnemy.mesh.position;
-                                bot.targetRoom = getRoomIndex(enemyPos);
-                            }
-                        }
                     }
 
-                    // --- 2. ROOM NAVIGATION & OPENING TRAVERSAL ---
-                    let moveTargetPos = null;
+                    // --- 2. DESTINATION & WAYPOINT ASSIGNMENT ---
+                    let finalDestination = null;
+
                     if (bot.target) {
-                        moveTargetPos = (bot.target === player) ? player.position.clone() : bot.target.mesh.position.clone();
+                        finalDestination = (bot.target === player) ? player.position.clone() : bot.target.mesh.position.clone();
                     } else {
-                        if (bot.targetRoom === null || currentRoomIdx === bot.targetRoom) {
+                        // Search Mode: Advance through room centers across the facility
+                        if (bot.targetRoom === null || currentRoomIdx === bot.targetRoom || bot.mesh.position.distanceTo(getRoomCenter(bot.targetRoom)) < 4.0) {
                             let newRoom = Math.floor(Math.random() * 27);
                             if (newRoom === currentRoomIdx) newRoom = (currentRoomIdx + 1) % 27;
                             bot.targetRoom = newRoom;
                         }
-                        moveTargetPos = getRoomCenter(bot.targetRoom);
+                        finalDestination = getRoomCenter(bot.targetRoom);
                     }
 
-                    // Determine if bot needs to travel through a door or window
-                    const opening = getRoomOpening(bot.mesh.position, moveTargetPos);
-                    let activeWaypoint = moveTargetPos;
+                    // Route through door/window portals when transitioning rooms
+                    let activeWaypoint = finalDestination.clone();
+                    const portal = getRoomOpening(bot.mesh.position, finalDestination);
 
-                    if (opening) {
-                        activeWaypoint = opening.pos.clone();
-                        const distToOpening = bot.mesh.position.distanceTo(opening.pos);
+                    if (portal) {
+                        const distToPortal = bot.mesh.position.distanceTo(portal.pos);
 
-                        if (opening.type === 'WINDOW') {
-                            // Shoot sealed window glass when approaching
-                            if (!opening.obj.isBroken && distToOpening < 18.0) {
-                                const aimDir = new THREE.Vector3().subVectors(opening.pos, botEyePos).normalize();
-                                bot.mesh.rotation.y = Math.atan2(-aimDir.x, -aimDir.z);
-                                if (BOTS_CAN_FIRE && Math.random() < 0.25) {
+                        if (distToPortal > 2.0) {
+                            activeWaypoint = portal.pos.clone();
+                        }
+
+                        if (portal.type === 'WINDOW') {
+                            // Shoot sealed window glass
+                            if (!portal.obj.isBroken && distToPortal < 16.0) {
+                                const aimDir = new THREE.Vector3().subVectors(portal.pos, botEyePos).normalize();
+                                if (BOTS_CAN_FIRE && Math.random() < 0.2) {
                                     fireActiveWeapon(bot, aimDir);
                                 }
                             }
-
-                            // Jump over window frame sill
-                            if (distToOpening < 3.2 && bot.isGrounded && bot.jumpCooldown <= 0) {
+                            // Leap over window sill
+                            if (distToPortal < 3.0 && bot.isGrounded && bot.jumpCooldown <= 0) {
                                 bot.velocity.y = 12;
                                 bot.isGrounded = false;
                                 bot.jumpCooldown = 0.8;
                             }
                         }
-
-                        // Push waypoint 3.5m past the portal threshold to prevent frame clipping
-                        if (distToOpening < 2.5) {
-                            const passDir = new THREE.Vector3().subVectors(moveTargetPos, opening.pos).normalize();
-                            passDir.y = 0;
-                            activeWaypoint.addScaledVector(passDir, 3.5);
-                        }
                     }
 
-                    // --- 3. MOVEMENT PHYSICS & OBSTACLE EVASION ---
+                    // --- 3. MOVEMENT PHYSICS & WALL-SLIDING (NO FLIPPING) ---
                     const moveDir = new THREE.Vector3().subVectors(activeWaypoint, bot.mesh.position);
                     moveDir.y = 0;
-                    moveDir.normalize();
 
-                    const moveSpeed = bot.target ? 14.0 : 11.0;
-                    bot.velocity.x = moveDir.x * moveSpeed;
-                    bot.velocity.z = moveDir.z * moveSpeed;
+                    if (moveDir.lengthSq() > 0.01) {
+                        moveDir.normalize();
 
-                    let hitWall = false;
+                        const moveSpeed = bot.target ? 14.0 : 11.0;
+                        bot.velocity.x = moveDir.x * moveSpeed;
+                        bot.velocity.z = moveDir.z * moveSpeed;
 
-                    // X-Axis Wall Check
-                    const oldX = bot.mesh.position.x;
-                    bot.mesh.position.x += bot.velocity.x * delta;
-                    if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
-                        bot.mesh.position.x = oldX;
-                        bot.velocity.x = 0;
-                        hitWall = true;
-                    }
+                        let hitX = false, hitZ = false;
 
-                    // Z-Axis Wall Check
-                    const oldZ = bot.mesh.position.z;
-                    bot.mesh.position.z += bot.velocity.z * delta;
-                    if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
-                        bot.mesh.position.z = oldZ;
-                        bot.velocity.z = 0;
-                        hitWall = true;
-                    }
-
-                    // Handle Wall Bumping without Endless Hopping
-                    if (hitWall) {
-                        bot.stuckTimer += delta;
-
-                        // Slide laterally along wall face instead of jumping into it
-                        const detourSign = (bot.id % 2 === 0) ? 1 : -1;
-                        const tangentDir = new THREE.Vector3(-moveDir.z * detourSign, 0, moveDir.x * detourSign);
-
-                        bot.velocity.x = tangentDir.x * moveSpeed;
-                        bot.velocity.z = tangentDir.z * moveSpeed;
-                        bot.mesh.rotation.y = Math.atan2(-tangentDir.x, -tangentDir.z);
-
-                        // Only jump as a last resort if stuck for >0.5s, then recalculate room path
-                        if (bot.stuckTimer > 0.5 && bot.isGrounded && bot.jumpCooldown <= 0) {
-                            bot.velocity.y = 11;
-                            bot.isGrounded = false;
-                            bot.jumpCooldown = 1.2;
-                            bot.stuckTimer = 0;
-                            bot.targetRoom = null;
-                            bot.target = null;
+                        // Axis-by-Axis Wall Sliding
+                        const oldX = bot.mesh.position.x;
+                        bot.mesh.position.x += bot.velocity.x * delta;
+                        if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
+                            bot.mesh.position.x = oldX;
+                            bot.velocity.x = 0;
+                            hitX = true;
                         }
-                    } else {
-                        bot.stuckTimer = Math.max(0, bot.stuckTimer - delta * 2.0);
-                        bot.mesh.rotation.y = Math.atan2(-moveDir.x, -moveDir.z);
+
+                        const oldZ = bot.mesh.position.z;
+                        bot.mesh.position.z += bot.velocity.z * delta;
+                        if (checkWallCollision(bot.mesh.position, 0.45, EYE_HEIGHT_STAND)) {
+                            bot.mesh.position.z = oldZ;
+                            bot.velocity.z = 0;
+                            hitZ = true;
+                        }
+
+                        // Align rotation with actual movement vector
+                        if (bot.velocity.lengthSq() > 0.1) {
+                            bot.mesh.rotation.y = Math.atan2(-bot.velocity.x, -bot.velocity.z);
+                            bot.stuckTimer = Math.max(0, bot.stuckTimer - delta);
+                        } else if (hitX && hitZ) {
+                            // Corner Stuck Recovery
+                            bot.stuckTimer += delta;
+                            if (bot.stuckTimer > 0.4) {
+                                if (bot.isGrounded && bot.jumpCooldown <= 0) {
+                                    bot.velocity.y = 11;
+                                    bot.isGrounded = false;
+                                    bot.jumpCooldown = 0.8;
+                                }
+                                bot.targetRoom = Math.floor(Math.random() * 27);
+                                bot.target = null;
+                                bot.stuckTimer = 0;
+                            }
+                        }
                     }
 
-                    // Solid Entity-to-Entity Collision Resolution
+                    // Solid Entity Pushback Collisions
                     resolveEntityCollisions(bot.slot, bot.mesh.position, bot.velocity, 0.65);
 
-                    // Gravity & Ground snap
+                    // Gravity & Ground Snap
                     bot.velocity.y -= 32 * delta;
                     const propY = bot.mesh.position.y + bot.velocity.y * delta;
                     const grndY = getGroundY(bot.mesh.position);
@@ -3477,9 +3450,11 @@
                         bot.isGrounded = false;
                     }
 
-                    // --- 4. COMBAT & FIRING LOGIC ---
+                    // --- 4. COMBAT AIM & FIRING ---
                     if (bot.target) {
-                        const targetPos = (bot.target === player) ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0)) : bot.target.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
+                        const targetPos = (bot.target === player) 
+                            ? player.position.clone().add(new THREE.Vector3(0, player.currentEyeHeight, 0)) 
+                            : bot.target.mesh.position.clone().add(new THREE.Vector3(0, EYE_HEIGHT_STAND, 0));
                         const distToEnemy = botEyePos.distanceTo(targetPos);
                         const dirToEnemy = new THREE.Vector3().subVectors(targetPos, botEyePos).normalize();
 
