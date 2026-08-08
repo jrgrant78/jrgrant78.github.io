@@ -163,6 +163,7 @@
             </div>
         </div>
     </div>
+
     <script>
         const BOTS_CAN_FIRE = true;
         const TOTAL_COMBATANTS = 50; 
@@ -1621,7 +1622,7 @@
                 isGrounded: true, canDoubleJump: true,
                 isSprinting: false, isSliding: false, isCrouching: false, slideTimer: 0, slideDir: new THREE.Vector3(),
                 jumpCooldown: 0, grenadeCooldown: 0, target: null, patrolTarget: null,
-                targetRoom: null,
+                targetRoom: null, activePortal: null, portalCooldown: 0,
                 scanTimer: (id % 15) * 0.02,
                 stuckTimer: 0, lastPos: spawnPos.clone(), rotX: 0
             };
@@ -2978,6 +2979,8 @@
                 if (entity.inventory) entity.inventory.forEach(w => { if (w) w.ammo = w.ammoMax; });
                 entity.patrolTarget = null;
                 entity.targetRoom = null;
+                entity.activePortal = null;
+                entity.portalCooldown = 0;
                 entity.stuckTimer = 0;
                 if (entity.lastPos) entity.lastPos.copy(safeSpawn);
                 entity.rotX = 0;
@@ -3097,12 +3100,27 @@
             }
         }
 
+        // Room-grid helpers used to score which portal actually makes progress toward a goal room
+        function getRoomGridCoords(roomIdx) {
+            const f = Math.floor(roomIdx / 9);
+            const rem = roomIdx % 9;
+            const zIdx = Math.floor(rem / 3);
+            const xIdx = rem % 3;
+            return { f, xIdx, zIdx };
+        }
+
+        function roomGridDistance(a, b) {
+            const ca = getRoomGridCoords(a);
+            const cb = getRoomGridCoords(b);
+            return Math.abs(ca.f - cb.f) + Math.abs(ca.xIdx - cb.xIdx) + Math.abs(ca.zIdx - cb.zIdx);
+        }
+
         function findNearestRoomPortal(bot, targetRoomIdx) {
             const botPos = bot.mesh.position;
             const curRoom = getRoomIndex(botPos);
             const curCenter = getRoomCenter(curRoom);
             let bestPortal = null;
-            let minDist = Infinity;
+            let bestScore = Infinity;
 
             const candidates = [];
 
@@ -3116,15 +3134,35 @@
             glassPanels.forEach(g => {
                 const winPos = g.mesh.position;
                 if (getRoomIndex(winPos) === curRoom || winPos.distanceTo(curCenter) < 42.0) {
-                    const isX = Math.abs(winPos.z % 75) < 5; 
-                    candidates.push({ pos: winPos.clone(), type: 'WINDOW', obj: g, isX: isX });
+                    // Use the window's real orientation flag (stored at creation time),
+                    // never re-derive it from position - that guess was wrong for
+                    // every window built with isX = true.
+                    candidates.push({ pos: winPos.clone(), type: 'WINDOW', obj: g, isX: g.isX });
                 }
             });
 
             candidates.forEach(cand => {
+                // Project a point just beyond the opening to find out which room it actually leads to
+                const throughPos = cand.pos.clone();
+                if (cand.isX) {
+                    throughPos.z += (botPos.z < cand.pos.z) ? 6.0 : -6.0;
+                } else {
+                    throughPos.x += (botPos.x < cand.pos.x) ? 6.0 : -6.0;
+                }
+                const destRoom = getRoomIndex(throughPos);
+                if (destRoom === curRoom) return; // doesn't actually cross into a new room, skip
+
                 const dist = botPos.distanceTo(cand.pos);
-                if (dist < minDist) {
-                    minDist = dist;
+                const gridDist = (typeof targetRoomIdx === 'number' && !isNaN(targetRoomIdx))
+                    ? roomGridDistance(destRoom, targetRoomIdx)
+                    : 0;
+
+                // Room-grid progress dominates the score; physical distance only breaks ties
+                // between portals that make equal progress toward the goal room.
+                const score = gridDist * 1000 + dist;
+
+                if (score < bestScore) {
+                    bestScore = score;
                     bestPortal = cand;
                 }
             });
@@ -3221,16 +3259,30 @@
                             bot.velocity.z = 0;
                         }
                     } else {
-                        if (!bot.portalCooldown || bot.portalCooldown <= 0) {
-                            activePortal = findNearestRoomPortal(bot, bot.targetRoom);
+                        // Pick (and keep) a persistent goal room. Re-rolled once we actually
+                        // arrive there, not every frame - this is what gives bots a reason
+                        // to keep moving instead of re-deciding where to go each tick.
+                        if (bot.targetRoom === null || bot.targetRoom === undefined || botRoomIdx === bot.targetRoom) {
+                            let newRoom = Math.floor(Math.random() * 27);
+                            if (newRoom === botRoomIdx) newRoom = (newRoom + 1 + Math.floor(Math.random() * 26)) % 27;
+                            bot.targetRoom = newRoom;
+                            bot.activePortal = null; // force a fresh portal pick toward the new goal
                         }
 
-                        if (activePortal) {
+                        // Only search for a new portal when we don't already have one locked in.
+                        // Recomputing "nearest portal" every frame let the target flip between
+                        // near-tied candidates as the bot moved, which is what caused bots to
+                        // spin in place instead of actually traveling anywhere.
+                        if (!bot.activePortal && (!bot.portalCooldown || bot.portalCooldown <= 0)) {
+                            bot.activePortal = findNearestRoomPortal(bot, bot.targetRoom);
+                        }
+
+                        if (bot.activePortal) {
+                            activePortal = bot.activePortal;
                             moveTarget = activePortal.targetThroughPos;
                             isNavigatingPortal = true;
                         } else {
                             if (!bot.patrolTarget || botPos.distanceTo(bot.patrolTarget) < 3.0) {
-                                bot.targetRoom = (botRoomIdx + Math.floor(Math.random() * 25) + 1) % 27;
                                 bot.patrolTarget = getRoomCenter(bot.targetRoom);
                             }
                             moveTarget = bot.patrolTarget;
@@ -3250,8 +3302,11 @@
 
                         if (activePortal.type === 'WINDOW') {
                             if (!activePortal.obj.isBroken && distToPortalCenter < 16.0) {
+                                // Aim to shoot the glass without hard-snapping the body's facing -
+                                // the movement code below already turns the bot smoothly toward
+                                // its travel direction, and fighting that every frame is what
+                                // produced the rapid spin near windows.
                                 const aimDir = new THREE.Vector3().subVectors(activePortal.pos, botEyePos).normalize();
-                                bot.mesh.rotation.y = Math.atan2(-aimDir.x, -aimDir.z);
                                 if (BOTS_CAN_FIRE && Math.random() < 0.3) {
                                     fireActiveWeapon(bot, aimDir);
                                 }
@@ -3266,6 +3321,7 @@
 
                         if (distToPortalCenter < 2.2) {
                             bot.portalCooldown = 2.5;
+                            bot.activePortal = null; // crossed it - plan the next leg fresh
                         }
                     }
 
@@ -3293,6 +3349,7 @@
                                     bot.stuckTimer = 0;
                                     bot.portalCooldown = 3.0;
                                     bot.patrolTarget = null;
+                                    bot.activePortal = null;
                                 }
                             } else {
                                 const probeCenter = botPos.clone().addScaledVector(moveDir, 1.4);
