@@ -875,8 +875,8 @@
                 const sillH = 2.0;
                 const headerH = 1.0;
 
-                createStaticWall(x, y + sillH / 2, z, isX ? w : wallThick, sillH, isX ? wallThick : w);
-                createStaticWall(x, y + sillH + h + headerH / 2, z, isX ? w : wallThick, headerH, isX ? wallThick : w);
+                const sillBox = createStaticWall(x, y + sillH / 2, z, isX ? w : wallThick, sillH, isX ? wallThick : w);
+                const headerBox = createStaticWall(x, y + sillH + h + headerH / 2, z, isX ? w : wallThick, headerH, isX ? wallThick : w);
 
                 const glassMesh = new THREE.Mesh(new THREE.BoxGeometry(isX ? w : 0.25, h, isX ? 0.25 : w), glassMat);
                 glassMesh.position.set(x, y + sillH + h / 2, z);
@@ -898,7 +898,9 @@
                     botFrame: botFrame,
                     boxObj: bObj,
                     isBroken: false,
-                    isX: isX
+                    isX: isX,
+                    sillMesh: sillBox.mesh,
+                    headerMesh: headerBox.mesh
                 });
             };
 
@@ -1918,7 +1920,7 @@
             return maxFloorY;
         }
 
-        function checkWallCollision(pos, radius = 0.32, height = EYE_HEIGHT_STAND) {
+        function checkWallCollision(pos, radius = 0.32, height = EYE_HEIGHT_STAND, excludeMeshes = null) {
             const footOffset = 0.3;
             const box = new THREE.Box3(
                 new THREE.Vector3(pos.x - radius, pos.y + footOffset, pos.z - radius),
@@ -1928,6 +1930,7 @@
             for (let i = 0; i < wallColliders.length; i++) {
                 const wallMesh = wallColliders[i];
                 if (!wallMesh || !wallMesh.parent) continue;
+                if (excludeMeshes && excludeMeshes.indexOf(wallMesh) !== -1) continue;
 
                 let isOpenedDoor = false;
                 for (let j = 0; j < slidingDoors.length; j++) {
@@ -1942,6 +1945,25 @@
                 if (box.intersectsBox(wBox)) return true;
             }
             return false;
+        }
+
+        // Windows never physically open the way doors do, so their sill/header would
+        // otherwise permanently read as an obstacle to a bot's pathfinding probes even
+        // while it's deliberately walking straight at that exact window to cross through
+        // it. This returns the specific colliders to ignore for a bot's own target portal
+        // only - every other wall/sill in the facility still blocks normally.
+        function getPortalExcludeMeshes(portal) {
+            if (!portal) return null;
+            if (portal.type === 'DOOR' && portal.obj && portal.obj.panel) {
+                return [portal.obj.panel];
+            }
+            if (portal.type === 'WINDOW' && portal.obj) {
+                const list = [];
+                if (portal.obj.sillMesh) list.push(portal.obj.sillMesh);
+                if (portal.obj.headerMesh) list.push(portal.obj.headerMesh);
+                return list;
+            }
+            return null;
         }
 
         function checkCeilingCollision(pos, radius = 0.45, height = EYE_HEIGHT_STAND) {
@@ -3352,6 +3374,8 @@
                                     bot.activePortal = null;
                                 }
                             } else {
+                                const portalExclude = (isNavigatingPortal && activePortal) ? getPortalExcludeMeshes(activePortal) : null;
+
                                 const probeCenter = botPos.clone().addScaledVector(moveDir, 1.4);
                                 const leftDir = new THREE.Vector3(-moveDir.z, 0, moveDir.x);
                                 const rightDir = new THREE.Vector3(moveDir.z, 0, -moveDir.x);
@@ -3359,9 +3383,9 @@
                                 const probeLeft = botPos.clone().addScaledVector(moveDir, 1.2).addScaledVector(leftDir, 0.8);
                                 const probeRight = botPos.clone().addScaledVector(moveDir, 1.2).addScaledVector(rightDir, 0.8);
 
-                                const centerBlocked = checkWallCollision(probeCenter, 0.4, EYE_HEIGHT_STAND);
-                                const leftBlocked = checkWallCollision(probeLeft, 0.4, EYE_HEIGHT_STAND);
-                                const rightBlocked = checkWallCollision(probeRight, 0.4, EYE_HEIGHT_STAND);
+                                const centerBlocked = checkWallCollision(probeCenter, 0.4, EYE_HEIGHT_STAND, portalExclude);
+                                const leftBlocked = checkWallCollision(probeLeft, 0.4, EYE_HEIGHT_STAND, portalExclude);
+                                const rightBlocked = checkWallCollision(probeRight, 0.4, EYE_HEIGHT_STAND, portalExclude);
 
                                 if (centerBlocked || leftBlocked || rightBlocked) {
                                     if (!leftBlocked) {
@@ -3380,15 +3404,16 @@
                             bot.velocity.x = moveDir.x * moveSpeed;
                             bot.velocity.z = moveDir.z * moveSpeed;
 
+                            const portalExcludeForMove = (isNavigatingPortal && activePortal) ? getPortalExcludeMeshes(activePortal) : null;
                             const inPortalPassage = activePortal && distToPortalCenter < 3.2;
 
                             const oldX = botPos.x;
                             botPos.x += bot.velocity.x * delta;
-                            if (!inPortalPassage && checkWallCollision(botPos, 0.28, EYE_HEIGHT_STAND)) botPos.x = oldX;
+                            if (!inPortalPassage && checkWallCollision(botPos, 0.28, EYE_HEIGHT_STAND, portalExcludeForMove)) botPos.x = oldX;
 
                             const oldZ = botPos.z;
                             botPos.z += bot.velocity.z * delta;
-                            if (!inPortalPassage && checkWallCollision(botPos, 0.28, EYE_HEIGHT_STAND)) botPos.z = oldZ;
+                            if (!inPortalPassage && checkWallCollision(botPos, 0.28, EYE_HEIGHT_STAND, portalExcludeForMove)) botPos.z = oldZ;
 
                             resolveEntityCollisions(bot.slot, botPos, bot.velocity, 0.5);
 
