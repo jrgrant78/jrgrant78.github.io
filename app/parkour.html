@@ -297,6 +297,8 @@ const CFG = {
   SLIDE_DURATION: 0.40,
   SLIDE_FRICTION: 900,
   SLIDE_H_MULT: 0.52,
+  SLIDE_TRIGGER_SPEED: 160,  // must be moving at least this fast for 'S' to slide instead of crouch
+  CROUCH_SPEED_MULT: 0.32,   // crouch-walk speed, kept well under SLIDE_TRIGGER_SPEED
   LEDGE_REACH_X: 26,
   LEDGE_BAND: 20,
   LEDGE_CLIMB_TIME: 0.26,
@@ -376,7 +378,7 @@ const MELEE_WEAPONS = {
   lance:      { id:'lance',      name:'LANCE',        dmg:26, range:96,  arc:24,  windup:0.09, active:0.07, recover:0.16, kb:220, color:'#eef1f7', thrust:true },
   katana:     { id:'katana',     name:'KATANA',       dmg:20, range:66,  arc:100, windup:0.05, active:0.07, recover:0.11, kb:110, color:'#eef1f7' },
   scimitar:   { id:'scimitar',   name:'SCIMITAR',     dmg:18, range:62,  arc:120, windup:0.05, active:0.08, recover:0.10, kb:100, color:'#ffd23f' },
-  lightsaber: { id:'lightsaber', name:'LIGHTSABER',   dmg:30, range:70,  arc:95,  windup:0.06, active:0.08, recover:0.12, kb:160, color:'#2de2c8', glow:true, deflect:true },
+  lightsaber: { id:'lightsaber', name:'LIGHTSABER',   dmg:30, range:70,  arc:95,  windup:0.06, active:0.08, recover:0.12, kb:160, color:'#2de2c8', glow:true },
   frypan:     { id:'frypan',     name:'FRYING PAN',   dmg:12, range:58,  arc:100, windup:0.08, active:0.08, recover:0.15, kb:460, color:'#4a4a55' },
 };
 const MELEE_KEYS = Object.keys(MELEE_WEAPONS);
@@ -398,18 +400,102 @@ const ENV_KEYS = Object.keys(ENV_PROPS);
    Deterministic from a single integer seed — host picks the seed
    once and every client (including host) generates an identical
    layout locally, so only the seed needs to cross the network.
+
+   Structure: the level is a stack of discrete FLOORS (like a
+   building). Each floor is generated independently and is fully
+   walkable end-to-end (every gap between its own platforms is
+   jump-safe). Adjacent floors are linked by several CONNECTORS
+   (wall-jump shafts or staircases) whose base always lands on a
+   real platform of the floor below and whose top is a guaranteed
+   landing pad on the floor above — so every floor, and every
+   platform on it, is reachable starting from the ground floor.
    ============================================================ */
 const LEVEL_CFG = {
-  SEGMENTS: 34,
-  SEG_MIN: 640,
-  SEG_MAX: 900,
-  Y_MIN: 480,     // highest platforms can be (small y = high up)
-  Y_MAX: 1900,    // ground-level baseline
-  KILL_PAD: 380,  // how far below the lowest platform the death-plane sits
+  FLOOR_GAP: 360,     // vertical spacing between floor baselines
+  GROUND_Y: 1900,     // floor 0 (ground floor) baseline
+  KILL_PAD: 420,      // how far below the ground floor the death-plane sits
+  MAX_JUMP_GAP: 230,  // widest horizontal gap allowed within a single floor's run
 };
 
 function addPlat(list, x, y, w, h, oneWay){
   list.push({ x, y, w, h, oneWay: !!oneWay });
+}
+
+// One horizontal tier, fully walkable end to end. Occasional one-way
+// cover blocks and item spawns are seeded in as it's built.
+function genFloorPlatforms(rng, floorY, levelWidth, pickupSpawns, envSpawns){
+  const platforms = [];
+  let x = 0, sinceItem = 0;
+  while (x < levelWidth){
+    const w = rngInt(rng, 260, 460);
+    const y = floorY + rngInt(rng, -24, 24);
+    addPlat(platforms, x, y, w, 34);
+    sinceItem += w;
+    if (sinceItem > 480){
+      const roll = rng();
+      if (roll < 0.40) pickupSpawns.push({ x: x + w*0.5, y: y - 26 });
+      else if (roll < 0.58) envSpawns.push({ x: x + w*0.5, y: y - 30 });
+      sinceItem = 0;
+    }
+    if (rng() < 0.16){ // occasional one-way cover block for combat variety
+      const cw = rngInt(rng, 70, 130);
+      addPlat(platforms, x + w*0.3, y - rngInt(rng,55,95), cw, 22, true);
+    }
+    x += w;
+    if (x >= levelWidth) break;
+    x += rngInt(rng, 90, LEVEL_CFG.MAX_JUMP_GAP); // always jump-safe
+  }
+  return platforms;
+}
+
+// Picks an x that sits ON a real platform of the given floor, inside
+// [bandStart,bandEnd] when possible, so a connector's base is always grounded.
+function pickXOnFloor(rng, floorPlatforms, bandStart, bandEnd){
+  const inBand = floorPlatforms.filter(p => !p.oneWay && p.x + p.w*0.3 >= bandStart && p.x + p.w*0.7 <= bandEnd && p.w > 100);
+  const solids = floorPlatforms.filter(p => !p.oneWay && p.w > 100);
+  const pool = inBand.length ? inBand : (solids.length ? solids : floorPlatforms);
+  const plat = rngPick(rng, pool);
+  const margin = Math.min(45, plat.w*0.22);
+  return plat.x + margin + rng()*Math.max(1, plat.w - margin*2);
+}
+
+// Wall-jump shaft: two facing walls (so there's always something to jump off
+// of on the way up), each split into two segments around a SHARED open band
+// partway up — that band is the "open section" that keeps the shaft from
+// being a sealed tube, since a wall-jump arc carries you straight through it.
+function buildWallJumpConnector(rng, x, floorYBottom, floorYTop, platforms, pickupSpawns){
+  const shaftW = rngInt(rng, 150, 190);
+  addPlat(platforms, x - 50, floorYBottom, shaftW + 100, 34);       // base bridge, always reachable from the floor below
+  addPlat(platforms, x - 70, floorYTop - 34, shaftW + 240, 34);     // guaranteed landing pad on the floor above
+
+  const span = floorYBottom - floorYTop;
+  const gapCenter = floorYTop + span * (0.38 + rng()*0.22);
+  const gapHalf = 48;
+  const gapTop = gapCenter - gapHalf, gapBottom = gapCenter + gapHalf;
+
+  addPlat(platforms, x, floorYTop, 26, gapTop - floorYTop);               // left wall, upper segment
+  addPlat(platforms, x, gapBottom, 26, floorYBottom - gapBottom);         // left wall, lower segment
+  addPlat(platforms, x + shaftW, floorYTop, 26, gapTop - floorYTop);      // right wall, upper segment
+  addPlat(platforms, x + shaftW, gapBottom, 26, floorYBottom - gapBottom);// right wall, lower segment
+
+  if (rng() < 0.65) pickupSpawns.push({ x: x + shaftW*0.5, y: floorYTop - 60 });
+}
+
+// Staircase: an alternate, non-wall-jump route between floors.
+function buildStaircaseConnector(rng, x, floorYBottom, floorYTop, platforms, pickupSpawns){
+  const span = floorYBottom - floorYTop;
+  const steps = rngInt(rng, 4, 6);
+  const stepH = span / steps;
+  let cx = x, dir = rng() < 0.5 ? 1 : -1;
+  for (let i=1;i<steps;i++){
+    const sw = rngInt(rng, 130, 200);
+    cx += dir * (sw*0.5 + rngInt(rng,20,50));
+    const sy = floorYBottom - stepH*i;
+    addPlat(platforms, cx - sw/2, sy, sw, 26);
+    if (i === Math.floor(steps/2) && rng() < 0.6) pickupSpawns.push({ x: cx, y: sy - 26 });
+    if (rng() < 0.3) dir *= -1;
+  }
+  addPlat(platforms, x - 160, floorYTop - 34, 360, 34); // guaranteed landing pad, same idea as the shaft
 }
 
 function genLevel(seed){
@@ -419,123 +505,36 @@ function genLevel(seed){
   const envSpawns = [];
   const playerSpawns = [];
 
-  // starting safe platform
-  addPlat(platforms, 0, LEVEL_CFG.Y_MAX, 560, 40);
-  for (let i=0;i<4;i++) playerSpawns.push({ x: 90 + i*110, y: LEVEL_CFG.Y_MAX - 100 });
+  const FLOOR_COUNT = rngInt(rng, 5, 7);
+  const LEVEL_WIDTH = rngInt(rng, 11000, 15000);
 
-  let cursorX = 560;
-  let prevY = LEVEL_CFG.Y_MAX;
-  let maxDepth = LEVEL_CFG.Y_MAX;
-  let minHeight = LEVEL_CFG.Y_MAX;
-
-  const patterns = ['gapRun','gapRun','staircase','shaft','arena','overhang','gapDrop'];
-
-  function segW(rng2){ return rngInt(rng2, LEVEL_CFG.SEG_MIN, LEVEL_CFG.SEG_MAX); }
-
-  function pat_gapRun(x0, py){
-    const y = clamp(py + rngInt(rng,-70,70), LEVEL_CFG.Y_MIN, LEVEL_CFG.Y_MAX);
-    const w1 = rngInt(rng, 260, 420);
-    addPlat(platforms, x0, y, w1, 34);
-    if (rng() < 0.55) pickupSpawns.push({ x: x0 + w1*0.5, y: y - 26 });
-    const gap = rngInt(rng, 140, 250);
-    const x2 = x0 + w1 + gap;
-    const y2 = clamp(y + rngInt(rng,-90,90), LEVEL_CFG.Y_MIN, LEVEL_CFG.Y_MAX);
-    const w2 = rngInt(rng, 260, 420);
-    addPlat(platforms, x2, y2, w2, 34);
-    return { endX: x2 + w2, endY: y2 };
+  const floors = [];
+  for (let f=0; f<FLOOR_COUNT; f++){
+    const floorY = LEVEL_CFG.GROUND_Y - f*LEVEL_CFG.FLOOR_GAP;
+    const plats = genFloorPlatforms(rng, floorY, LEVEL_WIDTH, pickupSpawns, envSpawns);
+    floors.push({ y: floorY, platforms: plats });
+    for (const p of plats) platforms.push(p);
   }
 
-  function pat_staircase(x0, py){
-    const dir = rng() < 0.5 ? -1 : 1; // -1 = climbing up, 1 = descending
-    let x = x0, y = py;
-    const steps = rngInt(rng, 3, 5);
-    for (let i=0;i<steps;i++){
-      const w = rngInt(rng, 150, 230);
-      y = clamp(y + dir * rngInt(rng, 90, 150), LEVEL_CFG.Y_MIN, LEVEL_CFG.Y_MAX);
-      addPlat(platforms, x, y, w, 30);
-      if (i === Math.floor(steps/2) && rng() < 0.6) pickupSpawns.push({ x: x + w*0.5, y: y - 26 });
-      x += w + rngInt(rng, 110, 170);
+  for (let i=0;i<4;i++) playerSpawns.push({ x: 90 + i*110, y: floors[0].y - 100 });
+
+  for (let f=0; f<FLOOR_COUNT-1; f++){
+    const lower = floors[f], upper = floors[f+1];
+    const connectorCount = rngInt(rng, 3, 5);
+    const bandW = LEVEL_WIDTH / connectorCount;
+    for (let c=0;c<connectorCount;c++){
+      const bandStart = c*bandW, bandEnd = (c+1)*bandW;
+      const x = pickXOnFloor(rng, lower.platforms, bandStart, bandEnd);
+      if (rng() < 0.55) buildWallJumpConnector(rng, x, lower.y, upper.y, platforms, pickupSpawns);
+      else buildStaircaseConnector(rng, x, lower.y, upper.y, platforms, pickupSpawns);
     }
-    return { endX: x, endY: y };
   }
 
-  function pat_shaft(x0, py){
-    // vertical wall-jump corridor: two facing walls, climb to a cap platform
-    const shaftW = rngInt(rng, 150, 190);
-    const topY = clamp(py - rngInt(rng, 420, 620), LEVEL_CFG.Y_MIN, LEVEL_CFG.Y_MAX - 300);
-    const floorY = py;
-    const wallH = floorY - topY + 40;
-    addPlat(platforms, x0, topY, 28, wallH);                 // left wall
-    addPlat(platforms, x0 + shaftW, topY, 28, wallH);         // right wall
-    addPlat(platforms, x0 - 40, floorY, shaftW + 108, 34);    // floor bridging into shaft
-    const capW = rngInt(rng, 260, 360);
-    addPlat(platforms, x0 - 20, topY - 34, capW, 34);         // landing at top of shaft
-    if (rng() < 0.7) pickupSpawns.push({ x: x0 - 20 + capW*0.5, y: topY - 60 });
-    return { endX: x0 + Math.max(shaftW+108, capW) - 10, endY: topY - 34 };
-  }
+  const width = LEVEL_WIDTH;
+  const killY = LEVEL_CFG.GROUND_Y + LEVEL_CFG.KILL_PAD;
+  const minHeight = LEVEL_CFG.GROUND_Y - (FLOOR_COUNT-1) * LEVEL_CFG.FLOOR_GAP;
 
-  function pat_arena(x0, py){
-    const y = clamp(py + rngInt(rng,-40,40), LEVEL_CFG.Y_MIN, LEVEL_CFG.Y_MAX);
-    const w = rngInt(rng, 620, 820);
-    addPlat(platforms, x0, y, w, 40);
-    const covers = rngInt(rng, 1, 3);
-    for (let i=0;i<covers;i++){
-      const cw = rngInt(rng, 70, 140);
-      const cx = x0 + 80 + rng() * (w - 160 - cw);
-      addPlat(platforms, cx, y - rngInt(rng,60,110), cw, 24, true); // one-way cover block
-    }
-    pickupSpawns.push({ x: x0 + w*0.28, y: y - 26 });
-    pickupSpawns.push({ x: x0 + w*0.72, y: y - 26 });
-    if (rng() < 0.8) envSpawns.push({ x: x0 + w*0.5, y: y - 30 });
-    return { endX: x0 + w, endY: y };
-  }
-
-  function pat_overhang(x0, py){
-    const y = clamp(py + rngInt(rng,-30,30), LEVEL_CFG.Y_MIN, LEVEL_CFG.Y_MAX);
-    const w = rngInt(rng, 420, 560);
-    addPlat(platforms, x0, y, w, 34);
-    // low ceiling forcing a slide through the middle third
-    const ceilW = w * 0.4;
-    const ceilX = x0 + w*0.3;
-    addPlat(platforms, ceilX, y - 96, ceilW, 26);
-    if (rng() < 0.5) pickupSpawns.push({ x: x0 + w*0.5, y: y - 26 });
-    return { endX: x0 + w, endY: y };
-  }
-
-  function pat_gapDrop(x0, py){
-    const y = py;
-    const w1 = rngInt(rng, 220, 340);
-    addPlat(platforms, x0, y, w1, 34);
-    const dropGap = rngInt(rng, 160, 240);
-    const x2 = x0 + w1 + dropGap;
-    const y2 = clamp(y + rngInt(rng, 160, 320), LEVEL_CFG.Y_MIN, LEVEL_CFG.Y_MAX);
-    const w2 = rngInt(rng, 320, 480);
-    addPlat(platforms, x2, y2, w2, 34);
-    if (rng() < 0.5) envSpawns.push({ x: x2 + w2*0.5, y: y2 - 30 });
-    return { endX: x2 + w2, endY: y2 };
-  }
-
-  const fns = {
-    gapRun: pat_gapRun, staircase: pat_staircase, shaft: pat_shaft,
-    arena: pat_arena, overhang: pat_overhang, gapDrop: pat_gapDrop,
-  };
-
-  for (let i=0;i<LEVEL_CFG.SEGMENTS;i++){
-    const pick = rngPick(rng, patterns);
-    const res = fns[pick](cursorX, prevY);
-    cursorX = res.endX + rngInt(rng, 40, 90);
-    prevY = res.endY;
-    maxDepth = Math.max(maxDepth, prevY);
-    minHeight = Math.min(minHeight, prevY);
-  }
-
-  // final wide platform so the level has a clean end
-  addPlat(platforms, cursorX, LEVEL_CFG.Y_MAX, 500, 40);
-
-  const width = cursorX + 500;
-  const killY = maxDepth + LEVEL_CFG.KILL_PAD;
-
-  return { seed, width, height: killY + 200, killY, minHeight, platforms, pickupSpawns, envSpawns, playerSpawns };
+  return { seed, width, height: killY + 200, killY, minHeight, floorCount: FLOOR_COUNT, platforms, pickupSpawns, envSpawns, playerSpawns };
 }
 
 /* ============================================================
@@ -550,7 +549,7 @@ function makePlayer(id, name, charId, spawn){
     facing: 1,
     speedMul: ch.speedMul, jumpMul: ch.jumpMul,
     grounded:false, onWall:0, wallSliding:false, wallStickT:0, wallLockT:0,
-    sliding:false, slideT:0,
+    sliding:false, slideT:0, crouching:false,
     ledgeHang:false, climbing:false, climbT:0, ledgeCooldown:0,
     climbFromX:0, climbFromY:0, climbToX:0, climbToY:0,
     coyoteT:0, jumpBufferT:0, jumpCutApplied:false,
@@ -661,20 +660,32 @@ function doJump(p){
 
 function startSlide(p){
   const oldH = p.h;
-  p.sliding = true; p.slideT = CFG.SLIDE_DURATION;
+  p.sliding = true; p.crouching = false; p.slideT = CFG.SLIDE_DURATION;
   const dir = p.vx !== 0 ? Math.sign(p.vx) : p.facing;
   p.vx = dir * Math.max(Math.abs(p.vx), CFG.SLIDE_SPEED);
   p.h = CFG.PLAYER_H * CFG.SLIDE_H_MULT;
   p.y += oldH - p.h;
 }
 
-function endSlide(p, solids){
+function enterCrouch(p){
+  if (p.crouching || p.sliding) return;
+  const oldH = p.h;
+  p.crouching = true;
+  p.h = CFG.PLAYER_H * CFG.SLIDE_H_MULT;
+  p.y += oldH - p.h;
+}
+
+// Shared by both slide-end and crouch-release: only stand up if there's
+// headroom, otherwise stay low until the obstruction clears.
+function tryStandUp(p, solids){
+  if (!p.sliding && !p.crouching) return true;
   const standH = CFG.PLAYER_H;
   const test = { x:p.x, y:p.y + p.h - standH, w:p.w, h:standH };
   for (const s of solids){ if (!s.oneWay && rectsOverlap(test, s)) return false; }
   p.y = p.y + p.h - standH;
   p.h = standH;
   p.sliding = false;
+  p.crouching = false;
   return true;
 }
 
@@ -725,22 +736,32 @@ function updatePlayerPhysics(p, input, dt, solids){
     p.slideT -= dt;
     if (p.slideT <= 0 || Math.abs(p.vx) < 40 || jumpPressed){
       const wasSliding = p.sliding;
-      const ended = endSlide(p, solids);
+      const ended = tryStandUp(p, solids);
       if (ended && jumpPressed && wasSliding) doJump(p);
     }
   } else if (p.wallLockT > 0){
     if (wantDir !== 0){ p.vx += wantDir * accel * 0.35 * dt; p.facing = wantDir; }
   } else {
+    const crouchCap = maxRun * CFG.CROUCH_SPEED_MULT;
     if (wantDir !== 0){
       p.vx += wantDir * accel * dt;
-      p.vx = clamp(p.vx, -maxRun, maxRun);
+      p.vx = p.crouching ? clamp(p.vx, -crouchCap, crouchCap) : clamp(p.vx, -maxRun, maxRun);
       p.facing = wantDir;
     } else {
       const fr = p.grounded ? CFG.GROUND_FRICTION : CFG.AIR_FRICTION;
       if (p.vx > 0) p.vx = Math.max(0, p.vx - fr*dt);
       else if (p.vx < 0) p.vx = Math.min(0, p.vx + fr*dt);
     }
-    if (slidePressed && p.grounded && Math.abs(p.vx) > 160 && !p.carry) startSlide(p);
+
+    // 'S' is dual-purpose: a fresh press while running fast triggers a slide;
+    // holding it while stationary/slow holds a crouch instead.
+    if (slidePressed && p.grounded && Math.abs(p.vx) > CFG.SLIDE_TRIGGER_SPEED && !p.carry){
+      startSlide(p);
+    } else if (p.grounded && input.slide && !p.carry && Math.abs(p.vx) <= CFG.SLIDE_TRIGGER_SPEED){
+      enterCrouch(p);
+    } else if (p.crouching && (!input.slide || !p.grounded)){
+      tryStandUp(p, solids);
+    }
   }
 
   p.vy = Math.min(p.vy + CFG.GRAVITY*dt, p.wallSliding ? CFG.WALL_SLIDE_MAX_FALL : CFG.MAX_FALL);
@@ -885,7 +906,7 @@ function respawnPlayer(p, game){
   p.health = CFG.MAX_HEALTH; p.alive = true;
   p.rangedId = 'pistol'; p.rangedAmmo = RANGED_WEAPONS.pistol.ammo;
   p.meleeId = 'knife'; p.carry = null;
-  p.grounded=false; p.sliding=false; p.wallSliding=false; p.ledgeHang=false; p.climbing=false;
+  p.grounded=false; p.sliding=false; p.crouching=false; p.wallSliding=false; p.ledgeHang=false; p.climbing=false;
   p.h = CFG.PLAYER_H;
 }
 
@@ -1090,14 +1111,14 @@ function doMeleeHitCheck(p, w, game){
       hitAny = true;
     }
   }
-  // lightsaber deflects incoming projectiles caught in the swing arc
-  if (w.deflect){
-    for (const pr of game.projectiles){
-      if (pr.ownerId === p.id) continue;
-      if (dist(pr.x,pr.y,cx,cy) < reach*0.7){
-        pr.vx *= -1; pr.vy = -Math.abs(pr.vy) - 100; pr.ownerId = p.id;
-        emitFx(game, { t:'hitspark', x:pr.x, y:pr.y, color:'#2de2c8' });
-      }
+  // Any melee weapon can deflect incoming fire caught in its swing arc — but
+  // only while the swing is in its brief "active" frames, so it takes real
+  // timing against the shot rather than just holding a weapon out.
+  for (const pr of game.projectiles){
+    if (pr.ownerId === p.id) continue;
+    if (dist(pr.x,pr.y,cx,cy) < reach*0.7){
+      pr.vx *= -1; pr.vy = -Math.abs(pr.vy) - 100; pr.ownerId = p.id;
+      emitFx(game, { t:'hitspark', x:pr.x, y:pr.y, color: w.glow ? '#2de2c8' : w.color });
     }
   }
   return hitAny;
@@ -1342,12 +1363,13 @@ function drawPlayer(ctx, p, game){
   const runPhase = p.animT * 12;
   let legSwing;
   if (p.sliding) legSwing = 0;
+  else if (p.crouching) legSwing = moving ? Math.sin(runPhase)*0.5 : 0.15;
   else if (!p.grounded) legSwing = 0.3;
   else if (moving) legSwing = Math.sin(runPhase);
   else legSwing = Math.sin(p.animT*1.6)*0.05;
 
   const legLen = H*0.42, hipY = -H*0.42;
-  const legSpread = p.sliding ? 1.0 : (moving ? 0.5 : 0.12);
+  const legSpread = p.sliding ? 1.0 : (p.crouching ? 0.4 : (moving ? 0.5 : 0.12));
 
   ctx.strokeStyle = ch.secondary; ctx.lineWidth = Math.max(6, W*0.22); ctx.lineCap='round';
   ctx.beginPath(); ctx.moveTo(0, hipY);
@@ -1544,7 +1566,7 @@ function readLocalInput(game, canvas){
   inp.up = !!(k['KeyW']||k['ArrowUp']);
   inp.down = !!(k['KeyS']||k['ArrowDown']);
   inp.jump = !!k['Space'];
-  inp.slide = !!(k['ShiftLeft']||k['ShiftRight']||k['ControlLeft']);
+  inp.slide = !!k['KeyS'];
   inp.firePrimary = InputState.mouseDown;
   inp.fireSecondary = InputState.rightDown;
   inp.throwWep = !!k['KeyQ'];
@@ -1690,7 +1712,7 @@ function buildSnapshot(game){
     t:'snap',
     players: Object.values(game.players).map(p => ({
       id:p.id, name:p.name, charId:p.charId, x:p.x, y:p.y, vx:p.vx, vy:p.vy,
-      facing:p.facing, grounded:p.grounded, sliding:p.sliding, wallSliding:p.wallSliding,
+      facing:p.facing, grounded:p.grounded, sliding:p.sliding, crouching:p.crouching, wallSliding:p.wallSliding,
       ledgeHang:p.ledgeHang, climbing:p.climbing, h:p.h,
       health:p.health, maxHealth:p.maxHealth, alive:p.alive,
       rangedId:p.rangedId, rangedAmmo:p.rangedAmmo, meleeId:p.meleeId,
@@ -1722,7 +1744,7 @@ function applySnapshot(data){
       p.targetX = ps.x; p.targetY = ps.y; p.vx = ps.vx; p.vy = ps.vy;
     }
     p.name = ps.name; p.charId = ps.charId; p.facing = ps.facing;
-    p.grounded = ps.grounded; p.sliding = ps.sliding; p.wallSliding = ps.wallSliding;
+    p.grounded = ps.grounded; p.sliding = ps.sliding; p.crouching = ps.crouching; p.wallSliding = ps.wallSliding;
     p.ledgeHang = ps.ledgeHang; p.climbing = ps.climbing; p.h = ps.h;
     p.health = ps.health; p.maxHealth = ps.maxHealth; p.alive = ps.alive;
     p.rangedId = ps.rangedId; p.rangedAmmo = ps.rangedAmmo; p.meleeId = ps.meleeId;
@@ -1858,7 +1880,7 @@ function updateHUD(game){
 
   document.getElementById('promptCluster').textContent =
     (p.carry ? 'Carrying ' + ENV_PROPS[p.carry.propId].name + ' — Q/E throw it, F drop it   ·   ' : '') +
-    'LMB fire · RMB melee · Q throw gun · E throw melee · F pickup · SHIFT slide · SPACE jump/climb';
+    'LMB fire · RMB melee (deflects bullets!) · Q throw gun · E throw melee · F pickup · S slide/crouch · SPACE jump/climb';
 }
 function pushFeedUI(kf){
   const feed = document.getElementById('feed');
