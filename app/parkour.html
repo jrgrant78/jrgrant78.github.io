@@ -402,100 +402,135 @@ const ENV_KEYS = Object.keys(ENV_PROPS);
    layout locally, so only the seed needs to cross the network.
 
    Structure: the level is a stack of discrete FLOORS (like a
-   building). Each floor is generated independently and is fully
-   walkable end-to-end (every gap between its own platforms is
-   jump-safe). Adjacent floors are linked by several CONNECTORS
-   (wall-jump shafts or staircases) whose base always lands on a
-   real platform of the floor below and whose top is a guaranteed
-   landing pad on the floor above — so every floor, and every
-   platform on it, is reachable starting from the ground floor.
+   building). Connector positions between adjacent floors are
+   planned FIRST, then each floor is generated around those fixed
+   points — every connector attaches to a real, exactly-aligned
+   platform on both the floor below and the floor above (never a
+   separate overlapping "bridge" or "landing pad" guessing at the
+   right spot), so nothing pinches together or floats mid-air.
    ============================================================ */
 const LEVEL_CFG = {
-  FLOOR_GAP: 360,     // vertical spacing between floor baselines
+  MIN_FLOOR_CLEARANCE: CFG.PLAYER_H * 2,           // hard rule: never less than 2x player height between floors
+  FLOOR_GAP: CFG.PLAYER_H * 2 + 210,                // comfortable margin above that minimum (wall-jump climbs feel right at this height)
   GROUND_Y: 1900,     // floor 0 (ground floor) baseline
   KILL_PAD: 420,      // how far below the ground floor the death-plane sits
   MAX_JUMP_GAP: 230,  // widest horizontal gap allowed within a single floor's run
+  ANCHOR_MARGIN: 70,  // clearance kept around every connector footprint so it never touches a neighboring platform
+  STAIR_FOOTPRINT: 420,
+  PLATFORM_H: 34,     // standard platform thickness, referenced by the wall-shaft alignment fix
 };
 
 function addPlat(list, x, y, w, h, oneWay){
   list.push({ x, y, w, h, oneWay: !!oneWay });
 }
 
-// One horizontal tier, fully walkable end to end. Occasional one-way
-// cover blocks and item spawns are seeded in as it's built.
-function genFloorPlatforms(rng, floorY, levelWidth, pickupSpawns, envSpawns){
-  const platforms = [];
-  let x = 0, sinceItem = 0;
-  while (x < levelWidth){
-    const w = rngInt(rng, 260, 460);
-    const y = floorY + rngInt(rng, -24, 24);
-    addPlat(platforms, x, y, w, 34);
-    sinceItem += w;
-    if (sinceItem > 480){
-      const roll = rng();
-      if (roll < 0.40) pickupSpawns.push({ x: x + w*0.5, y: y - 26 });
-      else if (roll < 0.58) envSpawns.push({ x: x + w*0.5, y: y - 30 });
-      sinceItem = 0;
+// Merge overlapping/adjacent reserved connector spans on the same floor into
+// single platforms, so two nearby connectors never produce two overlapping plates.
+function mergeAnchors(anchors, margin){
+  const sorted = [...anchors].sort((a,b)=>a.x-b.x);
+  const merged = [];
+  for (const a of sorted){
+    const left = a.x - margin, right = a.x + a.w + margin;
+    if (merged.length && left <= merged[merged.length-1].right + 20){
+      merged[merged.length-1].right = Math.max(merged[merged.length-1].right, right);
+    } else {
+      merged.push({ left, right });
     }
-    if (rng() < 0.16){ // occasional one-way cover block for combat variety
-      const cw = rngInt(rng, 70, 130);
-      addPlat(platforms, x + w*0.3, y - rngInt(rng,55,95), cw, 22, true);
-    }
-    x += w;
-    if (x >= levelWidth) break;
-    x += rngInt(rng, 90, LEVEL_CFG.MAX_JUMP_GAP); // always jump-safe
   }
-  return platforms;
+  return merged;
 }
 
-// Picks an x that sits ON a real platform of the given floor, inside
-// [bandStart,bandEnd] when possible, so a connector's base is always grounded.
-function pickXOnFloor(rng, floorPlatforms, bandStart, bandEnd){
-  const inBand = floorPlatforms.filter(p => !p.oneWay && p.x + p.w*0.3 >= bandStart && p.x + p.w*0.7 <= bandEnd && p.w > 100);
-  const solids = floorPlatforms.filter(p => !p.oneWay && p.w > 100);
-  const pool = inBand.length ? inBand : (solids.length ? solids : floorPlatforms);
-  const plat = rngPick(rng, pool);
-  const margin = Math.min(45, plat.w*0.22);
-  return plat.x + margin + rng()*Math.max(1, plat.w - margin*2);
+// One horizontal tier, fully walkable end to end. Platforms are placed left
+// to right; wherever a connector anchor needs to attach, a dedicated
+// non-jittered platform is placed to contain it exactly (so the connector's
+// wall/stair geometry lines up with zero gap and zero overlap), and normal
+// randomized filler platforms cover everything in between.
+function genFloorPlatforms(rng, floorY, levelWidth, anchors, pickupSpawns, envSpawns){
+  const platforms = [];
+  let cursor = 0, sinceItem = 0;
+
+  function fillTo(limit){
+    while (cursor < limit - 30){
+      const room = limit - cursor;
+      if (room < 140) break; // too little room for a sensible platform here; the next anchor absorbs this gap, never overruns into it
+      const w = Math.min(room, rngInt(rng, 260, 460));
+      const y = floorY + rngInt(rng, -18, 18);
+      addPlat(platforms, cursor, y, w, LEVEL_CFG.PLATFORM_H);
+      sinceItem += w;
+      if (sinceItem > 480){
+        const roll = rng();
+        if (roll < 0.40) pickupSpawns.push({ x: cursor + w*0.5, y: y - 26 });
+        else if (roll < 0.58) envSpawns.push({ x: cursor + w*0.5, y: y - 30 });
+        sinceItem = 0;
+      }
+      // short SOLID ground-level cover block, flush with this platform's own
+      // surface — never floats mid-air, so it can never pinch off headroom.
+      if (rng() < 0.16 && w > 130){
+        const cw = rngInt(rng, 60, 100);
+        const ch = rngInt(rng, 34, 50); // well under player height, always a quick hop
+        const cx = cursor + 24 + rng()*Math.max(1, w - cw - 48);
+        addPlat(platforms, cx, y - ch, cw, ch, false);
+      }
+      cursor += w;
+      if (cursor >= limit) break;
+      cursor += Math.min(rngInt(rng, 90, LEVEL_CFG.MAX_JUMP_GAP), Math.max(0, limit - cursor));
+    }
+  }
+
+  for (const span of mergeAnchors(anchors, LEVEL_CFG.ANCHOR_MARGIN)){
+    const spanLeft = Math.max(0, span.left);
+    if (spanLeft > cursor) fillTo(spanLeft);
+    const plaX = Math.min(cursor, spanLeft);
+    const plaW = Math.max(span.right - plaX, 40);
+    addPlat(platforms, plaX, floorY, plaW, LEVEL_CFG.PLATFORM_H); // exact floorY, no jitter — connectors align perfectly here
+    cursor = plaX + plaW;
+  }
+  fillTo(levelWidth);
+  return platforms;
 }
 
 // Wall-jump shaft: two facing walls (so there's always something to jump off
 // of on the way up), each split into two segments around a SHARED open band
 // partway up — that band is the "open section" that keeps the shaft from
 // being a sealed tube, since a wall-jump arc carries you straight through it.
-function buildWallJumpConnector(rng, x, floorYBottom, floorYTop, platforms, pickupSpawns){
-  const shaftW = rngInt(rng, 150, 190);
-  addPlat(platforms, x - 50, floorYBottom, shaftW + 100, 34);       // base bridge, always reachable from the floor below
-  addPlat(platforms, x - 70, floorYTop - 34, shaftW + 240, 34);     // guaranteed landing pad on the floor above
-
-  const span = floorYBottom - floorYTop;
-  const gapCenter = floorYTop + span * (0.38 + rng()*0.22);
-  const gapHalf = 48;
+// No separate base/landing platform: the anchor system already guarantees a
+// real platform on both floors exactly here, so the walls just span the open
+// air BETWEEN them — starting below the upper anchor's own platform body and
+// ending exactly at the lower anchor's surface, never inside either one.
+function buildWallJumpConnector(rng, x, shaftW, floorYBottom, floorYTop, platforms, pickupSpawns){
+  const openTop = floorYTop + LEVEL_CFG.PLATFORM_H; // just under the upper floor's own platform body
+  const span = floorYBottom - openTop;
+  const gapCenter = openTop + span * (0.35 + rng()*0.22);
+  const gapHalf = 55;
   const gapTop = gapCenter - gapHalf, gapBottom = gapCenter + gapHalf;
 
-  addPlat(platforms, x, floorYTop, 26, gapTop - floorYTop);               // left wall, upper segment
+  addPlat(platforms, x, openTop, 26, gapTop - openTop);                   // left wall, upper segment
   addPlat(platforms, x, gapBottom, 26, floorYBottom - gapBottom);         // left wall, lower segment
-  addPlat(platforms, x + shaftW, floorYTop, 26, gapTop - floorYTop);      // right wall, upper segment
+  addPlat(platforms, x + shaftW, openTop, 26, gapTop - openTop);          // right wall, upper segment
   addPlat(platforms, x + shaftW, gapBottom, 26, floorYBottom - gapBottom);// right wall, lower segment
 
   if (rng() < 0.65) pickupSpawns.push({ x: x + shaftW*0.5, y: floorYTop - 60 });
 }
 
-// Staircase: an alternate, non-wall-jump route between floors.
-function buildStaircaseConnector(rng, x, floorYBottom, floorYTop, platforms, pickupSpawns){
+// Staircase: an alternate, non-wall-jump route between floors. Steps march
+// monotonically across the reserved footprint (never zigzag back over each
+// other), each narrower than its own spacing so consecutive steps never
+// touch horizontally — and the final hop up onto the floor above is always
+// reserved at least a full standing-height gap.
+function buildStaircaseConnector(rng, x, footprintW, floorYBottom, floorYTop, platforms, pickupSpawns){
   const span = floorYBottom - floorYTop;
   const steps = rngInt(rng, 4, 6);
-  const stepH = span / steps;
-  let cx = x, dir = rng() < 0.5 ? 1 : -1;
+  const finalGap = CFG.PLAYER_H * 1.3;                    // guarantees the last hop clears standing height
+  const stepH = Math.max(50, (span - finalGap) / (steps - 1));
+  const stepDX = footprintW / steps;
+  const sw = Math.max(110, stepDX * 0.78);                // narrower than the spacing -> can't overlap the next step
+  let cx = x + stepDX * 0.5;
   for (let i=1;i<steps;i++){
-    const sw = rngInt(rng, 130, 200);
-    cx += dir * (sw*0.5 + rngInt(rng,20,50));
+    cx += stepDX;
     const sy = floorYBottom - stepH*i;
     addPlat(platforms, cx - sw/2, sy, sw, 26);
     if (i === Math.floor(steps/2) && rng() < 0.6) pickupSpawns.push({ x: cx, y: sy - 26 });
-    if (rng() < 0.3) dir *= -1;
   }
-  addPlat(platforms, x - 160, floorYTop - 34, 360, 34); // guaranteed landing pad, same idea as the shaft
 }
 
 function genLevel(seed){
@@ -508,26 +543,41 @@ function genLevel(seed){
   const FLOOR_COUNT = rngInt(rng, 5, 7);
   const LEVEL_WIDTH = rngInt(rng, 11000, 15000);
 
+  // Plan every connector's exact position and footprint BEFORE any floor
+  // geometry exists, so both floors it touches can be built around it.
+  const connectorPlans = [];
+  for (let f=0; f<FLOOR_COUNT-1; f++){
+    const count = rngInt(rng, 3, 5);
+    const bandW = LEVEL_WIDTH / count;
+    for (let c=0;c<count;c++){
+      const bandStart = c*bandW + 260, bandEnd = (c+1)*bandW - 260;
+      const x = Math.round(bandStart + rng()*Math.max(1, bandEnd - bandStart));
+      const kind = rng() < 0.55 ? 'wall' : 'stairs';
+      const footprintW = kind === 'wall' ? rngInt(rng, 150, 190) : LEVEL_CFG.STAIR_FOOTPRINT;
+      connectorPlans.push({ lowerFloor: f, upperFloor: f+1, x, kind, footprintW });
+    }
+  }
+
+  const anchorsByFloor = Array.from({ length: FLOOR_COUNT }, () => []);
+  for (const c of connectorPlans){
+    anchorsByFloor[c.lowerFloor].push({ x: c.x, w: c.footprintW });
+    anchorsByFloor[c.upperFloor].push({ x: c.x, w: c.footprintW });
+  }
+
   const floors = [];
   for (let f=0; f<FLOOR_COUNT; f++){
     const floorY = LEVEL_CFG.GROUND_Y - f*LEVEL_CFG.FLOOR_GAP;
-    const plats = genFloorPlatforms(rng, floorY, LEVEL_WIDTH, pickupSpawns, envSpawns);
+    const plats = genFloorPlatforms(rng, floorY, LEVEL_WIDTH, anchorsByFloor[f], pickupSpawns, envSpawns);
     floors.push({ y: floorY, platforms: plats });
     for (const p of plats) platforms.push(p);
   }
 
   for (let i=0;i<4;i++) playerSpawns.push({ x: 90 + i*110, y: floors[0].y - 100 });
 
-  for (let f=0; f<FLOOR_COUNT-1; f++){
-    const lower = floors[f], upper = floors[f+1];
-    const connectorCount = rngInt(rng, 3, 5);
-    const bandW = LEVEL_WIDTH / connectorCount;
-    for (let c=0;c<connectorCount;c++){
-      const bandStart = c*bandW, bandEnd = (c+1)*bandW;
-      const x = pickXOnFloor(rng, lower.platforms, bandStart, bandEnd);
-      if (rng() < 0.55) buildWallJumpConnector(rng, x, lower.y, upper.y, platforms, pickupSpawns);
-      else buildStaircaseConnector(rng, x, lower.y, upper.y, platforms, pickupSpawns);
-    }
+  for (const c of connectorPlans){
+    const floorYBottom = floors[c.lowerFloor].y, floorYTop = floors[c.upperFloor].y;
+    if (c.kind === 'wall') buildWallJumpConnector(rng, c.x, c.footprintW, floorYBottom, floorYTop, platforms, pickupSpawns);
+    else buildStaircaseConnector(rng, c.x, c.footprintW, floorYBottom, floorYTop, platforms, pickupSpawns);
   }
 
   const width = LEVEL_WIDTH;
