@@ -129,6 +129,20 @@
   .char-card.selected .cn{ color:var(--paper); }
   .char-card.taken{ opacity:.4; }
 
+  .stage-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:6px 0 4px; }
+  .stage-card{
+    background:var(--void2); border:1px solid var(--line); padding:10px; cursor:pointer;
+    transition:border-color .1s, background .1s; text-align:left;
+  }
+  .stage-card:hover{ border-color:var(--paper-dim); }
+  .stage-card.selected{ border-color:var(--volt); background:var(--volt-dim); }
+  .stage-card .sn{ font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; margin-bottom:6px; }
+  .stage-card.selected .sn{ color:var(--paper); }
+  .stage-card .swatches{ display:flex; height:22px; overflow:hidden; }
+  .stage-card .swatches span{ flex:1; height:100%; }
+  .stage-card .st{ font-size:9px; letter-spacing:.1em; color:var(--paper-dim); margin-top:6px; text-transform:uppercase; }
+  .stage-card:not(.interactive){ cursor:default; }
+
   .lobby-list{ display:flex; flex-direction:column; gap:6px; margin:8px 0; }
   .lobby-row{
     display:flex; align-items:center; gap:10px; background:var(--void2);
@@ -222,7 +236,9 @@
   <div class="menu-card panel notched">
     <div class="eyebrow" style="margin-bottom:6px;">Lobby</div>
     <div id="roomCodeDisplay" class="code-display hidden"></div>
-    <h3 style="font-size:20px;letter-spacing:.08em;margin:10px 0 2px;">Select Operative</h3>
+    <h3 style="font-size:20px;letter-spacing:.08em;margin:10px 0 2px;">Stage</h3>
+    <div class="stage-grid" id="stageGrid"></div>
+    <h3 style="font-size:20px;letter-spacing:.08em;margin:14px 0 2px;">Select Operative</h3>
     <div class="char-grid" id="charGrid"></div>
     <div class="lobby-list" id="lobbyList"></div>
     <div class="row">
@@ -236,7 +252,7 @@
 
 <!-- ================= HUD ================= -->
 <div id="hud" class="hidden">
-  <div id="roomTag" class="cluster">ROOM <b id="roomTagCode">-----</b></div>
+  <div id="roomTag" class="cluster">ROOM <b id="roomTagCode">-----</b> &middot; <span id="roomTagStage">-----</span></div>
 
   <div id="healthCluster" class="cluster">
     <div class="hp-label"><span id="hpName">YOU</span><span id="hpNum">100</span></div>
@@ -311,20 +327,8 @@ const CFG = {
 };
 
 /* ============================================================
-   SECTION: UTILITY — seeded PRNG, math, rect helpers
+   SECTION: UTILITY — math, rect helpers
    ============================================================ */
-// Deterministic PRNG so every client generates an identical level from one seed.
-function mulberry32(seed){
-  let a = seed >>> 0;
-  return function(){
-    a |= 0; a = (a + 0x6D2B79F5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-function rngInt(rng, min, max){ return Math.floor(rng() * (max - min + 1)) + min; }
-function rngPick(rng, arr){ return arr[Math.floor(rng() * arr.length)]; }
 function clamp(v, lo, hi){ return v < lo ? lo : (v > hi ? hi : v); }
 function lerp(a, b, t){ return a + (b - a) * t; }
 function dist(x1,y1,x2,y2){ return Math.hypot(x2-x1, y2-y1); }
@@ -396,197 +400,244 @@ const ENV_PROPS = {
 const ENV_KEYS = Object.keys(ENV_PROPS);
 
 /* ============================================================
-   SECTION: LEVEL GENERATION
-   Deterministic from a single integer seed — host picks the seed
-   once and every client (including host) generates an identical
-   layout locally, so only the seed needs to cross the network.
-
-   Structure: the level is a stack of discrete FLOORS (like a
-   building). Connector positions between adjacent floors are
-   planned FIRST, then each floor is generated around those fixed
-   points — every connector attaches to a real, exactly-aligned
-   platform on both the floor below and the floor above (never a
-   separate overlapping "bridge" or "landing pad" guessing at the
-   right spot), so nothing pinches together or floats mid-air.
+   SECTION: STAGES — hand-authored, not procedurally generated.
+   Three fixed layouts, each built once at load time from small
+   composition helpers (a straight platform, a wall-jump shaft, a
+   staircase). The helpers just save re-typing proven geometry —
+   every call site below chooses its own position and size by
+   hand, so the overall shape of each stage is entirely authored,
+   not algorithmic. Every stage ships pre-verified: no overlapping
+   platforms, no floating disconnected pieces, every room reachable.
    ============================================================ */
-const LEVEL_CFG = {
-  MIN_FLOOR_CLEARANCE: CFG.PLAYER_H * 2,           // hard rule: never less than 2x player height between floors
-  FLOOR_GAP: CFG.PLAYER_H * 2 + 210,                // comfortable margin above that minimum (wall-jump climbs feel right at this height)
-  GROUND_Y: 1900,     // floor 0 (ground floor) baseline
-  KILL_PAD: 420,      // how far below the ground floor the death-plane sits
-  MAX_JUMP_GAP: 230,  // widest horizontal gap allowed within a single floor's run
-  ANCHOR_MARGIN: 70,  // clearance kept around every connector footprint so it never touches a neighboring platform
-  STAIR_FOOTPRINT: 420,
-  PLATFORM_H: 34,     // standard platform thickness, referenced by the wall-shaft alignment fix
-};
+const STAGE_PLATFORM_H = 40;
 
-function addPlat(list, x, y, w, h, oneWay){
-  list.push({ x, y, w, h, oneWay: !!oneWay });
-}
+function rect(x,y,w,h,oneWay){ return {x,y,w,h,oneWay:!!oneWay}; }
 
-// Merge overlapping/adjacent reserved connector spans on the same floor into
-// single platforms, so two nearby connectors never produce two overlapping plates.
-function mergeAnchors(anchors, margin){
-  const sorted = [...anchors].sort((a,b)=>a.x-b.x);
-  const merged = [];
-  for (const a of sorted){
-    const left = a.x - margin, right = a.x + a.w + margin;
-    if (merged.length && left <= merged[merged.length-1].right + 20){
-      merged[merged.length-1].right = Math.max(merged[merged.length-1].right, right);
-    } else {
-      merged.push({ left, right });
-    }
-  }
-  return merged;
-}
-
-// One horizontal tier, fully walkable end to end. Platforms are placed left
-// to right; wherever a connector anchor needs to attach, a dedicated
-// non-jittered platform is placed to contain it exactly (so the connector's
-// wall/stair geometry lines up with zero gap and zero overlap), and normal
-// randomized filler platforms cover everything in between.
-function genFloorPlatforms(rng, floorY, levelWidth, anchors, pickupSpawns, envSpawns){
-  const platforms = [];
-  let cursor = 0, sinceItem = 0;
-
-  function fillTo(limit){
-    while (cursor < limit - 30){
-      const room = limit - cursor;
-      if (room < 140) break; // too little room for a sensible platform here; the next anchor absorbs this gap, never overruns into it
-      const w = Math.min(room, rngInt(rng, 260, 460));
-      const y = floorY + rngInt(rng, -18, 18);
-      addPlat(platforms, cursor, y, w, LEVEL_CFG.PLATFORM_H);
-      sinceItem += w;
-      if (sinceItem > 480){
-        const roll = rng();
-        if (roll < 0.40) pickupSpawns.push({ x: cursor + w*0.5, y: y - 26 });
-        else if (roll < 0.58) envSpawns.push({ x: cursor + w*0.5, y: y - 30 });
-        sinceItem = 0;
-      }
-      // short SOLID ground-level cover block, flush with this platform's own
-      // surface — never floats mid-air, so it can never pinch off headroom.
-      if (rng() < 0.16 && w > 130){
-        const cw = rngInt(rng, 60, 100);
-        const ch = rngInt(rng, 34, 50); // well under player height, always a quick hop
-        const cx = cursor + 24 + rng()*Math.max(1, w - cw - 48);
-        addPlat(platforms, cx, y - ch, cw, ch, false);
-      }
-      cursor += w;
-      if (cursor >= limit) break;
-      cursor += Math.min(rngInt(rng, 90, LEVEL_CFG.MAX_JUMP_GAP), Math.max(0, limit - cursor));
-    }
-  }
-
-  for (const span of mergeAnchors(anchors, LEVEL_CFG.ANCHOR_MARGIN)){
-    const spanLeft = Math.max(0, span.left);
-    if (spanLeft > cursor) fillTo(spanLeft);
-    const plaX = Math.min(cursor, spanLeft);
-    const plaW = Math.max(span.right - plaX, 40);
-    addPlat(platforms, plaX, floorY, plaW, LEVEL_CFG.PLATFORM_H); // exact floorY, no jitter — connectors align perfectly here
-    cursor = plaX + plaW;
-  }
-  fillTo(levelWidth);
-  return platforms;
-}
-
-// Wall-jump shaft: two facing walls (so there's always something to jump off
-// of on the way up), each split into two segments around a SHARED open band
-// partway up — that band is the "open section" that keeps the shaft from
-// being a sealed tube, since a wall-jump arc carries you straight through it.
-// No separate base/landing platform: the anchor system already guarantees a
-// real platform on both floors exactly here, so the walls just span the open
-// air BETWEEN them — starting below the upper anchor's own platform body and
-// ending exactly at the lower anchor's surface, never inside either one.
-function buildWallJumpConnector(rng, x, shaftW, floorYBottom, floorYTop, platforms, pickupSpawns){
-  const openTop = floorYTop + LEVEL_CFG.PLATFORM_H; // just under the upper floor's own platform body
-  const span = floorYBottom - openTop;
-  const gapCenter = openTop + span * (0.35 + rng()*0.22);
+// Wall-jump shaft between a known upper floor surface (topY) and lower floor
+// surface (bottomY) at horizontal position x, width shaftW: two facing walls
+// (always something to jump off of), split around a shared open gap partway
+// up so the shaft is never a sealed tube.
+function wallShaft(list, x, shaftW, topY, bottomY, gapT){
+  const openTop = topY + STAGE_PLATFORM_H;
+  const gapCenter = openTop + (bottomY - openTop) * (gapT===undefined?0.5:gapT);
   const gapHalf = 55;
   const gapTop = gapCenter - gapHalf, gapBottom = gapCenter + gapHalf;
-
-  addPlat(platforms, x, openTop, 26, gapTop - openTop);                   // left wall, upper segment
-  addPlat(platforms, x, gapBottom, 26, floorYBottom - gapBottom);         // left wall, lower segment
-  addPlat(platforms, x + shaftW, openTop, 26, gapTop - openTop);          // right wall, upper segment
-  addPlat(platforms, x + shaftW, gapBottom, 26, floorYBottom - gapBottom);// right wall, lower segment
-
-  if (rng() < 0.65) pickupSpawns.push({ x: x + shaftW*0.5, y: floorYTop - 60 });
+  list.push(rect(x, openTop, 24, gapTop-openTop));
+  list.push(rect(x, gapBottom, 24, bottomY-gapBottom));
+  list.push(rect(x+shaftW, openTop, 24, gapTop-openTop));
+  list.push(rect(x+shaftW, gapBottom, 24, bottomY-gapBottom));
+  list.push(rect(x-40, gapCenter-9, shaftW+80+40, 18, true)); // one-way mid ledge, the "open section"
 }
 
-// Staircase: an alternate, non-wall-jump route between floors. Steps march
-// monotonically across the reserved footprint (never zigzag back over each
-// other), each narrower than its own spacing so consecutive steps never
-// touch horizontally — and the final hop up onto the floor above is always
-// reserved at least a full standing-height gap.
-function buildStaircaseConnector(rng, x, footprintW, floorYBottom, floorYTop, platforms, pickupSpawns){
-  const span = floorYBottom - floorYTop;
-  const steps = rngInt(rng, 4, 6);
-  const finalGap = CFG.PLAYER_H * 1.3;                    // guarantees the last hop clears standing height
-  const stepH = Math.max(50, (span - finalGap) / (steps - 1));
-  const stepDX = footprintW / steps;
-  const sw = Math.max(110, stepDX * 0.78);                // narrower than the spacing -> can't overlap the next step
-  let cx = x + stepDX * 0.5;
-  for (let i=1;i<steps;i++){
+// Staircase: 'steps' platforms climbing from bottomY up to topY, each
+// narrower than its own spacing so consecutive steps can never touch, with
+// the final hop onto the floor above always reserved a full standing-height gap.
+function staircase(list, x, footprintW, bottomY, topY, steps){
+  const span = bottomY - topY;
+  const finalGap = CFG.PLAYER_H * 1.3;
+  const stepH = Math.max(50, (span - finalGap) / steps);
+  const stepDX = footprintW / (steps+1);
+  const sw = Math.max(100, stepDX*0.75);
+  let cx = x + stepDX*0.5;
+  for (let i=1;i<=steps;i++){
     cx += stepDX;
-    const sy = floorYBottom - stepH*i;
-    addPlat(platforms, cx - sw/2, sy, sw, 26);
-    if (i === Math.floor(steps/2) && rng() < 0.6) pickupSpawns.push({ x: cx, y: sy - 26 });
+    list.push(rect(cx-sw/2, bottomY-stepH*i, sw, 24));
   }
 }
 
-function genLevel(seed){
-  const rng = mulberry32(seed >>> 0);
-  const platforms = [];
-  const pickupSpawns = [];
-  const envSpawns = [];
-  const playerSpawns = [];
-
-  const FLOOR_COUNT = rngInt(rng, 5, 7);
-  const LEVEL_WIDTH = rngInt(rng, 11000, 15000);
-
-  // Plan every connector's exact position and footprint BEFORE any floor
-  // geometry exists, so both floors it touches can be built around it.
-  const connectorPlans = [];
-  for (let f=0; f<FLOOR_COUNT-1; f++){
-    const count = rngInt(rng, 3, 5);
-    const bandW = LEVEL_WIDTH / count;
-    for (let c=0;c<count;c++){
-      const bandStart = c*bandW + 260, bandEnd = (c+1)*bandW - 260;
-      const x = Math.round(bandStart + rng()*Math.max(1, bandEnd - bandStart));
-      const kind = rng() < 0.55 ? 'wall' : 'stairs';
-      const footprintW = kind === 'wall' ? rngInt(rng, 150, 190) : LEVEL_CFG.STAIR_FOOTPRINT;
-      connectorPlans.push({ lowerFloor: f, upperFloor: f+1, x, kind, footprintW });
-    }
-  }
-
-  const anchorsByFloor = Array.from({ length: FLOOR_COUNT }, () => []);
-  for (const c of connectorPlans){
-    anchorsByFloor[c.lowerFloor].push({ x: c.x, w: c.footprintW });
-    anchorsByFloor[c.upperFloor].push({ x: c.x, w: c.footprintW });
-  }
-
-  const floors = [];
-  for (let f=0; f<FLOOR_COUNT; f++){
-    const floorY = LEVEL_CFG.GROUND_Y - f*LEVEL_CFG.FLOOR_GAP;
-    const plats = genFloorPlatforms(rng, floorY, LEVEL_WIDTH, anchorsByFloor[f], pickupSpawns, envSpawns);
-    floors.push({ y: floorY, platforms: plats });
-    for (const p of plats) platforms.push(p);
-  }
-
-  for (let i=0;i<4;i++) playerSpawns.push({ x: 90 + i*110, y: floors[0].y - 100 });
-
-  for (const c of connectorPlans){
-    const floorYBottom = floors[c.lowerFloor].y, floorYTop = floors[c.upperFloor].y;
-    if (c.kind === 'wall') buildWallJumpConnector(rng, c.x, c.footprintW, floorYBottom, floorYTop, platforms, pickupSpawns);
-    else buildStaircaseConnector(rng, c.x, c.footprintW, floorYBottom, floorYTop, platforms, pickupSpawns);
-  }
-
-  const width = LEVEL_WIDTH;
-  const killY = LEVEL_CFG.GROUND_Y + LEVEL_CFG.KILL_PAD;
-  const minHeight = LEVEL_CFG.GROUND_Y - (FLOOR_COUNT-1) * LEVEL_CFG.FLOOR_GAP;
-
-  return { seed, width, height: killY + 200, killY, minHeight, floorCount: FLOOR_COUNT, platforms, pickupSpawns, envSpawns, playerSpawns };
+// A "room" is a purely decorative cutaway background box (no collision) —
+// drawn behind the platforms to give the peek-inside-a-building look.
+function room(list, x, y, w, h, tint, glow, label){
+  list.push({x,y,w,h,tint,glow,label});
 }
 
+// ============ STAGE 1: DUST GULCH (western) ============
+function buildWestern(){
+  const platforms = [], rooms = [], pickupSpawns = [], envSpawns = [], playerSpawns = [];
+  const G = 1900, U = 1480, B = 2380, BR = 2460;
+
+  const gRooms = [
+    { x:0,    w:560, label:'GENERAL STORE' },
+    { x:740,  w:760, label:'SALOON' },
+    { x:1660, w:540, label:'JAIL' },
+    { x:2380, w:520, label:'BANK' },
+    { x:3100, w:600, label:'BLACKSMITH' },
+    { x:3870, w:730, label:'HOTEL' },
+    { x:4780, w:620, label:'TRADING POST' },
+    { x:5500, w:620, label:'MINE ENTRANCE' },
+  ];
+  for (const r of gRooms) platforms.push(rect(r.x, G, r.w, STAGE_PLATFORM_H));
+
+  room(rooms, 0,    G-420, 560, 420+STAGE_PLATFORM_H, '#5a4128', null, 'GENERAL STORE');
+  room(rooms, 740,  G-420, 760, 420+STAGE_PLATFORM_H, '#3a1015', '#ff6a2b', 'SALOON');
+  room(rooms, 1660, G-360, 540, 360+STAGE_PLATFORM_H, '#25303a', null, 'JAIL');
+  room(rooms, 2380, G-360, 520, 360+STAGE_PLATFORM_H, '#1c3826', '#2de2c8', 'BANK');
+  room(rooms, 3100, G-360, 600, 360+STAGE_PLATFORM_H, '#2a1f18', '#ff8a3d', 'BLACKSMITH');
+  room(rooms, 3870, G-420, 730, 420+STAGE_PLATFORM_H, '#4a3320', null, 'HOTEL');
+  room(rooms, 4780, G-340, 620, 340+STAGE_PLATFORM_H, '#4a3a26', null, 'TRADING POST');
+  room(rooms, 5500, G-340, 620, 340+STAGE_PLATFORM_H, '#3a2c1e', null, 'MINE ENTRANCE');
+
+  platforms.push(rect(740, U, 760, STAGE_PLATFORM_H));
+  platforms.push(rect(3870, U, 730, STAGE_PLATFORM_H));
+  room(rooms, 740, U-360, 760, 360+STAGE_PLATFORM_H, '#4a1218', '#ff3864', 'SALOON UPSTAIRS');
+  room(rooms, 3870, U-360, 730, 360+STAGE_PLATFORM_H, '#3a2818', null, 'HOTEL ROOMS');
+
+  staircase(platforms, 780, 660, G, U, 3);
+  staircase(platforms, 3910, 630, G, U, 3);
+
+  platforms.push(rect(2900, B, 800, STAGE_PLATFORM_H));
+  platforms.push(rect(3700, BR, 500, 16));
+  platforms.push(rect(4200, B, 1700, STAGE_PLATFORM_H));
+  room(rooms, 2900, B-320, 800, 320+STAGE_PLATFORM_H, '#241811', '#ffb020', 'MINE — WEST SHAFT');
+  room(rooms, 4200, B-320, 1700, 320+STAGE_PLATFORM_H, '#241811', '#ffb020', 'MINE — EAST SHAFT');
+
+  wallShaft(platforms, 3200, 170, G, B);
+  wallShaft(platforms, 5560, 170, G, B);
+
+  for (let i=0;i<4;i++) playerSpawns.push({ x: 70+i*100, y: G-150 });
+  pickupSpawns.push({x:280,y:G-26},{x:1080,y:G-26},{x:1900,y:G-26},{x:2620,y:G-26},
+    {x:3380,y:G-26},{x:4220,y:G-26},{x:5080,y:G-26},{x:5800,y:G-26},
+    {x:1080,y:U-26},{x:4220,y:U-26},{x:3280,y:B-26},{x:5000,y:B-26});
+  envSpawns.push({x:1900,y:G-30},{x:3380,y:B-30},{x:5000,y:B-30});
+
+  const killY = B + 500;
+  return { id:'western', name:'DUST GULCH', theme:'western', platforms, rooms, pickupSpawns, envSpawns, playerSpawns,
+    width: 6120, height: killY+200, killY };
+}
+
+// ============ STAGE 2: ASHFALL KEEP (castle) ============
+function buildCastle(){
+  const platforms = [], rooms = [], pickupSpawns = [], envSpawns = [], playerSpawns = [];
+  const T = 1120, M = 1540, L = 1960, D = 2380;
+
+  platforms.push(rect(0, L, 1000, STAGE_PLATFORM_H));
+  platforms.push(rect(1000, 2060, 1000, 16));
+  platforms.push(rect(2000, L, 800, STAGE_PLATFORM_H));
+  room(rooms, 0,    L-460, 1000, 460+STAGE_PLATFORM_H, '#3a1015', '#ff6a2b', 'GREAT HALL');
+  room(rooms, 2000, L-380, 800,  380+STAGE_PLATFORM_H, '#2a2f3a', null, 'STOREROOM');
+
+  platforms.push(rect(40,   M, 420, STAGE_PLATFORM_H));
+  platforms.push(rect(580,  M, 420, STAGE_PLATFORM_H));
+  platforms.push(rect(2040, M, 420, STAGE_PLATFORM_H));
+  platforms.push(rect(2600, M, 500, STAGE_PLATFORM_H));
+  room(rooms, 40,   M-380, 420, 380+STAGE_PLATFORM_H, '#2c3440', null, 'ARMORY');
+  room(rooms, 580,  M-380, 420, 380+STAGE_PLATFORM_H, '#242e3a', '#4fa8ff', 'CHAPEL');
+  room(rooms, 2040, M-380, 420, 380+STAGE_PLATFORM_H, '#2c3440', null, 'BARRACKS');
+  room(rooms, 2600, M-380, 500, 380+STAGE_PLATFORM_H, '#16261c', '#39ff9e', 'TROPHY ROOM');
+
+  platforms.push(rect(150,  T, 500, STAGE_PLATFORM_H));
+  platforms.push(rect(2350, T, 500, STAGE_PLATFORM_H));
+  room(rooms, 150,  T-320, 500, 320+STAGE_PLATFORM_H, '#232838', null, 'WEST TOWER');
+  room(rooms, 2350, T-320, 500, 320+STAGE_PLATFORM_H, '#232838', null, 'WATCHTOWER');
+
+  platforms.push(rect(100, D, 500, STAGE_PLATFORM_H));
+  room(rooms, 100, D-300, 500, 300+STAGE_PLATFORM_H, '#181a20', '#39ff9e', 'DUNGEON');
+
+  staircase(platforms, 100, 380, L, M, 3);
+  staircase(platforms, 2050, 380, L, M, 3);
+  wallShaft(platforms, 220, 170, T, M);
+  wallShaft(platforms, 2650, 170, T, M);
+  wallShaft(platforms, 300, 170, L, D);
+
+  for (let i=0;i<4;i++) playerSpawns.push({ x: 60+i*100, y: L-150 });
+  pickupSpawns.push({x:300,y:L-26},{x:2300,y:L-26},{x:220,y:M-26},{x:760,y:M-26},
+    {x:2220,y:M-26},{x:2820,y:M-26},{x:380,y:T-26},{x:2580,y:T-26},{x:320,y:D-26});
+  envSpawns.push({x:300,y:L-30},{x:2300,y:L-30},{x:320,y:D-30});
+
+  const killY = D + 480;
+  return { id:'castle', name:'ASHFALL KEEP', theme:'castle', platforms, rooms, pickupSpawns, envSpawns, playerSpawns,
+    width: 2800, height: killY+200, killY };
+}
+
+// ============ STAGE 3: NEON WARD (cyberpunk) ============
+function buildCyberpunk(){
+  const platforms = [], rooms = [], pickupSpawns = [], envSpawns = [], playerSpawns = [];
+  const R = 1080, H = 1500, S = 1920, U = 2340;
+
+  const buildingsS = [
+    { x:0,    w:560, label:'NOODLE BAR' },
+    { x:740,  w:520, label:'SERVER ROOM' },
+    { x:1440, w:600, label:'CLUB ENTRANCE' },
+    { x:2220, w:520, label:'CONVENIENCE STORE' },
+    { x:2920, w:560, label:'ARCADE' },
+  ];
+  for (const b of buildingsS) platforms.push(rect(b.x, S, b.w, STAGE_PLATFORM_H));
+  room(rooms, 0,    S-380, 560, 380+STAGE_PLATFORM_H, '#16202c', null, 'NOODLE BAR');
+  room(rooms, 740,  S-380, 520, 380+STAGE_PLATFORM_H, '#0d2830', '#2de2c8', 'SERVER ROOM');
+  room(rooms, 1440, S-380, 600, 380+STAGE_PLATFORM_H, '#2a0d20', '#ff3ec8', 'CLUB ENTRANCE');
+  room(rooms, 2220, S-380, 520, 380+STAGE_PLATFORM_H, '#16202c', null, 'CONVENIENCE STORE');
+  room(rooms, 2920, S-380, 560, 380+STAGE_PLATFORM_H, '#1a1622', '#9b5cff', 'ARCADE');
+
+  const buildingsH = [
+    { x:0,    w:540, label:'APARTMENT' },
+    { x:760,  w:480, label:'HACKER DEN' },
+    { x:1460, w:560, label:'VIP LOUNGE' },
+    { x:2240, w:480, label:'OFFICE' },
+    { x:2940, w:500, label:'ROOFTOP VENTS' },
+  ];
+  for (const b of buildingsH) platforms.push(rect(b.x, H, b.w, STAGE_PLATFORM_H));
+  room(rooms, 0,    H-360, 540, 360+STAGE_PLATFORM_H, '#1c1c28', null, 'APARTMENT');
+  room(rooms, 760,  H-360, 480, 360+STAGE_PLATFORM_H, '#181e2a', '#2de2c8', 'HACKER DEN');
+  room(rooms, 1460, H-360, 560, 360+STAGE_PLATFORM_H, '#2a0d20', '#ff3ec8', 'VIP LOUNGE');
+  room(rooms, 2240, H-360, 480, 360+STAGE_PLATFORM_H, '#20242c', '#ffd23f', 'OFFICE');
+  room(rooms, 2940, H-360, 500, 360+STAGE_PLATFORM_H, '#151a20', null, 'ROOFTOP VENTS');
+
+  platforms.push(rect(60,   R, 440, STAGE_PLATFORM_H));
+  platforms.push(rect(1500, R, 480, STAGE_PLATFORM_H));
+  platforms.push(rect(2980, R, 420, STAGE_PLATFORM_H));
+  room(rooms, 60,   R-300, 440, 300+STAGE_PLATFORM_H, '#0d2818', '#39ff9e', 'ROOFTOP GARDEN');
+  room(rooms, 1500, R-300, 480, 300+STAGE_PLATFORM_H, '#241830', '#ff3ec8', 'PENTHOUSE');
+  room(rooms, 2980, R-300, 420, 300+STAGE_PLATFORM_H, '#12161c', '#4fa8ff', 'ANTENNA ARRAY');
+
+  platforms.push(rect(740,  U, 700, STAGE_PLATFORM_H));
+  platforms.push(rect(1440, 2420, 700, 16));
+  platforms.push(rect(2140, U, 1050, STAGE_PLATFORM_H));
+  room(rooms, 740,  U-300, 700,  300+STAGE_PLATFORM_H, '#0d2830', '#2de2c8', 'SERVER VAULT');
+  room(rooms, 2140, U-300, 1050, 300+STAGE_PLATFORM_H, '#0d2830', '#2de2c8', 'SERVER VAULT');
+
+  staircase(platforms, 40,   420, S, H, 3);
+  staircase(platforms, 780,  440, S, H, 3);
+  staircase(platforms, 1480, 520, S, H, 3);
+  staircase(platforms, 2260, 440, S, H, 3);
+  staircase(platforms, 2960, 480, S, H, 3);
+
+  wallShaft(platforms, 150,  170, R, H);
+  wallShaft(platforms, 1600, 170, R, H);
+  wallShaft(platforms, 3080, 170, R, H);
+
+  wallShaft(platforms, 850,  170, S, U);
+  wallShaft(platforms, 2350, 170, S, U);
+  wallShaft(platforms, 2950, 170, S, U);
+
+  for (let i=0;i<4;i++) playerSpawns.push({ x: 60+i*100, y: S-150 });
+  pickupSpawns.push({x:280,y:S-26},{x:1000,y:S-26},{x:1740,y:S-26},{x:2480,y:S-26},{x:3200,y:S-26},
+    {x:270,y:H-26},{x:2480,y:H-26},{x:280,y:R-26},{x:1740,y:R-26},{x:3190,y:R-26},
+    {x:1090,y:U-26},{x:2670,y:U-26});
+  envSpawns.push({x:1790,y:S-30},{x:1090,y:U-30},{x:2670,y:U-30});
+
+  const killY = U + 480;
+  return { id:'cyberpunk', name:'NEON WARD', theme:'cyberpunk', platforms, rooms, pickupSpawns, envSpawns, playerSpawns,
+    width: 3600, height: killY+200, killY };
+}
+
+const LEVELS = { western: buildWestern(), castle: buildCastle(), cyberpunk: buildCyberpunk() };
+const STAGE_ORDER = ['western','castle','cyberpunk'];
+
+// Fresh, independent copy each match so runtime spawner timers never leak
+// between matches or clients.
+function loadLevel(stageId){
+  const src = LEVELS[stageId] || LEVELS.western;
+  return {
+    id: src.id, name: src.name, theme: src.theme, width: src.width, height: src.height, killY: src.killY,
+    platforms: src.platforms.map(p => ({...p})),
+    rooms: src.rooms.map(r => ({...r})),
+    pickupSpawns: src.pickupSpawns.map(s => ({...s})),
+    envSpawns: src.envSpawns.map(s => ({...s})),
+    playerSpawns: src.playerSpawns.map(s => ({...s})),
+  };
+}
+
+/* ============================================================
 /* ============================================================
    SECTION: PLAYER FACTORY
    ============================================================ */
@@ -1481,6 +1532,28 @@ function drawPlatforms(ctx, game, cam){
     ctx.strokeRect(s.x+0.5, s.y+0.5, s.w-1, s.h-1);
   }
 }
+function drawRooms(ctx, game, cam){
+  for (const r of game.level.rooms){
+    if (r.x+r.w < cam.left || r.x > cam.right || r.y+r.h < cam.top || r.y > cam.bottom) continue;
+    const grad = ctx.createLinearGradient(0, r.y, 0, r.y+r.h);
+    grad.addColorStop(0, shade(r.tint, 14));
+    grad.addColorStop(1, shade(r.tint, -24));
+    ctx.fillStyle = grad;
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    if (r.glow){
+      const g = ctx.createRadialGradient(r.x+r.w*0.5, r.y+r.h*0.22, 0, r.x+r.w*0.5, r.y+r.h*0.22, r.w*0.65);
+      g.addColorStop(0, r.glow+'30'); g.addColorStop(1, r.glow+'00');
+      ctx.fillStyle = g; ctx.fillRect(r.x, r.y, r.w, r.h);
+    }
+    ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 3;
+    ctx.strokeRect(r.x+1.5, r.y+1.5, Math.max(0,r.w-3), Math.max(0,r.h-3));
+    if (r.label){
+      ctx.font = '10px Consolas, monospace'; ctx.textAlign = 'left';
+      ctx.fillStyle = 'rgba(255,255,255,.32)';
+      ctx.fillText(r.label, r.x+10, r.y+18);
+    }
+  }
+}
 function drawPickups(ctx, game, t){
   for (const pk of game.pickups){
     const def = pk.kind==='ranged' ? RANGED_WEAPONS[pk.wid] : MELEE_WEAPONS[pk.wid];
@@ -1553,25 +1626,112 @@ function drawParticles(ctx, game){
     ctx.restore();
   }
 }
-function drawSkylineLayer(ctx, offset, W, H, baseY, color, minH, maxH){
+
+/* ---- themed parallax backgrounds — one per stage ---- */
+function drawBlockLayer(ctx, offset, W, H, baseY, color, minH, maxH, blockW, gapW, freq){
   ctx.fillStyle = color;
-  const blockW = 90;
-  const start = Math.floor((offset - W)/blockW) * blockW;
-  for (let x = start; x < offset + W*2; x += blockW){
-    const h = minH + Math.abs(Math.sin(x*0.017)) * (maxH-minH);
-    ctx.fillRect(x - offset, baseY - h, blockW-6, h + (H-baseY));
+  const step = blockW+gapW;
+  const start = Math.floor((offset-W)/step)*step;
+  for (let x=start; x<offset+W*2; x+=step){
+    const h = minH + Math.abs(Math.sin(x*freq)) * (maxH-minH);
+    ctx.fillRect(x-offset, baseY-h, blockW, h+(H-baseY));
   }
 }
-function drawParallaxBackground(ctx, game, W, H){
+function drawMesaLayer(ctx, offset, W, H, baseY, color, minH, maxH, freq){
+  ctx.fillStyle = color;
+  const blockW = 240;
+  const start = Math.floor((offset-W)/blockW)*blockW;
+  for (let x=start; x<offset+W*2; x+=blockW){
+    const h = minH + Math.abs(Math.sin(x*freq)) * (maxH-minH);
+    const sx = x-offset, topY = baseY-h;
+    ctx.beginPath();
+    ctx.moveTo(sx, baseY);
+    ctx.lineTo(sx, topY+22);
+    ctx.quadraticCurveTo(sx+blockW*0.5, topY-14, sx+blockW-30, topY+22);
+    ctx.lineTo(sx+blockW-30, baseY);
+    ctx.closePath(); ctx.fill();
+  }
+}
+function drawWindmill(ctx, x, y, t){
+  ctx.save(); ctx.translate(x,y);
+  ctx.strokeStyle = 'rgba(15,10,8,.6)'; ctx.lineWidth = 4; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-16,96); ctx.moveTo(0,0); ctx.lineTo(16,96);
+  ctx.moveTo(-11,44); ctx.lineTo(11,44); ctx.stroke();
+  ctx.rotate(t*0.35);
+  ctx.fillStyle = 'rgba(15,10,8,.6)';
+  for (let i=0;i<4;i++){
+    ctx.rotate(Math.PI/2);
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-7,-42); ctx.lineTo(7,-42); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawWaterTower(ctx, x, y){
+  ctx.save(); ctx.translate(x,y);
+  ctx.fillStyle = 'rgba(15,10,8,.6)';
+  ctx.beginPath(); ctx.moveTo(-32,-30); ctx.lineTo(32,-30); ctx.lineTo(0,-52); ctx.closePath(); ctx.fill();
+  ctx.fillRect(-26,-30,52,32);
+  ctx.fillRect(-4,2,8,86); ctx.fillRect(-20,2,4,86); ctx.fillRect(16,2,4,86);
+  ctx.restore();
+}
+function drawBgWestern(ctx, game, W, H){
+  const cam = game.camera, t = performance.now()/1000;
+  const sky = ctx.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,'#f4e2b0'); sky.addColorStop(0.45,'#e8a85c'); sky.addColorStop(0.8,'#c96a3e'); sky.addColorStop(1,'#8a4230');
+  ctx.fillStyle = sky; ctx.fillRect(0,0,W,H);
+  drawMesaLayer(ctx, cam.x*0.10, W, H, H*0.60, 'rgba(150,80,60,.45)', 90, 220, 0.006);
+  drawMesaLayer(ctx, cam.x*0.22, W, H, H*0.72, 'rgba(120,58,46,.6)', 60, 150, 0.009);
+  const wobX = ((cam.x*0.16) % (W+600)) ;
+  drawWaterTower(ctx, 220 - cam.x*0.30 + Math.floor(cam.x*0.30/2400)*2400, H*0.62);
+  drawWindmill(ctx, 90 - cam.x*0.30 + Math.floor(cam.x*0.30/2400)*2400, H*0.66, t);
+  const glow = ctx.createRadialGradient(W*0.5,H*0.78,0,W*0.5,H*0.78,W*0.65);
+  glow.addColorStop(0,'rgba(255,170,90,.20)'); glow.addColorStop(1,'rgba(255,170,90,0)');
+  ctx.fillStyle = glow; ctx.fillRect(0,0,W,H);
+}
+function drawBgCastle(ctx, game, W, H){
   const cam = game.camera;
   const sky = ctx.createLinearGradient(0,0,0,H);
-  sky.addColorStop(0,'#150c28'); sky.addColorStop(0.55,'#0d0f1c'); sky.addColorStop(1,'#0a0b12');
+  sky.addColorStop(0,'#8a97a8'); sky.addColorStop(0.5,'#5c6779'); sky.addColorStop(1,'#3a414f');
   ctx.fillStyle = sky; ctx.fillRect(0,0,W,H);
-  drawSkylineLayer(ctx, cam.x*0.12, W, H, H*0.62, '#181a2e', 140, 340);
-  drawSkylineLayer(ctx, cam.x*0.28, W, H, H*0.74, '#1f2238', 90, 220);
-  const glow = ctx.createRadialGradient(W/2,H*0.7,0,W/2,H*0.7,W*0.7);
-  glow.addColorStop(0,'rgba(255,56,100,.10)'); glow.addColorStop(1,'rgba(255,56,100,0)');
+  drawMesaLayer(ctx, cam.x*0.09, W, H, H*0.58, 'rgba(80,90,105,.35)', 100, 260, 0.005);
+  drawMesaLayer(ctx, cam.x*0.20, W, H, H*0.70, 'rgba(60,68,80,.55)', 70, 170, 0.008);
+  const mist = ctx.createLinearGradient(0,H*0.55,0,H);
+  mist.addColorStop(0,'rgba(200,210,220,0)'); mist.addColorStop(1,'rgba(200,210,220,.22)');
+  ctx.fillStyle = mist; ctx.fillRect(0,0,W,H);
+}
+function drawMoon(ctx, x, y, r){
+  ctx.save();
+  const g = ctx.createRadialGradient(x,y,0,x,y,r*3);
+  g.addColorStop(0,'rgba(150,190,255,.25)'); g.addColorStop(1,'rgba(150,190,255,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x,y,r*3,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#cfe0ff';
+  ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+function drawBgCyberpunk(ctx, game, W, H){
+  const cam = game.camera;
+  const sky = ctx.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,'#0a0a1c'); sky.addColorStop(0.5,'#120f24'); sky.addColorStop(1,'#0a0b12');
+  ctx.fillStyle = sky; ctx.fillRect(0,0,W,H);
+  drawMoon(ctx, W*0.66 - (cam.x*0.03)%80, H*0.16, 34);
+  drawBlockLayer(ctx, cam.x*0.12, W, H, H*0.62, '#181a2e', 160, 380, 90, 22, 0.011);
+  drawBlockLayer(ctx, cam.x*0.26, W, H, H*0.74, '#20223a', 100, 240, 70, 16, 0.015);
+  ctx.save();
+  for (let i=0;i<4;i++){
+    const bx = ((i*260 - cam.x*0.20) % (W+300) + (W+300)) % (W+300) - 150;
+    const beam = ctx.createLinearGradient(bx,0,bx,H*0.6);
+    beam.addColorStop(0,'rgba(255,40,80,0)'); beam.addColorStop(1,'rgba(255,40,80,.16)');
+    ctx.fillStyle = beam; ctx.fillRect(bx-3,0,6,H*0.6);
+  }
+  ctx.restore();
+  const glow = ctx.createRadialGradient(W*0.7,H*0.75,0,W*0.7,H*0.75,W*0.6);
+  glow.addColorStop(0,'rgba(255,62,200,.12)'); glow.addColorStop(1,'rgba(255,62,200,0)');
   ctx.fillStyle = glow; ctx.fillRect(0,0,W,H);
+}
+function drawParallaxBackground(ctx, game, W, H){
+  const theme = game.level && game.level.theme;
+  if (theme === 'castle') drawBgCastle(ctx, game, W, H);
+  else if (theme === 'cyberpunk') drawBgCyberpunk(ctx, game, W, H);
+  else drawBgWestern(ctx, game, W, H);
 }
 
 function render(ctx, game, canvas){
@@ -1582,6 +1742,7 @@ function render(ctx, game, canvas){
   ctx.save();
   ctx.translate(Math.round(W/2 - game.camera.x + shx), Math.round(H/2 - game.camera.y + shy));
   const cam = { left: game.camera.x-W/2-60, right: game.camera.x+W/2+60, top: game.camera.y-H/2-60, bottom: game.camera.y+H/2+60 };
+  drawRooms(ctx, game, cam);
   drawPlatforms(ctx, game, cam);
   drawEnvProps(ctx, game);
   drawPickups(ctx, game, performance.now()/1000);
@@ -1643,7 +1804,7 @@ const ICE_CONFIG = { iceServers: [
 ]};
 const ROOM_PREFIX = 'overrun-arena-';
 const Net = { peer:null, isHost:false, roomCode:null, conns:{}, hostConn:null, localId:null };
-const Lobby = { players:{} };
+const Lobby = { players:{}, stageId:'western' };
 
 function genRoomCode(){
   const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -1693,13 +1854,12 @@ function onHostReceiveData(fromId, data){
   }
 }
 function broadcastLobby(){
-  const payload = { t:'lobby', players: Lobby.players, roomCode: Net.roomCode };
+  const payload = { t:'lobby', players: Lobby.players, roomCode: Net.roomCode, stageId: Lobby.stageId };
   for (const id in Net.conns){ try { Net.conns[id].send(payload); } catch(e){} }
   renderLobbyList();
 }
 function hostStartMatch(){
-  const seed = Math.floor(Math.random()*2147483647);
-  Game.level = genLevel(seed);
+  Game.level = loadLevel(Lobby.stageId);
   const ids = Object.keys(Lobby.players);
   Game.players = {}; Game.inputs = {};
   ids.forEach((id, i) => {
@@ -1709,7 +1869,7 @@ function hostStartMatch(){
     Game.inputs[id] = emptyInput();
   });
   const roster = ids.map(id => ({ id, name: Lobby.players[id].name, charId: Lobby.players[id].charId }));
-  for (const id in Net.conns){ try { Net.conns[id].send({ t:'start', seed, roster }); } catch(e){} }
+  for (const id in Net.conns){ try { Net.conns[id].send({ t:'start', stageId: Lobby.stageId, roster }); } catch(e){} }
   enterMatchScreen();
   Game.running = true;
 }
@@ -1737,17 +1897,17 @@ function joinGame(code){
 }
 function onClientReceiveData(data){
   if (data.t === 'lobby'){
-    Lobby.players = data.players; Net.roomCode = data.roomCode; renderLobbyList();
+    Lobby.players = data.players; Net.roomCode = data.roomCode; Lobby.stageId = data.stageId || 'western'; renderLobbyList();
   } else if (data.t === 'start'){
-    beginMatch(data.seed, data.roster);
+    beginMatch(data.stageId, data.roster);
   } else if (data.t === 'snap'){
     applySnapshot(data);
   } else if (data.t === 'full'){
     alert('That match is already full (4 players).'); location.reload();
   }
 }
-function beginMatch(seed, roster){
-  Game.level = genLevel(seed);
+function beginMatch(stageId, roster){
+  Game.level = loadLevel(stageId);
   Game.players = {};
   roster.forEach((r,i) => {
     const spawn = Game.level.playerSpawns[i % Game.level.playerSpawns.length];
@@ -1858,6 +2018,39 @@ function drawCharPreview(ctx, ch){
   };
   drawPlayer(ctx, fakeP, null);
 }
+const STAGE_BLURB = { western:'DESERT TOWN', castle:'STONE FORTRESS', cyberpunk:'NIGHT CITY' };
+function buildStageGrid(){
+  const grid = document.getElementById('stageGrid');
+  grid.innerHTML = '';
+  STAGE_ORDER.forEach(stageId => {
+    const lvl = LEVELS[stageId];
+    const card = document.createElement('div');
+    card.className = 'stage-card';
+    card.dataset.stageId = stageId;
+    const sn = document.createElement('div'); sn.className = 'sn'; sn.textContent = lvl.name;
+    const sw = document.createElement('div'); sw.className = 'swatches';
+    const step = Math.max(1, Math.floor(lvl.rooms.length / 5));
+    for (let i=0; i<lvl.rooms.length && sw.children.length<5; i+=step){
+      const s = document.createElement('span'); s.style.background = lvl.rooms[i].tint; sw.appendChild(s);
+    }
+    const st = document.createElement('div'); st.className = 'st'; st.textContent = STAGE_BLURB[stageId] || '';
+    card.appendChild(sn); card.appendChild(sw); card.appendChild(st);
+    card.addEventListener('click', () => { if (Net.isHost) selectStage(stageId); });
+    grid.appendChild(card);
+  });
+  renderStageSelection();
+}
+function selectStage(stageId){
+  Lobby.stageId = stageId;
+  renderStageSelection();
+  if (Net.isHost) broadcastLobby();
+}
+function renderStageSelection(){
+  document.querySelectorAll('.stage-card').forEach(c => {
+    c.classList.toggle('selected', c.dataset.stageId === Lobby.stageId);
+    c.classList.toggle('interactive', Net.isHost);
+  });
+}
 function selectCharacter(id){
   Game.myCharId = id;
   const myId = Game.localId;
@@ -1885,6 +2078,7 @@ function renderLobbyList(){
   document.getElementById('lobbyHint').textContent = Net.isHost
     ? 'Share the room code above. Start whenever your crew is ready (1–4 players).'
     : 'Waiting for the host to start the match…';
+  renderStageSelection();
 }
 function enterCharSelect(){
   document.getElementById('mainMenuScreen').classList.add('hidden');
@@ -1892,6 +2086,7 @@ function enterCharSelect(){
   const rc = document.getElementById('roomCodeDisplay');
   rc.classList.toggle('hidden', !Net.isHost);
   if (Net.isHost) rc.textContent = Net.roomCode;
+  buildStageGrid();
   buildCharGrid();
   selectCharacter(Game.myCharId || 0);
 }
@@ -1900,6 +2095,7 @@ function enterMatchScreen(){
   document.getElementById('mainMenuScreen').classList.add('hidden');
   document.getElementById('hud').classList.remove('hidden');
   document.getElementById('roomTagCode').textContent = Net.roomCode || '-----';
+  document.getElementById('roomTagStage').textContent = (Game.level && Game.level.name) || '-----';
   Game.camera.x = null; Game.camera.y = null;
 }
 
