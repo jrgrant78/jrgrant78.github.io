@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Chrono-Origami: Spatial-Temporal Deduction</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --panel-bg: #1e293b;
+            --accent-cyan: #38bdf8;
+            --accent-amber: #f59e0b;
+            --accent-rose: #f43f5e;
+            --accent-emerald: #10b981;
+            --text-light: #f8fafc;
+            --text-dim: #94a3b8;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-light);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        #game-container {
+            width: 100%;
+            max-width: 480px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        header {
+            text-align: center;
+            width: 100%;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            letter-spacing: 2px;
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+        }
+
+        .subtitle {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            margin-top: 4px;
+        }
+
+        #info-panel {
+            background: var(--panel-bg);
+            border-radius: 8px;
+            padding: 10px 16px;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+        }
+
+        .level-badge {
+            font-weight: bold;
+            color: var(--accent-amber);
+        }
+
+        #canvas-wrapper {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 1;
+            background: #090d16;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 0 0 2px rgba(255, 255, 255, 0.05);
+            overflow: hidden;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .controls-grid {
+            width: 100%;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .btn-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        button {
+            background: var(--panel-bg);
+            color: var(--text-light);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 12px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        button:active {
+            transform: scale(0.96);
+            background: #334155;
+        }
+
+        button.active {
+            background: var(--accent-cyan);
+            color: #0f172a;
+            border-color: var(--accent-cyan);
+        }
+
+        .dpad {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            gap: 4px;
+            aspect-ratio: 1;
+            max-width: 160px;
+            margin: 0 auto;
+        }
+
+        .dpad button {
+            padding: 0;
+            height: 100%;
+            border-radius: 6px;
+            background: #334155;
+            font-size: 1.2rem;
+        }
+
+        .dpad button:nth-child(1) { grid-column: 2; grid-row: 1; } /* Up */
+        .dpad button:nth-child(2) { grid-column: 1; grid-row: 2; } /* Left */
+        .dpad button:nth-child(3) { grid-column: 3; grid-row: 2; } /* Right */
+        .dpad button:nth-child(4) { grid-column: 2; grid-row: 3; } /* Down */
+
+        #instructions {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            text-align: center;
+            min-height: 2.4em;
+            line-height: 1.2;
+        }
+
+        .modal {
+            position: absolute;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(4px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .modal.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal h2 {
+            margin: 0;
+            color: var(--accent-emerald);
+            font-size: 1.8rem;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <header>
+        <h1>Chrono-Origami</h1>
+        <div class="subtitle">Fold time and space to reach the destination</div>
+    </header>
+
+    <div id="info-panel">
+        <div>Level: <span id="level-num" class="level-badge">1</span>/5</div>
+        <button id="btn-reset" style="padding: 6px 12px; font-size: 0.8rem;">↺ Restart</button>
+    </div>
+
+    <div id="canvas-wrapper">
+        <canvas id="gameCanvas" width="600" height="600"></canvas>
+        <div id="win-modal" class="modal">
+            <h2>Timeline Aligned!</h2>
+            <button id="btn-next" style="background: var(--accent-emerald); color: #022c22; padding: 12px 24px; font-size: 1rem;">Next Level</button>
+        </div>
+    </div>
+
+    <div id="instructions">Fold the grid to merge obstacles or warp across space.</div>
+
+    <div class="controls-grid">
+        <!-- Origami Fold Controls -->
+        <div class="btn-group">
+            <button id="btn-fold-h">↕ Fold Horizontally</button>
+            <button id="btn-fold-v">↔ Fold Vertically</button>
+            <button id="btn-unfold" style="opacity: 0.5;"> Unfold Grid</button>
+        </div>
+
+        <!-- Touch D-Pad -->
+        <div class="dpad">
+            <button id="btn-up">▲</button>
+            <button id="btn-left">◀</button>
+            <button id="btn-right">▶</button>
+            <button id="btn-down">▼</button>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * CHRONO-ORIGAMI - Engine
+ * Tile Types:
+ * 0: Floor | 1: Wall | 2: Pit | 3: Block | 4: Fire | 5: Water | 6: Key | 7: Door | 9: Goal
+ */
+
+const GRID_SIZE = 6;
+const TILE_TYPES = {
+    FLOOR: 0, WALL: 1, PIT: 2, BLOCK: 3,
+    FIRE: 4, WATER: 5, KEY: 6, DOOR: 7, GOAL: 9
+};
+
+const LEVELS = [
+    // Level 1: Intro to Space Warping
+    {
+        title: "Space Warping",
+        hint: "Fold horizontally to warp across the pit barrier.",
+        player: { x: 1, y: 1 },
+        grid: [
+            [0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0],
+            [2, 2, 2, 2, 2, 2],
+            [2, 2, 2, 2, 2, 2],
+            [0, 0, 0, 0, 9, 0],
+            [0, 0, 0, 0, 0, 0]
+        ]
+    },
+    // Level 2: Material Reaction (Block + Pit)
+    {
+        title: "Filling the Void",
+        hint: "Fold to drop the Block into the Pit, then unfold to walk across.",
+        player: { x: 0, y: 0 },
+        grid: [
+            [0, 0, 1, 3, 0, 0],
+            [0, 0, 1, 0, 0, 0],
+            [1, 1, 1, 1, 1, 0],
+            [0, 0, 0, 0, 0, 0],
+            [0, 0, 1, 0, 0, 0],
+            [0, 0, 1, 2, 0, 9]
+        ]
+    },
+    // Level 3: Elemental Causality (Water + Fire)
+    {
+        title: "Quenching Flames",
+        hint: "Fold Water over Fire to extinguish the barrier.",
+        player: { x: 0, y: 1 },
+        grid: [
+            [1, 1, 1, 1, 1, 1],
+            [0, 0, 5, 1, 0, 0],
+            [1, 1, 0, 1, 0, 0],
+            [1, 1, 0, 1, 0, 0],
+            [0, 0, 4, 0, 0, 9],
+            [1, 1, 1, 1, 1, 1]
+        ]
+    },
+    // Level 4: Vertical Axis & Lock Interaction
+    {
+        title: "Cross-Timeline Key",
+        hint: "Fold vertically to bring the Key directly to the Door.",
+        player: { x: 0, y: 1 },
+        grid: [
+            [1, 1, 1, 1, 1, 1],
+            [0, 6, 1, 1, 7, 9],
+            [0, 0, 1, 1, 0, 0],
+            [0, 0, 1, 1, 0, 0],
+            [0, 0, 1, 1, 0, 0],
+            [1, 1, 1, 1, 1, 1]
+        ]
+    },
+    // Level 5: Master Origami
+    {
+        title: "Temporal Synthesis",
+        hint: "Combine multiple elements using horizontal fold.",
+        player: { x: 0, y: 0 },
+        grid: [
+            [0, 0, 5, 0, 3, 0],
+            [1, 1, 1, 1, 1, 0],
+            [0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0],
+            [0, 0, 4, 1, 2, 0],
+            [0, 0, 0, 1, 0, 9]
+        ]
+    }
+];
+
+class ChronoOrigami {
+    constructor() {
+        this.canvas = document.getElementById('gameCanvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.currentLevelIdx = 0;
+        
+        this.grid = [];
+        this.player = { x: 0, y: 0 };
+        this.isFolded = false;
+        this.foldType = null; // 'H' or 'V'
+        
+        this.initEventListeners();
+        this.loadLevel(0);
+    }
+
+    loadLevel(idx) {
+        this.currentLevelIdx = idx;
+        const level = LEVELS[idx];
+        
+        // Deep copy grid
+        this.grid = JSON.parse(JSON.stringify(level.grid));
+        this.player = { ...level.player };
+        this.isFolded = false;
+        this.foldType = null;
+
+        document.getElementById('level-num').innerText = idx + 1;
+        document.getElementById('instructions').innerText = `${level.title}: ${level.hint}`;
+        document.getElementById('win-modal').classList.remove('visible');
+        
+        this.updateUI();
+        this.render();
+    }
+
+    initEventListeners() {
+        // Controls
+        document.getElementById('btn-fold-h').onclick = () => this.applyFold('H');
+        document.getElementById('btn-fold-v').onclick = () => this.applyFold('V');
+        document.getElementById('btn-unfold').onclick = () => this.unfold();
+        document.getElementById('btn-reset').onclick = () => this.loadLevel(this.currentLevelIdx);
+        document.getElementById('btn-next').onclick = () => {
+            if (this.currentLevelIdx + 1 < LEVELS.length) {
+                this.loadLevel(this.currentLevelIdx + 1);
+            } else {
+                this.loadLevel(0); // Loop back
+            }
+        };
+
+        // D-Pad
+        document.getElementById('btn-up').onclick = () => this.movePlayer(0, -1);
+        document.getElementById('btn-down').onclick = () => this.movePlayer(0, 1);
+        document.getElementById('btn-left').onclick = () => this.movePlayer(-1, 0);
+        document.getElementById('btn-right').onclick = () => this.movePlayer(1, 0);
+
+        // Keyboard
+        window.addEventListener('keydown', (e) => {
+            switch (e.key) {
+                case 'ArrowUp': case 'w': case 'W': this.movePlayer(0, -1); break;
+                case 'ArrowDown': case 's': case 'S': this.movePlayer(0, 1); break;
+                case 'ArrowLeft': case 'a': case 'A': this.movePlayer(-1, 0); break;
+                case 'ArrowRight': case 'd': case 'D': this.movePlayer(1, 0); break;
+                case 'h': case 'H': this.applyFold('H'); break;
+                case 'v': case 'V': this.applyFold('V'); break;
+                case 'u': case 'U': this.unfold(); break;
+                case 'r': case 'R': this.loadLevel(this.currentLevelIdx); break;
+            }
+        });
+    }
+
+    applyFold(type) {
+        if (this.isFolded) return;
+        
+        this.isFolded = true;
+        this.foldType = type;
+
+        // Perform elemental reaction merges across fold seam
+        if (type === 'H') {
+            for (let x = 0; x < GRID_SIZE; x++) {
+                for (let y = 0; y < 3; y++) {
+                    const y2 = 5 - y;
+                    this.mergeTiles(x, y, x, y2);
+                }
+            }
+            if (this.player.y >= 3) {
+                this.player.y = 5 - this.player.y;
+            }
+        } else if (type === 'V') {
+            for (let y = 0; y < GRID_SIZE; y++) {
+                for (let x = 0; x < 3; x++) {
+                    const x2 = 5 - x;
+                    this.mergeTiles(x, y, x2, y);
+                }
+            }
+            if (this.player.x >= 3) {
+                this.player.x = 5 - this.player.x;
+            }
+        }
+
+        this.updateUI();
+        this.render();
+    }
+
+    unfold() {
+        if (!this.isFolded) return;
+        this.isFolded = false;
+        this.foldType = null;
+        this.updateUI();
+        this.render();
+    }
+
+    mergeTiles(x1, y1, x2, y2) {
+        const t1 = this.grid[y1][x1];
+        const t2 = this.grid[y2][x2];
+
+        // Block (3) + Pit (2) -> Floor (0)
+        if ((t1 === 3 && t2 === 2) || (t1 === 2 && t2 === 3)) {
+            this.grid[y1][x1] = 0;
+            this.grid[y2][x2] = 0;
+        }
+        // Water (5) + Fire (4) -> Floor (0)
+        else if ((t1 === 5 && t2 === 4) || (t1 === 4 && t2 === 5)) {
+            this.grid[y1][x1] = 0;
+            this.grid[y2][x2] = 0;
+        }
+        // Key (6) + Door (7) -> Floor (0)
+        else if ((t1 === 6 && t2 === 7) || (t1 === 7 && t2 === 6)) {
+            this.grid[y1][x1] = 0;
+            this.grid[y2][x2] = 0;
+        }
+    }
+
+    movePlayer(dx, dy) {
+        const newX = this.player.x + dx;
+        const newY = this.player.y + dy;
+
+        // Check boundaries based on folded status
+        const maxX = (this.isFolded && this.foldType === 'V') ? 3 : GRID_SIZE;
+        const maxY = (this.isFolded && this.foldType === 'H') ? 3 : GRID_SIZE;
+
+        if (newX < 0 || newX >= maxX || newY < 0 || newY >= maxY) return;
+
+        // Check tile passability
+        if (!this.isTileWalkable(newX, newY)) return;
+
+        this.player.x = newX;
+        this.player.y = newY;
+
+        // Check key pickup / goal
+        this.checkTileInteraction(newX, newY);
+        this.render();
+    }
+
+    isTileWalkable(x, y) {
+        if (!this.isFolded) {
+            const tile = this.grid[y][x];
+            return tile !== TILE_TYPES.WALL && tile !== TILE_TYPES.PIT && 
+                   tile !== TILE_TYPES.FIRE && tile !== TILE_TYPES.DOOR;
+        } else {
+            // Folded state checks both overlapping cells
+            const x2 = (this.foldType === 'V') ? 5 - x : x;
+            const y2 = (this.foldType === 'H') ? 5 - y : y;
+            
+            const t1 = this.grid[y][x];
+            const t2 = this.grid[y2][x2];
+
+            const blocking = [TILE_TYPES.WALL, TILE_TYPES.PIT, TILE_TYPES.FIRE, TILE_TYPES.DOOR];
+            return !blocking.includes(t1) && !blocking.includes(t2);
+        }
+    }
+
+    checkTileInteraction(x, y) {
+        const checkCoordinates = (cx, cy) => {
+            const tile = this.grid[cy][cx];
+            if (tile === TILE_TYPES.KEY) {
+                this.grid[cy][cx] = TILE_TYPES.FLOOR; // Collect Key
+            } else if (tile === TILE_TYPES.GOAL) {
+                this.triggerWin();
+            }
+        };
+
+        checkCoordinates(x, y);
+
+        if (this.isFolded) {
+            const x2 = (this.foldType === 'V') ? 5 - x : x;
+            const y2 = (this.foldType === 'H') ? 5 - y : y;
+            checkCoordinates(x2, y2);
+        }
+    }
+
+    triggerWin() {
+        document.getElementById('win-modal').classList.add('visible');
+    }
+
+    updateUI() {
+        const btnH = document.getElementById('btn-fold-h');
+        const btnV = document.getElementById('btn-fold-v');
+        const btnU = document.getElementById('btn-unfold');
+
+        btnH.classList.toggle('active', this.isFolded && this.foldType === 'H');
+        btnV.classList.toggle('active', this.isFolded && this.foldType === 'V');
+        btnU.style.opacity = this.isFolded ? '1' : '0.5';
+    }
+
+    render() {
+        const width = this.canvas.width;
+        const height = this.canvas.height;
+        const cellSize = width / GRID_SIZE;
+
+        this.ctx.clearRect(0, 0, width, height);
+
+        // Draw Base Grid Background
+        for (let y = 0; y < GRID_SIZE; y++) {
+            for (let x = 0; x < GRID_SIZE; x++) {
+                this.drawTile(x, y, this.grid[y][x], cellSize);
+            }
+        }
+
+        // Draw Fold Visual Overlay / Crease Lines
+        if (this.isFolded) {
+            this.ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+            if (this.foldType === 'H') {
+                // Dim folded-over bottom half
+                this.ctx.fillRect(0, 3 * cellSize, width, 3 * cellSize);
+                
+                // Crease Line
+                this.ctx.strokeStyle = '#38bdf8';
+                this.ctx.lineWidth = 4;
+                this.ctx.beginPath();
+                this.ctx.moveTo(0, 3 * cellSize);
+                this.ctx.lineTo(width, 3 * cellSize);
+                this.ctx.stroke();
+
+                // Draw overlapping element previews on top half
+                for (let y = 0; y < 3; y++) {
+                    for (let x = 0; x < GRID_SIZE; x++) {
+                        const overlayTile = this.grid[5 - y][x];
+                        if (overlayTile !== TILE_TYPES.FLOOR) {
+                            this.drawTile(x, y, overlayTile, cellSize, 0.4);
+                        }
+                    }
+                }
+            } else if (this.foldType === 'V') {
+                // Dim folded-over right half
+                this.ctx.fillRect(3 * cellSize, 0, 3 * cellSize, height);
+
+                // Crease Line
+                this.ctx.strokeStyle = '#38bdf8';
+                this.ctx.lineWidth = 4;
+                this.ctx.beginPath();
+                this.ctx.moveTo(3 * cellSize, 0);
+                this.ctx.lineTo(3 * cellSize, height);
+                this.ctx.stroke();
+
+                // Draw overlapping element previews on left half
+                for (let y = 0; y < GRID_SIZE; y++) {
+                    for (let x = 0; x < 3; x++) {
+                        const overlayTile = this.grid[y][5 - x];
+                        if (overlayTile !== TILE_TYPES.FLOOR) {
+                            this.drawTile(x, y, overlayTile, cellSize, 0.4);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Draw Player
+        const px = this.player.x * cellSize + cellSize / 2;
+        const py = this.player.y * cellSize + cellSize / 2;
+        const radius = cellSize * 0.3;
+
+        this.ctx.fillStyle = '#38bdf8';
+        this.ctx.shadowColor = '#38bdf8';
+        this.ctx.shadowBlur = 12;
+        this.ctx.beginPath();
+        this.ctx.arc(px, py, radius, 0, Math.PI * 2);
+        this.ctx.fill();
+        this.ctx.shadowBlur = 0; // Reset
+    }
+
+    drawTile(x, y, type, size, alpha = 1.0) {
+        const pad = 3;
+        const tx = x * size + pad;
+        const ty = y * size + pad;
+        const ts = size - pad * 2;
+
+        this.ctx.save();
+        this.ctx.globalAlpha = alpha;
+
+        // Base cell styling
+        this.ctx.fillStyle = '#1e293b';
+        this.ctx.fillRect(tx, ty, ts, ts);
+
+        switch (type) {
+            case TILE_TYPES.WALL:
+                this.ctx.fillStyle = '#475569';
+                this.ctx.fillRect(tx, ty, ts, ts);
+                break;
+            case TILE_TYPES.PIT:
+                this.ctx.fillStyle = '#020617';
+                this.ctx.fillRect(tx, ty, ts, ts);
+                this.ctx.strokeStyle = '#334155';
+                this.ctx.strokeRect(tx + 4, ty + 4, ts - 8, ts - 8);
+                break;
+            case TILE_TYPES.BLOCK:
+                this.ctx.fillStyle = '#d97706';
+                this.ctx.fillRect(tx + 6, ty + 6, ts - 12, ts - 12);
+                break;
+            case TILE_TYPES.FIRE:
+                this.ctx.fillStyle = '#ef4444';
+                this.ctx.beginPath();
+                this.ctx.arc(tx + ts/2, ty + ts/2, ts/3, 0, Math.PI * 2);
+                this.ctx.fill();
+                break;
+            case TILE_TYPES.WATER:
+                this.ctx.fillStyle = '#06b6d4';
+                this.ctx.beginPath();
+                this.ctx.arc(tx + ts/2, ty + ts/2, ts/3, 0, Math.PI * 2);
+                this.ctx.fill();
+                break;
+            case TILE_TYPES.KEY:
+                this.ctx.fillStyle = '#eab308';
+                this.ctx.font = `${size * 0.4}px sans-serif`;
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText('🔑', tx + ts/2, ty + ts/2);
+                break;
+            case TILE_TYPES.DOOR:
+                this.ctx.fillStyle = '#8b5cf6';
+                this.ctx.fillRect(tx + 4, ty + 4, ts - 8, ts - 8);
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.font = `${size * 0.3}px sans-serif`;
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText('🔒', tx + ts/2, ty + ts/2);
+                break;
+            case TILE_TYPES.GOAL:
+                this.ctx.fillStyle = '#10b981';
+                this.ctx.beginPath();
+                this.ctx.arc(tx + ts/2, ty + ts/2, ts/2.5, 0, Math.PI * 2);
+                this.ctx.fill();
+                break;
+        }
+
+        this.ctx.restore();
+    }
+}
+
+// Initialize on DOM Load
+window.onload = () => {
+    new ChronoOrigami();
+};
+</script>
+</body>
+</html>
