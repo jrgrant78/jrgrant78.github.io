@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Fold-State</title>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --surface: #1a2235;
+            --text-main: #ffffff;
+            --text-muted: #8892b0;
+            --accent: #64ffda;
+            --pos-tile: #203a43;
+            --neg-tile: #432020;
+            --tile-border: #2c3e50;
+            --font: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            touch-action: pan-x pan-y; /* Allow default touch except where prevented */
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: var(--font);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        header {
+            width: 100%;
+            max-width: 500px;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .level-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .level-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent);
+            letter-spacing: 1px;
+        }
+
+        .target-box {
+            background: var(--surface);
+            padding: 10px 20px;
+            border-radius: 12px;
+            border: 1px solid var(--accent);
+            text-align: center;
+        }
+
+        .target-label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .target-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+        }
+
+        .instructions {
+            max-width: 500px;
+            text-align: center;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            margin: 10px 20px;
+        }
+
+        #game-container {
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            padding: 20px;
+            perspective: 1000px; /* For 3D fold effects */
+        }
+
+        #board {
+            display: grid;
+            gap: 8px;
+            background: var(--surface);
+            padding: 12px;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            touch-action: none; /* Prevent scrolling over board */
+        }
+
+        .tile {
+            width: 70px;
+            height: 70px;
+            background: var(--pos-tile);
+            border: 2px solid var(--tile-border);
+            border-radius: 12px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: var(--text-main);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            transition: transform 0.1s;
+            position: relative;
+        }
+        
+        .tile.negative {
+            background: var(--neg-tile);
+            color: #ff8a8a;
+            border-color: #5c2d2d;
+        }
+
+        /* Fold Animations */
+        .fold-right {
+            transform-origin: center right;
+            transform: rotateY(180deg);
+            opacity: 0;
+            transition: transform 0.3s ease-in, opacity 0.3s ease-in;
+            z-index: 10;
+        }
+        
+        .fold-left {
+            transform-origin: center left;
+            transform: rotateY(-180deg);
+            opacity: 0;
+            transition: transform 0.3s ease-in, opacity 0.3s ease-in;
+            z-index: 10;
+        }
+
+        .fold-down {
+            transform-origin: bottom center;
+            transform: rotateX(-180deg);
+            opacity: 0;
+            transition: transform 0.3s ease-in, opacity 0.3s ease-in;
+            z-index: 10;
+        }
+
+        .fold-up {
+            transform-origin: top center;
+            transform: rotateX(180deg);
+            opacity: 0;
+            transition: transform 0.3s ease-in, opacity 0.3s ease-in;
+            z-index: 10;
+        }
+
+        .pop {
+            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        @keyframes popIn {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.15); box-shadow: 0 0 15px var(--accent); border-color: var(--accent); }
+            100% { transform: scale(1); }
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        button {
+            background: transparent;
+            color: var(--text-main);
+            border: 2px solid var(--text-muted);
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        button:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* Win Overlay */
+        #win-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(11, 15, 25, 0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s ease;
+        }
+
+        #win-overlay.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        #win-overlay h1 {
+            color: var(--accent);
+            font-size: 3rem;
+            margin-bottom: 20px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="level-info">
+            <span class="level-title" id="level-title">Level 1</span>
+            <span style="color: var(--text-muted); font-size: 0.9rem;" id="moves-label">Moves: 0</span>
+        </div>
+        <div class="target-box">
+            <div class="target-label">Target</div>
+            <div class="target-value" id="target-value">10</div>
+        </div>
+    </header>
+
+    <div class="instructions">
+        Swipe edges inwards (Up, Down, Left, Right) to fold the grid in half. Folded cells add together. Reduce the grid to 1x1 matching the target.
+    </div>
+
+    <div id="game-container">
+        <div id="board"></div>
+    </div>
+
+    <div class="controls">
+        <button id="btn-undo">Undo</button>
+        <button id="btn-reset">Reset</button>
+    </div>
+
+    <div id="win-overlay">
+        <h1>Correct Matrix</h1>
+        <p style="color: var(--text-muted); margin-bottom: 30px;">Sequence Solved</p>
+        <button id="btn-next" style="border-color: var(--accent); color: var(--accent);">Next Chapter</button>
+    </div>
+
+    <script>
+        const levels = [
+            { title: "Ch 1: The Seam", target: 10, grid: [[1, 2], [3, 4]] },
+            { title: "Ch 1: Double Fold", target: 14, grid: [[2, 1, 2], [3, 1, 5]] },
+            { title: "Ch 2: Negatives", target: 4, grid: [[5, -2], [-3, 4]] },
+            { title: "Ch 2: Sub-Zero", target: 0, grid: [[-2, 2, 0], [4, -4, 2], [-2, 2, -2]] },
+            { title: "Ch 3: The Anchor", target: 30, grid: [[2, 4, 2, 2], [5, 5, 2, 1], [0, 2, 2, 3]] },
+            { title: "Ch 4: Singularity", target: -5, grid: [[10, -15, 5], [-5, 10, -5], [5, -10, 0]] }
+        ];
+
+        let currentLevel = 0;
+        let grid = [];
+        let history = []; 
+        let isAnimating = false;
+        let moves = 0;
+        
+        const boardEl = document.getElementById('board');
+        const levelTitleEl = document.getElementById('level-title');
+        const targetValueEl = document.getElementById('target-value');
+        const movesLabelEl = document.getElementById('moves-label');
+        const winOverlay = document.getElementById('win-overlay');
+
+        function loadLevel(idx) {
+            if (idx >= levels.length) {
+                alert("Game Completed! You've mastered Fold-State.");
+                idx = 0; // loop back
+            }
+            currentLevel = idx;
+            grid = JSON.parse(JSON.stringify(levels[idx].grid));
+            history = [];
+            moves = 0;
+            
+            levelTitleEl.textContent = levels[idx].title;
+            targetValueEl.textContent = levels[idx].target;
+            
+            winOverlay.classList.remove('visible');
+            render(null);
+        }
+
+        function render(poppedCells = null) {
+            boardEl.innerHTML = '';
+            
+            const rows = grid.length;
+            const cols = grid[0].length;
+            
+            boardEl.style.gridTemplateRows = `repeat(${rows}, 70px)`;
+            boardEl.style.gridTemplateColumns = `repeat(${cols}, 70px)`;
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const tile = document.createElement('div');
+                    tile.className = 'tile';
+                    const val = grid[r][c];
+                    tile.textContent = val;
+                    if (val < 0) tile.classList.add('negative');
+                    
+                    tile.dataset.r = r;
+                    tile.dataset.c = c;
+                    tile.id = `cell-${r}-${c}`;
+
+                    // Add pop animation if this cell was just combined
+                    if (poppedCells && poppedCells.some(p => p.r === r && p.c === c)) {
+                        tile.classList.add('pop');
+                    }
+
+                    boardEl.appendChild(tile);
+                }
+            }
+            movesLabelEl.textContent = `Moves: ${moves}`;
+        }
+
+        function fold(direction) {
+            if (isAnimating) return;
+            const R = grid.length;
+            const C = grid[0].length;
+            
+            // Validate fold possibility
+            if (R === 1 && C === 1) return;
+            if ((direction === 'right' || direction === 'left') && C === 1) return;
+            if ((direction === 'down' || direction === 'up') && R === 1) return;
+
+            isAnimating = true;
+
+            // Apply animation classes
+            for (let r = 0; r < R; r++) {
+                for (let c = 0; c < C; c++) {
+                    const tile = document.getElementById(`cell-${r}-${c}`);
+                    if (direction === 'right' && c === 0) tile.classList.add('fold-right');
+                    if (direction === 'left' && c === C - 1) tile.classList.add('fold-left');
+                    if (direction === 'down' && r === 0) tile.classList.add('fold-down');
+                    if (direction === 'up' && r === R - 1) tile.classList.add('fold-up');
+                }
+            }
+
+            // Wait for animation, then apply logic
+            setTimeout(() => {
+                history.push(JSON.parse(JSON.stringify(grid)));
+                moves++;
+                
+                let newGrid = JSON.parse(JSON.stringify(grid));
+                let popped = [];
+
+                if (direction === 'right') {
+                    for (let i = 0; i < R; i++) {
+                        newGrid[i][1] += newGrid[i][0];
+                        newGrid[i].shift();
+                        popped.push({r: i, c: 0});
+                    }
+                } 
+                else if (direction === 'left') {
+                    for (let i = 0; i < R; i++) {
+                        newGrid[i][C - 2] += newGrid[i][C - 1];
+                        newGrid[i].pop();
+                        popped.push({r: i, c: C - 2});
+                    }
+                } 
+                else if (direction === 'down') {
+                    for (let j = 0; j < C; j++) {
+                        newGrid[1][j] += newGrid[0][j];
+                        popped.push({r: 0, c: j});
+                    }
+                    newGrid.shift();
+                } 
+                else if (direction === 'up') {
+                    for (let j = 0; j < C; j++) {
+                        newGrid[R - 2][j] += newGrid[R - 1][j];
+                        popped.push({r: R - 2, c: j});
+                    }
+                    newGrid.pop();
+                }
+
+                grid = newGrid;
+                render(popped);
+                isAnimating = false;
+                
+                checkWin();
+
+            }, 300);
+        }
+
+        function checkWin() {
+            if (grid.length === 1 && grid[0].length === 1) {
+                if (grid[0][0] === levels[currentLevel].target) {
+                    setTimeout(() => {
+                        winOverlay.classList.add('visible');
+                    }, 400);
+                } else {
+                    // Failed attempt - give visual feedback
+                    const tile = document.querySelector('.tile');
+                    tile.style.backgroundColor = 'var(--neg-tile)';
+                    tile.style.borderColor = 'red';
+                }
+            }
+        }
+
+        // --- Swipe Detection ---
+        let startX = 0;
+        let startY = 0;
+
+        boardEl.addEventListener('touchstart', e => {
+            startX = e.changedTouches[0].screenX;
+            startY = e.changedTouches[0].screenY;
+        }, {passive: false});
+
+        boardEl.addEventListener('touchmove', e => {
+            e.preventDefault(); // Prevent scrolling while playing
+        }, {passive: false});
+
+        boardEl.addEventListener('touchend', e => {
+            if (isAnimating) return;
+            let endX = e.changedTouches[0].screenX;
+            let endY = e.changedTouches[0].screenY;
+            handleSwipe(startX, startY, endX, endY);
+        });
+
+        // Mouse drag support for desktop
+        let isMouseDown = false;
+        boardEl.addEventListener('mousedown', e => {
+            isMouseDown = true;
+            startX = e.clientX;
+            startY = e.clientY;
+        });
+        
+        window.addEventListener('mouseup', e => {
+            if (!isMouseDown) return;
+            isMouseDown = false;
+            let endX = e.clientX;
+            let endY = e.clientY;
+            handleSwipe(startX, startY, endX, endY);
+        });
+
+        function handleSwipe(sx, sy, ex, ey) {
+            let dx = ex - sx;
+            let dy = ey - sy;
+            let absDx = Math.abs(dx);
+            let absDy = Math.abs(dy);
+
+            if (Math.max(absDx, absDy) > 30) {
+                if (absDx > absDy) {
+                    if (dx > 0) fold('right'); // Swipe Right -> Fold Left Edge Inwards
+                    else fold('left');         // Swipe Left -> Fold Right Edge Inwards
+                } else {
+                    if (dy > 0) fold('down');  // Swipe Down -> Fold Top Edge Inwards
+                    else fold('up');           // Swipe Up -> Fold Bottom Edge Inwards
+                }
+            }
+        }
+
+        // Controls
+        document.getElementById('btn-undo').addEventListener('click', () => {
+            if (history.length > 0 && !isAnimating) {
+                grid = history.pop();
+                moves = Math.max(0, moves - 1);
+                render();
+            }
+        });
+
+        document.getElementById('btn-reset').addEventListener('click', () => {
+            if(!isAnimating) {
+                grid = JSON.parse(JSON.stringify(levels[currentLevel].grid));
+                history = [];
+                moves = 0;
+                render();
+            }
+        });
+
+        document.getElementById('btn-next').addEventListener('click', () => {
+            loadLevel(currentLevel + 1);
+        });
+
+        // Init
+        loadLevel(0);
+
+    </script>
+</body>
+</html>
