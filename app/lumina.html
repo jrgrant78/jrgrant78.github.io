@@ -6,11 +6,11 @@
   <title>LUMINA: Laser Logic</title>
   <style>
     :root {
-      --bg: #090d16;
-      --panel: #111827;
-      --laser-red: #ff3300;
-      --laser-glow: rgba(255, 51, 0, 0.6);
-      --mirror-cyan: #38bdf8;
+      --bg: #0b0f19;
+      --panel: #151d2a;
+      --laser-core: #ffea00;
+      --laser-glow: #ff2200;
+      --mirror-frame: #38bdf8;
       --text: #f8fafc;
       --text-dim: #64748b;
     }
@@ -39,7 +39,7 @@
 
     header {
       width: 100%;
-      max-width: 500px;
+      max-width: 480px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -47,15 +47,15 @@
     }
 
     .title {
-      font-size: 1.25rem;
+      font-size: 1.3rem;
       font-weight: 800;
       letter-spacing: 2px;
-      color: var(--laser-red);
-      text-shadow: 0 0 10px var(--laser-glow);
+      color: var(--laser-glow);
+      text-shadow: 0 0 12px rgba(255, 34, 0, 0.6);
     }
 
     .stage-indicator {
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       font-weight: 600;
       color: var(--text-dim);
     }
@@ -74,19 +74,19 @@
       font-weight: 600;
       font-size: 0.85rem;
       cursor: pointer;
-      transition: all 0.2s ease;
+      transition: all 0.15s ease;
     }
 
     button:active {
       transform: scale(0.95);
-      background: var(--mirror-cyan);
+      background: var(--mirror-frame);
       color: #000;
     }
 
     #game-container {
       position: relative;
       width: 100%;
-      max-width: 500px;
+      max-width: 480px;
       aspect-ratio: 1 / 1;
       display: flex;
       justify-content: center;
@@ -97,15 +97,15 @@
     canvas {
       width: 100%;
       height: 100%;
-      background: rgba(15, 23, 42, 0.8);
+      background: rgba(15, 23, 42, 0.9);
       border-radius: 16px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
     }
 
     .overlay {
       position: absolute;
       inset: 0;
-      background: rgba(9, 13, 22, 0.9);
+      background: rgba(11, 15, 25, 0.92);
       backdrop-filter: blur(8px);
       border-radius: 16px;
       display: flex;
@@ -114,7 +114,7 @@
       align-items: center;
       opacity: 0;
       pointer-events: none;
-      transition: opacity 0.3s ease;
+      transition: opacity 0.25s ease;
       z-index: 10;
       padding: 24px;
       text-align: center;
@@ -127,7 +127,7 @@
 
     .overlay h2 {
       font-size: 1.8rem;
-      color: var(--laser-red);
+      color: var(--laser-glow);
       text-shadow: 0 0 15px var(--laser-glow);
       margin-bottom: 8px;
     }
@@ -154,13 +154,13 @@
     }
 
     .level-btn.completed {
-      border-color: var(--mirror-cyan);
-      color: var(--mirror-cyan);
+      border-color: var(--mirror-frame);
+      color: var(--mirror-frame);
     }
 
     footer {
       width: 100%;
-      max-width: 500px;
+      max-width: 480px;
       display: flex;
       justify-content: space-between;
       gap: 8px;
@@ -192,8 +192,8 @@
 
     <div class="overlay" id="win-overlay">
       <h2>TARGET POWERED</h2>
-      <p style="color: var(--text-dim); margin-bottom: 20px;">Laser signal locked onto target.</p>
-      <button id="btn-next" style="padding: 12px 32px; background: var(--laser-red); color: #fff;">NEXT STAGE</button>
+      <p style="color: var(--text-dim); margin-bottom: 20px;">Light vector locked onto receiver.</p>
+      <button id="btn-next" style="padding: 12px 32px; background: var(--laser-glow); color: #fff;">NEXT STAGE</button>
     </div>
 
     <div class="overlay" id="select-overlay">
@@ -210,7 +210,7 @@
   </footer>
 
   <script>
-    // --- Sound Synth ---
+    // --- Audio System ---
     const Audio = {
       ctx: null,
       muted: false,
@@ -222,27 +222,27 @@
         this.init();
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(400, this.ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(800, this.ctx.currentTime + 0.05);
-        gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.05);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(450, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(900, this.ctx.currentTime + 0.04);
+        gain.gain.setValueAtTime(0.12, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.04);
         osc.connect(gain); gain.connect(this.ctx.destination);
-        osc.start(); osc.stop(this.ctx.currentTime + 0.05);
+        osc.start(); osc.stop(this.ctx.currentTime + 0.04);
       },
       playWin() {
         if (this.muted) return;
         this.init();
-        [440, 554.37, 659.25, 880].forEach((freq, i) => {
+        [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
           const osc = this.ctx.createOscillator();
           const gain = this.ctx.createGain();
-          osc.type = 'sine';
+          osc.type = 'triangle';
           osc.frequency.setValueAtTime(freq, this.ctx.currentTime + i * 0.06);
-          gain.gain.setValueAtTime(0.12, this.ctx.currentTime + i * 0.06);
-          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + i * 0.06 + 0.2);
+          gain.gain.setValueAtTime(0.15, this.ctx.currentTime + i * 0.06);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + i * 0.06 + 0.22);
           osc.connect(gain); gain.connect(this.ctx.destination);
           osc.start(this.ctx.currentTime + i * 0.06);
-          osc.stop(this.ctx.currentTime + i * 0.06 + 0.2);
+          osc.stop(this.ctx.currentTime + i * 0.06 + 0.22);
         });
       }
     };
@@ -256,7 +256,7 @@
       }
     }
 
-    // Directions: 0: RIGHT, 1: DOWN, 2: LEFT, 3: UP
+    // Grid Vectors: 0: RIGHT, 1: DOWN, 2: LEFT, 3: UP
     const DX = [1, 0, -1, 0];
     const DY = [0, 1, 0, -1];
 
@@ -264,8 +264,9 @@
     let completedStages = JSON.parse(localStorage.getItem('lumina_completed') || '[]');
     let grid = [];
     let cols = 6, rows = 6;
-    let laserPaths = [];
+    let laserPath = [];
     let stageCleared = false;
+    let lastInputTime = 0;
 
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -278,121 +279,81 @@
       ctx.scale(dpr, dpr);
     }
 
-    // --- High-Difficulty Puzzle Generation Engine ---
+    // --- Deterministic Strategic Level Generation ---
     function generateStage(stageNum) {
-      let rng = mulberry32(8000 + stageNum * 997);
+      let rng = mulberry32(9000 + stageNum * 777);
       
-      // Grid dimensions expand from 5x5 up to 10x10
-      cols = Math.min(10, 5 + Math.floor((stageNum - 1) / 18));
+      cols = Math.min(9, 5 + Math.floor((stageNum - 1) / 20));
       rows = cols;
 
-      let validBuild = false;
-      let maxAttempts = 50;
+      grid = Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({ type: 'EMPTY' })));
 
-      while (!validBuild && maxAttempts > 0) {
-        maxAttempts--;
-        grid = Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({ type: 'EMPTY' })));
+      // 1. Place Emitter on outer border
+      let edge = Math.floor(rng() * 4);
+      let ec = 0, er = 0, edir = 0;
+      if (edge === 0) { ec = Math.floor(rng() * cols); er = 0; edir = 1; }
+      else if (edge === 1) { ec = cols - 1; er = Math.floor(rng() * rows); edir = 2; }
+      else if (edge === 2) { ec = Math.floor(rng() * cols); er = rows - 1; edir = 3; }
+      else { ec = 0; er = Math.floor(rng() * rows); edir = 0; }
 
-        // Place Emitter on random edge
-        let edge = Math.floor(rng() * 4);
-        let ec = 0, er = 0, edir = 0;
-        if (edge === 0) { ec = Math.floor(rng() * cols); er = 0; edir = 1; }
-        else if (edge === 1) { ec = cols - 1; er = Math.floor(rng() * rows); edir = 2; }
-        else if (edge === 2) { ec = Math.floor(rng() * cols); er = rows - 1; edir = 3; }
-        else { ec = 0; er = Math.floor(rng() * rows); edir = 0; }
+      grid[er][ec] = { type: 'EMITTER', dir: edir };
 
-        grid[er][ec] = { type: 'EMITTER', dir: edir };
+      // 2. Build a strategic path with designated turns
+      let pathTurns = Math.min(12, 2 + Math.floor(stageNum / 8));
+      let curC = ec, curR = er, curDir = edir;
+      let pathCells = new Set([`${ec},${er}`]);
 
-        // Determine target path length (Scales up to 22 turns on stage 100)
-        let targetTurns = Math.min(22, 3 + Math.floor(stageNum / 4.8));
-        let path = [{ c: ec, r: er }];
-        let curC = ec, curR = er, curDir = edir;
-        let turnsPlaced = 0;
-
-        let solutionAngles = {};
-
-        // Trace path through grid
-        for (let step = 0; step < 120 && turnsPlaced < targetTurns; step++) {
+      for (let t = 0; t < pathTurns; t++) {
+        let dist = Math.floor(rng() * (cols - 3)) + 1;
+        for (let d = 0; d < dist; d++) {
           let nc = curC + DX[curDir];
           let nr = curR + DY[curDir];
-
           if (nc < 0 || nc >= cols || nr < 0 || nr >= rows) break;
+          curC = nc; curR = nr;
+          pathCells.add(`${curC},${curR}`);
+        }
 
-          // Check if we can turn here
-          let canTurn = (nc > 0 && nc < cols - 1 && nr > 0 && nr < rows - 1) && 
-                        (grid[nr][nc].type === 'EMPTY');
+        // Determine next turn direction (Left or Right relative to current direction)
+        let turnRight = rng() > 0.5;
+        let nextDir = turnRight ? (curDir + 1) % 4 : (curDir + 3) % 4;
 
-          if (canTurn && rng() < 0.65) {
-            let turnLeft = rng() > 0.5;
-            let nextDir = turnLeft ? (curDir + 3) % 4 : (curDir + 1) % 4;
-
-            // Mirror orientation math for 45° (slash) vs 135° (backslash)
-            // Slash (0): 0<->3, 1<->2.  Backslash (1): 0<->1, 2<->3
-            let reqAngle = -1;
-            if ((curDir === 0 && nextDir === 3) || (curDir === 3 && nextDir === 0) ||
-                (curDir === 1 && nextDir === 2) || (curDir === 2 && nextDir === 1)) {
-              reqAngle = 0; // Slash / (45 deg)
-            } else {
-              reqAngle = 1; // Backslash \ (135 deg)
-            }
-
-            let isFixed = (stageNum > 20 && rng() < 0.15);
-            let isSplitter = (stageNum > 40 && rng() < 0.2);
-
-            grid[nr][nc] = {
-              type: isSplitter ? 'SPLITTER' : 'MIRROR',
-              solAngle: reqAngle,
-              angle: reqAngle, // Temporarily set solution angle
-              isFixed: isFixed,
-              rotAnim: 0
-            };
-
-            solutionAngles[`${nc},${nr}`] = reqAngle;
-            curC = nc; curR = nr; curDir = nextDir;
-            turnsPlaced++;
+        // Verify corner cell isn't already occupied
+        if (curC > 0 && curC < cols - 1 && curR > 0 && curR < rows - 1) {
+          // Angle 0: Slash (/), Angle 1: Backslash (\)
+          let requiredAngle = -1;
+          if ((curDir === 0 && nextDir === 3) || (curDir === 3 && nextDir === 0) ||
+              (curDir === 1 && nextDir === 2) || (curDir === 2 && nextDir === 1)) {
+            requiredAngle = 0; // Slash /
           } else {
-            curC = nc; curR = nr;
+            requiredAngle = 1; // Backslash \
           }
-          path.push({ c: curC, r: curR });
-        }
 
-        // Must have reached a valid number of turns and ending cell
-        if (turnsPlaced >= Math.min(targetTurns, 3) && (curC !== ec || curR !== er)) {
-          grid[curR][curC] = { type: 'TARGET', hit: false };
-          validBuild = true;
-        }
-      }
+          grid[curR][curC] = {
+            type: 'MIRROR',
+            solAngle: requiredAngle,
+            angle: (requiredAngle + 1) % 2 // Start in WRONG orientation
+          };
 
-      // Fill empty cells with decoy mirrors and blocking walls
-      let mirrorDensity = Math.min(0.65, 0.25 + stageNum * 0.004);
-      let wallDensity = Math.min(0.20, 0.05 + stageNum * 0.0015);
-
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          if (grid[r][c].type === 'EMPTY') {
-            let rand = rng();
-            if (rand < mirrorDensity) {
-              grid[r][c] = {
-                type: 'MIRROR',
-                solAngle: -1,
-                angle: Math.floor(rng() * 2),
-                isFixed: (stageNum > 30 && rng() < 0.1),
-                rotAnim: 0
-              };
-            } else if (rand < mirrorDensity + wallDensity) {
-              grid[r][c] = { type: 'WALL' };
-            }
-          }
+          curDir = nextDir;
         }
       }
 
-      // Randomize initial orientations of ALL non-fixed mirrors
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          let cell = grid[r][c];
-          if ((cell.type === 'MIRROR' || cell.type === 'SPLITTER') && !cell.isFixed) {
-            cell.angle = Math.floor(rng() * 2);
-          }
+      // 3. Place Target at end of path
+      let tc = curC + DX[curDir];
+      let tr = curR + DY[curDir];
+      if (tc >= 0 && tc < cols && tr >= 0 && tr < rows && grid[tr][tc].type === 'EMPTY') {
+        grid[tr][tc] = { type: 'TARGET', hit: false };
+      } else {
+        grid[curR][curC] = { type: 'TARGET', hit: false };
+      }
+
+      // 4. Place sparse strategic Wall obstacles (NO extra decoy mirrors)
+      let numWalls = Math.min(8, Math.floor(stageNum / 12));
+      for (let w = 0; w < numWalls; w++) {
+        let wr = Math.floor(rng() * rows);
+        let wc = Math.floor(rng() * cols);
+        if (grid[wr][wc].type === 'EMPTY' && !pathCells.has(`${wc},${wr}`)) {
+          grid[wr][wc] = { type: 'WALL' };
         }
       }
 
@@ -402,81 +363,68 @@
       calculateLasers();
     }
 
-    // --- Accurate Physics Reflection Engine ---
+    // --- Accurate Physics Optics ---
     function calculateLasers() {
-      laserPaths = [];
-      let totalTargets = 0;
-      let hitTargets = 0;
+      laserPath = [];
+      let targetHit = false;
 
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          if (grid[r][c].type === 'TARGET') {
-            grid[r][c].hit = false;
-            totalTargets++;
-          }
-        }
-      }
-
-      let queue = [];
+      // Find Emitter
+      let er = -1, ec = -1, edir = -1;
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           if (grid[r][c].type === 'EMITTER') {
-            queue.push({ c: c, r: r, dir: grid[r][c].dir });
+            er = r; ec = c; edir = grid[r][c].dir;
+          }
+          if (grid[r][c].type === 'TARGET') {
+            grid[r][c].hit = false;
           }
         }
       }
 
-      let maxSteps = 128;
-      while (queue.length > 0 && maxSteps > 0) {
+      let curC = ec, curR = er, curDir = edir;
+      laserPath.push({ c: curC, r: curR });
+
+      let maxSteps = 64;
+      while (maxSteps > 0) {
         maxSteps--;
-        let ray = queue.shift();
-        let pathSeg = [{ c: ray.c, r: ray.r }];
+        let nextC = curC + DX[curDir];
+        let nextR = curR + DY[curDir];
 
-        let curC = ray.c;
-        let curR = ray.r;
-        let curDir = ray.dir;
-
-        while (true) {
-          let nextC = curC + DX[curDir];
-          let nextR = curR + DY[curDir];
-
-          if (nextC < 0 || nextC >= cols || nextR < 0 || nextR >= rows) {
-            pathSeg.push({ c: nextC, r: nextR });
-            break;
-          }
-
-          let cell = grid[nextR][nextC];
-          pathSeg.push({ c: nextC, r: nextR });
-
-          if (cell.type === 'WALL') {
-            break;
-          } else if (cell.type === 'TARGET') {
-            if (!cell.hit) {
-              cell.hit = true;
-              hitTargets++;
-            }
-            break;
-          } else if (cell.type === 'MIRROR') {
-            // Correct Reflection Logic for 45 deg (0: Slash /) and 135 deg (1: Backslash \)
-            let nextDir = curDir;
-            if (cell.angle === 0) { // Slash /
-              nextDir = 3 - curDir;
-            } else { // Backslash \
-              nextDir = curDir ^ 1;
-            }
-            curC = nextC; curR = nextR; curDir = nextDir;
-          } else if (cell.type === 'SPLITTER') {
-            let splitDir = (cell.angle === 0) ? (3 - curDir) : (curDir ^ 1);
-            queue.push({ c: nextC, r: nextR, dir: splitDir });
-            curC = nextC; curR = nextR; // Main beam goes straight through
-          } else {
-            curC = nextC; curR = nextR;
-          }
+        if (nextC < 0 || nextC >= cols || nextR < 0 || nextR >= rows) {
+          laserPath.push({ c: nextC, r: nextR });
+          break;
         }
-        laserPaths.push(pathSeg);
+
+        let cell = grid[nextR][nextC];
+        laserPath.push({ c: nextC, r: nextR });
+
+        if (cell.type === 'WALL') {
+          break;
+        } else if (cell.type === 'TARGET') {
+          cell.hit = true;
+          targetHit = true;
+          break;
+        } else if (cell.type === 'MIRROR') {
+          // Angle 0: Slash (/), Angle 1: Backslash (\)
+          let nextDir = curDir;
+          if (cell.angle === 0) {
+            // Slash / reflection
+            // 0 (RIGHT) -> 3 (UP), 1 (DOWN) -> 2 (LEFT)
+            // 2 (LEFT) -> 1 (DOWN), 3 (UP) -> 0 (RIGHT)
+            nextDir = 3 - curDir;
+          } else {
+            // Backslash \ reflection
+            // 0 (RIGHT) -> 1 (DOWN), 1 (DOWN) -> 0 (RIGHT)
+            // 2 (LEFT) -> 3 (UP), 3 (UP) -> 2 (LEFT)
+            nextDir = curDir ^ 1;
+          }
+          curC = nextC; curR = nextR; curDir = nextDir;
+        } else {
+          curC = nextC; curR = nextR;
+        }
       }
 
-      if (totalTargets > 0 && hitTargets >= totalTargets && !stageCleared) {
+      if (targetHit && !stageCleared) {
         stageCleared = true;
         Audio.playWin();
         if (!completedStages.includes(currentStage)) {
@@ -485,11 +433,11 @@
         }
         setTimeout(() => {
           document.getElementById('win-overlay').classList.add('active');
-        }, 250);
+        }, 200);
       }
     }
 
-    // --- Renderer ---
+    // --- High Contrast Canvas Rendering ---
     function render() {
       const rect = canvas.getBoundingClientRect();
       const tileSize = rect.width / cols;
@@ -504,7 +452,7 @@
         ctx.beginPath(); ctx.moveTo(0, i * tileSize); ctx.lineTo(rect.width, i * tileSize); ctx.stroke();
       }
 
-      // Grid Elements
+      // Draw Grid Elements
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           let cell = grid[r][c];
@@ -513,116 +461,103 @@
 
           if (cell.type === 'WALL') {
             ctx.fillStyle = '#1e293b';
-            ctx.fillRect(c * tileSize + 2, r * tileSize + 2, tileSize - 4, tileSize - 4);
+            ctx.fillRect(c * tileSize + 3, r * tileSize + 3, tileSize - 6, tileSize - 6);
             ctx.strokeStyle = '#334155';
-            ctx.strokeRect(c * tileSize + 4, r * tileSize + 4, tileSize - 8, tileSize - 8);
+            ctx.strokeRect(c * tileSize + 5, r * tileSize + 5, tileSize - 10, tileSize - 10);
           } else if (cell.type === 'EMITTER') {
             ctx.save();
             ctx.translate(cx, cy);
             ctx.rotate(cell.dir * Math.PI / 2);
             ctx.fillStyle = '#334155';
-            ctx.beginPath(); ctx.arc(0, 0, tileSize * 0.3, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = '#ff3300'; // Laser Emitter accent
-            ctx.fillRect(0, -tileSize * 0.08, tileSize * 0.35, tileSize * 0.16);
+            ctx.beginPath(); ctx.arc(0, 0, tileSize * 0.32, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#ff2200';
+            ctx.fillRect(0, -tileSize * 0.08, tileSize * 0.38, tileSize * 0.16);
             ctx.restore();
           } else if (cell.type === 'TARGET') {
             ctx.save();
             ctx.translate(cx, cy);
-            ctx.strokeStyle = cell.hit ? '#ff3300' : '#475569';
+            ctx.strokeStyle = cell.hit ? '#ffea00' : '#475569';
             ctx.lineWidth = 3;
             if (cell.hit) {
-              ctx.shadowColor = '#ff3300';
-              ctx.shadowBlur = 12;
+              ctx.shadowColor = '#ffea00';
+              ctx.shadowBlur = 14;
             }
-            ctx.beginPath(); ctx.arc(0, 0, tileSize * 0.28, 0, Math.PI * 2); ctx.stroke();
-            ctx.fillStyle = cell.hit ? '#ff3300' : '#1e293b';
-            ctx.beginPath(); ctx.arc(0, 0, tileSize * 0.12, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(0, 0, tileSize * 0.3, 0, Math.PI * 2); ctx.stroke();
+            ctx.fillStyle = cell.hit ? '#ffea00' : '#1e293b';
+            ctx.beginPath(); ctx.arc(0, 0, tileSize * 0.14, 0, Math.PI * 2); ctx.fill();
             ctx.restore();
-          } else if (cell.type === 'MIRROR' || cell.type === 'SPLITTER') {
+          } else if (cell.type === 'MIRROR') {
             ctx.save();
             ctx.translate(cx, cy);
 
-            // Smooth interpolation on 90-degree rotations
-            if (cell.rotAnim > 0) {
-              cell.rotAnim -= 0.18;
-              if (cell.rotAnim < 0) cell.rotAnim = 0;
-            }
+            // Angle 0: Slash / (-45 deg in canvas Y-down coords)
+            // Angle 1: Backslash \ (+45 deg in canvas Y-down coords)
+            let drawAngle = cell.angle === 0 ? -Math.PI / 4 : Math.PI / 4;
+            ctx.rotate(drawAngle);
 
-            // 45 deg offset + 90 deg steps
-            let baseAngle = cell.angle === 0 ? (Math.PI / 4) : (3 * Math.PI / 4);
-            let currentAngle = baseAngle - (cell.rotAnim * Math.PI / 2);
-            ctx.rotate(currentAngle);
+            // Outer Mirror Frame
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 5;
+            ctx.shadowColor = '#38bdf8';
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.moveTo(-tileSize * 0.35, 0);
+            ctx.lineTo(tileSize * 0.35, 0);
+            ctx.stroke();
 
-            if (cell.type === 'MIRROR') {
-              ctx.strokeStyle = cell.isFixed ? '#f59e0b' : '#38bdf8'; // Metallic Cyan Mirrors
-              ctx.lineWidth = 5;
-              ctx.shadowColor = cell.isFixed ? '#f59e0b' : '#38bdf8';
-              ctx.shadowBlur = 6;
-              ctx.beginPath();
-              ctx.moveTo(-tileSize * 0.32, 0);
-              ctx.lineTo(tileSize * 0.32, 0);
-              ctx.stroke();
+            // Glass Reflective Surface
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(-tileSize * 0.35, -2);
+            ctx.lineTo(tileSize * 0.35, -2);
+            ctx.stroke();
 
-              // Glass Backing
-              ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-              ctx.lineWidth = 1.5;
-              ctx.beginPath();
-              ctx.moveTo(-tileSize * 0.32, -3);
-              ctx.lineTo(tileSize * 0.32, -3);
-              ctx.stroke();
-            } else if (cell.type === 'SPLITTER') {
-              ctx.fillStyle = 'rgba(56, 189, 248, 0.25)';
-              ctx.strokeStyle = '#38bdf8';
-              ctx.lineWidth = 2;
-              ctx.beginPath();
-              ctx.moveTo(-tileSize * 0.2, -tileSize * 0.2);
-              ctx.lineTo(tileSize * 0.2, 0);
-              ctx.lineTo(-tileSize * 0.2, tileSize * 0.2);
-              ctx.closePath();
-              ctx.fill(); ctx.stroke();
-            }
             ctx.restore();
           }
         }
       }
 
-      // Draw Fiery Red/Orange Laser Beams
-      laserPaths.forEach(path => {
-        if (path.length < 2) return;
+      // Draw Laser Beam (Fiery Red Glow with White-Hot Core)
+      if (laserPath.length >= 2) {
         ctx.save();
-        
-        // Outer Glow
-        ctx.shadowColor = '#ff3300';
-        ctx.shadowBlur = 14;
-        ctx.strokeStyle = '#ff3300';
-        ctx.lineWidth = 5;
+
+        // Glow Pass
+        ctx.shadowColor = '#ff2200';
+        ctx.shadowBlur = 16;
+        ctx.strokeStyle = '#ff2200';
+        ctx.lineWidth = 6;
         ctx.beginPath();
-        ctx.moveTo((path[0].c + 0.5) * tileSize, (path[0].r + 0.5) * tileSize);
-        for (let i = 1; i < path.length; i++) {
-          ctx.lineTo((path[i].c + 0.5) * tileSize, (path[i].r + 0.5) * tileSize);
+        ctx.moveTo((laserPath[0].c + 0.5) * tileSize, (laserPath[0].r + 0.5) * tileSize);
+        for (let i = 1; i < laserPath.length; i++) {
+          ctx.lineTo((laserPath[i].c + 0.5) * tileSize, (laserPath[i].r + 0.5) * tileSize);
         }
         ctx.stroke();
 
-        // Inner Yellow Core
-        ctx.strokeStyle = '#ffffaa';
+        // Core Pass
+        ctx.strokeStyle = '#ffea00';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo((path[0].c + 0.5) * tileSize, (path[0].r + 0.5) * tileSize);
-        for (let i = 1; i < path.length; i++) {
-          ctx.lineTo((path[i].c + 0.5) * tileSize, (path[i].r + 0.5) * tileSize);
+        ctx.moveTo((laserPath[0].c + 0.5) * tileSize, (laserPath[0].r + 0.5) * tileSize);
+        for (let i = 1; i < laserPath.length; i++) {
+          ctx.lineTo((laserPath[i].c + 0.5) * tileSize, (laserPath[i].r + 0.5) * tileSize);
         }
         ctx.stroke();
 
         ctx.restore();
-      });
+      }
 
       requestAnimationFrame(render);
     }
 
-    // --- User Controls ---
-    function handleTouch(e) {
+    // --- Immediate Touch-Down Control Engine ---
+    function handleImmediateInput(e) {
       if (stageCleared) return;
-      e.preventDefault();
+
+      const now = Date.now();
+      if (now - lastInputTime < 80) return; // Debounce rapid input
+      lastInputTime = now;
+
       const rect = canvas.getBoundingClientRect();
       const clientX = e.touches ? e.touches[0].clientX : e.clientX;
       const clientY = e.touches ? e.touches[0].clientY : e.clientY;
@@ -632,10 +567,9 @@
 
       if (c >= 0 && c < cols && r >= 0 && r < rows) {
         let cell = grid[r][c];
-        if ((cell.type === 'MIRROR' || cell.type === 'SPLITTER') && !cell.isFixed) {
-          // Rotates 90 degrees (toggles state between 45 deg and 135 deg)
+        if (cell.type === 'MIRROR') {
+          // Toggle mirror angle immediately on touch
           cell.angle = (cell.angle + 1) % 2;
-          cell.rotAnim = 1.0;
           Audio.playRotate();
           if (navigator.vibrate) navigator.vibrate(12);
           calculateLasers();
@@ -643,9 +577,18 @@
       }
     }
 
-    canvas.addEventListener('touchstart', handleTouch, { passive: false });
-    canvas.addEventListener('mousedown', handleTouch);
+    // Attach listeners for immediate TOUCHSTART / MOUSEDOWN
+    canvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      handleImmediateInput(e);
+    }, { passive: false });
 
+    canvas.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      handleImmediateInput(e);
+    });
+
+    // Level Selector Modal
     function populateLevelGrid() {
       const gridContainer = document.getElementById('level-grid');
       gridContainer.innerHTML = '';
@@ -662,16 +605,18 @@
       }
     }
 
+    // Controls
     document.getElementById('btn-reset').onclick = () => generateStage(currentStage);
     document.getElementById('btn-prev').onclick = () => { if (currentStage > 1) generateStage(--currentStage); };
     document.getElementById('btn-skip').onclick = () => { if (currentStage < 100) generateStage(++currentStage); };
     document.getElementById('btn-next').onclick = () => { if (currentStage < 100) generateStage(++currentStage); };
     document.getElementById('btn-select').onclick = () => { populateLevelGrid(); document.getElementById('select-overlay').classList.add('active'); };
-    document.getElementById('btn-close-select').onclick = () => { document.getElementById('select-overlay').classList.add('active'); };
+    document.getElementById('btn-close-select').onclick = () => { document.getElementById('select-overlay').classList.remove('active'); };
     document.getElementById('btn-sound').onclick = (e) => { Audio.muted = !Audio.muted; e.target.innerText = Audio.muted ? '🔇' : '🔊'; };
 
     window.addEventListener('resize', resizeCanvas);
 
+    // Init
     resizeCanvas();
     generateStage(currentStage);
     requestAnimationFrame(render);
