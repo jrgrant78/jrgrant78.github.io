@@ -3,16 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>LUMINA: 100 Laser Logic Stages</title>
+  <title>LUMINA: Laser Logic</title>
   <style>
     :root {
       --bg: #090d16;
       --panel: #111827;
-      --accent: #00f3ff;
-      --accent-glow: rgba(0, 243, 255, 0.4);
+      --laser-red: #ff3300;
+      --laser-glow: rgba(255, 51, 0, 0.6);
+      --mirror-cyan: #38bdf8;
       --text: #f8fafc;
       --text-dim: #64748b;
-      --wall: #334155;
     }
 
     * {
@@ -27,7 +27,7 @@
     body {
       background-color: var(--bg);
       color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
@@ -50,12 +50,12 @@
       font-size: 1.25rem;
       font-weight: 800;
       letter-spacing: 2px;
-      color: var(--accent);
-      text-shadow: 0 0 10px var(--accent-glow);
+      color: var(--laser-red);
+      text-shadow: 0 0 10px var(--laser-glow);
     }
 
     .stage-indicator {
-      font-size: 0.95rem;
+      font-size: 0.9rem;
       font-weight: 600;
       color: var(--text-dim);
     }
@@ -75,14 +75,11 @@
       font-size: 0.85rem;
       cursor: pointer;
       transition: all 0.2s ease;
-      display: flex;
-      align-items: center;
-      gap: 4px;
     }
 
     button:active {
       transform: scale(0.95);
-      background: var(--accent);
+      background: var(--mirror-cyan);
       color: #000;
     }
 
@@ -100,16 +97,15 @@
     canvas {
       width: 100%;
       height: 100%;
-      background: rgba(15, 23, 42, 0.6);
+      background: rgba(15, 23, 42, 0.8);
       border-radius: 16px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
     }
 
-    /* Modals & Overlays */
     .overlay {
       position: absolute;
       inset: 0;
-      background: rgba(9, 13, 22, 0.85);
+      background: rgba(9, 13, 22, 0.9);
       backdrop-filter: blur(8px);
       border-radius: 16px;
       display: flex;
@@ -130,16 +126,10 @@
     }
 
     .overlay h2 {
-      font-size: 2rem;
-      color: var(--accent);
-      text-shadow: 0 0 15px var(--accent-glow);
+      font-size: 1.8rem;
+      color: var(--laser-red);
+      text-shadow: 0 0 15px var(--laser-glow);
       margin-bottom: 8px;
-    }
-
-    .overlay p {
-      color: var(--text-dim);
-      margin-bottom: 24px;
-      font-size: 0.95rem;
     }
 
     .modal-grid {
@@ -164,13 +154,8 @@
     }
 
     .level-btn.completed {
-      border-color: var(--accent);
-      color: var(--accent);
-    }
-
-    .level-btn.locked {
-      opacity: 0.3;
-      pointer-events: none;
+      border-color: var(--mirror-cyan);
+      color: var(--mirror-cyan);
     }
 
     footer {
@@ -205,16 +190,14 @@
   <div id="game-container">
     <canvas id="gameCanvas"></canvas>
 
-    <!-- Win Overlay -->
     <div class="overlay" id="win-overlay">
       <h2>TARGET POWERED</h2>
-      <p id="win-subtext">Stage completed successfully.</p>
-      <button id="btn-next" style="padding: 12px 32px; font-size: 1rem; background: var(--accent); color: #000;">NEXT STAGE</button>
+      <p style="color: var(--text-dim); margin-bottom: 20px;">Laser signal locked onto target.</p>
+      <button id="btn-next" style="padding: 12px 32px; background: var(--laser-red); color: #fff;">NEXT STAGE</button>
     </div>
 
-    <!-- Level Selector Overlay -->
     <div class="overlay" id="select-overlay">
-      <h3 style="margin-bottom: 12px; color: var(--text);">SELECT STAGE</h3>
+      <h3 style="margin-bottom: 12px;">SELECT STAGE</h3>
       <div class="modal-grid" id="level-grid"></div>
       <button id="btn-close-select" style="width: 100%;">CLOSE</button>
     </div>
@@ -227,50 +210,43 @@
   </footer>
 
   <script>
-    // --- Audio Engine (Web Audio API) ---
+    // --- Sound Synth ---
     const Audio = {
       ctx: null,
       muted: false,
       init() {
-        if (!this.ctx) {
-          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-        }
+        if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
       },
       playRotate() {
         if (this.muted) return;
         this.init();
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(300, this.ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(600, this.ctx.currentTime + 0.04);
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(400, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(800, this.ctx.currentTime + 0.05);
         gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.04);
-        osc.connect(gain);
-        gain.connect(this.ctx.destination);
-        osc.start();
-        osc.stop(this.ctx.currentTime + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.05);
+        osc.connect(gain); gain.connect(this.ctx.destination);
+        osc.start(); osc.stop(this.ctx.currentTime + 0.05);
       },
       playWin() {
         if (this.muted) return;
         this.init();
-        const notes = [523.25, 659.25, 783.99, 1046.50];
-        notes.forEach((freq, i) => {
+        [440, 554.37, 659.25, 880].forEach((freq, i) => {
           const osc = this.ctx.createOscillator();
           const gain = this.ctx.createGain();
-          osc.type = 'triangle';
-          osc.frequency.setValueAtTime(freq, this.ctx.currentTime + i * 0.07);
-          gain.gain.setValueAtTime(0.15, this.ctx.currentTime + i * 0.07);
-          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + i * 0.07 + 0.25);
-          osc.connect(gain);
-          gain.connect(this.ctx.destination);
-          osc.start(this.ctx.currentTime + i * 0.07);
-          osc.stop(this.ctx.currentTime + i * 0.07 + 0.25);
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, this.ctx.currentTime + i * 0.06);
+          gain.gain.setValueAtTime(0.12, this.ctx.currentTime + i * 0.06);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + i * 0.06 + 0.2);
+          osc.connect(gain); gain.connect(this.ctx.destination);
+          osc.start(this.ctx.currentTime + i * 0.06);
+          osc.stop(this.ctx.currentTime + i * 0.06 + 0.2);
         });
       }
     };
 
-    // --- PRNG Seeded Generator ---
     function mulberry32(a) {
       return function() {
         let t = a += 0x6D2B79F5;
@@ -280,30 +256,17 @@
       }
     }
 
-    // --- Directions & Vectors ---
-    // 0: Right (1,0), 1: Down (0,1), 2: Left (-1,0), 3: Up (0,-1)
+    // Directions: 0: RIGHT, 1: DOWN, 2: LEFT, 3: UP
     const DX = [1, 0, -1, 0];
     const DY = [0, 1, 0, -1];
 
-    function getTurnAngle(fromDir, toDir) {
-      if ((fromDir === 0 && toDir === 1) || (fromDir === 1 && toDir === 0) ||
-          (fromDir === 2 && toDir === 3) || (fromDir === 3 && toDir === 2)) {
-        return 3; // Backslash \ (135deg)
-      }
-      return 1; // Slash / (45deg)
-    }
-
-    // --- State Management ---
     let currentStage = 1;
     let completedStages = JSON.parse(localStorage.getItem('lumina_completed') || '[]');
     let grid = [];
     let cols = 6, rows = 6;
     let laserPaths = [];
-    let particles = [];
     let stageCleared = false;
-    let animatingTiles = [];
 
-    // Canvas Setup
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
 
@@ -315,90 +278,120 @@
       ctx.scale(dpr, dpr);
     }
 
-    // --- Stage Generator (100 Guaranteed Solvable Stages) ---
+    // --- High-Difficulty Puzzle Generation Engine ---
     function generateStage(stageNum) {
-      const rng = mulberry32(1000 + stageNum * 7919);
+      let rng = mulberry32(8000 + stageNum * 997);
       
-      // Determine grid dimensions based on stage difficulty
-      cols = Math.min(10, 5 + Math.floor((stageNum - 1) / 20));
+      // Grid dimensions expand from 5x5 up to 10x10
+      cols = Math.min(10, 5 + Math.floor((stageNum - 1) / 18));
       rows = cols;
 
-      grid = Array.from({ length: rows }, () => 
-        Array.from({ length: cols }, () => ({ type: 'EMPTY' }))
-      );
+      let validBuild = false;
+      let maxAttempts = 50;
 
-      // Place Emitter on outer edge
-      const edge = Math.floor(rng() * 4);
-      let ec = 0, er = 0, edir = 0;
-      if (edge === 0) { ec = Math.floor(rng() * (cols - 2)) + 1; er = 0; edir = 1; }
-      else if (edge === 1) { ec = cols - 1; er = Math.floor(rng() * (rows - 2)) + 1; edir = 2; }
-      else if (edge === 2) { ec = Math.floor(rng() * (cols - 2)) + 1; er = rows - 1; edir = 3; }
-      else { ec = 0; er = Math.floor(rng() * (rows - 2)) + 1; edir = 0; }
+      while (!validBuild && maxAttempts > 0) {
+        maxAttempts--;
+        grid = Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({ type: 'EMPTY' })));
 
-      grid[er][ec] = { type: 'EMITTER', dir: edir, color: '#00f3ff' };
+        // Place Emitter on random edge
+        let edge = Math.floor(rng() * 4);
+        let ec = 0, er = 0, edir = 0;
+        if (edge === 0) { ec = Math.floor(rng() * cols); er = 0; edir = 1; }
+        else if (edge === 1) { ec = cols - 1; er = Math.floor(rng() * rows); edir = 2; }
+        else if (edge === 2) { ec = Math.floor(rng() * cols); er = rows - 1; edir = 3; }
+        else { ec = 0; er = Math.floor(rng() * rows); edir = 0; }
 
-      // Trace solution path
-      let curC = ec, curR = er, curDir = edir;
-      const pathSet = new Set([`${curC},${curR}`]);
-      const maxTurns = Math.min(7, 2 + Math.floor(stageNum / 15));
-      let turns = 0;
+        grid[er][ec] = { type: 'EMITTER', dir: edir };
 
-      while (turns < maxTurns) {
-        let step = Math.floor(rng() * 2) + 1;
-        for (let s = 0; s < step; s++) {
+        // Determine target path length (Scales up to 22 turns on stage 100)
+        let targetTurns = Math.min(22, 3 + Math.floor(stageNum / 4.8));
+        let path = [{ c: ec, r: er }];
+        let curC = ec, curR = er, curDir = edir;
+        let turnsPlaced = 0;
+
+        let solutionAngles = {};
+
+        // Trace path through grid
+        for (let step = 0; step < 120 && turnsPlaced < targetTurns; step++) {
           let nc = curC + DX[curDir];
           let nr = curR + DY[curDir];
-          if (nc <= 0 || nc >= cols - 1 || nr <= 0 || nr >= rows - 1) break;
-          curC = nc; curR = nr;
-          pathSet.add(`${curC},${curR}`);
-        }
 
-        let turnRight = rng() > 0.5;
-        let newDir = turnRight ? (curDir + 1) % 4 : (curDir + 3) % 4;
-        let tc = curC + DX[newDir];
-        let tr = curR + DY[newDir];
+          if (nc < 0 || nc >= cols || nr < 0 || nr >= rows) break;
 
-        if (tc >= 0 && tc < cols && tr >= 0 && tr < rows && !pathSet.has(`${tc},${tr}`)) {
-          let solAngle = getTurnAngle(curDir, newDir);
-          let isFixed = (stageNum > 15 && rng() < 0.2);
-          let isSplitter = (stageNum > 35 && rng() < 0.25 && turns > 0);
+          // Check if we can turn here
+          let canTurn = (nc > 0 && nc < cols - 1 && nr > 0 && nr < rows - 1) && 
+                        (grid[nr][nc].type === 'EMPTY');
 
-          if (isSplitter) {
-            grid[curR][curC] = { type: 'SPLITTER', angle: solAngle, solAngle: solAngle, isFixed: false, rotAnim: 0 };
+          if (canTurn && rng() < 0.65) {
+            let turnLeft = rng() > 0.5;
+            let nextDir = turnLeft ? (curDir + 3) % 4 : (curDir + 1) % 4;
+
+            // Mirror orientation math for 45° (slash) vs 135° (backslash)
+            // Slash (0): 0<->3, 1<->2.  Backslash (1): 0<->1, 2<->3
+            let reqAngle = -1;
+            if ((curDir === 0 && nextDir === 3) || (curDir === 3 && nextDir === 0) ||
+                (curDir === 1 && nextDir === 2) || (curDir === 2 && nextDir === 1)) {
+              reqAngle = 0; // Slash / (45 deg)
+            } else {
+              reqAngle = 1; // Backslash \ (135 deg)
+            }
+
+            let isFixed = (stageNum > 20 && rng() < 0.15);
+            let isSplitter = (stageNum > 40 && rng() < 0.2);
+
+            grid[nr][nc] = {
+              type: isSplitter ? 'SPLITTER' : 'MIRROR',
+              solAngle: reqAngle,
+              angle: reqAngle, // Temporarily set solution angle
+              isFixed: isFixed,
+              rotAnim: 0
+            };
+
+            solutionAngles[`${nc},${nr}`] = reqAngle;
+            curC = nc; curR = nr; curDir = nextDir;
+            turnsPlaced++;
           } else {
-            let initAngle = isFixed ? solAngle : (solAngle + Math.floor(rng() * 3) + 1) % 4;
-            grid[curR][curC] = { type: 'MIRROR', angle: initAngle, solAngle: solAngle, isFixed: isFixed, rotAnim: 0 };
+            curC = nc; curR = nr;
           }
+          path.push({ c: curC, r: curR });
+        }
 
-          curDir = newDir;
-          turns++;
-        } else {
-          break;
+        // Must have reached a valid number of turns and ending cell
+        if (turnsPlaced >= Math.min(targetTurns, 3) && (curC !== ec || curR !== er)) {
+          grid[curR][curC] = { type: 'TARGET', hit: false };
+          validBuild = true;
         }
       }
 
-      // Target placement
-      let fc = curC + DX[curDir];
-      let fr = curR + DY[curDir];
-      if (fc >= 0 && fc < cols && fr >= 0 && fr < rows && !pathSet.has(`${fc},${fr}`)) {
-        grid[fr][fc] = { type: 'TARGET', reqColor: '#00f3ff', hit: false };
-      } else {
-        grid[curR][curC] = { type: 'TARGET', reqColor: '#00f3ff', hit: false };
-      }
+      // Fill empty cells with decoy mirrors and blocking walls
+      let mirrorDensity = Math.min(0.65, 0.25 + stageNum * 0.004);
+      let wallDensity = Math.min(0.20, 0.05 + stageNum * 0.0015);
 
-      // Populate obstacles and decoys
-      const wallDensity = Math.min(0.25, 0.05 + stageNum * 0.002);
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           if (grid[r][c].type === 'EMPTY') {
-            let val = rng();
-            if (val < wallDensity) {
+            let rand = rng();
+            if (rand < mirrorDensity) {
+              grid[r][c] = {
+                type: 'MIRROR',
+                solAngle: -1,
+                angle: Math.floor(rng() * 2),
+                isFixed: (stageNum > 30 && rng() < 0.1),
+                rotAnim: 0
+              };
+            } else if (rand < mirrorDensity + wallDensity) {
               grid[r][c] = { type: 'WALL' };
-            } else if (val < wallDensity + 0.15) {
-              grid[r][c] = { type: 'MIRROR', angle: Math.floor(rng() * 4), solAngle: -1, isFixed: false, rotAnim: 0 };
-            } else if (stageNum > 60 && val < wallDensity + 0.22) {
-              grid[r][c] = { type: 'PRISM', rotAnim: 0 };
             }
+          }
+        }
+      }
+
+      // Randomize initial orientations of ALL non-fixed mirrors
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          let cell = grid[r][c];
+          if ((cell.type === 'MIRROR' || cell.type === 'SPLITTER') && !cell.isFixed) {
+            cell.angle = Math.floor(rng() * 2);
           }
         }
       }
@@ -409,13 +402,12 @@
       calculateLasers();
     }
 
-    // --- Ray Tracing Physics ---
+    // --- Accurate Physics Reflection Engine ---
     function calculateLasers() {
       laserPaths = [];
-      let targetHitCount = 0;
       let totalTargets = 0;
+      let hitTargets = 0;
 
-      // Reset targets
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           if (grid[r][c].type === 'TARGET') {
@@ -425,99 +417,66 @@
         }
       }
 
-      // Trace emitters
-      const queue = [];
+      let queue = [];
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           if (grid[r][c].type === 'EMITTER') {
-            queue.push({
-              c: c, r: r,
-              dir: grid[r][c].dir,
-              color: grid[r][c].color
-            });
+            queue.push({ c: c, r: r, dir: grid[r][c].dir });
           }
         }
       }
 
-      let maxSteps = 64;
+      let maxSteps = 128;
       while (queue.length > 0 && maxSteps > 0) {
         maxSteps--;
         let ray = queue.shift();
-        let pathSeg = [{ c: ray.c, r: ray.r, color: ray.color }];
+        let pathSeg = [{ c: ray.c, r: ray.r }];
 
         let curC = ray.c;
         let curR = ray.r;
         let curDir = ray.dir;
-        let rayColor = ray.color;
 
         while (true) {
           let nextC = curC + DX[curDir];
           let nextR = curR + DY[curDir];
 
           if (nextC < 0 || nextC >= cols || nextR < 0 || nextR >= rows) {
-            pathSeg.push({ c: nextC, r: nextR, color: rayColor });
+            pathSeg.push({ c: nextC, r: nextR });
             break;
           }
 
           let cell = grid[nextR][nextC];
-          pathSeg.push({ c: nextC, r: nextR, color: rayColor });
+          pathSeg.push({ c: nextC, r: nextR });
 
           if (cell.type === 'WALL') {
             break;
           } else if (cell.type === 'TARGET') {
-            cell.hit = true;
-            targetHitCount++;
-            spawnSparks(nextC, nextR, rayColor);
-            break;
-          } else if (cell.type === 'PRISM') {
-            const colors = ['#00f3ff', '#ff0055', '#ffcc00', '#00ff66'];
-            let idx = colors.indexOf(rayColor);
-            rayColor = colors[(idx + 1) % colors.length];
-            curC = nextC; curR = nextR;
-          } else if (cell.type === 'MIRROR') {
-            let rot = cell.angle;
-            let nextDir = -1;
-
-            if (rot === 1) { // Slash /
-              if (curDir === 0) nextDir = 3;
-              else if (curDir === 1) nextDir = 2;
-              else if (curDir === 2) nextDir = 1;
-              else if (curDir === 3) nextDir = 0;
-            } else if (rot === 3) { // Backslash \
-              if (curDir === 0) nextDir = 1;
-              else if (curDir === 1) nextDir = 0;
-              else if (curDir === 2) nextDir = 3;
-              else if (curDir === 3) nextDir = 2;
-            } else if (rot === 0) { // Horizontal -
-              if (curDir === 1) nextDir = 3;
-              else if (curDir === 3) nextDir = 1;
-              else nextDir = curDir;
-            } else if (rot === 2) { // Vertical |
-              if (curDir === 0) nextDir = 2;
-              else if (curDir === 2) nextDir = 0;
-              else nextDir = curDir;
+            if (!cell.hit) {
+              cell.hit = true;
+              hitTargets++;
             }
-
-            curC = nextC; curR = nextR;
-            curDir = nextDir;
+            break;
+          } else if (cell.type === 'MIRROR') {
+            // Correct Reflection Logic for 45 deg (0: Slash /) and 135 deg (1: Backslash \)
+            let nextDir = curDir;
+            if (cell.angle === 0) { // Slash /
+              nextDir = 3 - curDir;
+            } else { // Backslash \
+              nextDir = curDir ^ 1;
+            }
+            curC = nextC; curR = nextR; curDir = nextDir;
           } else if (cell.type === 'SPLITTER') {
-            let rot = cell.angle;
-            let splitDir = -1;
-            if (rot === 1) splitDir = (curDir === 0 || curDir === 2) ? 3 : 0;
-            else splitDir = (curDir === 0 || curDir === 2) ? 1 : 2;
-
-            // Splitter sends ray straight AND turned
-            queue.push({ c: nextC, r: nextR, dir: splitDir, color: rayColor });
-            curC = nextC; curR = nextR;
+            let splitDir = (cell.angle === 0) ? (3 - curDir) : (curDir ^ 1);
+            queue.push({ c: nextC, r: nextR, dir: splitDir });
+            curC = nextC; curR = nextR; // Main beam goes straight through
           } else {
             curC = nextC; curR = nextR;
           }
         }
-
         laserPaths.push(pathSeg);
       }
 
-      if (totalTargets > 0 && targetHitCount >= totalTargets && !stageCleared) {
+      if (totalTargets > 0 && hitTargets >= totalTargets && !stageCleared) {
         stageCleared = true;
         Audio.playWin();
         if (!completedStages.includes(currentStage)) {
@@ -526,30 +485,11 @@
         }
         setTimeout(() => {
           document.getElementById('win-overlay').classList.add('active');
-        }, 300);
+        }, 250);
       }
     }
 
-    // --- Particle Effects ---
-    function spawnSparks(c, r, color) {
-      if (Math.random() > 0.4) return;
-      const rect = canvas.getBoundingClientRect();
-      const tileSize = rect.width / cols;
-      const px = (c + 0.5) * tileSize;
-      const py = (r + 0.5) * tileSize;
-
-      for (let i = 0; i < 3; i++) {
-        particles.push({
-          x: px, y: py,
-          vx: (Math.random() - 0.5) * 4,
-          vy: (Math.random() - 0.5) * 4,
-          life: 1.0,
-          color: color
-        });
-      }
-    }
-
-    // --- Rendering Engine ---
+    // --- Renderer ---
     function render() {
       const rect = canvas.getBoundingClientRect();
       const tileSize = rect.width / cols;
@@ -557,21 +497,14 @@
       ctx.clearRect(0, 0, rect.width, rect.height);
 
       // Grid Lines
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
       ctx.lineWidth = 1;
       for (let i = 0; i <= cols; i++) {
-        ctx.beginPath();
-        ctx.moveTo(i * tileSize, 0);
-        ctx.lineTo(i * tileSize, rect.height);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(0, i * tileSize);
-        ctx.lineTo(rect.width, i * tileSize);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(i * tileSize, 0); ctx.lineTo(i * tileSize, rect.height); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, i * tileSize); ctx.lineTo(rect.width, i * tileSize); ctx.stroke();
       }
 
-      // Grid Entities
+      // Grid Elements
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           let cell = grid[r][c];
@@ -588,94 +521,81 @@
             ctx.translate(cx, cy);
             ctx.rotate(cell.dir * Math.PI / 2);
             ctx.fillStyle = '#334155';
-            ctx.beginPath();
-            ctx.arc(0, 0, tileSize * 0.35, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = cell.color;
-            ctx.fillRect(0, -tileSize * 0.1, tileSize * 0.4, tileSize * 0.2);
+            ctx.beginPath(); ctx.arc(0, 0, tileSize * 0.3, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#ff3300'; // Laser Emitter accent
+            ctx.fillRect(0, -tileSize * 0.08, tileSize * 0.35, tileSize * 0.16);
             ctx.restore();
           } else if (cell.type === 'TARGET') {
             ctx.save();
             ctx.translate(cx, cy);
-            ctx.strokeStyle = cell.hit ? '#00f3ff' : '#475569';
+            ctx.strokeStyle = cell.hit ? '#ff3300' : '#475569';
             ctx.lineWidth = 3;
             if (cell.hit) {
-              ctx.shadowColor = '#00f3ff';
+              ctx.shadowColor = '#ff3300';
               ctx.shadowBlur = 12;
             }
-            ctx.beginPath();
-            ctx.arc(0, 0, tileSize * 0.3, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.fillStyle = cell.hit ? '#00f3ff' : '#1e293b';
-            ctx.beginPath();
-            ctx.arc(0, 0, tileSize * 0.15, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.beginPath(); ctx.arc(0, 0, tileSize * 0.28, 0, Math.PI * 2); ctx.stroke();
+            ctx.fillStyle = cell.hit ? '#ff3300' : '#1e293b';
+            ctx.beginPath(); ctx.arc(0, 0, tileSize * 0.12, 0, Math.PI * 2); ctx.fill();
             ctx.restore();
           } else if (cell.type === 'MIRROR' || cell.type === 'SPLITTER') {
             ctx.save();
             ctx.translate(cx, cy);
 
-            // Smooth Rotation Animation Interpolation
+            // Smooth interpolation on 90-degree rotations
             if (cell.rotAnim > 0) {
-              cell.rotAnim -= 0.15;
+              cell.rotAnim -= 0.18;
               if (cell.rotAnim < 0) cell.rotAnim = 0;
             }
-            let currentAngle = (cell.angle - cell.rotAnim) * (Math.PI / 4);
+
+            // 45 deg offset + 90 deg steps
+            let baseAngle = cell.angle === 0 ? (Math.PI / 4) : (3 * Math.PI / 4);
+            let currentAngle = baseAngle - (cell.rotAnim * Math.PI / 2);
             ctx.rotate(currentAngle);
 
             if (cell.type === 'MIRROR') {
-              ctx.strokeStyle = cell.isFixed ? '#f59e0b' : '#00f3ff';
-              ctx.lineWidth = 4;
-              ctx.shadowColor = cell.isFixed ? '#f59e0b' : '#00f3ff';
-              ctx.shadowBlur = 8;
+              ctx.strokeStyle = cell.isFixed ? '#f59e0b' : '#38bdf8'; // Metallic Cyan Mirrors
+              ctx.lineWidth = 5;
+              ctx.shadowColor = cell.isFixed ? '#f59e0b' : '#38bdf8';
+              ctx.shadowBlur = 6;
               ctx.beginPath();
-              ctx.moveTo(-tileSize * 0.35, 0);
-              ctx.lineTo(tileSize * 0.35, 0);
+              ctx.moveTo(-tileSize * 0.32, 0);
+              ctx.lineTo(tileSize * 0.32, 0);
               ctx.stroke();
 
-              if (cell.isFixed) {
-                ctx.fillStyle = '#f59e0b';
-                ctx.fillRect(-3, -3, 6, 6);
-              }
+              // Glass Backing
+              ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+              ctx.lineWidth = 1.5;
+              ctx.beginPath();
+              ctx.moveTo(-tileSize * 0.32, -3);
+              ctx.lineTo(tileSize * 0.32, -3);
+              ctx.stroke();
             } else if (cell.type === 'SPLITTER') {
-              ctx.fillStyle = 'rgba(0, 243, 255, 0.3)';
-              ctx.strokeStyle = '#00f3ff';
+              ctx.fillStyle = 'rgba(56, 189, 248, 0.25)';
+              ctx.strokeStyle = '#38bdf8';
               ctx.lineWidth = 2;
               ctx.beginPath();
-              ctx.moveTo(-tileSize * 0.25, -tileSize * 0.25);
-              ctx.lineTo(tileSize * 0.25, 0);
-              ctx.lineTo(-tileSize * 0.25, tileSize * 0.25);
+              ctx.moveTo(-tileSize * 0.2, -tileSize * 0.2);
+              ctx.lineTo(tileSize * 0.2, 0);
+              ctx.lineTo(-tileSize * 0.2, tileSize * 0.2);
               ctx.closePath();
-              ctx.fill();
-              ctx.stroke();
+              ctx.fill(); ctx.stroke();
             }
-            ctx.restore();
-          } else if (cell.type === 'PRISM') {
-            ctx.save();
-            ctx.translate(cx, cy);
-            ctx.strokeStyle = '#ff0055';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(0, -tileSize * 0.3);
-            ctx.lineTo(tileSize * 0.25, tileSize * 0.25);
-            ctx.lineTo(-tileSize * 0.25, tileSize * 0.25);
-            ctx.closePath();
-            ctx.stroke();
             ctx.restore();
           }
         }
       }
 
-      // Draw Laser Beams
+      // Draw Fiery Red/Orange Laser Beams
       laserPaths.forEach(path => {
         if (path.length < 2) return;
         ctx.save();
-        ctx.shadowColor = path[0].color;
-        ctx.shadowBlur = 12;
-
-        // Outer Glow Line
-        ctx.strokeStyle = path[0].color;
-        ctx.lineWidth = 4;
+        
+        // Outer Glow
+        ctx.shadowColor = '#ff3300';
+        ctx.shadowBlur = 14;
+        ctx.strokeStyle = '#ff3300';
+        ctx.lineWidth = 5;
         ctx.beginPath();
         ctx.moveTo((path[0].c + 0.5) * tileSize, (path[0].r + 0.5) * tileSize);
         for (let i = 1; i < path.length; i++) {
@@ -683,9 +603,9 @@
         }
         ctx.stroke();
 
-        // Inner Core Line
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1.5;
+        // Inner Yellow Core
+        ctx.strokeStyle = '#ffffaa';
+        ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo((path[0].c + 0.5) * tileSize, (path[0].r + 0.5) * tileSize);
         for (let i = 1; i < path.length; i++) {
@@ -696,27 +616,11 @@
         ctx.restore();
       });
 
-      // Render Particles
-      for (let i = particles.length - 1; i >= 0; i--) {
-        let p = particles[i];
-        p.x += p.vx;
-        p.y += p.vy;
-        p.life -= 0.04;
-        if (p.life <= 0) {
-          particles.splice(i, 1);
-          continue;
-        }
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = p.life;
-        ctx.fillRect(p.x, p.y, 3, 3);
-        ctx.globalAlpha = 1.0;
-      }
-
       requestAnimationFrame(render);
     }
 
-    // --- Input Processing ---
-    function handleInteraction(e) {
+    // --- User Controls ---
+    function handleTouch(e) {
       if (stageCleared) return;
       e.preventDefault();
       const rect = canvas.getBoundingClientRect();
@@ -729,19 +633,19 @@
       if (c >= 0 && c < cols && r >= 0 && r < rows) {
         let cell = grid[r][c];
         if ((cell.type === 'MIRROR' || cell.type === 'SPLITTER') && !cell.isFixed) {
-          cell.angle = (cell.angle + 1) % 4;
+          // Rotates 90 degrees (toggles state between 45 deg and 135 deg)
+          cell.angle = (cell.angle + 1) % 2;
           cell.rotAnim = 1.0;
           Audio.playRotate();
-          if (navigator.vibrate) navigator.vibrate(15);
+          if (navigator.vibrate) navigator.vibrate(12);
           calculateLasers();
         }
       }
     }
 
-    canvas.addEventListener('touchstart', handleInteraction, { passive: false });
-    canvas.addEventListener('mousedown', handleInteraction);
+    canvas.addEventListener('touchstart', handleTouch, { passive: false });
+    canvas.addEventListener('mousedown', handleTouch);
 
-    // --- Level Selection Modal ---
     function populateLevelGrid() {
       const gridContainer = document.getElementById('level-grid');
       gridContainer.innerHTML = '';
@@ -758,39 +662,16 @@
       }
     }
 
-    // --- Button Event Handlers ---
     document.getElementById('btn-reset').onclick = () => generateStage(currentStage);
-    document.getElementById('btn-prev').onclick = () => {
-      if (currentStage > 1) {
-        currentStage--;
-        generateStage(currentStage);
-      }
-    };
-    document.getElementById('btn-skip').onclick = () => {
-      if (currentStage < 100) {
-        currentStage++;
-        generateStage(currentStage);
-      }
-    };
-    document.getElementById('btn-next').onclick = () => {
-      if (currentStage < 100) currentStage++;
-      generateStage(currentStage);
-    };
-    document.getElementById('btn-select').onclick = () => {
-      populateLevelGrid();
-      document.getElementById('select-overlay').classList.add('active');
-    };
-    document.getElementById('btn-close-select').onclick = () => {
-      document.getElementById('select-overlay').classList.remove('active');
-    };
-    document.getElementById('btn-sound').onclick = (e) => {
-      Audio.muted = !Audio.muted;
-      e.target.innerText = Audio.muted ? '🔇' : '🔊';
-    };
+    document.getElementById('btn-prev').onclick = () => { if (currentStage > 1) generateStage(--currentStage); };
+    document.getElementById('btn-skip').onclick = () => { if (currentStage < 100) generateStage(++currentStage); };
+    document.getElementById('btn-next').onclick = () => { if (currentStage < 100) generateStage(++currentStage); };
+    document.getElementById('btn-select').onclick = () => { populateLevelGrid(); document.getElementById('select-overlay').classList.add('active'); };
+    document.getElementById('btn-close-select').onclick = () => { document.getElementById('select-overlay').classList.add('active'); };
+    document.getElementById('btn-sound').onclick = (e) => { Audio.muted = !Audio.muted; e.target.innerText = Audio.muted ? '🔇' : '🔊'; };
 
     window.addEventListener('resize', resizeCanvas);
 
-    // --- Initialization ---
     resizeCanvas();
     generateStage(currentStage);
     requestAnimationFrame(render);
