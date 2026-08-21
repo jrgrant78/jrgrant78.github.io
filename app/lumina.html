@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>LUMINA: 100 Laser Logic Stages</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --panel: #111827;
+      --accent: #00f3ff;
+      --accent-glow: rgba(0, 243, 255, 0.4);
+      --text: #f8fafc;
+      --text-dim: #64748b;
+      --wall: #334155;
+    }
+
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      overflow: hidden;
+      padding: 12px;
+    }
+
+    header {
+      width: 100%;
+      max-width: 500px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 4px;
+    }
+
+    .title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      letter-spacing: 2px;
+      color: var(--accent);
+      text-shadow: 0 0 10px var(--accent-glow);
+    }
+
+    .stage-indicator {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text-dim);
+    }
+
+    .controls-bar {
+      display: flex;
+      gap: 8px;
+    }
+
+    button {
+      background: var(--panel);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    button:active {
+      transform: scale(0.95);
+      background: var(--accent);
+      color: #000;
+    }
+
+    #game-container {
+      position: relative;
+      width: 100%;
+      max-width: 500px;
+      aspect-ratio: 1 / 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin: auto 0;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      background: rgba(15, 23, 42, 0.6);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+    }
+
+    /* Modals & Overlays */
+    .overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(9, 13, 22, 0.85);
+      backdrop-filter: blur(8px);
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+      z-index: 10;
+      padding: 24px;
+      text-align: center;
+    }
+
+    .overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .overlay h2 {
+      font-size: 2rem;
+      color: var(--accent);
+      text-shadow: 0 0 15px var(--accent-glow);
+      margin-bottom: 8px;
+    }
+
+    .overlay p {
+      color: var(--text-dim);
+      margin-bottom: 24px;
+      font-size: 0.95rem;
+    }
+
+    .modal-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      max-height: 260px;
+      overflow-y: auto;
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 20px;
+    }
+
+    .level-btn {
+      aspect-ratio: 1 / 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 0.85rem;
+      border-radius: 6px;
+      padding: 0;
+    }
+
+    .level-btn.completed {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .level-btn.locked {
+      opacity: 0.3;
+      pointer-events: none;
+    }
+
+    footer {
+      width: 100%;
+      max-width: 500px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding-top: 8px;
+    }
+
+    footer button {
+      flex: 1;
+      justify-content: center;
+      padding: 12px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div>
+      <div class="title">LUMINA</div>
+      <div class="stage-indicator" id="stage-text">STAGE 001 / 100</div>
+    </div>
+    <div class="controls-bar">
+      <button id="btn-sound">🔊</button>
+      <button id="btn-select">LEVELS</button>
+    </div>
+  </header>
+
+  <div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Win Overlay -->
+    <div class="overlay" id="win-overlay">
+      <h2>TARGET POWERED</h2>
+      <p id="win-subtext">Stage completed successfully.</p>
+      <button id="btn-next" style="padding: 12px 32px; font-size: 1rem; background: var(--accent); color: #000;">NEXT STAGE</button>
+    </div>
+
+    <!-- Level Selector Overlay -->
+    <div class="overlay" id="select-overlay">
+      <h3 style="margin-bottom: 12px; color: var(--text);">SELECT STAGE</h3>
+      <div class="modal-grid" id="level-grid"></div>
+      <button id="btn-close-select" style="width: 100%;">CLOSE</button>
+    </div>
+  </div>
+
+  <footer>
+    <button id="btn-prev">PREV</button>
+    <button id="btn-reset">RESET</button>
+    <button id="btn-skip">NEXT</button>
+  </footer>
+
+  <script>
+    // --- Audio Engine (Web Audio API) ---
+    const Audio = {
+      ctx: null,
+      muted: false,
+      init() {
+        if (!this.ctx) {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+      },
+      playRotate() {
+        if (this.muted) return;
+        this.init();
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(300, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(600, this.ctx.currentTime + 0.04);
+        gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.04);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.04);
+      },
+      playWin() {
+        if (this.muted) return;
+        this.init();
+        const notes = [523.25, 659.25, 783.99, 1046.50];
+        notes.forEach((freq, i) => {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, this.ctx.currentTime + i * 0.07);
+          gain.gain.setValueAtTime(0.15, this.ctx.currentTime + i * 0.07);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + i * 0.07 + 0.25);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(this.ctx.currentTime + i * 0.07);
+          osc.stop(this.ctx.currentTime + i * 0.07 + 0.25);
+        });
+      }
+    };
+
+    // --- PRNG Seeded Generator ---
+    function mulberry32(a) {
+      return function() {
+        let t = a += 0x6D2B79F5;
+        t = Math.imul(t ^ t >>> 15, t | 1);
+        t ^= t + Math.imul(t ^ t >>> 8, t | 1);
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+      }
+    }
+
+    // --- Directions & Vectors ---
+    // 0: Right (1,0), 1: Down (0,1), 2: Left (-1,0), 3: Up (0,-1)
+    const DX = [1, 0, -1, 0];
+    const DY = [0, 1, 0, -1];
+
+    function getTurnAngle(fromDir, toDir) {
+      if ((fromDir === 0 && toDir === 1) || (fromDir === 1 && toDir === 0) ||
+          (fromDir === 2 && toDir === 3) || (fromDir === 3 && toDir === 2)) {
+        return 3; // Backslash \ (135deg)
+      }
+      return 1; // Slash / (45deg)
+    }
+
+    // --- State Management ---
+    let currentStage = 1;
+    let completedStages = JSON.parse(localStorage.getItem('lumina_completed') || '[]');
+    let grid = [];
+    let cols = 6, rows = 6;
+    let laserPaths = [];
+    let particles = [];
+    let stageCleared = false;
+    let animatingTiles = [];
+
+    // Canvas Setup
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    function resizeCanvas() {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+    }
+
+    // --- Stage Generator (100 Guaranteed Solvable Stages) ---
+    function generateStage(stageNum) {
+      const rng = mulberry32(1000 + stageNum * 7919);
+      
+      // Determine grid dimensions based on stage difficulty
+      cols = Math.min(10, 5 + Math.floor((stageNum - 1) / 20));
+      rows = cols;
+
+      grid = Array.from({ length: rows }, () => 
+        Array.from({ length: cols }, () => ({ type: 'EMPTY' }))
+      );
+
+      // Place Emitter on outer edge
+      const edge = Math.floor(rng() * 4);
+      let ec = 0, er = 0, edir = 0;
+      if (edge === 0) { ec = Math.floor(rng() * (cols - 2)) + 1; er = 0; edir = 1; }
+      else if (edge === 1) { ec = cols - 1; er = Math.floor(rng() * (rows - 2)) + 1; edir = 2; }
+      else if (edge === 2) { ec = Math.floor(rng() * (cols - 2)) + 1; er = rows - 1; edir = 3; }
+      else { ec = 0; er = Math.floor(rng() * (rows - 2)) + 1; edir = 0; }
+
+      grid[er][ec] = { type: 'EMITTER', dir: edir, color: '#00f3ff' };
+
+      // Trace solution path
+      let curC = ec, curR = er, curDir = edir;
+      const pathSet = new Set([`${curC},${curR}`]);
+      const maxTurns = Math.min(7, 2 + Math.floor(stageNum / 15));
+      let turns = 0;
+
+      while (turns < maxTurns) {
+        let step = Math.floor(rng() * 2) + 1;
+        for (let s = 0; s < step; s++) {
+          let nc = curC + DX[curDir];
+          let nr = curR + DY[curDir];
+          if (nc <= 0 || nc >= cols - 1 || nr <= 0 || nr >= rows - 1) break;
+          curC = nc; curR = nr;
+          pathSet.add(`${curC},${curR}`);
+        }
+
+        let turnRight = rng() > 0.5;
+        let newDir = turnRight ? (curDir + 1) % 4 : (curDir + 3) % 4;
+        let tc = curC + DX[newDir];
+        let tr = curR + DY[newDir];
+
+        if (tc >= 0 && tc < cols && tr >= 0 && tr < rows && !pathSet.has(`${tc},${tr}`)) {
+          let solAngle = getTurnAngle(curDir, newDir);
+          let isFixed = (stageNum > 15 && rng() < 0.2);
+          let isSplitter = (stageNum > 35 && rng() < 0.25 && turns > 0);
+
+          if (isSplitter) {
+            grid[curR][curC] = { type: 'SPLITTER', angle: solAngle, solAngle: solAngle, isFixed: false, rotAnim: 0 };
+          } else {
+            let initAngle = isFixed ? solAngle : (solAngle + Math.floor(rng() * 3) + 1) % 4;
+            grid[curR][curC] = { type: 'MIRROR', angle: initAngle, solAngle: solAngle, isFixed: isFixed, rotAnim: 0 };
+          }
+
+          curDir = newDir;
+          turns++;
+        } else {
+          break;
+        }
+      }
+
+      // Target placement
+      let fc = curC + DX[curDir];
+      let fr = curR + DY[curDir];
+      if (fc >= 0 && fc < cols && fr >= 0 && fr < rows && !pathSet.has(`${fc},${fr}`)) {
+        grid[fr][fc] = { type: 'TARGET', reqColor: '#00f3ff', hit: false };
+      } else {
+        grid[curR][curC] = { type: 'TARGET', reqColor: '#00f3ff', hit: false };
+      }
+
+      // Populate obstacles and decoys
+      const wallDensity = Math.min(0.25, 0.05 + stageNum * 0.002);
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (grid[r][c].type === 'EMPTY') {
+            let val = rng();
+            if (val < wallDensity) {
+              grid[r][c] = { type: 'WALL' };
+            } else if (val < wallDensity + 0.15) {
+              grid[r][c] = { type: 'MIRROR', angle: Math.floor(rng() * 4), solAngle: -1, isFixed: false, rotAnim: 0 };
+            } else if (stageNum > 60 && val < wallDensity + 0.22) {
+              grid[r][c] = { type: 'PRISM', rotAnim: 0 };
+            }
+          }
+        }
+      }
+
+      stageCleared = false;
+      document.getElementById('stage-text').innerText = `STAGE ${String(stageNum).padStart(3, '0')} / 100`;
+      document.getElementById('win-overlay').classList.remove('active');
+      calculateLasers();
+    }
+
+    // --- Ray Tracing Physics ---
+    function calculateLasers() {
+      laserPaths = [];
+      let targetHitCount = 0;
+      let totalTargets = 0;
+
+      // Reset targets
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (grid[r][c].type === 'TARGET') {
+            grid[r][c].hit = false;
+            totalTargets++;
+          }
+        }
+      }
+
+      // Trace emitters
+      const queue = [];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (grid[r][c].type === 'EMITTER') {
+            queue.push({
+              c: c, r: r,
+              dir: grid[r][c].dir,
+              color: grid[r][c].color
+            });
+          }
+        }
+      }
+
+      let maxSteps = 64;
+      while (queue.length > 0 && maxSteps > 0) {
+        maxSteps--;
+        let ray = queue.shift();
+        let pathSeg = [{ c: ray.c, r: ray.r, color: ray.color }];
+
+        let curC = ray.c;
+        let curR = ray.r;
+        let curDir = ray.dir;
+        let rayColor = ray.color;
+
+        while (true) {
+          let nextC = curC + DX[curDir];
+          let nextR = curR + DY[curDir];
+
+          if (nextC < 0 || nextC >= cols || nextR < 0 || nextR >= rows) {
+            pathSeg.push({ c: nextC, r: nextR, color: rayColor });
+            break;
+          }
+
+          let cell = grid[nextR][nextC];
+          pathSeg.push({ c: nextC, r: nextR, color: rayColor });
+
+          if (cell.type === 'WALL') {
+            break;
+          } else if (cell.type === 'TARGET') {
+            cell.hit = true;
+            targetHitCount++;
+            spawnSparks(nextC, nextR, rayColor);
+            break;
+          } else if (cell.type === 'PRISM') {
+            const colors = ['#00f3ff', '#ff0055', '#ffcc00', '#00ff66'];
+            let idx = colors.indexOf(rayColor);
+            rayColor = colors[(idx + 1) % colors.length];
+            curC = nextC; curR = nextR;
+          } else if (cell.type === 'MIRROR') {
+            let rot = cell.angle;
+            let nextDir = -1;
+
+            if (rot === 1) { // Slash /
+              if (curDir === 0) nextDir = 3;
+              else if (curDir === 1) nextDir = 2;
+              else if (curDir === 2) nextDir = 1;
+              else if (curDir === 3) nextDir = 0;
+            } else if (rot === 3) { // Backslash \
+              if (curDir === 0) nextDir = 1;
+              else if (curDir === 1) nextDir = 0;
+              else if (curDir === 2) nextDir = 3;
+              else if (curDir === 3) nextDir = 2;
+            } else if (rot === 0) { // Horizontal -
+              if (curDir === 1) nextDir = 3;
+              else if (curDir === 3) nextDir = 1;
+              else nextDir = curDir;
+            } else if (rot === 2) { // Vertical |
+              if (curDir === 0) nextDir = 2;
+              else if (curDir === 2) nextDir = 0;
+              else nextDir = curDir;
+            }
+
+            curC = nextC; curR = nextR;
+            curDir = nextDir;
+          } else if (cell.type === 'SPLITTER') {
+            let rot = cell.angle;
+            let splitDir = -1;
+            if (rot === 1) splitDir = (curDir === 0 || curDir === 2) ? 3 : 0;
+            else splitDir = (curDir === 0 || curDir === 2) ? 1 : 2;
+
+            // Splitter sends ray straight AND turned
+            queue.push({ c: nextC, r: nextR, dir: splitDir, color: rayColor });
+            curC = nextC; curR = nextR;
+          } else {
+            curC = nextC; curR = nextR;
+          }
+        }
+
+        laserPaths.push(pathSeg);
+      }
+
+      if (totalTargets > 0 && targetHitCount >= totalTargets && !stageCleared) {
+        stageCleared = true;
+        Audio.playWin();
+        if (!completedStages.includes(currentStage)) {
+          completedStages.push(currentStage);
+          localStorage.setItem('lumina_completed', JSON.stringify(completedStages));
+        }
+        setTimeout(() => {
+          document.getElementById('win-overlay').classList.add('active');
+        }, 300);
+      }
+    }
+
+    // --- Particle Effects ---
+    function spawnSparks(c, r, color) {
+      if (Math.random() > 0.4) return;
+      const rect = canvas.getBoundingClientRect();
+      const tileSize = rect.width / cols;
+      const px = (c + 0.5) * tileSize;
+      const py = (r + 0.5) * tileSize;
+
+      for (let i = 0; i < 3; i++) {
+        particles.push({
+          x: px, y: py,
+          vx: (Math.random() - 0.5) * 4,
+          vy: (Math.random() - 0.5) * 4,
+          life: 1.0,
+          color: color
+        });
+      }
+    }
+
+    // --- Rendering Engine ---
+    function render() {
+      const rect = canvas.getBoundingClientRect();
+      const tileSize = rect.width / cols;
+
+      ctx.clearRect(0, 0, rect.width, rect.height);
+
+      // Grid Lines
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= cols; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * tileSize, 0);
+        ctx.lineTo(i * tileSize, rect.height);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(0, i * tileSize);
+        ctx.lineTo(rect.width, i * tileSize);
+        ctx.stroke();
+      }
+
+      // Grid Entities
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          let cell = grid[r][c];
+          let cx = (c + 0.5) * tileSize;
+          let cy = (r + 0.5) * tileSize;
+
+          if (cell.type === 'WALL') {
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(c * tileSize + 2, r * tileSize + 2, tileSize - 4, tileSize - 4);
+            ctx.strokeStyle = '#334155';
+            ctx.strokeRect(c * tileSize + 4, r * tileSize + 4, tileSize - 8, tileSize - 8);
+          } else if (cell.type === 'EMITTER') {
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(cell.dir * Math.PI / 2);
+            ctx.fillStyle = '#334155';
+            ctx.beginPath();
+            ctx.arc(0, 0, tileSize * 0.35, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = cell.color;
+            ctx.fillRect(0, -tileSize * 0.1, tileSize * 0.4, tileSize * 0.2);
+            ctx.restore();
+          } else if (cell.type === 'TARGET') {
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.strokeStyle = cell.hit ? '#00f3ff' : '#475569';
+            ctx.lineWidth = 3;
+            if (cell.hit) {
+              ctx.shadowColor = '#00f3ff';
+              ctx.shadowBlur = 12;
+            }
+            ctx.beginPath();
+            ctx.arc(0, 0, tileSize * 0.3, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.fillStyle = cell.hit ? '#00f3ff' : '#1e293b';
+            ctx.beginPath();
+            ctx.arc(0, 0, tileSize * 0.15, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          } else if (cell.type === 'MIRROR' || cell.type === 'SPLITTER') {
+            ctx.save();
+            ctx.translate(cx, cy);
+
+            // Smooth Rotation Animation Interpolation
+            if (cell.rotAnim > 0) {
+              cell.rotAnim -= 0.15;
+              if (cell.rotAnim < 0) cell.rotAnim = 0;
+            }
+            let currentAngle = (cell.angle - cell.rotAnim) * (Math.PI / 4);
+            ctx.rotate(currentAngle);
+
+            if (cell.type === 'MIRROR') {
+              ctx.strokeStyle = cell.isFixed ? '#f59e0b' : '#00f3ff';
+              ctx.lineWidth = 4;
+              ctx.shadowColor = cell.isFixed ? '#f59e0b' : '#00f3ff';
+              ctx.shadowBlur = 8;
+              ctx.beginPath();
+              ctx.moveTo(-tileSize * 0.35, 0);
+              ctx.lineTo(tileSize * 0.35, 0);
+              ctx.stroke();
+
+              if (cell.isFixed) {
+                ctx.fillStyle = '#f59e0b';
+                ctx.fillRect(-3, -3, 6, 6);
+              }
+            } else if (cell.type === 'SPLITTER') {
+              ctx.fillStyle = 'rgba(0, 243, 255, 0.3)';
+              ctx.strokeStyle = '#00f3ff';
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.moveTo(-tileSize * 0.25, -tileSize * 0.25);
+              ctx.lineTo(tileSize * 0.25, 0);
+              ctx.lineTo(-tileSize * 0.25, tileSize * 0.25);
+              ctx.closePath();
+              ctx.fill();
+              ctx.stroke();
+            }
+            ctx.restore();
+          } else if (cell.type === 'PRISM') {
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.strokeStyle = '#ff0055';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, -tileSize * 0.3);
+            ctx.lineTo(tileSize * 0.25, tileSize * 0.25);
+            ctx.lineTo(-tileSize * 0.25, tileSize * 0.25);
+            ctx.closePath();
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
+      }
+
+      // Draw Laser Beams
+      laserPaths.forEach(path => {
+        if (path.length < 2) return;
+        ctx.save();
+        ctx.shadowColor = path[0].color;
+        ctx.shadowBlur = 12;
+
+        // Outer Glow Line
+        ctx.strokeStyle = path[0].color;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo((path[0].c + 0.5) * tileSize, (path[0].r + 0.5) * tileSize);
+        for (let i = 1; i < path.length; i++) {
+          ctx.lineTo((path[i].c + 0.5) * tileSize, (path[i].r + 0.5) * tileSize);
+        }
+        ctx.stroke();
+
+        // Inner Core Line
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo((path[0].c + 0.5) * tileSize, (path[0].r + 0.5) * tileSize);
+        for (let i = 1; i < path.length; i++) {
+          ctx.lineTo((path[i].c + 0.5) * tileSize, (path[i].r + 0.5) * tileSize);
+        }
+        ctx.stroke();
+
+        ctx.restore();
+      });
+
+      // Render Particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        let p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= 0.04;
+        if (p.life <= 0) {
+          particles.splice(i, 1);
+          continue;
+        }
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = p.life;
+        ctx.fillRect(p.x, p.y, 3, 3);
+        ctx.globalAlpha = 1.0;
+      }
+
+      requestAnimationFrame(render);
+    }
+
+    // --- Input Processing ---
+    function handleInteraction(e) {
+      if (stageCleared) return;
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+      const c = Math.floor((clientX - rect.left) / (rect.width / cols));
+      const r = Math.floor((clientY - rect.top) / (rect.height / rows));
+
+      if (c >= 0 && c < cols && r >= 0 && r < rows) {
+        let cell = grid[r][c];
+        if ((cell.type === 'MIRROR' || cell.type === 'SPLITTER') && !cell.isFixed) {
+          cell.angle = (cell.angle + 1) % 4;
+          cell.rotAnim = 1.0;
+          Audio.playRotate();
+          if (navigator.vibrate) navigator.vibrate(15);
+          calculateLasers();
+        }
+      }
+    }
+
+    canvas.addEventListener('touchstart', handleInteraction, { passive: false });
+    canvas.addEventListener('mousedown', handleInteraction);
+
+    // --- Level Selection Modal ---
+    function populateLevelGrid() {
+      const gridContainer = document.getElementById('level-grid');
+      gridContainer.innerHTML = '';
+      for (let i = 1; i <= 100; i++) {
+        const btn = document.createElement('button');
+        btn.className = `level-btn ${completedStages.includes(i) ? 'completed' : ''}`;
+        btn.innerText = i;
+        btn.onclick = () => {
+          currentStage = i;
+          generateStage(currentStage);
+          document.getElementById('select-overlay').classList.remove('active');
+        };
+        gridContainer.appendChild(btn);
+      }
+    }
+
+    // --- Button Event Handlers ---
+    document.getElementById('btn-reset').onclick = () => generateStage(currentStage);
+    document.getElementById('btn-prev').onclick = () => {
+      if (currentStage > 1) {
+        currentStage--;
+        generateStage(currentStage);
+      }
+    };
+    document.getElementById('btn-skip').onclick = () => {
+      if (currentStage < 100) {
+        currentStage++;
+        generateStage(currentStage);
+      }
+    };
+    document.getElementById('btn-next').onclick = () => {
+      if (currentStage < 100) currentStage++;
+      generateStage(currentStage);
+    };
+    document.getElementById('btn-select').onclick = () => {
+      populateLevelGrid();
+      document.getElementById('select-overlay').classList.add('active');
+    };
+    document.getElementById('btn-close-select').onclick = () => {
+      document.getElementById('select-overlay').classList.remove('active');
+    };
+    document.getElementById('btn-sound').onclick = (e) => {
+      Audio.muted = !Audio.muted;
+      e.target.innerText = Audio.muted ? '🔇' : '🔊';
+    };
+
+    window.addEventListener('resize', resizeCanvas);
+
+    // --- Initialization ---
+    resizeCanvas();
+    generateStage(currentStage);
+    requestAnimationFrame(render);
+  </script>
+</body>
+</html>
