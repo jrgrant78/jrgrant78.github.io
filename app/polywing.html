@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>POLYWING: HYPER-RAIL</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; color: #00ffcc; }
+        
+        #canvas3d { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; display: block; touch-action: none; }
+        
+        /* UI OVERLAYS */
+        .overlay-screen {
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 10;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            background: rgba(2, 2, 8, 0.88); text-align: center; padding: 20px; transition: opacity 0.4s ease;
+        }
+
+        h1.game-title {
+            font-size: min(10vw, 42px); font-weight: 900; letter-spacing: 6px; color: #00ffcc;
+            text-shadow: 0 0 15px #00ffcc, 0 0 35px #00ffcc; margin-bottom: 5px;
+        }
+        
+        .subtitle { font-size: min(3.5vw, 14px); letter-spacing: 3px; color: #ff0055; margin-bottom: 35px; text-shadow: 0 0 10px #ff0055; }
+
+        .btn {
+            background: rgba(0, 255, 204, 0.1); border: 2px solid #00ffcc; color: #00ffcc;
+            padding: 14px 28px; margin: 10px; font-size: min(4vw, 18px); font-weight: bold;
+            letter-spacing: 2px; font-family: inherit; cursor: pointer; border-radius: 4px;
+            box-shadow: 0 0 15px rgba(0, 255, 204, 0.3); transition: all 0.2s ease; outline: none;
+            width: min(80vw, 280px);
+        }
+        .btn:active { background: #00ffcc; color: #000; box-shadow: 0 0 25px #00ffcc; transform: scale(0.96); }
+
+        /* HUD */
+        #hud { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 5; pointer-events: none; display: none; }
+        
+        .hud-panel { position: absolute; padding: 12px; font-weight: bold; text-shadow: 0 0 8px currentColor; }
+        #hud-top-left { top: 15px; left: 15px; color: #00ffcc; font-size: min(4vw, 18px); }
+        #hud-top-right { top: 15px; right: 15px; color: #ff0055; text-align: right; font-size: min(4vw, 18px); }
+        
+        #hud-center-alert {
+            position: absolute; top: 22%; left: 50%; transform: translate(-50%, -50%);
+            font-size: min(6vw, 26px); font-weight: 900; letter-spacing: 3px; color: #ffff00;
+            text-shadow: 0 0 15px #ffff00; text-align: center; opacity: 0; transition: opacity 0.3s;
+        }
+
+        #quota-bar-container {
+            width: 100%; height: 8px; background: rgba(255, 255, 255, 0.15);
+            border: 1px solid #00ffcc; margin-top: 6px; border-radius: 4px; overflow: hidden;
+        }
+        #quota-bar-fill { width: 0%; height: 100%; background: #00ffcc; transition: width 0.2s ease-out; }
+
+        #health-bar-container {
+            width: 140px; height: 10px; background: rgba(255, 0, 85, 0.2);
+            border: 1px solid #ff0055; margin-top: 6px; border-radius: 4px; overflow: hidden;
+        }
+        #health-bar-fill { width: 100%; height: 100%; background: #ff0055; transition: width 0.2s ease-out; }
+
+        /* RETICLE */
+        #reticle {
+            position: absolute; top: 50%; left: 50%; width: 36px; height: 36px;
+            transform: translate(-50%, -50%); pointer-events: none; z-index: 6;
+        }
+        #reticle::before, #reticle::after {
+            content: ''; position: absolute; background: #00ffcc; box-shadow: 0 0 8px #00ffcc;
+        }
+        #reticle::before { top: 17px; left: 0; width: 36px; height: 2px; }
+        #reticle::after { top: 0; left: 17px; width: 2px; height: 36px; }
+
+        /* HIGH SCORES MODAL */
+        #high-scores-modal { display: none; z-index: 20; }
+        .score-list { margin: 20px 0; text-align: left; width: min(80vw, 300px); font-size: min(4vw, 16px); line-height: 1.8; }
+        .score-item { display: flex; justify-content: space-between; border-bottom: 1px dashed rgba(0, 255, 204, 0.3); }
+
+        .pulse { animation: pulse-anim 1.5s infinite ease-in-out; }
+        @keyframes pulse-anim { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+    </style>
+    <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+</head>
+<body>
+
+    <canvas id="canvas3d"></canvas>
+
+    <!-- TITLE SCREEN -->
+    <div id="title-screen" class="overlay-screen">
+        <h1 class="game-title">POLYWING</h1>
+        <div class="subtitle">// HYPER-RAIL AERIAL COMBAT</div>
+        <button class="btn" onclick="startRun()">BEGIN RUN</button>
+        <button class="btn" onclick="showHighScores()">HIGH SCORES</button>
+        <div class="pulse" style="margin-top: 30px; font-size: min(3vw, 12px); color: #888;">TAP SCREEN TO INITIALIZE FULLSCREEN</div>
+    </div>
+
+    <!-- HIGH SCORES SCREEN -->
+    <div id="high-scores-modal" class="overlay-screen">
+        <h1 class="game-title" style="font-size: min(7vw, 30px);">TOP PILOTS</h1>
+        <div class="score-list" id="score-list-content"></div>
+        <button class="btn" onclick="hideHighScores()">BACK</button>
+    </div>
+
+    <!-- GAME OVER SCREEN -->
+    <div id="game-over-screen" class="overlay-screen" style="display: none;">
+        <h1 class="game-title" style="color: #ff0055; text-shadow: 0 0 15px #ff0055;">CRITICAL FAILURE</h1>
+        <div class="subtitle" id="final-score-text">FINAL SCORE: 0</div>
+        <button class="btn" onclick="startRun()">REDEPLOY</button>
+        <button class="btn" onclick="returnToTitle()">TITLE</button>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud">
+        <div id="reticle"></div>
+        <div id="hud-top-left" class="hud-panel">
+            <div>SCORE: <span id="score-display">0</span></div>
+            <div style="font-size: 11px; margin-top: 4px; color: #aaa;" id="location-display">STARFIELD</div>
+            <div id="quota-bar-container"><div id="quota-bar-fill"></div></div>
+        </div>
+        <div id="hud-top-right" class="hud-panel">
+            <div>SHIELD</div>
+            <div id="health-bar-container"><div id="health-bar-fill"></div></div>
+        </div>
+        <div id="hud-center-alert">SECTOR CLEAR<br><span style="font-size: 14px; color: #fff;">WARPING...</span></div>
+    </div>
+
+    <script>
+        // --- AUDIO ENGINE (WEB AUDIO API SYNTHESIS) ---
+        class AudioEngine {
+            constructor() { this.ctx = null; }
+            init() { if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); }
+            
+            playLaser() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(900, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(120, this.ctx.currentTime + 0.12);
+                gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.12);
+                osc.connect(gain); gain.connect(this.ctx.destination);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.12);
+            }
+
+            playExplosion() {
+                if (!this.ctx) return;
+                const bufferSize = this.ctx.sampleRate * 0.35, buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+                const noise = this.ctx.createBufferSource(); noise.buffer = buffer;
+                const filter = this.ctx.createBiquadFilter(); filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(800, this.ctx.currentTime);
+                filter.frequency.linearRampToValueAtTime(60, this.ctx.currentTime + 0.35);
+                const gain = this.ctx.createGain();
+                gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.35);
+                noise.connect(filter); filter.connect(gain); gain.connect(this.ctx.destination);
+                noise.start();
+            }
+
+            playTransition() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(220, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(880, this.ctx.currentTime + 0.5);
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.5);
+                osc.connect(gain); gain.connect(this.ctx.destination);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.5);
+            }
+        }
+
+        const sfx = new AudioEngine();
+
+        // --- LOCATIONS / BIOMES ---
+        const BIOMES = [
+            { name: "STARFIELD", fog: 0x02020a, light: 0x00ffcc, bg: 0x02020a, quota: 12, speed: 1.2 },
+            { name: "ASTEROID BELT", fog: 0x15101a, light: 0xffaa00, bg: 0x15101a, quota: 15, speed: 1.4 },
+            { name: "STAR DESTROYER TRENCH", fog: 0x0a0f18, light: 0x00ffff, bg: 0x0a0f18, quota: 18, speed: 1.6 },
+            { name: "PLANET APPROACH", fog: 0x02182b, light: 0x00ff88, bg: 0x02182b, quota: 15, speed: 1.5 },
+            { name: "CANYON TRENCH RUN", fog: 0x2b0d02, light: 0xff5500, bg: 0x2b0d02, quota: 18, speed: 1.7 },
+            { name: "FOREST BIOME", fog: 0x022b11, light: 0x55ff55, bg: 0x022b11, quota: 16, speed: 1.5 },
+            { name: "DESOLATE LANDS", fog: 0x1a022b, light: 0xaa00ff, bg: 0x1a022b, quota: 20, speed: 1.8 },
+            { name: "BELLY OF THE BEAST", fog: 0x2b0213, light: 0xff0055, bg: 0x2b0213, quota: 22, speed: 1.9 }
+        ];
+
+        // --- THREE.JS GLOBALS & STATE ---
+        let scene, camera, renderer, playerShip;
+        let gameState = "TITLE";
+        let score = 0, health = 100, currentBiomeIndex = 0, quotaDefeated = 0;
+        let isTransitioning = false;
+        
+        const lasers = [], enemies = [], envProps = [], particleExplosions = [];
+        let lastShotTime = 0, spawnTimer = 0;
+
+        // Gyro / Steering Controls
+        let gyroPitch = 0, gyroRoll = 0, initialPitch = null, initialRoll = null;
+        let pointerTargetX = 0, pointerTargetY = 0, isTouchDragging = false;
+        let previousPointerX = 0, previousPointerY = 0;
+
+        // --- INITIALIZATION ---
+        function initEngine() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 0, 0);
+
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+            scene.fog = new THREE.FogExp2(BIOMES[0].fog, 0.008);
+            renderer.setClearColor(BIOMES[0].bg);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0x00ffcc, 1.2);
+            dirLight.position.set(0, 20, 10);
+            scene.add(dirLight);
+
+            // Player Starwing Model
+            playerShip = buildPlayerShip();
+            playerShip.position.set(0, -1.2, -5);
+            scene.add(playerShip);
+
+            setupControls();
+            window.addEventListener('resize', onWindowResize);
+            
+            // Start Render Loop
+            requestAnimationFrame(animate);
+        }
+
+        // --- POLYGONAL MODEL GENERATORS ---
+        function buildPlayerShip() {
+            const group = new THREE.Group();
+            const mat = new THREE.MeshLambertMaterial({ color: 0x00ffcc, flatShading: true });
+            const wingMat = new THREE.MeshLambertMaterial({ color: 0xff0055, flatShading: true });
+
+            // Main Fuselage (Cone/Pyramid)
+            const body = new THREE.Mesh(new THREE.ConeGeometry(0.5, 2.2, 5), mat);
+            body.rotation.x = Math.PI / 2;
+            group.add(body);
+
+            // Wings
+            const wingL = new THREE.Mesh(new THREE.ConeGeometry(0.3, 2.0, 3), wingMat);
+            wingL.rotation.z = Math.PI / 2; wingL.rotation.y = -0.4; wingL.position.set(-0.9, 0, 0.3);
+            const wingR = wingL.clone(); wingR.position.x = 0.9; wingR.rotation.y = 0.4;
+            group.add(wingL, wingR);
+
+            return group;
+        }
+
+        function createEnemyModel(type) {
+            const group = new THREE.Group();
+            const matA = new THREE.MeshLambertMaterial({ color: 0xff0055, flatShading: true });
+            const matB = new THREE.MeshLambertMaterial({ color: 0xffff00, flatShading: true });
+
+            if (type === 0) { // Interceptor: Octahedron + Wing Blades
+                const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.8), matA);
+                const bladeL = new THREE.Mesh(new THREE.ConeGeometry(0.2, 1.8, 4), matB);
+                bladeL.position.x = -0.9; bladeL.rotation.z = Math.PI / 2;
+                const bladeR = bladeL.clone(); bladeR.position.x = 0.9;
+                group.add(core, bladeL, bladeR);
+            } else if (type === 1) { // Dreadnought / Bomber: Dodecahedron + Cubes
+                const core = new THREE.Mesh(new THREE.DodecahedronGeometry(1.1), matB);
+                const wing = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.2, 0.6), matA);
+                group.add(core, wing);
+            } else { // Bio / Anomaly Drone: Icosahedron + Spikes
+                const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.9), matA);
+                for(let i=0; i<6; i++) {
+                    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.15, 1.2, 4), matB);
+                    spike.rotation.x = (i * Math.PI) / 3;
+                    group.add(spike);
+                }
+                group.add(core);
+            }
+            return group;
+        }
+
+        function spawnEnvironmentProp(biomeIdx) {
+            const propGroup = new THREE.Group();
+            const zPos = -220;
+            const mat = new THREE.MeshLambertMaterial({ color: BIOMES[biomeIdx].light, flatShading: true, wireframe: Math.random() > 0.5 });
+
+            if (biomeIdx === 1) { // Asteroid Belt
+                const ast = new THREE.Mesh(new THREE.DodecahedronGeometry(2 + Math.random() * 4, 1), mat);
+                propGroup.position.set((Math.random() - 0.5) * 60, (Math.random() - 0.5) * 40, zPos);
+                propGroup.add(ast);
+            } else if (biomeIdx === 2 || biomeIdx === 4) { // Trench Run / Canyon
+                const wallL = new THREE.Mesh(new THREE.BoxGeometry(10, 40, 30), mat);
+                wallL.position.set(-22, 0, zPos);
+                const wallR = wallL.clone(); wallR.position.x = 22;
+                propGroup.add(wallL, wallR);
+            } else if (biomeIdx === 5) { // Forest
+                const tree = new THREE.Mesh(new THREE.ConeGeometry(2, 12, 5), mat);
+                tree.position.set((Math.random() - 0.5) * 70, -12, zPos);
+                propGroup.add(tree);
+            } else if (biomeIdx === 7) { // Belly of Beast Ribs
+                const rib = new THREE.Mesh(new THREE.TorusGeometry(18, 0.8, 5, 12, Math.PI), mat);
+                rib.position.set(0, -8, zPos);
+                propGroup.add(rib);
+            } else { // Generic Star/Pillar Spire
+                const spire = new THREE.Mesh(new THREE.OctahedronGeometry(1.5), mat);
+                spire.position.set((Math.random() - 0.5) * 70, (Math.random() - 0.5) * 50, zPos);
+                propGroup.add(spire);
+            }
+
+            scene.add(propGroup);
+            envProps.push(propGroup);
+        }
+
+        // --- GYRO & TOUCH CONTROLS ---
+        function setupControls() {
+            // Adapted Gyro Listening Logic
+            function bindGyro() {
+                const handler = (e) => {
+                    if (e.beta === null || e.gamma === null) return;
+                    if (initialPitch === null) { initialPitch = e.beta; initialRoll = e.gamma; }
+                    gyroPitch = (e.beta - initialPitch) * 0.04;
+                    gyroRoll = (e.gamma - initialRoll) * 0.04;
+                };
+                if ('ondeviceorientationabsolute' in window) window.addEventListener('deviceorientationabsolute', handler, true);
+                else window.addEventListener('deviceorientation', handler, true);
+            }
+            bindGyro();
+
+            // Touch / Drag Fallback & Aiming
+            window.addEventListener('pointerdown', (e) => {
+                isTouchDragging = true; previousPointerX = e.clientX; previousPointerY = e.clientY;
+            });
+            window.addEventListener('pointermove', (e) => {
+                if (!isTouchDragging) return;
+                const deltaX = e.clientX - previousPointerX;
+                const deltaY = e.clientY - previousPointerY;
+                previousPointerX = e.clientX; previousPointerY = e.clientY;
+                pointerTargetX += deltaX * 0.035;
+                pointerTargetY -= deltaY * 0.035;
+                pointerTargetX = Math.max(-14, Math.min(14, pointerTargetX));
+                pointerTargetY = Math.max(-8, Math.min(8, pointerTargetY));
+            });
+            window.addEventListener('pointerup', () => { isTouchDragging = false; });
+        }
+
+        // --- GAME LOOP & LOGIC ---
+        function startRun() {
+            sfx.init();
+            if (document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().catch(() => {});
+            }
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission();
+            }
+
+            score = 0; health = 100; quotaDefeated = 0; currentBiomeIndex = 0;
+            updateBiomeVisuals();
+
+            // Clear arrays
+            enemies.forEach(e => scene.remove(e.mesh)); enemies.length = 0;
+            lasers.forEach(l => scene.remove(l.mesh)); lasers.length = 0;
+            envProps.forEach(p => scene.remove(p)); envProps.length = 0;
+
+            document.getElementById('title-screen').style.display = 'none';
+            document.getElementById('game-over-screen').style.display = 'none';
+            document.getElementById('high-scores-modal').style.display = 'none';
+            document.getElementById('hud').style.display = 'block';
+
+            gameState = "PLAYING";
+            updateHUD();
+        }
+
+        function updateBiomeVisuals() {
+            const b = BIOMES[currentBiomeIndex];
+            scene.fog.color.setHex(b.fog);
+            renderer.setClearColor(b.bg);
+            document.getElementById('location-display').innerText = b.name;
+        }
+
+        function animate(time) {
+            requestAnimationFrame(animate);
+
+            if (gameState === "PLAYING") {
+                const currentSpeed = BIOMES[currentBiomeIndex].speed;
+
+                // --- 1. SHIP MOVEMENT & GYRO STEERING ---
+                let targetX = pointerTargetX + gyroRoll * 8.0;
+                let targetY = pointerTargetY - gyroPitch * 6.0;
+                targetX = Math.max(-13, Math.min(13, targetX));
+                targetY = Math.max(-7, Math.min(7, targetY));
+
+                playerShip.position.x += (targetX - playerShip.position.x) * 0.1;
+                playerShip.position.y += (targetY - playerShip.position.y) * 0.1;
+                
+                // Roll/Pitch banking visual effect
+                playerShip.rotation.z = -(targetX - playerShip.position.x) * 0.4;
+                playerShip.rotation.x = (targetY - playerShip.position.y) * 0.2;
+
+                // --- 2. AUTO-FIRING LASERS ---
+                if (time - lastShotTime > 140) {
+                    fireLaser();
+                    lastShotTime = time;
+                }
+
+                // --- 3. SPAWN ENEMIES & PROPS ---
+                spawnTimer++;
+                if (spawnTimer % 20 === 0) spawnEnvironmentProp(currentBiomeIndex);
+                if (spawnTimer % 45 === 0 && enemies.length < 8) spawnEnemy();
+
+                // --- 4. UPDATE LASERS ---
+                for (let i = lasers.length - 1; i >= 0; i--) {
+                    const l = lasers[i];
+                    l.mesh.position.z -= 3.5;
+                    if (l.mesh.position.z < -200) {
+                        scene.remove(l.mesh); lasers.splice(i, 1);
+                    }
+                }
+
+                // --- 5. UPDATE ENVIRONMENT PROPS ---
+                for (let i = envProps.length - 1; i >= 0; i--) {
+                    const p = envProps[i];
+                    p.position.z += currentSpeed;
+                    if (p.position.z > 10) {
+                        scene.remove(p); envProps.splice(i, 1);
+                    }
+                }
+
+                // --- 6. UPDATE ENEMIES & COLLISIONS ---
+                for (let i = enemies.length - 1; i >= 0; i--) {
+                    const e = enemies[i];
+                    e.mesh.position.z += currentSpeed * 0.8;
+                    e.mesh.rotation.x += 0.02; e.mesh.rotation.y += 0.03;
+
+                    // Check Laser Collision
+                    for (let j = lasers.length - 1; j >= 0; j--) {
+                        const l = lasers[j];
+                        if (l.mesh.position.distanceTo(e.mesh.position) < 2.2) {
+                            createExplosion(e.mesh.position);
+                            scene.remove(e.mesh); enemies.splice(i, 1);
+                            scene.remove(l.mesh); lasers.splice(j, 1);
+                            
+                            score += 100;
+                            quotaDefeated++;
+                            sfx.playExplosion();
+                            checkQuotaProgress();
+                            updateHUD();
+                            break;
+                        }
+                    }
+
+                    // Check Player Collision
+                    if (e && e.mesh.position.distanceTo(playerShip.position) < 1.8) {
+                        createExplosion(e.mesh.position);
+                        scene.remove(e.mesh); enemies.splice(i, 1);
+                        health -= 20;
+                        sfx.playExplosion();
+                        updateHUD();
+                        if (health <= 0) triggerGameOver();
+                    } else if (e && e.mesh.position.z > 5) {
+                        scene.remove(e.mesh); enemies.splice(i, 1);
+                    }
+                }
+
+                // --- 7. UPDATE EXPLOSIONS ---
+                for (let i = particleExplosions.length - 1; i >= 0; i--) {
+                    const p = particleExplosions[i];
+                    p.mesh.position.add(p.vel);
+                    p.mesh.scale.multiplyScalar(0.92);
+                    if (p.mesh.scale.x < 0.05) {
+                        scene.remove(p.mesh); particleExplosions.splice(i, 1);
+                    }
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function fireLaser() {
+            const geo = new THREE.CylinderGeometry(0.08, 0.08, 1.8);
+            const mat = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
+            const laserL = new THREE.Mesh(geo, mat); laserL.rotation.x = Math.PI / 2;
+            const laserR = laserL.clone();
+
+            laserL.position.set(playerShip.position.x - 0.8, playerShip.position.y, playerShip.position.z - 1);
+            laserR.position.set(playerShip.position.x + 0.8, playerShip.position.y, playerShip.position.z - 1);
+
+            scene.add(laserL, laserR);
+            lasers.push({ mesh: laserL }, { mesh: laserR });
+            sfx.playLaser();
+        }
+
+        function spawnEnemy() {
+            const type = Math.floor(Math.random() * 3);
+            const enemyMesh = createEnemyModel(type);
+            enemyMesh.position.set(
+                (Math.random() - 0.5) * 26,
+                (Math.random() - 0.5) * 14,
+                -180
+            );
+            scene.add(enemyMesh);
+            enemies.push({ mesh: enemyMesh, type: type });
+        }
+
+        function createExplosion(pos) {
+            const mat = new THREE.MeshBasicMaterial({ color: 0xff0055, wireframe: true });
+            for (let i = 0; i < 8; i++) {
+                const p = new THREE.Mesh(new THREE.TetrahedronGeometry(0.4), mat);
+                p.position.copy(pos);
+                const vel = new THREE.Vector3((Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6);
+                scene.add(p);
+                particleExplosions.push({ mesh: p, vel: vel });
+            }
+        }
+
+        function checkQuotaProgress() {
+            const currentQuota = BIOMES[currentBiomeIndex].quota;
+            if (quotaDefeated >= currentQuota && !isTransitioning) {
+                isTransitioning = true;
+                sfx.playTransition();
+                
+                const alertEl = document.getElementById('hud-center-alert');
+                alertEl.style.opacity = '1';
+
+                setTimeout(() => {
+                    quotaDefeated = 0;
+                    currentBiomeIndex = (currentBiomeIndex + 1) % BIOMES.length;
+                    updateBiomeVisuals();
+                    alertEl.style.opacity = '0';
+                    isTransitioning = false;
+                    updateHUD();
+                }, 1600);
+            }
+        }
+
+        function updateHUD() {
+            document.getElementById('score-display').innerText = score;
+            document.getElementById('health-bar-fill').style.width = Math.max(0, health) + '%';
+            
+            const targetQuota = BIOMES[currentBiomeIndex].quota;
+            const pct = Math.min(100, (quotaDefeated / targetQuota) * 100);
+            document.getElementById('quota-bar-fill').style.width = pct + '%';
+        }
+
+        function triggerGameOver() {
+            gameState = "GAMEOVER";
+            saveHighScore(score);
+            document.getElementById('hud').style.display = 'none';
+            document.getElementById('final-score-text').innerText = "FINAL SCORE: " + score;
+            document.getElementById('game-over-screen').style.display = 'flex';
+        }
+
+        function returnToTitle() {
+            gameState = "TITLE";
+            document.getElementById('game-over-screen').style.display = 'none';
+            document.getElementById('title-screen').style.display = 'flex';
+        }
+
+        // --- HIGH SCORES MANAGEMENT ---
+        function getHighScores() {
+            return JSON.parse(localStorage.getItem('POLY_HIGH_SCORES') || '[5000, 3500, 2000, 1000, 500]');
+        }
+
+        function saveHighScore(newScore) {
+            let scores = getHighScores();
+            scores.push(newScore);
+            scores.sort((a, b) => b - a);
+            scores = scores.slice(0, 5);
+            localStorage.setItem('POLY_HIGH_SCORES', JSON.stringify(scores));
+        }
+
+        function showHighScores() {
+            const scores = getHighScores();
+            const container = document.getElementById('score-list-content');
+            container.innerHTML = scores.map((s, i) => `<div class="score-item"><span>RANK 0${i+1}</span><span>${s} PTS</span></div>`).join('');
+            document.getElementById('high-scores-modal').style.display = 'flex';
+        }
+
+        function hideHighScores() {
+            document.getElementById('high-scores-modal').style.display = 'none';
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        window.addEventListener('DOMContentLoaded', initEngine);
+    </script>
+</body>
+</html>
