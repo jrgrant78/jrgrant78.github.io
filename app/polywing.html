@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>POLYWING: HYPER-RAIL IMMERSIVE CORRIDOR</title>
+    <title>POLYWING: HYPER-RAIL GREEBLE TRENCH</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; color: #00ffcc; }
@@ -93,7 +93,7 @@
     <!-- TITLE SCREEN -->
     <div id="title-screen" class="overlay-screen">
         <h1 class="game-title">POLYWING</h1>
-        <div class="subtitle">// IMMERSIVE CORRIDOR FLYER</div>
+        <div class="subtitle">// HIGH-DETAIL CORRIDOR FLYER</div>
         <button class="btn" onclick="startRun()">BEGIN RUN</button>
         <button class="btn" onclick="showHighScores()">HIGH SCORES</button>
         <div class="pulse" style="margin-top: 25px; font-size: min(3vw, 12px); color: #888;">TOUCH SCREEN FOR FULLSCREEN / GYRO</div>
@@ -205,14 +205,14 @@
 
         // --- IMMERSIVE BIOMES CONFIGURATION ---
         const BIOMES = [
-            { name: "ORBITAL STARFIELD", fog: 0x01010a, light: 0x00ffcc, bg: 0x01010a, quota: 8, speed: 1.1, type: "starfield", wallX: 20, wallY: 12 },
-            { name: "ASTEROID BELT HABITAT", fog: 0x0f0a14, light: 0xffaa00, bg: 0x0f0a14, quota: 10, speed: 1.2, type: "asteroids", wallX: 18, wallY: 11 },
-            { name: "STAR DESTROYER TRENCH", fog: 0x060c14, light: 0x00ffff, bg: 0x060c14, quota: 12, speed: 1.4, type: "trench_tech", wallX: 7.5, wallY: 5 },
-            { name: "ATMOSPHERIC APPROACH", fog: 0x021424, light: 0x00ff88, bg: 0x021424, quota: 12, speed: 1.3, type: "planet", wallX: 19, wallY: 12 },
-            { name: "CANYON TRENCH RUN", fog: 0x240a02, light: 0xff5500, bg: 0x240a02, quota: 14, speed: 1.5, type: "trench_canyon", wallX: 7.0, wallY: 4.8 },
-            { name: "FOREST HABITAT CANOPY", fog: 0x01240c, light: 0x55ff55, bg: 0x01240c, quota: 14, speed: 1.4, type: "forest", wallX: 7.5, wallY: 5.2 },
-            { name: "DESOLATE OBSIDIAN WASTES", fog: 0x140120, light: 0xaa00ff, bg: 0x140120, quota: 16, speed: 1.6, type: "desolate", wallX: 16, wallY: 10 },
-            { name: "BELLY OF THE BEAST", fog: 0x240110, light: 0xff0055, bg: 0x240110, quota: 18, speed: 1.7, type: "belly", wallX: 6.8, wallY: 4.5 }
+            { name: "ORBITAL STARFIELD", fog: 0x01010a, light: 0x00ffcc, bg: 0x01010a, quota: 8, speed: 1.1, type: "starfield", wallX: 20, wallY: 12, hasFloor: false },
+            { name: "ASTEROID BELT HABITAT", fog: 0x0f0a14, light: 0xffaa00, bg: 0x0f0a14, quota: 10, speed: 1.2, type: "asteroids", wallX: 18, wallY: 11, hasFloor: false },
+            { name: "STAR DESTROYER TRENCH", fog: 0x060c14, light: 0x00ffff, bg: 0x060c14, quota: 12, speed: 1.4, type: "trench_tech", wallX: 6.8, wallY: 5.2, hasFloor: true },
+            { name: "ATMOSPHERIC APPROACH", fog: 0x021424, light: 0x00ff88, bg: 0x021424, quota: 12, speed: 1.3, type: "planet", wallX: 19, wallY: 12, hasFloor: false },
+            { name: "CANYON TRENCH RUN", fog: 0x240a02, light: 0xff5500, bg: 0x240a02, quota: 14, speed: 1.5, type: "trench_canyon", wallX: 6.5, wallY: 4.8, hasFloor: true },
+            { name: "FOREST HABITAT CANOPY", fog: 0x01240c, light: 0x55ff55, bg: 0x01240c, quota: 14, speed: 1.4, type: "forest", wallX: 6.8, wallY: 5.0, hasFloor: true },
+            { name: "DESOLATE OBSIDIAN WASTES", fog: 0x140120, light: 0xaa00ff, bg: 0x140120, quota: 16, speed: 1.6, type: "desolate", wallX: 16, wallY: 10, hasFloor: false },
+            { name: "BELLY OF THE BEAST", fog: 0x240110, light: 0xff0055, bg: 0x240110, quota: 18, speed: 1.7, type: "belly", wallX: 6.2, wallY: 4.5, hasFloor: true }
         ];
 
         // --- GLOBAL ENGINE & GAME STATE ---
@@ -221,20 +221,16 @@
         let score = 0, health = 100, currentBiomeIndex = 0, quotaDefeated = 0;
         let isTransitioning = false, elapsedTime = 0, difficultyLevel = 0.5;
         
-        // Colors & Transition Smoother
         let targetFogColor = new THREE.Color(BIOMES[0].fog);
         let currentFogColor = new THREE.Color(BIOMES[0].fog);
 
-        // Continuous Corridor Ring System (Full Screen Trench Wrapping)
+        // Continuous Corridor Segments
         const corridorSegments = [];
-        const NUM_CORRIDOR_SEGMENTS = 14;
-        const SEGMENT_LENGTH = 25;
+        const NUM_CORRIDOR_SEGMENTS = 12;
+        const SEGMENT_LENGTH = 22;
 
         const playerLasers = [], enemyLasers = [], enemies = [], envProps = [], particleExplosions = [];
         let lastShotTime = 0, spawnTimer = 0;
-
-        // Dynamic Camera Screen Shift Target
-        let cameraTargetOffset = new THREE.Vector3(0, 0, 0);
 
         // Steering / Gyro controls with Device Orientation Adjustment
         let gyroPitch = 0, gyroRoll = 0, initialPitch = null, initialRoll = null;
@@ -257,7 +253,7 @@
             // Ambient + Sun Lights
             const ambient = new THREE.AmbientLight(0xffffff, 0.7);
             scene.add(ambient);
-            const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+            const sun = new THREE.DirectionalLight(0xffffff, 1.25);
             sun.position.set(10, 30, 20);
             scene.add(sun);
 
@@ -275,7 +271,7 @@
             playerShip.position.set(0, -1.0, -5);
             scene.add(playerShip);
 
-            // Construct Continuous Trench Tunnel Segments
+            // Construct High-Detail Modular Corridor Segments (Kitbashed Greebles)
             buildContinuousCorridorSegments();
 
             setupControls();
@@ -284,96 +280,186 @@
             requestAnimationFrame(animate);
         }
 
-        // --- CONTINUOUS TRENCH TUNNEL SYSTEM (FILLS SIDES & BOTTOM) ---
+        // --- STAR WARS STYLE KITBASHED GREEBLE SURFACE BUILDER ---
+        function createGreebleSurfaceGroup(width, height, length, isTech, isCanyon, isForest, isOrganic) {
+            const group = new THREE.Group();
+            
+            if (isTech) {
+                // Imperial Death Star / Trench Metallic Kitbash Panels
+                const baseMat = new THREE.MeshLambertMaterial({ color: 0x121a28, flatShading: true });
+                const blockMatA = new THREE.MeshLambertMaterial({ color: 0x1c283c, flatShading: true });
+                const blockMatB = new THREE.MeshLambertMaterial({ color: 0x090f18, flatShading: true });
+                const pipeMat = new THREE.MeshLambertMaterial({ color: 0x00ffff, flatShading: true });
+
+                const base = new THREE.Mesh(new THREE.BoxGeometry(width, height, length), baseMat);
+                group.add(base);
+
+                // Add 16 intricate geometric greeble extrusions along length
+                for (let i = 0; i < 16; i++) {
+                    const type = Math.floor(Math.random() * 4);
+                    const px = (Math.random() - 0.5) * (width * 0.75);
+                    const pz = (Math.random() - 0.5) * (length * 0.85);
+
+                    if (type === 0) { // Modular Raised Panel
+                        const w = 0.8 + Math.random() * 2.2;
+                        const h = 0.5 + Math.random() * 1.5;
+                        const l = 1.2 + Math.random() * 3.5;
+                        const block = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), blockMatA);
+                        block.position.set(px, height / 2 + h / 2, pz);
+                        group.add(block);
+                    } else if (type === 1) { // High-Tech Conduit Pipe running down trench
+                        const r = 0.12 + Math.random() * 0.25;
+                        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(r, r, length, 6), pipeMat);
+                        pipe.rotation.x = Math.PI / 2;
+                        pipe.position.set(px, height / 2 + r, 0);
+                        group.add(pipe);
+                    } else if (type === 2) { // Stepped Turret / Relay Pillar
+                        const w = 1.2 + Math.random() * 1.8;
+                        const h = 0.8 + Math.random() * 1.8;
+                        const block = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), blockMatB);
+                        block.position.set(px, height / 2 + h / 2, pz);
+                        group.add(block);
+                    } else { // Transverse Structural Rib
+                        const rib = new THREE.Mesh(new THREE.BoxGeometry(width * 0.95, 0.35, 0.8), blockMatA);
+                        rib.position.set(0, height / 2 + 0.18, pz);
+                        group.add(rib);
+                    }
+                }
+            } 
+            else if (isCanyon) {
+                // Canyon Rock Wall / Tiered Cliff Strata
+                const rockMat1 = new THREE.MeshLambertMaterial({ color: 0x48180a, flatShading: true });
+                const rockMat2 = new THREE.MeshLambertMaterial({ color: 0x2e0e05, flatShading: true });
+
+                const base = new THREE.Mesh(new THREE.BoxGeometry(width, height, length), rockMat1);
+                group.add(base);
+
+                for (let i = 0; i < 10; i++) {
+                    const w = 1.5 + Math.random() * 3.0;
+                    const h = 0.6 + Math.random() * 2.2;
+                    const l = 2.0 + Math.random() * 4.0;
+                    const px = (Math.random() - 0.5) * (width * 0.7);
+                    const pz = (Math.random() - 0.5) * (length * 0.8);
+                    const rock = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), rockMat2);
+                    rock.position.set(px, height / 2 + h / 2, pz);
+                    group.add(rock);
+                }
+            } 
+            else if (isForest) {
+                // Dirt/Grass Floor + Dense Tree Trunk & Roots Wall
+                const floorMat = new THREE.MeshLambertMaterial({ color: 0x1a330e, flatShading: true });
+                const trunkMat = new THREE.MeshLambertMaterial({ color: 0x3d2611, flatShading: true });
+                const leafMat = new THREE.MeshLambertMaterial({ color: 0x0d521f, flatShading: true });
+
+                const base = new THREE.Mesh(new THREE.BoxGeometry(width, height, length), floorMat);
+                group.add(base);
+
+                // Add Dense Trees and Roots
+                for (let i = 0; i < 6; i++) {
+                    const treeGroup = new THREE.Group();
+                    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, 4, 5), trunkMat);
+                    const foliage = new THREE.Mesh(new THREE.ConeGeometry(2.0, 7, 5), leafMat);
+                    foliage.position.y = 4.5;
+                    treeGroup.add(trunk, foliage);
+
+                    const px = (Math.random() - 0.5) * (width * 0.8);
+                    const pz = (Math.random() - 0.5) * (length * 0.8);
+                    treeGroup.position.set(px, height / 2 + 2, pz);
+                    group.add(treeGroup);
+                }
+            }
+            else if (isOrganic) {
+                // Fleshy Bio Wall / Rib Cage Arch Details
+                const bioMat1 = new THREE.MeshLambertMaterial({ color: 0x47031c, flatShading: true });
+                const bioMat2 = new THREE.MeshLambertMaterial({ color: 0x8a0737, flatShading: true });
+
+                const base = new THREE.Mesh(new THREE.BoxGeometry(width, height, length), bioMat1);
+                group.add(base);
+
+                for(let i = 0; i < 4; i++) {
+                    const rib = new THREE.Mesh(new THREE.TorusGeometry(3.5, 0.4, 5, 8, Math.PI), bioMat2);
+                    rib.position.set(0, height / 2, (i - 1.5) * 5);
+                    group.add(rib);
+                }
+            }
+
+            return group;
+        }
+
+        // --- CONTINUOUS TRENCH TUNNEL SYSTEM (FILLS LEFT, RIGHT, AND BOTTOM) ---
         function buildContinuousCorridorSegments() {
             for (let i = 0; i < NUM_CORRIDOR_SEGMENTS; i++) {
                 const segGroup = new THREE.Group();
                 const zPos = -i * SEGMENT_LENGTH;
 
-                // Floor Mesh (Spans whole bottom)
-                const floorMat = new THREE.MeshLambertMaterial({ color: 0x080c14, flatShading: true });
-                const floorGeo = new THREE.BoxGeometry(40, 1.0, SEGMENT_LENGTH + 0.1);
-                const floor = new THREE.Mesh(floorGeo, floorMat);
-                floor.position.set(0, -5.5, 0);
+                // Build Tech Greeble Surfaces for Floor, Left Wall, Right Wall
+                const greebleFloor = createGreebleSurfaceGroup(24, 0.8, SEGMENT_LENGTH, true, false, false, false);
+                greebleFloor.position.set(0, -5.2, 0);
 
-                // Left Wall (Extends far left and up)
-                const wallMat = new THREE.MeshLambertMaterial({ color: 0x101824, flatShading: true });
-                const wallGeo = new THREE.BoxGeometry(20, 30, SEGMENT_LENGTH + 0.1);
-                const wallL = new THREE.Mesh(wallGeo, wallMat);
-                wallL.position.set(-18, 5, 0);
+                const greebleWallL = createGreebleSurfaceGroup(0.8, 18, SEGMENT_LENGTH, true, false, false, false);
+                greebleWallL.rotation.z = -Math.PI / 2;
+                greebleWallL.position.set(-11.5, 3.5, 0);
 
-                // Right Wall (Extends far right and up)
-                const wallR = new THREE.Mesh(wallGeo, wallMat);
-                wallR.position.set(18, 5, 0);
+                const greebleWallR = createGreebleSurfaceGroup(0.8, 18, SEGMENT_LENGTH, true, false, false, false);
+                greebleWallR.rotation.z = Math.PI / 2;
+                greebleWallR.position.set(11.5, 3.5, 0);
 
-                // Ceiling / Beam Structure
-                const beamGeo = new THREE.BoxGeometry(40, 1.5, 1.5);
-                const beam = new THREE.Mesh(beamGeo, new THREE.MeshLambertMaterial({ color: 0x00ffcc, flatShading: true }));
-                beam.position.set(0, 12, 0);
+                // Overhead Transverse Beam Structure
+                const beamGeo = new THREE.BoxGeometry(25, 1.2, 1.2);
+                const beam = new THREE.Mesh(beamGeo, new THREE.MeshLambertMaterial({ color: 0x00ffff, flatShading: true }));
+                beam.position.set(0, 10.5, 0);
 
-                segGroup.add(floor, wallL, wallR, beam);
+                segGroup.add(greebleFloor, greebleWallL, greebleWallR, beam);
                 segGroup.position.z = zPos;
                 scene.add(segGroup);
 
                 corridorSegments.push({
                     group: segGroup,
-                    floor: floor,
-                    wallL: wallL,
-                    wallR: wallR,
+                    floor: greebleFloor,
+                    wallL: greebleWallL,
+                    wallR: greebleWallR,
                     beam: beam
                 });
             }
         }
 
         function updateCorridorSegmentStyle(seg, biome) {
-            const matFloor = seg.floor.material;
-            const matWall = seg.wallL.material;
-            const matBeam = seg.beam.material;
+            // FLOOR VISIBILITY RULE: ONLY in trench runs (tech, canyon, belly) AND forest!
+            if (biome.hasFloor) {
+                seg.floor.visible = true;
+            } else {
+                seg.floor.visible = false; // Completely hides floor in Starfield, Asteroids, Planet, Desolate
+            }
 
             if (biome.type === "trench_tech") {
+                seg.wallL.position.set(-10.2, 3.2, 0);
+                seg.wallR.position.set(10.2, 3.2, 0);
                 seg.floor.position.set(0, -4.8, 0);
-                seg.wallL.position.set(-15, 5, 0);
-                seg.wallR.position.set(15, 5, 0);
-                seg.beam.position.set(0, 10, 0);
+                seg.beam.position.set(0, 9.8, 0);
                 seg.beam.visible = true;
-
-                matFloor.color.setHex(0x0a101d);
-                matWall.color.setHex(0x141d2e);
-                matBeam.color.setHex(0x00ffff);
             } 
             else if (biome.type === "trench_canyon") {
+                seg.wallL.position.set(-9.8, 3.0, 0);
+                seg.wallR.position.set(9.8, 3.0, 0);
                 seg.floor.position.set(0, -4.5, 0);
-                seg.wallL.position.set(-14, 5, 0);
-                seg.wallR.position.set(14, 5, 0);
                 seg.beam.visible = false;
-
-                matFloor.color.setHex(0x361005);
-                matWall.color.setHex(0x541c0a);
             } 
             else if (biome.type === "forest") {
+                seg.wallL.position.set(-10.0, 3.0, 0);
+                seg.wallR.position.set(10.0, 3.0, 0);
                 seg.floor.position.set(0, -4.6, 0);
-                seg.wallL.position.set(-14.5, 5, 0);
-                seg.wallR.position.set(14.5, 5, 0);
                 seg.beam.visible = false;
-
-                matFloor.color.setHex(0x19330e); // Grass/dirt
-                matWall.color.setHex(0x0e4219); // Dense tree wall
             } 
             else if (biome.type === "belly") {
+                seg.wallL.position.set(-9.2, 2.8, 0);
+                seg.wallR.position.set(9.2, 2.8, 0);
                 seg.floor.position.set(0, -4.2, 0);
-                seg.wallL.position.set(-13.5, 5, 0);
-                seg.wallR.position.set(13.5, 5, 0);
                 seg.beam.position.set(0, 8.5, 0);
                 seg.beam.visible = true;
-
-                matFloor.color.setHex(0x380216);
-                matWall.color.setHex(0x5e0527);
-                matBeam.color.setHex(0xff0055);
             } 
-            else { // OPEN BIOMES (Starfield, Asteroids, Planet, Desolate) - Move walls back smoothly
-                seg.floor.position.set(0, -30, 0);
-                seg.wallL.position.set(-60, 5, 0);
-                seg.wallR.position.set(60, 5, 0);
+            else { // OPEN SPACE BIOMES (Starfield, Asteroids, Planet, Desolate)
+                seg.wallL.position.set(-50, 0, 0);
+                seg.wallR.position.set(50, 0, 0);
                 seg.beam.visible = false;
             }
         }
@@ -567,30 +653,23 @@
                 
                 let rawBeta = e.beta;
                 let rawGamma = e.gamma;
-                
-                // Screen rotation angle adaptation
                 let angle = (window.orientation !== undefined) ? window.orientation : (screen.orientation ? screen.orientation.angle : 0);
                 
                 let adjustedPitch = 0;
                 let adjustedRoll = 0;
 
                 if (angle === 90) {
-                    adjustedPitch = rawGamma;
-                    adjustedRoll = -rawBeta;
+                    adjustedPitch = rawGamma; adjustedRoll = -rawBeta;
                 } else if (angle === -90 || angle === 270) {
-                    adjustedPitch = -rawGamma;
-                    adjustedRoll = rawBeta;
+                    adjustedPitch = -rawGamma; adjustedRoll = rawBeta;
                 } else if (angle === 180) {
-                    adjustedPitch = -rawBeta;
-                    adjustedRoll = -rawGamma;
+                    adjustedPitch = -rawBeta; adjustedRoll = -rawGamma;
                 } else {
-                    adjustedPitch = rawBeta;
-                    adjustedRoll = rawGamma;
+                    adjustedPitch = rawBeta; adjustedRoll = rawGamma;
                 }
 
                 if (initialPitch === null) {
-                    initialPitch = adjustedPitch;
-                    initialRoll = adjustedRoll;
+                    initialPitch = adjustedPitch; initialRoll = adjustedRoll;
                 }
 
                 gyroPitch = (adjustedPitch - initialPitch) * 0.045;
@@ -652,7 +731,6 @@
             targetFogColor.setHex(b.fog);
             document.getElementById('location-display').innerText = b.name;
 
-            // Handle Planet Approach
             if (b.type === "planet") {
                 planetMeshSystem.visible = true;
                 planetMeshSystem.position.z = -360;
@@ -667,7 +745,6 @@
             if (gameState === "PLAYING") {
                 elapsedTime += 0.016;
                 
-                // Very gradual difficulty curve
                 difficultyLevel = 0.5 + (elapsedTime / 45) + (currentBiomeIndex * 0.22);
                 
                 const threatLabel = difficultyLevel < 1.2 ? "EASY" : (difficultyLevel < 2.0 ? "MEDIUM" : (difficultyLevel < 3.0 ? "HARD" : "EXTREME"));
@@ -676,12 +753,12 @@
                 const currentBiome = BIOMES[currentBiomeIndex];
                 const speed = currentBiome.speed;
 
-                // --- SMOOTH FOG & BACKGROUND TRANSITIONS ---
+                // Smooth Fog & Environment Color Transition
                 currentFogColor.lerp(targetFogColor, 0.04);
                 scene.fog.color.copy(currentFogColor);
                 renderer.setClearColor(currentFogColor);
 
-                // --- WARP TUNNEL VISUAL PROGRESSION ---
+                // Warp Tunnel
                 if (isTransitioning) {
                     warpTunnelSystem.material.opacity = Math.min(0.8, warpTunnelSystem.material.opacity + 0.05);
                     const pos = warpTunnelSystem.geometry.attributes.position.array;
@@ -694,7 +771,7 @@
                     warpTunnelSystem.material.opacity = Math.max(0, warpTunnelSystem.material.opacity - 0.04);
                 }
 
-                // --- RECYCLE CONTINUOUS CORRIDOR TUNNEL ---
+                // Recycle Continuous Corridor Tunnel
                 for (let i = 0; i < corridorSegments.length; i++) {
                     const seg = corridorSegments[i];
                     seg.group.position.z += speed * 1.4;
