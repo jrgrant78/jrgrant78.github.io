@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>POLYWING: DYNAMIC GYRO AIMING</title>
+    <title>POLYWING: BOUNDED GYRO AIM</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; color: #00ffcc; }
@@ -103,7 +103,7 @@
     <!-- TITLE SCREEN -->
     <div id="title-screen" class="overlay-screen">
         <h1 class="game-title">POLYWING</h1>
-        <div class="subtitle">// OPEN TRENCH & DYNAMIC GYRO AIM</div>
+        <div class="subtitle">// BOUNDED CORRIDOR COMBAT</div>
         <button class="btn" onclick="startRun()">BEGIN RUN</button>
         <button class="btn" onclick="showHighScores()">HIGH SCORES</button>
         <div class="pulse" style="margin-top: 25px; font-size: min(3vw, 12px); color: #888;">TOUCH SCREEN FOR FULLSCREEN / GYRO</div>
@@ -220,7 +220,7 @@
 
         const sfx = new SoundSynth();
 
-        // --- EXTENDED SECTOR CONFIGURATION WITH HIGH QUOTAS & UNIQUE BOSSES ---
+        // --- EXTENDED SECTOR CONFIGURATION ---
         const BIOMES = [
             { name: "ORBITAL STARFIELD", fog: 0x01010a, light: 0x00ffcc, bg: 0x01010a, quota: 25, speed: 1.1, type: "starfield", wallX: 20, wallY: 12, hasFloor: false, bossName: "ORBITAL SUPER-STATION" },
             { name: "ASTEROID BELT HABITAT", fog: 0x0f0a14, light: 0xffaa00, bg: 0x0f0a14, quota: 30, speed: 1.2, type: "asteroids", wallX: 18, wallY: 11, hasFloor: false, bossName: "MEGA-DRILL HARVESTER" },
@@ -238,13 +238,11 @@
         let score = 0, health = 100, currentBiomeIndex = 0, quotaDefeated = 0;
         let isTransitioning = false, elapsedTime = 0, difficultyLevel = 0.5;
 
-        // BOSS STATE
         let currentBoss = null;
 
         let targetFogColor = new THREE.Color(BIOMES[0].fog);
         let currentFogColor = new THREE.Color(BIOMES[0].fog);
 
-        // Continuous Corridor Segments
         const corridorSegments = [];
         const NUM_CORRIDOR_SEGMENTS = 12;
         const SEGMENT_LENGTH = 22;
@@ -252,10 +250,9 @@
         const playerLasers = [], enemyLasers = [], enemies = [], particleExplosions = [];
         let lastShotTime = 0, spawnTimer = 0;
 
-        // Dynamic 3D Aim Target Vector
         const currentAimWorldPoint = new THREE.Vector3(0, 0, -80);
 
-        // Steering / Gyro controls with Device Orientation Adjustment
+        // Steering / Gyro controls with Hard Clamping to prevent teleportation
         let gyroPitch = 0, gyroRoll = 0, initialPitch = null, initialRoll = null;
         let pointerTargetX = 0, pointerTargetY = 0, isTouchDragging = false;
         let previousPointerX = 0, previousPointerY = 0;
@@ -273,28 +270,20 @@
             scene.fog = new THREE.FogExp2(BIOMES[0].fog, 0.0065);
             renderer.setClearColor(BIOMES[0].bg);
 
-            // Ambient + Sun Lights
             const ambient = new THREE.AmbientLight(0xffffff, 0.75);
             scene.add(ambient);
             const sun = new THREE.DirectionalLight(0xffffff, 1.25);
             sun.position.set(10, 30, 20);
             scene.add(sun);
 
-            // Background Starfield
             buildStarfieldSystem();
-
-            // Approaching Planet
             buildApproachingPlanet();
-
-            // Warp Tunnel Effect System
             buildWarpTunnel();
 
-            // Player Spacecraft
             playerShip = buildDetailedPlayerShip();
             playerShip.position.set(0, -1.0, -5);
             scene.add(playerShip);
 
-            // Construct High-Detail OPEN-TOP Corridor Segments (NO CEILING)
             buildContinuousCorridorSegments();
 
             setupControls();
@@ -303,7 +292,7 @@
             requestAnimationFrame(animate);
         }
 
-        // --- STAR WARS STYLE KITBASHED GREEBLE SURFACE BUILDER ---
+        // --- GREEBLE SURFACE BUILDER ---
         function createGreebleSurfaceGroup(width, height, length, isTech, isCanyon, isForest, isOrganic) {
             const group = new THREE.Group();
             
@@ -466,7 +455,6 @@
             }
         }
 
-        // --- BACKGROUND STARFIELD ---
         function buildStarfieldSystem() {
             const starGeo = new THREE.BufferGeometry();
             const count = 1000;
@@ -482,7 +470,6 @@
             scene.add(starParticlesSystem);
         }
 
-        // --- APPROACHING PLANET MESH ---
         function buildApproachingPlanet() {
             planetMeshSystem = new THREE.Group();
             
@@ -501,7 +488,6 @@
             scene.add(planetMeshSystem);
         }
 
-        // --- WARP TUNNEL EFFECT SYSTEM ---
         function buildWarpTunnel() {
             const geo = new THREE.BufferGeometry();
             const count = 300;
@@ -517,7 +503,6 @@
             scene.add(warpTunnelSystem);
         }
 
-        // --- HIGHLY DETAILED CRAFT BUILDER ---
         function buildDetailedPlayerShip() {
             const ship = new THREE.Group();
             const hullMat = new THREE.MeshStandardMaterial({ color: 0x00ffcc, roughness: 0.3, metalness: 0.8, flatShading: true });
@@ -525,26 +510,22 @@
             const accentMat = new THREE.MeshLambertMaterial({ color: 0xff0055, flatShading: true });
             const engineGlow = new THREE.MeshBasicMaterial({ color: 0x00ffff });
 
-            // Nose Fuselage
             const noseGeo = new THREE.ConeGeometry(0.5, 2.6, 6);
             noseGeo.rotateX(Math.PI / 2);
             const nose = new THREE.Mesh(noseGeo, hullMat);
             ship.add(nose);
 
-            // Center Body Frame
             const bodyGeo = new THREE.BoxGeometry(0.8, 0.5, 1.8);
             const body = new THREE.Mesh(bodyGeo, hullMat);
             body.position.z = 0.8;
             ship.add(body);
 
-            // Wireframe Canopy
             const glassGeo = new THREE.SphereGeometry(0.38, 6, 6);
             glassGeo.scale(0.9, 0.7, 1.8);
             const glass = new THREE.Mesh(glassGeo, new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true }));
             glass.position.set(0, 0.35, 0.3);
             ship.add(glass);
 
-            // Wings
             const wingShape = new THREE.Shape();
             wingShape.moveTo(0, 0); wingShape.lineTo(2.4, -1.2); wingShape.lineTo(2.2, -1.8); wingShape.lineTo(0, -0.9);
             const wingGeo = new THREE.ExtrudeGeometry(wingShape, { depth: 0.08, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04 });
@@ -557,7 +538,6 @@
             wingL.position.set(-0.3, 0, 0.6);
             ship.add(wingR, wingL);
 
-            // Stabilizers
             const finGeo = new THREE.ConeGeometry(0.3, 1.2, 4);
             finGeo.rotateX(-0.4);
             const finL = new THREE.Mesh(finGeo, accentMat);
@@ -568,7 +548,6 @@
             finR.rotation.z = 0.3;
             ship.add(finL, finR);
 
-            // Lasers
             const cannonGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.4, 6);
             cannonGeo.rotateX(Math.PI / 2);
             const cannonR = new THREE.Mesh(cannonGeo, accentMat);
@@ -577,7 +556,6 @@
             cannonL.position.x = -2.4;
             ship.add(cannonR, cannonL);
 
-            // Engines
             const engineGeo = new THREE.CylinderGeometry(0.22, 0.12, 0.9, 8);
             engineGeo.rotateX(Math.PI / 2);
             const engine1 = new THREE.Mesh(engineGeo, hullMat);
@@ -596,7 +574,6 @@
             return ship;
         }
 
-        // --- LOCATION-SPECIFIC ENEMY BUILDER ---
         function createLocationEnemy(biomeIdx) {
             const group = new THREE.Group();
             const matA = new THREE.MeshLambertMaterial({ color: 0xff0055, flatShading: true });
@@ -648,7 +625,6 @@
             return group;
         }
 
-        // --- LOCATION-SPECIFIC MEGA BOSS BUILDER ---
         function createBossForLocation(biomeIdx) {
             const group = new THREE.Group();
             const matA = new THREE.MeshStandardMaterial({ color: 0xff0055, roughness: 0.3, flatShading: true });
@@ -720,7 +696,7 @@
             };
         }
 
-        // --- CONTROLS WITH ROTATION-AWARE GYRO LOGIC ---
+        // --- CONTROLS WITH ROTATION-AWARE AND WRAP-AROUND BOUNDED GYRO LOGIC ---
         function setupControls() {
             function handleOrientation(e) {
                 if (e.beta === null || e.gamma === null) return;
@@ -732,6 +708,7 @@
                 let adjustedPitch = 0;
                 let adjustedRoll = 0;
 
+                // Orientation alignment map
                 if (angle === 90) {
                     adjustedPitch = -rawGamma;
                     adjustedRoll = rawBeta;
@@ -751,8 +728,22 @@
                     initialRoll = adjustedRoll;
                 }
 
-                gyroPitch = (adjustedPitch - initialPitch) * 0.045;
-                gyroRoll = (adjustedRoll - initialRoll) * 0.045;
+                // BOUNDARY FIX: HARD CLAMP ANGLE DELTAS TO PREVENT FLIPPING / TELEPORTATION
+                let dPitch = adjustedPitch - initialPitch;
+                let dRoll = adjustedRoll - initialRoll;
+
+                // Handle gimbal-lock / degree wrap-around jumps (> 180 degrees)
+                if (dPitch > 180) dPitch -= 360;
+                if (dPitch < -180) dPitch += 360;
+                if (dRoll > 180) dRoll -= 360;
+                if (dRoll < -180) dRoll += 360;
+
+                // Strict tilt boundary (Max 35 degrees tilt deviation in any direction)
+                dPitch = Math.max(-35, Math.min(35, dPitch));
+                dRoll = Math.max(-35, Math.min(35, dRoll));
+
+                gyroPitch = dPitch * 0.045;
+                gyroRoll = dRoll * 0.045;
             }
 
             if ('ondeviceorientationabsolute' in window) window.addEventListener('deviceorientationabsolute', handleOrientation, true);
@@ -875,7 +866,7 @@
                     planetMeshSystem.rotation.y += 0.002;
                 }
 
-                // --- 1. CRAFT STEERING & CORRIDOR BOUNDS ---
+                // --- 1. CRAFT STEERING & CORRIDOR BOUNDS WITH VELOCITY STEP CLAMPING ---
                 let targetX = pointerTargetX + gyroRoll * 7.0;
                 let targetY = pointerTargetY - gyroPitch * 5.0;
 
@@ -884,8 +875,16 @@
                 targetX = Math.max(-limitX, Math.min(limitX, targetX));
                 targetY = Math.max(-limitY, Math.min(limitY, targetY));
 
-                playerShip.position.x += (targetX - playerShip.position.x) * 0.12;
-                playerShip.position.y += (targetY - playerShip.position.y) * 0.12;
+                // VELOCITY STEP CLAMPING: Prevents single-frame teleporting even on sudden gyro jumps
+                let desiredDx = (targetX - playerShip.position.x) * 0.12;
+                let desiredDy = (targetY - playerShip.position.y) * 0.12;
+
+                const MAX_FRAME_SPEED = 0.65; // Strict maximum distance ship can travel per frame
+                desiredDx = Math.max(-MAX_FRAME_SPEED, Math.min(MAX_FRAME_SPEED, desiredDx));
+                desiredDy = Math.max(-MAX_FRAME_SPEED, Math.min(MAX_FRAME_SPEED, desiredDy));
+
+                playerShip.position.x += desiredDx;
+                playerShip.position.y += desiredDy;
                 
                 // Ship Banking Rotations
                 playerShip.rotation.z = -(targetX - playerShip.position.x) * 0.35;
@@ -902,10 +901,8 @@
                 camera.rotation.x = THREE.MathUtils.lerp(camera.rotation.x, -playerShip.position.y * 0.025, 0.08);
 
                 // --- 3. DYNAMIC GYRO AIMING RETICLE PROJECTION ---
-                // Reticle dynamically aims towards lead point in 3D space ahead of craft
                 currentAimWorldPoint.set(targetX * 1.35, targetY * 1.35, -80);
                 
-                // Project 3D Aim World Coordinate to 2D Screen Space
                 const aimProj = currentAimWorldPoint.clone().project(camera);
                 const reticleX = (aimProj.x * 0.5 + 0.5) * window.innerWidth;
                 const reticleY = (-aimProj.y * 0.5 + 0.5) * window.innerHeight;
@@ -1065,7 +1062,6 @@
             const startL = new THREE.Vector3(playerShip.position.x - 2.2, playerShip.position.y, playerShip.position.z - 1);
             const startR = new THREE.Vector3(playerShip.position.x + 2.2, playerShip.position.y, playerShip.position.z - 1);
             
-            // Aim lasers along current dynamic reticle vector trajectory
             const dirL = new THREE.Vector3().subVectors(currentAimWorldPoint, startL).normalize();
             const dirR = new THREE.Vector3().subVectors(currentAimWorldPoint, startR).normalize();
 
