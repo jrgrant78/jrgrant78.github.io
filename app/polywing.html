@@ -14,7 +14,7 @@
         .overlay-screen {
             position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 10;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
-            background: rgba(2, 2, 8, 0.92); text-align: center; padding: 20px; transition: opacity 0.4s ease;
+            background: rgba(2, 2, 8, 0.92); text-align: center; padding: 20px; transition: opacity 0.5s ease;
         }
 
         h1.game-title {
@@ -43,7 +43,7 @@
         #hud-center-alert {
             position: absolute; top: 25%; left: 50%; transform: translate(-50%, -50%);
             font-size: min(6vw, 26px); font-weight: 900; letter-spacing: 3px; color: #ffff00;
-            text-shadow: 0 0 15px #ffff00; text-align: center; opacity: 0; transition: opacity 0.3s;
+            text-shadow: 0 0 15px #ffff00; text-align: center; opacity: 0; transition: opacity 0.5s ease;
         }
 
         #quota-bar-container {
@@ -93,7 +93,7 @@
     <!-- TITLE SCREEN -->
     <div id="title-screen" class="overlay-screen">
         <h1 class="game-title">POLYWING</h1>
-        <div class="subtitle">// IMMERSIVE AERIAL COMBAT</div>
+        <div class="subtitle">// IMMERSIVE CORRIDOR FLYER</div>
         <button class="btn" onclick="startRun()">BEGIN RUN</button>
         <button class="btn" onclick="showHighScores()">HIGH SCORES</button>
         <div class="pulse" style="margin-top: 25px; font-size: min(3vw, 12px); color: #888;">TOUCH SCREEN FOR FULLSCREEN / GYRO</div>
@@ -205,26 +205,38 @@
 
         // --- IMMERSIVE BIOMES CONFIGURATION ---
         const BIOMES = [
-            { name: "ORBITAL STARFIELD", fog: 0x01010a, light: 0x00ffcc, bg: 0x01010a, quota: 8, speed: 1.1, type: "starfield", wallX: 25, wallY: 15 },
-            { name: "ASTEROID BELT HABITAT", fog: 0x0f0a14, light: 0xffaa00, bg: 0x0f0a14, quota: 10, speed: 1.2, type: "asteroids", wallX: 22, wallY: 14 },
-            { name: "STAR DESTROYER TRENCH", fog: 0x060c14, light: 0x00ffff, bg: 0x060c14, quota: 12, speed: 1.4, type: "trench_tech", wallX: 9, wallY: 5.5 },
-            { name: "ATMOSPHERIC APPROACH", fog: 0x021424, light: 0x00ff88, bg: 0x021424, quota: 12, speed: 1.3, type: "planet", wallX: 24, wallY: 15 },
-            { name: "CANYON TRENCH RUN", fog: 0x240a02, light: 0xff5500, bg: 0x240a02, quota: 14, speed: 1.5, type: "trench_canyon", wallX: 8.5, wallY: 5 },
-            { name: "FOREST HABITAT CANOPY", fog: 0x01240c, light: 0x55ff55, bg: 0x01240c, quota: 14, speed: 1.4, type: "forest", wallX: 9.5, wallY: 6 },
-            { name: "DESOLATE OBSIDIAN WASTES", fog: 0x140120, light: 0xaa00ff, bg: 0x140120, quota: 16, speed: 1.6, type: "desolate", wallX: 20, wallY: 12 },
-            { name: "BELLY OF THE BEAST", fog: 0x240110, light: 0xff0055, bg: 0x240110, quota: 18, speed: 1.7, type: "belly", wallX: 8, wallY: 5 }
+            { name: "ORBITAL STARFIELD", fog: 0x01010a, light: 0x00ffcc, bg: 0x01010a, quota: 8, speed: 1.1, type: "starfield", wallX: 20, wallY: 12 },
+            { name: "ASTEROID BELT HABITAT", fog: 0x0f0a14, light: 0xffaa00, bg: 0x0f0a14, quota: 10, speed: 1.2, type: "asteroids", wallX: 18, wallY: 11 },
+            { name: "STAR DESTROYER TRENCH", fog: 0x060c14, light: 0x00ffff, bg: 0x060c14, quota: 12, speed: 1.4, type: "trench_tech", wallX: 7.5, wallY: 5 },
+            { name: "ATMOSPHERIC APPROACH", fog: 0x021424, light: 0x00ff88, bg: 0x021424, quota: 12, speed: 1.3, type: "planet", wallX: 19, wallY: 12 },
+            { name: "CANYON TRENCH RUN", fog: 0x240a02, light: 0xff5500, bg: 0x240a02, quota: 14, speed: 1.5, type: "trench_canyon", wallX: 7.0, wallY: 4.8 },
+            { name: "FOREST HABITAT CANOPY", fog: 0x01240c, light: 0x55ff55, bg: 0x01240c, quota: 14, speed: 1.4, type: "forest", wallX: 7.5, wallY: 5.2 },
+            { name: "DESOLATE OBSIDIAN WASTES", fog: 0x140120, light: 0xaa00ff, bg: 0x140120, quota: 16, speed: 1.6, type: "desolate", wallX: 16, wallY: 10 },
+            { name: "BELLY OF THE BEAST", fog: 0x240110, light: 0xff0055, bg: 0x240110, quota: 18, speed: 1.7, type: "belly", wallX: 6.8, wallY: 4.5 }
         ];
 
         // --- GLOBAL ENGINE & GAME STATE ---
-        let scene, camera, renderer, playerShip, starParticlesSystem, planetMeshSystem;
+        let scene, camera, renderer, playerShip, starParticlesSystem, planetMeshSystem, warpTunnelSystem;
         let gameState = "TITLE";
         let score = 0, health = 100, currentBiomeIndex = 0, quotaDefeated = 0;
         let isTransitioning = false, elapsedTime = 0, difficultyLevel = 0.5;
         
+        // Colors & Transition Smoother
+        let targetFogColor = new THREE.Color(BIOMES[0].fog);
+        let currentFogColor = new THREE.Color(BIOMES[0].fog);
+
+        // Continuous Corridor Ring System (Full Screen Trench Wrapping)
+        const corridorSegments = [];
+        const NUM_CORRIDOR_SEGMENTS = 14;
+        const SEGMENT_LENGTH = 25;
+
         const playerLasers = [], enemyLasers = [], enemies = [], envProps = [], particleExplosions = [];
         let lastShotTime = 0, spawnTimer = 0;
 
-        // Steering / Gyro controls
+        // Dynamic Camera Screen Shift Target
+        let cameraTargetOffset = new THREE.Vector3(0, 0, 0);
+
+        // Steering / Gyro controls with Device Orientation Adjustment
         let gyroPitch = 0, gyroRoll = 0, initialPitch = null, initialRoll = null;
         let pointerTargetX = 0, pointerTargetY = 0, isTouchDragging = false;
         let previousPointerX = 0, previousPointerY = 0;
@@ -239,31 +251,131 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-            scene.fog = new THREE.FogExp2(BIOMES[0].fog, 0.006);
+            scene.fog = new THREE.FogExp2(BIOMES[0].fog, 0.0065);
             renderer.setClearColor(BIOMES[0].bg);
 
             // Ambient + Sun Lights
-            const ambient = new THREE.AmbientLight(0xffffff, 0.65);
+            const ambient = new THREE.AmbientLight(0xffffff, 0.7);
             scene.add(ambient);
             const sun = new THREE.DirectionalLight(0xffffff, 1.2);
             sun.position.set(10, 30, 20);
             scene.add(sun);
 
-            // Persistent Background Starfield Particles
+            // Starfield
             buildStarfieldSystem();
 
-            // Background Planet System (for Planet Approach)
+            // Approaching Planet
             buildApproachingPlanet();
 
-            // Detailed Player Spacecraft Model
+            // Warp Tunnel Effect System
+            buildWarpTunnel();
+
+            // Player Spacecraft
             playerShip = buildDetailedPlayerShip();
-            playerShip.position.set(0, -1.2, -5);
+            playerShip.position.set(0, -1.0, -5);
             scene.add(playerShip);
+
+            // Construct Continuous Trench Tunnel Segments
+            buildContinuousCorridorSegments();
 
             setupControls();
             window.addEventListener('resize', onWindowResize);
             
             requestAnimationFrame(animate);
+        }
+
+        // --- CONTINUOUS TRENCH TUNNEL SYSTEM (FILLS SIDES & BOTTOM) ---
+        function buildContinuousCorridorSegments() {
+            for (let i = 0; i < NUM_CORRIDOR_SEGMENTS; i++) {
+                const segGroup = new THREE.Group();
+                const zPos = -i * SEGMENT_LENGTH;
+
+                // Floor Mesh (Spans whole bottom)
+                const floorMat = new THREE.MeshLambertMaterial({ color: 0x080c14, flatShading: true });
+                const floorGeo = new THREE.BoxGeometry(40, 1.0, SEGMENT_LENGTH + 0.1);
+                const floor = new THREE.Mesh(floorGeo, floorMat);
+                floor.position.set(0, -5.5, 0);
+
+                // Left Wall (Extends far left and up)
+                const wallMat = new THREE.MeshLambertMaterial({ color: 0x101824, flatShading: true });
+                const wallGeo = new THREE.BoxGeometry(20, 30, SEGMENT_LENGTH + 0.1);
+                const wallL = new THREE.Mesh(wallGeo, wallMat);
+                wallL.position.set(-18, 5, 0);
+
+                // Right Wall (Extends far right and up)
+                const wallR = new THREE.Mesh(wallGeo, wallMat);
+                wallR.position.set(18, 5, 0);
+
+                // Ceiling / Beam Structure
+                const beamGeo = new THREE.BoxGeometry(40, 1.5, 1.5);
+                const beam = new THREE.Mesh(beamGeo, new THREE.MeshLambertMaterial({ color: 0x00ffcc, flatShading: true }));
+                beam.position.set(0, 12, 0);
+
+                segGroup.add(floor, wallL, wallR, beam);
+                segGroup.position.z = zPos;
+                scene.add(segGroup);
+
+                corridorSegments.push({
+                    group: segGroup,
+                    floor: floor,
+                    wallL: wallL,
+                    wallR: wallR,
+                    beam: beam
+                });
+            }
+        }
+
+        function updateCorridorSegmentStyle(seg, biome) {
+            const matFloor = seg.floor.material;
+            const matWall = seg.wallL.material;
+            const matBeam = seg.beam.material;
+
+            if (biome.type === "trench_tech") {
+                seg.floor.position.set(0, -4.8, 0);
+                seg.wallL.position.set(-15, 5, 0);
+                seg.wallR.position.set(15, 5, 0);
+                seg.beam.position.set(0, 10, 0);
+                seg.beam.visible = true;
+
+                matFloor.color.setHex(0x0a101d);
+                matWall.color.setHex(0x141d2e);
+                matBeam.color.setHex(0x00ffff);
+            } 
+            else if (biome.type === "trench_canyon") {
+                seg.floor.position.set(0, -4.5, 0);
+                seg.wallL.position.set(-14, 5, 0);
+                seg.wallR.position.set(14, 5, 0);
+                seg.beam.visible = false;
+
+                matFloor.color.setHex(0x361005);
+                matWall.color.setHex(0x541c0a);
+            } 
+            else if (biome.type === "forest") {
+                seg.floor.position.set(0, -4.6, 0);
+                seg.wallL.position.set(-14.5, 5, 0);
+                seg.wallR.position.set(14.5, 5, 0);
+                seg.beam.visible = false;
+
+                matFloor.color.setHex(0x19330e); // Grass/dirt
+                matWall.color.setHex(0x0e4219); // Dense tree wall
+            } 
+            else if (biome.type === "belly") {
+                seg.floor.position.set(0, -4.2, 0);
+                seg.wallL.position.set(-13.5, 5, 0);
+                seg.wallR.position.set(13.5, 5, 0);
+                seg.beam.position.set(0, 8.5, 0);
+                seg.beam.visible = true;
+
+                matFloor.color.setHex(0x380216);
+                matWall.color.setHex(0x5e0527);
+                matBeam.color.setHex(0xff0055);
+            } 
+            else { // OPEN BIOMES (Starfield, Asteroids, Planet, Desolate) - Move walls back smoothly
+                seg.floor.position.set(0, -30, 0);
+                seg.wallL.position.set(-60, 5, 0);
+                seg.wallR.position.set(60, 5, 0);
+                seg.beam.visible = false;
+            }
         }
 
         // --- BACKGROUND STARFIELD ---
@@ -286,12 +398,11 @@
         function buildApproachingPlanet() {
             planetMeshSystem = new THREE.Group();
             
-            const planetGeo = new THREE.IcosahedronGeometry(32, 3);
+            const planetGeo = new THREE.IcosahedronGeometry(36, 3);
             const planetMat = new THREE.MeshLambertMaterial({ color: 0x0088ff, flatShading: true });
             const body = new THREE.Mesh(planetGeo, planetMat);
             
-            // Low-poly atmosphere ring
-            const ringGeo = new THREE.TorusGeometry(46, 1.5, 4, 24);
+            const ringGeo = new THREE.TorusGeometry(52, 1.5, 4, 24);
             const ringMat = new THREE.MeshLambertMaterial({ color: 0x00ffff, flatShading: true });
             const ring = new THREE.Mesh(ringGeo, ringMat);
             ring.rotation.x = Math.PI / 3;
@@ -300,6 +411,22 @@
             planetMeshSystem.position.set(0, 0, -360);
             planetMeshSystem.visible = false;
             scene.add(planetMeshSystem);
+        }
+
+        // --- WARP TUNNEL EFFECT SYSTEM ---
+        function buildWarpTunnel() {
+            const geo = new THREE.BufferGeometry();
+            const count = 300;
+            const pos = new Float32Array(count * 3);
+            for(let i=0; i<count*3; i+=3) {
+                pos[i] = (Math.random() - 0.5) * 40;
+                pos[i+1] = (Math.random() - 0.5) * 30;
+                pos[i+2] = -Math.random() * 150;
+            }
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            const mat = new THREE.PointsMaterial({ color: 0x00ffcc, size: 2.2, transparent: true, opacity: 0 });
+            warpTunnelSystem = new THREE.Points(geo, mat);
+            scene.add(warpTunnelSystem);
         }
 
         // --- HIGHLY DETAILED CRAFT BUILDER ---
@@ -322,14 +449,14 @@
             body.position.z = 0.8;
             ship.add(body);
 
-            // Wireframe Canopy / Cockpit
+            // Wireframe Canopy
             const glassGeo = new THREE.SphereGeometry(0.38, 6, 6);
             glassGeo.scale(0.9, 0.7, 1.8);
             const glass = new THREE.Mesh(glassGeo, new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true }));
             glass.position.set(0, 0.35, 0.3);
             ship.add(glass);
 
-            // Swept Multi-Layer Wings
+            // Wings
             const wingShape = new THREE.Shape();
             wingShape.moveTo(0, 0); wingShape.lineTo(2.4, -1.2); wingShape.lineTo(2.2, -1.8); wingShape.lineTo(0, -0.9);
             const wingGeo = new THREE.ExtrudeGeometry(wingShape, { depth: 0.08, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04 });
@@ -342,7 +469,7 @@
             wingL.position.set(-0.3, 0, 0.6);
             ship.add(wingR, wingL);
 
-            // Vertical Stabilizers
+            // Stabilizers
             const finGeo = new THREE.ConeGeometry(0.3, 1.2, 4);
             finGeo.rotateX(-0.4);
             const finL = new THREE.Mesh(finGeo, accentMat);
@@ -353,7 +480,7 @@
             finR.rotation.z = 0.3;
             ship.add(finL, finR);
 
-            // Twin Wingtip Lasers
+            // Lasers
             const cannonGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.4, 6);
             cannonGeo.rotateX(Math.PI / 2);
             const cannonR = new THREE.Mesh(cannonGeo, accentMat);
@@ -362,7 +489,7 @@
             cannonL.position.x = -2.4;
             ship.add(cannonR, cannonL);
 
-            // Engine Thrusters
+            // Engines
             const engineGeo = new THREE.CylinderGeometry(0.22, 0.12, 0.9, 8);
             engineGeo.rotateX(Math.PI / 2);
             const engine1 = new THREE.Mesh(engineGeo, hullMat);
@@ -389,53 +516,42 @@
             const matC = new THREE.MeshLambertMaterial({ color: 0x00ffcc, flatShading: true });
 
             switch(biomeIdx) {
-                case 0: // Starfield: Orbital Sentry
-                    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.2, 0.15, 6, 12), matA);
-                    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 8), matB);
-                    group.add(ring, eye);
+                case 0:
+                    group.add(new THREE.Mesh(new THREE.TorusGeometry(1.2, 0.15, 6, 12), matA));
+                    group.add(new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 8), matB));
                     break;
-                case 1: // Asteroid: Scraptrap Harvester
-                    const body = new THREE.Mesh(new THREE.DodecahedronGeometry(1.0), matB);
+                case 1:
                     const drill = new THREE.Mesh(new THREE.ConeGeometry(0.6, 1.8, 6), matA);
                     drill.rotation.x = -Math.PI / 2; drill.position.z = -1.2;
-                    group.add(body, drill);
+                    group.add(new THREE.Mesh(new THREE.DodecahedronGeometry(1.0), matB), drill);
                     break;
-                case 2: // Star Destroyer Trench: Imperial Twin-Wing Skimmer
-                    const pod = new THREE.Mesh(new THREE.SphereGeometry(0.6, 6, 6), matA);
-                    const panelL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.0, 1.2), matC);
-                    panelL.position.x = -1.0;
+                case 2:
+                    const panelL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.0, 1.2), matC); panelL.position.x = -1.0;
                     const panelR = panelL.clone(); panelR.position.x = 1.0;
-                    group.add(pod, panelL, panelR);
+                    group.add(new THREE.Mesh(new THREE.SphereGeometry(0.6, 6, 6), matA), panelL, panelR);
                     break;
-                case 3: // Planet Approach: Aero Jet Interceptor
-                    const jetBody = new THREE.Mesh(new THREE.ConeGeometry(0.5, 2.2, 5), matA);
-                    jetBody.rotation.x = Math.PI / 2;
-                    const deltaWing = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.08, 1.0), matB);
-                    group.add(jetBody, deltaWing);
+                case 3:
+                    const jetBody = new THREE.Mesh(new THREE.ConeGeometry(0.5, 2.2, 5), matA); jetBody.rotation.x = Math.PI / 2;
+                    group.add(jetBody, new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.08, 1.0), matB));
                     break;
-                case 4: // Canyon: Hover Skim-Tank
+                case 4:
                     const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.5, 1.6), matB);
-                    const turret = new THREE.Mesh(new THREE.OctahedronGeometry(0.6), matA);
-                    turret.position.y = 0.5;
+                    const turret = new THREE.Mesh(new THREE.OctahedronGeometry(0.6), matA); turret.position.y = 0.5;
                     group.add(chassis, turret);
                     break;
-                case 5: // Forest: Hive Swarmer
-                    const thorax = new THREE.Mesh(new THREE.IcosahedronGeometry(0.7), matA);
-                    const wing1 = new THREE.Mesh(new THREE.ConeGeometry(0.3, 1.6, 3), matC);
-                    wing1.rotation.z = Math.PI / 3; wing1.position.x = -0.8;
+                case 5:
+                    const wing1 = new THREE.Mesh(new THREE.ConeGeometry(0.3, 1.6, 3), matC); wing1.rotation.z = Math.PI / 3; wing1.position.x = -0.8;
                     const wing2 = wing1.clone(); wing2.scale.x = -1; wing2.position.x = 0.8;
-                    group.add(thorax, wing1, wing2);
+                    group.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.7), matA), wing1, wing2);
                     break;
-                case 6: // Desolate Wastes: Crystal Sentinel
-                    const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(1.2), matC);
-                    crystal.scale.set(0.6, 2.0, 0.6);
+                case 6:
+                    const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(1.2), matC); crystal.scale.set(0.6, 2.0, 0.6);
                     group.add(crystal);
                     break;
-                case 7: // Belly of Beast: Bio Parasite Pod
+                case 7:
                     const podCore = new THREE.Mesh(new THREE.SphereGeometry(0.9, 8, 8), matA);
                     for(let i = 0; i < 4; i++) {
-                        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.15, 1.4, 4), matB);
-                        spike.rotation.z = (i * Math.PI) / 2;
+                        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.15, 1.4, 4), matB); spike.rotation.z = (i * Math.PI) / 2;
                         group.add(spike);
                     }
                     group.add(podCore);
@@ -444,116 +560,41 @@
             return group;
         }
 
-        // --- HIGHLY IMMERSIVE ENVIRONMENT SCENERY SPAWNER ---
-        function buildEnvironmentProp(biomeIdx) {
-            const prop = new THREE.Group();
-            const zPos = -240;
-            const currentBiome = BIOMES[biomeIdx];
-
-            if (currentBiome.type === "trench_tech") {
-                // STAR DESTROYER TRENCH: Metallic floor, left/right walls, greeble conduits
-                const wallX = currentBiome.wallX;
-                const wallY = currentBiome.wallY;
-
-                // Trench Floor
-                const floor = new THREE.Mesh(new THREE.BoxGeometry(wallX * 2 + 4, 1, 40), new THREE.MeshLambertMaterial({ color: 0x0d121c, flatShading: true }));
-                floor.position.set(0, -wallY, zPos);
-                
-                // Left & Right Metallic Walls
-                const wallL = new THREE.Mesh(new THREE.BoxGeometry(2, wallY * 2.5, 40), new THREE.MeshLambertMaterial({ color: 0x161e2e, flatShading: true }));
-                wallL.position.set(-wallX - 1, 0, zPos);
-                const wallR = wallL.clone(); wallR.position.x = wallX + 1;
-
-                // Overhead Turret / Conduit Beams
-                const beam = new THREE.Mesh(new THREE.BoxGeometry(wallX * 2, 0.8, 1.5), new THREE.MeshLambertMaterial({ color: 0x00ffff, flatShading: true }));
-                beam.position.set(0, wallY, zPos);
-
-                prop.add(floor, wallL, wallR, beam);
-            } 
-            else if (currentBiome.type === "trench_canyon") {
-                // CANYON TRENCH: Jagged reddish walls + rocky floor
-                const wallX = currentBiome.wallX;
-                const wallY = currentBiome.wallY;
-
-                const floor = new THREE.Mesh(new THREE.BoxGeometry(wallX * 2 + 8, 1, 40), new THREE.MeshLambertMaterial({ color: 0x3d1408, flatShading: true }));
-                floor.position.set(0, -wallY, zPos);
-
-                const wallL = new THREE.Mesh(new THREE.BoxGeometry(6, wallY * 3, 40), new THREE.MeshLambertMaterial({ color: 0x5e200d, flatShading: true }));
-                wallL.position.set(-wallX - 3, 0, zPos);
-                const wallR = wallL.clone(); wallR.position.x = wallX + 3;
-
-                prop.add(floor, wallL, wallR);
-            } 
-            else if (currentBiome.type === "forest") {
-                // FOREST: Grass/Dirt floor + walls of polygonal pine/canopy trees
-                const wallX = currentBiome.wallX;
-                const wallY = currentBiome.wallY;
-
-                // Dirt/Grass Ground Floor
-                const floor = new THREE.Mesh(new THREE.BoxGeometry(wallX * 2.5, 1, 40), new THREE.MeshLambertMaterial({ color: 0x1c3811, flatShading: true }));
-                floor.position.set(0, -wallY, zPos);
-
-                // Tree Walls (Left & Right Clusters)
-                const treeMat = new THREE.MeshLambertMaterial({ color: 0x0d521f, flatShading: true });
-                const trunkMat = new THREE.MeshLambertMaterial({ color: 0x3d2511, flatShading: true });
-
-                for(let side of [-1, 1]) {
-                    for(let t = 0; t < 4; t++) {
-                        const treeGroup = new THREE.Group();
-                        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.6, 4, 5), trunkMat);
-                        const canopy = new THREE.Mesh(new THREE.ConeGeometry(2.5, 9, 5), treeMat);
-                        canopy.position.y = 5;
-                        treeGroup.add(trunk, canopy);
-                        treeGroup.position.set((wallX + 1 + Math.random() * 6) * side, -wallY + 2, (t - 2) * 10);
-                        prop.add(treeGroup);
-                    }
-                }
-                prop.add(floor);
-            }
-            else if (currentBiome.type === "asteroids") {
-                // ASTEROID BELT: Multiple floating/spinning space rocks surrounding player path
-                const rockMat = new THREE.MeshLambertMaterial({ color: 0x5a4d66, flatShading: true });
-                for(let i = 0; i < 4; i++) {
-                    const ast = new THREE.Mesh(new THREE.DodecahedronGeometry(2 + Math.random() * 4, 1), rockMat);
-                    ast.position.set((Math.random() - 0.5) * 55, (Math.random() - 0.5) * 35, (Math.random() - 0.5) * 30);
-                    prop.add(ast);
-                }
-            }
-            else if (currentBiome.type === "belly") {
-                // BELLY OF THE BEAST: Fleshy tunnel rib cage arches
-                const ribMat = new THREE.MeshLambertMaterial({ color: 0xff0055, flatShading: true });
-                const rib = new THREE.Mesh(new THREE.TorusGeometry(12, 1.2, 5, 12, Math.PI), ribMat);
-                rib.position.set(0, -6, zPos);
-                prop.add(rib);
-            }
-            else if (currentBiome.type === "desolate") {
-                // DESOLATE WASTES: Sharp obsidian mountain peaks
-                const obsMat = new THREE.MeshLambertMaterial({ color: 0x220033, flatShading: true });
-                const peakL = new THREE.Mesh(new THREE.ConeGeometry(6, 25, 4), obsMat);
-                peakL.position.set(-22, -8, zPos);
-                const peakR = peakL.clone(); peakR.position.x = 22;
-                prop.add(peakL, peakR);
-            }
-            else {
-                // STARFIELD / DEFAULT: Orbital Satellites & Space Debris
-                const satMat = new THREE.MeshLambertMaterial({ color: 0x00ffcc, flatShading: true });
-                const sat = new THREE.Mesh(new THREE.OctahedronGeometry(2), satMat);
-                sat.position.set((Math.random() - 0.5) * 60, (Math.random() - 0.5) * 40, zPos);
-                prop.add(sat);
-            }
-
-            prop.position.z = zPos;
-            scene.add(prop);
-            envProps.push(prop);
-        }
-
-        // --- CONTROLS SETUP ---
+        // --- CONTROLS WITH ROTATION-AWARE GYRO LOGIC ---
         function setupControls() {
             function handleOrientation(e) {
                 if (e.beta === null || e.gamma === null) return;
-                if (initialPitch === null) { initialPitch = e.beta; initialRoll = e.gamma; }
-                gyroPitch = (e.beta - initialPitch) * 0.045;
-                gyroRoll = (e.gamma - initialRoll) * 0.045;
+                
+                let rawBeta = e.beta;
+                let rawGamma = e.gamma;
+                
+                // Screen rotation angle adaptation
+                let angle = (window.orientation !== undefined) ? window.orientation : (screen.orientation ? screen.orientation.angle : 0);
+                
+                let adjustedPitch = 0;
+                let adjustedRoll = 0;
+
+                if (angle === 90) {
+                    adjustedPitch = rawGamma;
+                    adjustedRoll = -rawBeta;
+                } else if (angle === -90 || angle === 270) {
+                    adjustedPitch = -rawGamma;
+                    adjustedRoll = rawBeta;
+                } else if (angle === 180) {
+                    adjustedPitch = -rawBeta;
+                    adjustedRoll = -rawGamma;
+                } else {
+                    adjustedPitch = rawBeta;
+                    adjustedRoll = rawGamma;
+                }
+
+                if (initialPitch === null) {
+                    initialPitch = adjustedPitch;
+                    initialRoll = adjustedRoll;
+                }
+
+                gyroPitch = (adjustedPitch - initialPitch) * 0.045;
+                gyroRoll = (adjustedRoll - initialRoll) * 0.045;
             }
 
             if ('ondeviceorientationabsolute' in window) window.addEventListener('deviceorientationabsolute', handleOrientation, true);
@@ -588,13 +629,14 @@
             }
 
             score = 0; health = 100; quotaDefeated = 0; currentBiomeIndex = 0; elapsedTime = 0; difficultyLevel = 0.5;
-            updateBiomeVisuals();
+            
+            targetFogColor.setHex(BIOMES[0].fog);
+            currentFogColor.setHex(BIOMES[0].fog);
 
             // Clear Scene Objects
             enemies.forEach(e => scene.remove(e.mesh)); enemies.length = 0;
             playerLasers.forEach(l => scene.remove(l.mesh)); playerLasers.length = 0;
             enemyLasers.forEach(el => scene.remove(el.mesh)); enemyLasers.length = 0;
-            envProps.forEach(p => scene.remove(p)); envProps.length = 0;
 
             document.getElementById('title-screen').style.display = 'none';
             document.getElementById('game-over-screen').style.display = 'none';
@@ -605,17 +647,15 @@
             updateHUD();
         }
 
-        function updateBiomeVisuals() {
+        function updateBiomeVisualsSmooth() {
             const b = BIOMES[currentBiomeIndex];
-            scene.fog.color.setHex(b.fog);
-            renderer.setClearColor(b.bg);
+            targetFogColor.setHex(b.fog);
             document.getElementById('location-display').innerText = b.name;
 
-            // Handle Planet Approach Visual State
+            // Handle Planet Approach
             if (b.type === "planet") {
                 planetMeshSystem.visible = true;
                 planetMeshSystem.position.z = -360;
-                planetMeshSystem.scale.set(1, 1, 1);
             } else {
                 planetMeshSystem.visible = false;
             }
@@ -626,8 +666,9 @@
 
             if (gameState === "PLAYING") {
                 elapsedTime += 0.016;
-                // Gradual difficulty scaling: Starts easy, scales slowly over time and stage progression
-                difficultyLevel = 0.5 + (elapsedTime / 40) + (currentBiomeIndex * 0.25);
+                
+                // Very gradual difficulty curve
+                difficultyLevel = 0.5 + (elapsedTime / 45) + (currentBiomeIndex * 0.22);
                 
                 const threatLabel = difficultyLevel < 1.2 ? "EASY" : (difficultyLevel < 2.0 ? "MEDIUM" : (difficultyLevel < 3.0 ? "HARD" : "EXTREME"));
                 document.getElementById('threat-level-display').innerText = "THREAT: " + threatLabel;
@@ -635,54 +676,84 @@
                 const currentBiome = BIOMES[currentBiomeIndex];
                 const speed = currentBiome.speed;
 
-                // Move Stars for Space Motion Feeling
-                if (starParticlesSystem) {
-                    starParticlesSystem.rotation.z += 0.0005;
+                // --- SMOOTH FOG & BACKGROUND TRANSITIONS ---
+                currentFogColor.lerp(targetFogColor, 0.04);
+                scene.fog.color.copy(currentFogColor);
+                renderer.setClearColor(currentFogColor);
+
+                // --- WARP TUNNEL VISUAL PROGRESSION ---
+                if (isTransitioning) {
+                    warpTunnelSystem.material.opacity = Math.min(0.8, warpTunnelSystem.material.opacity + 0.05);
+                    const pos = warpTunnelSystem.geometry.attributes.position.array;
+                    for(let i=2; i<pos.length; i+=3) {
+                        pos[i] += 8.0;
+                        if(pos[i] > 10) pos[i] = -150;
+                    }
+                    warpTunnelSystem.geometry.attributes.position.needsUpdate = true;
+                } else {
+                    warpTunnelSystem.material.opacity = Math.max(0, warpTunnelSystem.material.opacity - 0.04);
                 }
 
-                // Planet Approach Scale Up Effect
+                // --- RECYCLE CONTINUOUS CORRIDOR TUNNEL ---
+                for (let i = 0; i < corridorSegments.length; i++) {
+                    const seg = corridorSegments[i];
+                    seg.group.position.z += speed * 1.4;
+                    
+                    if (seg.group.position.z > 20) {
+                        seg.group.position.z -= NUM_CORRIDOR_SEGMENTS * SEGMENT_LENGTH;
+                        updateCorridorSegmentStyle(seg, currentBiome);
+                    }
+                }
+
+                // Planet Approach Smooth Zoom
                 if (currentBiome.type === "planet" && planetMeshSystem.visible) {
                     const quotaPct = quotaDefeated / currentBiome.quota;
                     const approachZ = -360 + quotaPct * 160;
-                    planetMeshSystem.position.z += (approachZ - planetMeshSystem.position.z) * 0.05;
+                    planetMeshSystem.position.z += (approachZ - planetMeshSystem.position.z) * 0.04;
                     planetMeshSystem.rotation.y += 0.002;
                 }
 
-                // --- 1. CRAFT STEERING & TIGHT CORRIDOR BOUNDS ---
+                // --- 1. CRAFT STEERING & CORRIDOR BOUNDS ---
                 let targetX = pointerTargetX + gyroRoll * 7.0;
                 let targetY = pointerTargetY - gyroPitch * 5.0;
 
-                // Enforce Corridor Walls
-                const limitX = currentBiome.wallX - 1.5;
-                const limitY = currentBiome.wallY - 1.2;
+                const limitX = currentBiome.wallX - 1.2;
+                const limitY = currentBiome.wallY - 1.0;
                 targetX = Math.max(-limitX, Math.min(limitX, targetX));
                 targetY = Math.max(-limitY, Math.min(limitY, targetY));
 
                 playerShip.position.x += (targetX - playerShip.position.x) * 0.12;
                 playerShip.position.y += (targetY - playerShip.position.y) * 0.12;
                 
-                // Roll/Pitch Visual Banking
+                // Ship Banking Rotations
                 playerShip.rotation.z = -(targetX - playerShip.position.x) * 0.35;
                 playerShip.rotation.x = (targetY - playerShip.position.y) * 0.2;
 
-                // --- 2. AUTO FIRE PLAYER LASERS ---
+                // --- 2. DYNAMIC CAMERA SCREEN SHIFT (VIEWPORT SHIFTS WITH MOVEMENT) ---
+                const targetCamX = playerShip.position.x * 0.35;
+                const targetCamY = playerShip.position.y * 0.35;
+                
+                camera.position.x += (targetCamX - camera.position.x) * 0.08;
+                camera.position.y += (targetCamY - camera.position.y) * 0.08;
+                
+                camera.rotation.z = THREE.MathUtils.lerp(camera.rotation.z, -playerShip.position.x * 0.025, 0.08);
+                camera.rotation.x = THREE.MathUtils.lerp(camera.rotation.x, -playerShip.position.y * 0.025, 0.08);
+
+                // --- 3. AUTO FIRE PLAYER LASERS ---
                 if (time - lastShotTime > 130) {
                     firePlayerLaser();
                     lastShotTime = time;
                 }
 
-                // --- 3. SPAWN ENEMIES & CORRIDOR PROPS ---
+                // --- 4. SPAWN ENEMIES ---
                 spawnTimer++;
-                if (spawnTimer % 20 === 0) buildEnvironmentProp(currentBiomeIndex);
-                
-                // Enemy max simultaneous count ramps gently with difficulty
-                const maxEnemies = Math.min(10, Math.floor(3 + difficultyLevel * 2));
-                const spawnInterval = Math.max(25, Math.floor(65 - difficultyLevel * 8));
+                const maxEnemies = Math.min(9, Math.floor(3 + difficultyLevel * 2));
+                const spawnInterval = Math.max(28, Math.floor(70 - difficultyLevel * 8));
                 if (spawnTimer % spawnInterval === 0 && enemies.length < maxEnemies) {
                     spawnEnemy();
                 }
 
-                // --- 4. UPDATE PLAYER LASERS ---
+                // --- 5. UPDATE PLAYER LASERS ---
                 for (let i = playerLasers.length - 1; i >= 0; i--) {
                     const l = playerLasers[i];
                     l.mesh.position.z -= 4.0;
@@ -691,15 +762,14 @@
                     }
                 }
 
-                // --- 5. UPDATE ENEMY LASERS (ENEMIES FIRING BACK) ---
+                // --- 6. UPDATE ENEMY LASERS ---
                 for (let i = enemyLasers.length - 1; i >= 0; i--) {
                     const el = enemyLasers[i];
                     el.mesh.position.addScaledVector(el.dir, el.speed);
 
-                    // Collision check with Player
                     if (el.mesh.position.distanceTo(playerShip.position) < 1.6) {
                         scene.remove(el.mesh); enemyLasers.splice(i, 1);
-                        triggerPlayerDamage(6 + Math.floor(difficultyLevel * 2)); // Easy damage early
+                        triggerPlayerDamage(6 + Math.floor(difficultyLevel * 2));
                         continue;
                     }
 
@@ -708,28 +778,18 @@
                     }
                 }
 
-                // --- 6. UPDATE ENVIRONMENT SCENERY ---
-                for (let i = envProps.length - 1; i >= 0; i--) {
-                    const p = envProps[i];
-                    p.position.z += speed * 1.3;
-                    if (p.position.z > 15) {
-                        scene.remove(p); envProps.splice(i, 1);
-                    }
-                }
-
-                // --- 7. UPDATE ENEMIES & ENEMY AI SHOOTING ---
+                // --- 7. UPDATE ENEMIES & SHOOTING ---
                 for (let i = enemies.length - 1; i >= 0; i--) {
                     const e = enemies[i];
                     e.mesh.position.z += speed * 0.65;
                     e.mesh.rotation.x += 0.02; e.mesh.rotation.y += 0.03;
 
-                    // Enemy firing frequency starts slow, ramps up with difficulty
                     if (time - e.lastFireTime > e.fireInterval) {
                         fireEnemyLaser(e);
                         e.lastFireTime = time;
                     }
 
-                    // Check Player Laser Hits Enemy
+                    // Check Laser Hits
                     for (let j = playerLasers.length - 1; j >= 0; j--) {
                         const l = playerLasers[j];
                         if (l.mesh.position.distanceTo(e.mesh.position) < 2.2) {
@@ -746,7 +806,7 @@
                         }
                     }
 
-                    // Check Enemy Collision With Player Ship
+                    // Collision
                     if (e && e.mesh.position.distanceTo(playerShip.position) < 1.8) {
                         createExplosion(e.mesh.position);
                         scene.remove(e.mesh); enemies.splice(i, 1);
@@ -791,7 +851,6 @@
             const laser = new THREE.Mesh(geo, mat);
             laser.position.copy(enemy.mesh.position);
 
-            // Aim towards player ship position
             const dir = new THREE.Vector3().subVectors(playerShip.position, enemy.mesh.position).normalize();
             const shotSpeed = 1.1 + difficultyLevel * 0.25;
 
@@ -805,12 +864,11 @@
             const currentBiome = BIOMES[currentBiomeIndex];
             
             enemyMesh.position.set(
-                (Math.random() - 0.5) * (currentBiome.wallX * 1.4),
-                (Math.random() - 0.5) * (currentBiome.wallY * 1.3),
+                (Math.random() - 0.5) * (currentBiome.wallX * 1.3),
+                (Math.random() - 0.5) * (currentBiome.wallY * 1.2),
                 -180
             );
 
-            // Enemy shoot delay starts at ~4.5s (very easy) and scales down gradually to ~1.2s
             const fireInterval = Math.max(1200, 4500 - difficultyLevel * 450 + Math.random() * 600);
 
             scene.add(enemyMesh);
@@ -852,11 +910,14 @@
                 setTimeout(() => {
                     quotaDefeated = 0;
                     currentBiomeIndex = (currentBiomeIndex + 1) % BIOMES.length;
-                    updateBiomeVisuals();
-                    alertEl.style.opacity = '0';
-                    isTransitioning = false;
-                    updateHUD();
-                }, 1600);
+                    updateBiomeVisualsSmooth();
+                    
+                    setTimeout(() => {
+                        alertEl.style.opacity = '0';
+                        isTransitioning = false;
+                        updateHUD();
+                    }, 800);
+                }, 1000);
             }
         }
 
