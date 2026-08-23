@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>POLYWING: LANDSCAPE GYRO FIXED</title>
+    <title>POLYWING: DYNAMIC GYRO AIMING</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; color: #00ffcc; }
@@ -73,16 +73,17 @@
             pointer-events: none; background: rgba(255, 0, 85, 0); transition: background 0.12s ease;
         }
 
-        /* RETICLE */
+        /* DYNAMIC RETICLE */
         #reticle {
-            position: absolute; top: 50%; left: 50%; width: 40px; height: 40px;
+            position: absolute; top: 50%; left: 50%; width: 44px; height: 40px;
             transform: translate(-50%, -50%); pointer-events: none; z-index: 6;
+            will-change: top, left;
         }
         #reticle::before, #reticle::after {
-            content: ''; position: absolute; background: #00ffcc; box-shadow: 0 0 8px #00ffcc;
+            content: ''; position: absolute; background: #00ffcc; box-shadow: 0 0 10px #00ffcc;
         }
-        #reticle::before { top: 19px; left: 0; width: 40px; height: 2px; }
-        #reticle::after { top: 0; left: 19px; width: 2px; height: 40px; }
+        #reticle::before { top: 19px; left: 0; width: 44px; height: 2px; }
+        #reticle::after { top: 0; left: 21px; width: 2px; height: 40px; }
 
         /* HIGH SCORES MODAL */
         #high-scores-modal { display: none; z-index: 20; }
@@ -102,7 +103,7 @@
     <!-- TITLE SCREEN -->
     <div id="title-screen" class="overlay-screen">
         <h1 class="game-title">POLYWING</h1>
-        <div class="subtitle">// OPEN TRENCH & BOSS WARFARE</div>
+        <div class="subtitle">// OPEN TRENCH & DYNAMIC GYRO AIM</div>
         <button class="btn" onclick="startRun()">BEGIN RUN</button>
         <button class="btn" onclick="showHighScores()">HIGH SCORES</button>
         <div class="pulse" style="margin-top: 25px; font-size: min(3vw, 12px); color: #888;">TOUCH SCREEN FOR FULLSCREEN / GYRO</div>
@@ -251,6 +252,9 @@
         const playerLasers = [], enemyLasers = [], enemies = [], particleExplosions = [];
         let lastShotTime = 0, spawnTimer = 0;
 
+        // Dynamic 3D Aim Target Vector
+        const currentAimWorldPoint = new THREE.Vector3(0, 0, -80);
+
         // Steering / Gyro controls with Device Orientation Adjustment
         let gyroPitch = 0, gyroRoll = 0, initialPitch = null, initialRoll = null;
         let pointerTargetX = 0, pointerTargetY = 0, isTouchDragging = false;
@@ -312,7 +316,6 @@
                 const base = new THREE.Mesh(new THREE.BoxGeometry(width, height, length), baseMat);
                 group.add(base);
 
-                // Add 16 intricate geometric greeble extrusions
                 for (let i = 0; i < 16; i++) {
                     const type = Math.floor(Math.random() * 4);
                     const px = (Math.random() - 0.5) * (width * 0.75);
@@ -400,7 +403,7 @@
             return group;
         }
 
-        // --- OPEN-TOP TRENCH TUNNEL SYSTEM (LEFT WALL, RIGHT WALL, BOTTOM FLOOR ONLY - NO CEILING!) ---
+        // --- OPEN-TOP TRENCH TUNNEL SYSTEM ---
         function buildContinuousCorridorSegments() {
             for (let i = 0; i < NUM_CORRIDOR_SEGMENTS; i++) {
                 const segGroup = new THREE.Group();
@@ -717,7 +720,7 @@
             };
         }
 
-        // --- CONTROLS WITH CORRECTED ROTATION-AWARE GYRO LOGIC ---
+        // --- CONTROLS WITH ROTATION-AWARE GYRO LOGIC ---
         function setupControls() {
             function handleOrientation(e) {
                 if (e.beta === null || e.gamma === null) return;
@@ -729,7 +732,6 @@
                 let adjustedPitch = 0;
                 let adjustedRoll = 0;
 
-                // INVERTED LANDSCAPE CONTROLS FIX APPLIED HERE:
                 if (angle === 90) {
                     adjustedPitch = -rawGamma;
                     adjustedRoll = rawBeta;
@@ -756,7 +758,6 @@
             if ('ondeviceorientationabsolute' in window) window.addEventListener('deviceorientationabsolute', handleOrientation, true);
             else window.addEventListener('deviceorientation', handleOrientation, true);
 
-            // Resets baseline calibration when device is flipped/rotated
             window.addEventListener('orientationchange', () => {
                 initialPitch = null;
                 initialRoll = null;
@@ -900,15 +901,29 @@
                 camera.rotation.z = THREE.MathUtils.lerp(camera.rotation.z, -playerShip.position.x * 0.025, 0.08);
                 camera.rotation.x = THREE.MathUtils.lerp(camera.rotation.x, -playerShip.position.y * 0.025, 0.08);
 
-                // --- 3. AUTO FIRE PLAYER LASERS ---
+                // --- 3. DYNAMIC GYRO AIMING RETICLE PROJECTION ---
+                // Reticle dynamically aims towards lead point in 3D space ahead of craft
+                currentAimWorldPoint.set(targetX * 1.35, targetY * 1.35, -80);
+                
+                // Project 3D Aim World Coordinate to 2D Screen Space
+                const aimProj = currentAimWorldPoint.clone().project(camera);
+                const reticleX = (aimProj.x * 0.5 + 0.5) * window.innerWidth;
+                const reticleY = (-aimProj.y * 0.5 + 0.5) * window.innerHeight;
+
+                const reticleEl = document.getElementById('reticle');
+                if (reticleEl) {
+                    reticleEl.style.left = `${reticleX}px`;
+                    reticleEl.style.top = `${reticleY}px`;
+                }
+
+                // --- 4. AUTO FIRE PLAYER LASERS ---
                 if (time - lastShotTime > 130) {
                     firePlayerLaser();
                     lastShotTime = time;
                 }
 
-                // --- 4. SPAWN MINIONS OR CHECK BOSS SPAWN ---
+                // --- 5. SPAWN MINIONS OR CHECK BOSS SPAWN ---
                 if (quotaDefeated >= currentBiome.quota && !currentBoss && !isTransitioning) {
-                    // SECTOR QUOTA COMPLETED -> ENGAGE EPIC BOSS FIGHT!
                     currentBoss = createBossForLocation(currentBiomeIndex);
                     document.getElementById('boss-name').innerText = currentBiome.bossName;
                     document.getElementById('boss-hud-container').style.opacity = '1';
@@ -927,7 +942,7 @@
                     }
                 }
 
-                // --- 5. BOSS COMBAT LOOP & AI ---
+                // --- 6. BOSS COMBAT LOOP & AI ---
                 if (currentBoss) {
                     if (currentBoss.mesh.position.z < -50) {
                         currentBoss.mesh.position.z += 2.0;
@@ -969,16 +984,16 @@
                     }
                 }
 
-                // --- 6. UPDATE PLAYER LASERS ---
+                // --- 7. UPDATE PLAYER LASERS ---
                 for (let i = playerLasers.length - 1; i >= 0; i--) {
                     const l = playerLasers[i];
-                    l.mesh.position.z -= 4.0;
+                    l.mesh.position.addScaledVector(l.dir, 4.2);
                     if (l.mesh.position.z < -240) {
                         scene.remove(l.mesh); playerLasers.splice(i, 1);
                     }
                 }
 
-                // --- 7. UPDATE ENEMY LASERS ---
+                // --- 8. UPDATE ENEMY LASERS ---
                 for (let i = enemyLasers.length - 1; i >= 0; i--) {
                     const el = enemyLasers[i];
                     el.mesh.position.addScaledVector(el.dir, el.speed);
@@ -994,7 +1009,7 @@
                     }
                 }
 
-                // --- 8. UPDATE MINION ENEMIES ---
+                // --- 9. UPDATE MINION ENEMIES ---
                 for (let i = enemies.length - 1; i >= 0; i--) {
                     const e = enemies[i];
                     e.mesh.position.z += speed * 0.65;
@@ -1029,7 +1044,7 @@
                     }
                 }
 
-                // --- 9. UPDATE EXPLOSIONS ---
+                // --- 10. UPDATE EXPLOSIONS ---
                 for (let i = particleExplosions.length - 1; i >= 0; i--) {
                     const p = particleExplosions[i];
                     p.mesh.position.add(p.vel);
@@ -1046,14 +1061,22 @@
         function firePlayerLaser() {
             const geo = new THREE.CylinderGeometry(0.08, 0.08, 1.8);
             const mat = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
+            
+            const startL = new THREE.Vector3(playerShip.position.x - 2.2, playerShip.position.y, playerShip.position.z - 1);
+            const startR = new THREE.Vector3(playerShip.position.x + 2.2, playerShip.position.y, playerShip.position.z - 1);
+            
+            // Aim lasers along current dynamic reticle vector trajectory
+            const dirL = new THREE.Vector3().subVectors(currentAimWorldPoint, startL).normalize();
+            const dirR = new THREE.Vector3().subVectors(currentAimWorldPoint, startR).normalize();
+
             const laserL = new THREE.Mesh(geo, mat); laserL.rotation.x = Math.PI / 2;
             const laserR = laserL.clone();
 
-            laserL.position.set(playerShip.position.x - 2.2, playerShip.position.y, playerShip.position.z - 1);
-            laserR.position.set(playerShip.position.x + 2.2, playerShip.position.y, playerShip.position.z - 1);
+            laserL.position.copy(startL);
+            laserR.position.copy(startR);
 
             scene.add(laserL, laserR);
-            playerLasers.push({ mesh: laserL }, { mesh: laserR });
+            playerLasers.push({ mesh: laserL, dir: dirL }, { mesh: laserR, dir: dirR });
             sfx.playLaser();
         }
 
