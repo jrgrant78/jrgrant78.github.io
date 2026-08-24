@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>POLYWING: WIDE-TRENCH CENTERED CHASE</title>
+    <title>POLYWING: OPEN TRENCH GREEBLE</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; color: #00ffcc; }
@@ -37,13 +37,20 @@
         #hud { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 5; pointer-events: none; display: none; }
         
         .hud-panel { position: absolute; padding: 12px; font-weight: bold; text-shadow: 0 0 8px currentColor; }
-        #hud-top-left { top: 15px; left: 15px; color: #00ffcc; font-size: min(4vw, 16px); }
-        #hud-top-right { top: 15px; right: 15px; color: #ff0055; text-align: right; font-size: min(4vw, 16px); }
+        #hud-top-left { top: 15px; left: 15px; color: #00ffcc; font-size: min(3.8vw, 15px); }
+        #hud-top-right { top: 15px; right: 15px; color: #ff0055; text-align: right; font-size: min(3.8vw, 15px); }
         
         #hud-center-alert {
             position: absolute; top: 25%; left: 50%; transform: translate(-50%, -50%);
             font-size: min(6vw, 26px); font-weight: 900; letter-spacing: 3px; color: #ffff00;
             text-shadow: 0 0 15px #ffff00; text-align: center; opacity: 0; transition: opacity 0.5s ease;
+        }
+
+        /* POWERUP ANNOUNCEMENT NOTIFIER */
+        #powerup-popup {
+            position: absolute; bottom: 20%; left: 50%; transform: translateX(-50%);
+            font-size: min(5vw, 20px); font-weight: 900; letter-spacing: 2px; color: #00ffcc;
+            text-shadow: 0 0 12px #00ffcc; text-align: center; opacity: 0; transition: opacity 0.3s ease;
         }
 
         /* BOSS HEALTH BAR CONTAINER */
@@ -66,6 +73,12 @@
             border: 1px solid #ff0055; margin-top: 6px; border-radius: 4px; overflow: hidden;
         }
         #health-bar-fill { width: 100%; height: 100%; background: #ff0055; transition: width 0.2s ease-out; }
+
+        /* TOUCH CONTROL ZONES HUD FEEDBACK */
+        #right-touch-zone {
+            position: absolute; right: 0; top: 0; width: 50vw; height: 100vh;
+            border-left: 1px dashed rgba(0, 255, 204, 0.15); pointer-events: none;
+        }
 
         /* DAMAGE FLASH OVERLAY */
         #damage-overlay {
@@ -103,10 +116,10 @@
     <!-- TITLE SCREEN -->
     <div id="title-screen" class="overlay-screen">
         <h1 class="game-title">POLYWING</h1>
-        <div class="subtitle">// WIDE TRENCH & CENTERED CHASE</div>
+        <div class="subtitle">// OPEN-TOP GREEBLE TRENCH RUN</div>
         <button class="btn" onclick="startRun()">BEGIN RUN</button>
         <button class="btn" onclick="showHighScores()">HIGH SCORES</button>
-        <div class="pulse" style="margin-top: 25px; font-size: min(3vw, 12px); color: #888;">TOUCH SCREEN FOR FULLSCREEN / GYRO</div>
+        <div class="pulse" style="margin-top: 25px; font-size: min(3vw, 12px); color: #888;">HOLD RIGHT SCREEN TO FIRE CANNONS</div>
     </div>
 
     <!-- HIGH SCORES SCREEN -->
@@ -127,6 +140,8 @@
     <!-- HUD -->
     <div id="hud">
         <div id="reticle"></div>
+        <div id="right-touch-zone"></div>
+        <div id="powerup-popup">MAX SHIELDS +25</div>
         
         <!-- BOSS HEALTH HUD -->
         <div id="boss-hud-container">
@@ -138,6 +153,8 @@
             <div>SCORE: <span id="score-display">0</span></div>
             <div style="font-size: 11px; margin-top: 4px; color: #aaa;" id="location-display">STARFIELD</div>
             <div id="quota-bar-container"><div id="quota-bar-fill"></div></div>
+            <div style="font-size: 11px; margin-top: 6px; color: #00ffcc;" id="weapon-display">WEAPON: PLASMA</div>
+            <div style="font-size: 11px; margin-top: 2px; color: #bd00ff;" id="missile-display">MISSILES: 0</div>
         </div>
         <div id="hud-top-right" class="hud-panel">
             <div>SHIELD</div>
@@ -153,16 +170,55 @@
             constructor() { this.ctx = null; }
             init() { if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); }
             
-            playLaser() {
+            playLaser(type = "PLASMA") {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+                if (type === "BEAM") {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(1200, this.ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(300, this.ctx.currentTime + 0.08);
+                    gain.gain.setValueAtTime(0.08, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.08);
+                } else if (type === "SPREAD") {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(600, this.ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.14);
+                    gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.14);
+                } else {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(850, this.ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(140, this.ctx.currentTime + 0.1);
+                    gain.gain.setValueAtTime(0.12, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
+                }
+                osc.connect(gain); gain.connect(this.ctx.destination);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.12);
+            }
+
+            playMissileLaunch() {
                 if (!this.ctx) return;
                 const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
                 osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(850, this.ctx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(140, this.ctx.currentTime + 0.1);
-                gain.gain.setValueAtTime(0.12, this.ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
+                osc.frequency.setValueAtTime(200, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(900, this.ctx.currentTime + 0.25);
+                gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.25);
                 osc.connect(gain); gain.connect(this.ctx.destination);
-                osc.start(); osc.stop(this.ctx.currentTime + 0.1);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.25);
+            }
+
+            playPowerup() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(440, this.ctx.currentTime);
+                osc.frequency.setValueAtTime(880, this.ctx.currentTime + 0.08);
+                osc.frequency.setValueAtTime(1320, this.ctx.currentTime + 0.16);
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.25);
+                osc.connect(gain); gain.connect(this.ctx.destination);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.25);
             }
 
             playEnemyLaser() {
@@ -220,23 +276,41 @@
 
         const sfx = new SoundSynth();
 
-        // --- EXPANDED SECTOR CONFIGURATION WITH MUCH WIDER LATERAL BOUNDARIES ---
+        // --- EXTENDED SECTOR CONFIGURATION WITH STRICT FLOOR CONTROL ---
         const BIOMES = [
             { name: "ORBITAL STARFIELD", fog: 0x01010a, light: 0x00ffcc, bg: 0x01010a, quota: 25, speed: 1.1, type: "starfield", wallX: 36, wallY: 16, hasFloor: false, bossName: "ORBITAL SUPER-STATION" },
             { name: "ASTEROID BELT HABITAT", fog: 0x0f0a14, light: 0xffaa00, bg: 0x0f0a14, quota: 30, speed: 1.2, type: "asteroids", wallX: 32, wallY: 15, hasFloor: false, bossName: "MEGA-DRILL HARVESTER" },
-            { name: "STAR DESTROYER TRENCH", fog: 0x060c14, light: 0x00ffff, bg: 0x060c14, quota: 35, speed: 1.4, type: "trench_tech", wallX: 14.5, wallY: 7.2, hasFloor: true, bossName: "IMPERIAL EXECUTIONER" },
+            { name: "STAR DESTROYER TRENCH", fog: 0x060c14, light: 0x00ffff, bg: 0x060c14, quota: 35, speed: 1.4, type: "trench_tech", wallX: 11.0, wallY: 5.2, hasFloor: true, bossName: "IMPERIAL EXECUTIONER" },
             { name: "ATMOSPHERIC APPROACH", fog: 0x021424, light: 0x00ff88, bg: 0x021424, quota: 32, speed: 1.3, type: "planet", wallX: 32, wallY: 15, hasFloor: false, bossName: "AERO-CARRIER TITAN" },
-            { name: "CANYON TRENCH RUN", fog: 0x240a02, light: 0xff5500, bg: 0x240a02, quota: 38, speed: 1.5, type: "trench_canyon", wallX: 14.0, wallY: 6.8, hasFloor: true, bossName: "CRAG FORTRESS BEHEMOTH" },
-            { name: "FOREST HABITAT CANOPY", fog: 0x01240c, light: 0x55ff55, bg: 0x01240c, quota: 36, speed: 1.4, type: "forest", wallX: 14.5, wallY: 7.0, hasFloor: true, bossName: "HIVE QUEEN COLOSSUS" },
+            { name: "CANYON TRENCH RUN", fog: 0x240a02, light: 0xff5500, bg: 0x240a02, quota: 38, speed: 1.5, type: "trench_canyon", wallX: 10.5, wallY: 4.8, hasFloor: true, bossName: "CRAG FORTRESS BEHEMOTH" },
+            { name: "FOREST HABITAT CANOPY", fog: 0x01240c, light: 0x55ff55, bg: 0x01240c, quota: 36, speed: 1.4, type: "forest", wallX: 11.0, wallY: 5.0, hasFloor: true, bossName: "HIVE QUEEN COLOSSUS" },
             { name: "DESOLATE OBSIDIAN WASTES", fog: 0x140120, light: 0xaa00ff, bg: 0x140120, quota: 40, speed: 1.6, type: "desolate", wallX: 28, wallY: 14, hasFloor: false, bossName: "OBSIDIAN ARCH-MONOLITH" },
-            { name: "BELLY OF THE BEAST", fog: 0x240110, light: 0xff0055, bg: 0x240110, quota: 45, speed: 1.7, type: "belly", wallX: 13.5, wallY: 6.2, hasFloor: true, bossName: "BIO-ORGANIC APEX CORE" }
+            { name: "BELLY OF THE BEAST", fog: 0x240110, light: 0xff0055, bg: 0x240110, quota: 45, speed: 1.7, type: "belly", wallX: 10.0, wallY: 4.5, hasFloor: true, bossName: "BIO-ORGANIC APEX CORE" }
+        ];
+
+        // POWERUP TYPES DEFINITION
+        const POWERUP_TYPES = [
+            { id: "HEALTH", label: "+25 HEALTH", color: 0x00ff55 },
+            { id: "MAX_HP", label: "MAX SHIELD +25", color: 0xffff00 },
+            { id: "SPREAD", label: "CANNON SPREAD UP", color: 0x00ffff },
+            { id: "TEMP_SHIELD", label: "TEMPORARY SHIELD", color: 0x0088ff },
+            { id: "WEAPON_SWAP", label: "WEAPON UPGRADED", color: 0xff0055 },
+            { id: "HOMING_MISSILE", label: "+1 HOMING MISSILE", color: 0xbd00ff }
         ];
 
         // --- GLOBAL ENGINE & GAME STATE ---
-        let scene, camera, renderer, playerShip, starParticlesSystem, planetMeshSystem, warpTunnelSystem;
+        let scene, camera, renderer, playerShip, starParticlesSystem, planetMeshSystem, warpTunnelSystem, shieldBubbleMesh;
         let gameState = "TITLE";
-        let score = 0, health = 100, currentBiomeIndex = 0, quotaDefeated = 0;
+        let score = 0, health = 100, maxHealth = 100, currentBiomeIndex = 0, quotaDefeated = 0;
         let isTransitioning = false, elapsedTime = 0, difficultyLevel = 0.5;
+
+        // PLAYER ARSENAL & POWERUP STATES
+        let activeWeaponType = "PLASMA"; // PLASMA, BEAM, SPREAD
+        let cannonSpreadLevel = 1; // 1 to 3
+        let tempShieldTimer = 0;
+        let missileCount = 0;
+        let lastMissileFireTime = 0;
+        let isRightSideFiring = false;
 
         let currentBoss = null;
 
@@ -247,13 +321,14 @@
         const NUM_CORRIDOR_SEGMENTS = 12;
         const SEGMENT_LENGTH = 22;
 
-        const playerLasers = [], enemyLasers = [], enemies = [], particleExplosions = [];
+        const playerLasers = [], enemyLasers = [], enemies = [], particleExplosions = [], powerUps = [], activeMissiles = [];
         let lastShotTime = 0, spawnTimer = 0;
 
         const currentAimWorldPoint = new THREE.Vector3(0, 0, -80);
 
-        // Steering / Gyro controls with Hard Clamping to prevent teleportation
+        // FREE AIM & STEERING GYRO / TOUCH STATE
         let gyroPitch = 0, gyroRoll = 0, initialPitch = null, initialRoll = null;
+        let reticleAimX = 0, reticleAimY = 0;
         let pointerTargetX = 0, pointerTargetY = 0, isTouchDragging = false;
         let previousPointerX = 0, previousPointerY = 0;
 
@@ -284,6 +359,12 @@
             playerShip.position.set(0, -1.0, -5);
             scene.add(playerShip);
 
+            // Create Player Shield Bubble Mesh
+            const shieldGeo = new THREE.IcosahedronGeometry(3.2, 2);
+            const shieldMat = new THREE.MeshBasicMaterial({ color: 0x00aaff, wireframe: true, transparent: true, opacity: 0 });
+            shieldBubbleMesh = new THREE.Mesh(shieldGeo, shieldMat);
+            playerShip.add(shieldBubbleMesh);
+
             buildContinuousCorridorSegments();
 
             setupControls();
@@ -292,46 +373,48 @@
             requestAnimationFrame(animate);
         }
 
-        // --- GREEBLE SURFACE BUILDER ---
-        function createGreebleSurfaceGroup(width, height, length, isTech, isCanyon, isForest, isOrganic) {
+        // --- STAR WARS TRENCH STYLE HIGH-DETAIL GREEBLE SURFACE BUILDER ---
+        // Constructs flat panel surfaces (Width along X, Thickness along Y, Length along Z)
+        function createGreebleSurfaceGroup(panelWidth, panelThickness, length, isTech, isCanyon, isForest, isOrganic) {
             const group = new THREE.Group();
             
             if (isTech) {
-                const baseMat = new THREE.MeshLambertMaterial({ color: 0x121a28, flatShading: true });
+                const baseMat = new THREE.MeshLambertMaterial({ color: 0x101726, flatShading: true });
                 const blockMatA = new THREE.MeshLambertMaterial({ color: 0x1c283c, flatShading: true });
-                const blockMatB = new THREE.MeshLambertMaterial({ color: 0x090f18, flatShading: true });
+                const blockMatB = new THREE.MeshLambertMaterial({ color: 0x0b111a, flatShading: true });
                 const pipeMat = new THREE.MeshLambertMaterial({ color: 0x00ffff, flatShading: true });
 
-                const base = new THREE.Mesh(new THREE.BoxGeometry(width, height, length), baseMat);
+                const base = new THREE.Mesh(new THREE.BoxGeometry(panelWidth, panelThickness, length), baseMat);
                 group.add(base);
 
-                for (let i = 0; i < 20; i++) {
+                // Add 24 intricate geometric greeble extrusions along length
+                for (let i = 0; i < 24; i++) {
                     const type = Math.floor(Math.random() * 4);
-                    const px = (Math.random() - 0.5) * (width * 0.85);
+                    const px = (Math.random() - 0.5) * (panelWidth * 0.85);
                     const pz = (Math.random() - 0.5) * (length * 0.85);
 
-                    if (type === 0) {
+                    if (type === 0) { // Modular Raised Box Panel
                         const w = 1.0 + Math.random() * 3.0;
                         const h = 0.5 + Math.random() * 1.8;
                         const l = 1.5 + Math.random() * 4.0;
                         const block = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), blockMatA);
-                        block.position.set(px, height / 2 + h / 2, pz);
+                        block.position.set(px, panelThickness / 2 + h / 2, pz);
                         group.add(block);
-                    } else if (type === 1) {
+                    } else if (type === 1) { // High-Tech Conduit Pipe
                         const r = 0.15 + Math.random() * 0.3;
                         const pipe = new THREE.Mesh(new THREE.CylinderGeometry(r, r, length, 6), pipeMat);
                         pipe.rotation.x = Math.PI / 2;
-                        pipe.position.set(px, height / 2 + r, 0);
+                        pipe.position.set(px, panelThickness / 2 + r, 0);
                         group.add(pipe);
-                    } else if (type === 2) {
+                    } else if (type === 2) { // Stepped Turret Relay Pillar
                         const w = 1.5 + Math.random() * 2.5;
                         const h = 0.8 + Math.random() * 2.2;
                         const block = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), blockMatB);
-                        block.position.set(px, height / 2 + h / 2, pz);
+                        block.position.set(px, panelThickness / 2 + h / 2, pz);
                         group.add(block);
-                    } else {
-                        const rib = new THREE.Mesh(new THREE.BoxGeometry(width * 0.95, 0.4, 0.9), blockMatA);
-                        rib.position.set(0, height / 2 + 0.2, pz);
+                    } else { // Transverse Structural Rib
+                        const rib = new THREE.Mesh(new THREE.BoxGeometry(panelWidth * 0.95, 0.4, 0.9), blockMatA);
+                        rib.position.set(0, panelThickness / 2 + 0.2, pz);
                         group.add(rib);
                     }
                 }
@@ -340,17 +423,17 @@
                 const rockMat1 = new THREE.MeshLambertMaterial({ color: 0x48180a, flatShading: true });
                 const rockMat2 = new THREE.MeshLambertMaterial({ color: 0x2e0e05, flatShading: true });
 
-                const base = new THREE.Mesh(new THREE.BoxGeometry(width, height, length), rockMat1);
+                const base = new THREE.Mesh(new THREE.BoxGeometry(panelWidth, panelThickness, length), rockMat1);
                 group.add(base);
 
                 for (let i = 0; i < 14; i++) {
                     const w = 2.0 + Math.random() * 4.0;
                     const h = 0.8 + Math.random() * 2.8;
                     const l = 2.5 + Math.random() * 5.0;
-                    const px = (Math.random() - 0.5) * (width * 0.8);
+                    const px = (Math.random() - 0.5) * (panelWidth * 0.8);
                     const pz = (Math.random() - 0.5) * (length * 0.8);
                     const rock = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), rockMat2);
-                    rock.position.set(px, height / 2 + h / 2, pz);
+                    rock.position.set(px, panelThickness / 2 + h / 2, pz);
                     group.add(rock);
                 }
             } 
@@ -359,7 +442,7 @@
                 const trunkMat = new THREE.MeshLambertMaterial({ color: 0x3d2611, flatShading: true });
                 const leafMat = new THREE.MeshLambertMaterial({ color: 0x0d521f, flatShading: true });
 
-                const base = new THREE.Mesh(new THREE.BoxGeometry(width, height, length), floorMat);
+                const base = new THREE.Mesh(new THREE.BoxGeometry(panelWidth, panelThickness, length), floorMat);
                 group.add(base);
 
                 for (let i = 0; i < 10; i++) {
@@ -369,9 +452,9 @@
                     foliage.position.y = 5.5;
                     treeGroup.add(trunk, foliage);
 
-                    const px = (Math.random() - 0.5) * (width * 0.85);
+                    const px = (Math.random() - 0.5) * (panelWidth * 0.85);
                     const pz = (Math.random() - 0.5) * (length * 0.8);
-                    treeGroup.position.set(px, height / 2 + 2.5, pz);
+                    treeGroup.position.set(px, panelThickness / 2 + 2.5, pz);
                     group.add(treeGroup);
                 }
             }
@@ -379,12 +462,12 @@
                 const bioMat1 = new THREE.MeshLambertMaterial({ color: 0x47031c, flatShading: true });
                 const bioMat2 = new THREE.MeshLambertMaterial({ color: 0x8a0737, flatShading: true });
 
-                const base = new THREE.Mesh(new THREE.BoxGeometry(width, height, length), bioMat1);
+                const base = new THREE.Mesh(new THREE.BoxGeometry(panelWidth, panelThickness, length), bioMat1);
                 group.add(base);
 
                 for(let i = 0; i < 5; i++) {
                     const rib = new THREE.Mesh(new THREE.TorusGeometry(5.5, 0.6, 5, 8, Math.PI), bioMat2);
-                    rib.position.set(0, height / 2, (i - 2.0) * 4.5);
+                    rib.position.set(0, panelThickness / 2, (i - 2.0) * 4.5);
                     group.add(rib);
                 }
             }
@@ -392,24 +475,27 @@
             return group;
         }
 
-        // --- OPEN-TOP WIDE CORRIDOR TUNNEL SYSTEM ---
+        // --- OPEN-TOP TRENCH CORRIDOR SYSTEM (LEFT WALL, RIGHT WALL, BOTTOM FLOOR - STRICTLY NO CEILING!) ---
         function buildContinuousCorridorSegments() {
             for (let i = 0; i < NUM_CORRIDOR_SEGMENTS; i++) {
                 const segGroup = new THREE.Group();
                 const zPos = -i * SEGMENT_LENGTH;
 
-                // Wider greeble floor & wall dimensions
+                // 1. FLOOR PANEL: Width=48 (X), Thickness=0.8 (Y), Length=SEGMENT_LENGTH (Z). Unrotated!
                 const greebleFloor = createGreebleSurfaceGroup(48, 0.8, SEGMENT_LENGTH, true, false, false, false);
-                greebleFloor.position.set(0, -6.8, 0);
+                greebleFloor.position.set(0, -5.5, 0);
 
-                const greebleWallL = createGreebleSurfaceGroup(0.8, 22, SEGMENT_LENGTH, true, false, false, false);
-                greebleWallL.rotation.z = -Math.PI / 2;
-                greebleWallL.position.set(-22.0, 4.5, 0);
+                // 2. LEFT WALL PANEL: Height=24 (which becomes Y dimension after rotation), Thickness=0.8 (which becomes X dimension)
+                const greebleWallL = createGreebleSurfaceGroup(24, 0.8, SEGMENT_LENGTH, true, false, false, false);
+                greebleWallL.rotation.z = -Math.PI / 2; // -90 deg: +Y (greebles) points +X (inward into trench)
+                greebleWallL.position.set(-11.0, 5.0, 0);
 
-                const greebleWallR = createGreebleSurfaceGroup(0.8, 22, SEGMENT_LENGTH, true, false, false, false);
-                greebleWallR.rotation.z = Math.PI / 2;
-                greebleWallR.position.set(22.0, 4.5, 0);
+                // 3. RIGHT WALL PANEL: Height=24 (Y after rotation), Thickness=0.8 (X after rotation)
+                const greebleWallR = createGreebleSurfaceGroup(24, 0.8, SEGMENT_LENGTH, true, false, false, false);
+                greebleWallR.rotation.z = Math.PI / 2; // +90 deg: +Y (greebles) points -X (inward into trench)
+                greebleWallR.position.set(11.0, 5.0, 0);
 
+                // ONLY Floor, Left, and Right (ABSOLUTELY NO OVERHEAD CEILING BEAM)
                 segGroup.add(greebleFloor, greebleWallL, greebleWallR);
                 segGroup.position.z = zPos;
                 scene.add(segGroup);
@@ -424,35 +510,37 @@
         }
 
         function updateCorridorSegmentStyle(seg, biome) {
+            // FLOOR VISIBILITY RULE: ONLY in trench runs (tech, canyon, belly) AND forest!
             if (biome.hasFloor) {
                 seg.floor.visible = true;
             } else {
-                seg.floor.visible = false;
+                seg.floor.visible = false; // Completely hides floor in Starfield, Asteroids, Planet, Desolate
             }
 
             if (biome.type === "trench_tech") {
-                seg.wallL.position.set(-21.0, 4.2, 0);
-                seg.wallR.position.set(21.0, 4.2, 0);
-                seg.floor.position.set(0, -6.5, 0);
+                seg.wallL.position.set(-11.0, 5.0, 0);
+                seg.wallR.position.set(11.0, 5.0, 0);
+                seg.floor.position.set(0, -5.5, 0);
             } 
             else if (biome.type === "trench_canyon") {
-                seg.wallL.position.set(-20.0, 4.0, 0);
-                seg.wallR.position.set(20.0, 4.0, 0);
-                seg.floor.position.set(0, -6.2, 0);
+                seg.wallL.position.set(-10.5, 5.0, 0);
+                seg.wallR.position.set(10.5, 5.0, 0);
+                seg.floor.position.set(0, -5.2, 0);
             } 
             else if (biome.type === "forest") {
-                seg.wallL.position.set(-21.0, 4.0, 0);
-                seg.wallR.position.set(21.0, 4.0, 0);
-                seg.floor.position.set(0, -6.2, 0);
+                seg.wallL.position.set(-11.0, 5.0, 0);
+                seg.wallR.position.set(11.0, 5.0, 0);
+                seg.floor.position.set(0, -5.2, 0);
             } 
             else if (biome.type === "belly") {
-                seg.wallL.position.set(-19.5, 3.8, 0);
-                seg.wallR.position.set(19.5, 3.8, 0);
-                seg.floor.position.set(0, -5.8, 0);
+                seg.wallL.position.set(-10.0, 4.8, 0);
+                seg.wallR.position.set(10.0, 4.8, 0);
+                seg.floor.position.set(0, -4.8, 0);
             } 
-            else { // OPEN SPACE BIOMES
+            else { // OPEN SPACE BIOMES (Starfield, Asteroids, Planet, Desolate)
                 seg.wallL.position.set(-80, 0, 0);
                 seg.wallR.position.set(80, 0, 0);
+                seg.floor.position.set(0, -80, 0);
             }
         }
 
@@ -697,7 +785,21 @@
             };
         }
 
-        // --- CONTROLS WITH WIDER BOUNDS & GYRO FIX ---
+        function spawnPowerUpDrop(position) {
+            const pType = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
+            const geo = new THREE.OctahedronGeometry(1.1);
+            const mat = new THREE.MeshStandardMaterial({ color: pType.color, roughness: 0.2, metalness: 0.8, flatShading: true });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.copy(position);
+            scene.add(mesh);
+
+            powerUps.push({
+                mesh: mesh,
+                type: pType
+            });
+        }
+
+        // --- CONTROLS WITH DUAL GYRO/TOUCH AIMING ---
         function setupControls() {
             function handleOrientation(e) {
                 if (e.beta === null || e.gamma === null) return;
@@ -752,21 +854,34 @@
             });
 
             window.addEventListener('pointerdown', (e) => {
-                isTouchDragging = true; previousPointerX = e.clientX; previousPointerY = e.clientY;
+                if (e.clientX > window.innerWidth * 0.48) {
+                    isRightSideFiring = true;
+                } else {
+                    isTouchDragging = true;
+                    previousPointerX = e.clientX;
+                    previousPointerY = e.clientY;
+                }
             });
+
             window.addEventListener('pointermove', (e) => {
                 if (!isTouchDragging) return;
                 const deltaX = e.clientX - previousPointerX;
                 const deltaY = e.clientY - previousPointerY;
                 previousPointerX = e.clientX; previousPointerY = e.clientY;
                 
-                const currentBiome = BIOMES[currentBiomeIndex];
                 pointerTargetX += deltaX * 0.045;
                 pointerTargetY -= deltaY * 0.045;
-                pointerTargetX = Math.max(-currentBiome.wallX + 1.2, Math.min(currentBiome.wallX - 1.2, pointerTargetX));
-                pointerTargetY = Math.max(-currentBiome.wallY + 1.0, Math.min(currentBiome.wallY - 1.0, pointerTargetY));
             });
-            window.addEventListener('pointerup', () => { isTouchDragging = false; });
+
+            const stopTouch = (e) => {
+                if (e.clientX > window.innerWidth * 0.45) {
+                    isRightSideFiring = false;
+                }
+                isTouchDragging = false;
+            };
+
+            window.addEventListener('pointerup', stopTouch);
+            window.addEventListener('pointercancel', stopTouch);
         }
 
         // --- GAME STATE & LOOP ---
@@ -779,7 +894,8 @@
                 DeviceOrientationEvent.requestPermission();
             }
 
-            score = 0; health = 100; quotaDefeated = 0; currentBiomeIndex = 0; elapsedTime = 0; difficultyLevel = 0.5;
+            score = 0; health = 100; maxHealth = 100; quotaDefeated = 0; currentBiomeIndex = 0; elapsedTime = 0; difficultyLevel = 0.5;
+            activeWeaponType = "PLASMA"; cannonSpreadLevel = 1; tempShieldTimer = 0; missileCount = 0;
             
             targetFogColor.setHex(BIOMES[0].fog);
             currentFogColor.setHex(BIOMES[0].fog);
@@ -788,6 +904,8 @@
             enemies.forEach(e => scene.remove(e.mesh)); enemies.length = 0;
             playerLasers.forEach(l => scene.remove(l.mesh)); playerLasers.length = 0;
             enemyLasers.forEach(el => scene.remove(el.mesh)); enemyLasers.length = 0;
+            powerUps.forEach(p => scene.remove(p.mesh)); powerUps.length = 0;
+            activeMissiles.forEach(m => scene.remove(m.mesh)); activeMissiles.length = 0;
 
             document.getElementById('title-screen').style.display = 'none';
             document.getElementById('game-over-screen').style.display = 'none';
@@ -811,6 +929,13 @@
             }
         }
 
+        function triggerPowerupPopup(text) {
+            const pop = document.getElementById('powerup-popup');
+            pop.innerText = text;
+            pop.style.opacity = '1';
+            setTimeout(() => pop.style.opacity = '0', 1600);
+        }
+
         function animate(time) {
             requestAnimationFrame(animate);
 
@@ -828,6 +953,14 @@
                 currentFogColor.lerp(targetFogColor, 0.04);
                 scene.fog.color.copy(currentFogColor);
                 renderer.setClearColor(currentFogColor);
+
+                if (tempShieldTimer > 0) {
+                    tempShieldTimer -= 0.016;
+                    shieldBubbleMesh.material.opacity = 0.45 + Math.sin(time * 0.01) * 0.15;
+                    shieldBubbleMesh.rotation.y += 0.03;
+                } else {
+                    shieldBubbleMesh.material.opacity = 0;
+                }
 
                 if (isTransitioning) {
                     warpTunnelSystem.material.opacity = Math.min(0.8, warpTunnelSystem.material.opacity + 0.05);
@@ -858,17 +991,18 @@
                     planetMeshSystem.rotation.y += 0.002;
                 }
 
-                // --- 1. CRAFT STEERING & EXPANDED CORRIDOR BOUNDS ---
-                let targetX = pointerTargetX + gyroRoll * 8.5;
-                let targetY = pointerTargetY - gyroPitch * 6.0;
+                // --- 1. FREE-AIM RETICLE & CENTERING SHIP CHASE LOGIC ---
+                const aimLimitX = currentBiome.wallX * 1.35;
+                const aimLimitY = currentBiome.wallY * 1.25;
 
-                const limitX = currentBiome.wallX - 1.5;
-                const limitY = currentBiome.wallY - 1.2;
-                targetX = Math.max(-limitX, Math.min(limitX, targetX));
-                targetY = Math.max(-limitY, Math.min(limitY, targetY));
+                reticleAimX = pointerTargetX + gyroRoll * 8.5;
+                reticleAimY = pointerTargetY - gyroPitch * 6.0;
 
-                let desiredDx = (targetX - playerShip.position.x) * 0.12;
-                let desiredDy = (targetY - playerShip.position.y) * 0.12;
+                reticleAimX = Math.max(-aimLimitX, Math.min(aimLimitX, reticleAimX));
+                reticleAimY = Math.max(-aimLimitY, Math.min(aimLimitY, reticleAimY));
+
+                let desiredDx = (reticleAimX * 0.85 - playerShip.position.x) * 0.12;
+                let desiredDy = (reticleAimY * 0.82 - playerShip.position.y) * 0.12;
 
                 const MAX_FRAME_SPEED = 0.85;
                 desiredDx = Math.max(-MAX_FRAME_SPEED, Math.min(MAX_FRAME_SPEED, desiredDx));
@@ -877,11 +1011,10 @@
                 playerShip.position.x += desiredDx;
                 playerShip.position.y += desiredDy;
                 
-                playerShip.rotation.z = -(targetX - playerShip.position.x) * 0.28;
-                playerShip.rotation.x = (targetY - playerShip.position.y) * 0.18;
+                playerShip.rotation.z = -(reticleAimX - playerShip.position.x) * 0.28;
+                playerShip.rotation.x = (reticleAimY - playerShip.position.y) * 0.18;
 
-                // --- 2. CAMERA SHIFTS WITH PLAYER (SHIP REMAINS MOSTLY CENTERED) ---
-                // Camera tracks at 88%-90% of player position, keeping ship anchored near center while screen shifts
+                // --- 2. CAMERA TRACKING & SCREEN SHIFT ---
                 const targetCamX = playerShip.position.x * 0.88;
                 const targetCamY = playerShip.position.y * 0.82;
                 
@@ -891,26 +1024,93 @@
                 camera.rotation.z = THREE.MathUtils.lerp(camera.rotation.z, -(playerShip.position.x - camera.position.x) * 0.04, 0.08);
                 camera.rotation.x = THREE.MathUtils.lerp(camera.rotation.x, -(playerShip.position.y - camera.position.y) * 0.04, 0.08);
 
-                // --- 3. DYNAMIC GYRO AIMING RETICLE PROJECTION ---
-                currentAimWorldPoint.set(playerShip.position.x + (targetX - playerShip.position.x) * 1.4, playerShip.position.y + (targetY - playerShip.position.y) * 1.4, -80);
+                // --- 3. DYNAMIC RETICLE PROJECTED ONTO 2D HUD ---
+                currentAimWorldPoint.set(reticleAimX, reticleAimY, -80);
                 
                 const aimProj = currentAimWorldPoint.clone().project(camera);
-                const reticleX = (aimProj.x * 0.5 + 0.5) * window.innerWidth;
-                const reticleY = (-aimProj.y * 0.5 + 0.5) * window.innerHeight;
+                const reticleScreenX = (aimProj.x * 0.5 + 0.5) * window.innerWidth;
+                const reticleScreenY = (-aimProj.y * 0.5 + 0.5) * window.innerHeight;
 
                 const reticleEl = document.getElementById('reticle');
                 if (reticleEl) {
-                    reticleEl.style.left = `${reticleX}px`;
-                    reticleEl.style.top = `${reticleY}px`;
+                    reticleEl.style.left = `${reticleScreenX}px`;
+                    reticleEl.style.top = `${reticleScreenY}px`;
                 }
 
-                // --- 4. AUTO FIRE PLAYER LASERS ---
-                if (time - lastShotTime > 130) {
+                // --- 4. MANUAL CANNON FIRING (HOLD RIGHT SIDE OF SCREEN) ---
+                const fireInterval = activeWeaponType === "BEAM" ? 75 : (activeWeaponType === "SPREAD" ? 180 : 130);
+                if (isRightSideFiring && (time - lastShotTime > fireInterval)) {
                     firePlayerLaser();
                     lastShotTime = time;
                 }
 
-                // --- 5. SPAWN MINIONS OR CHECK BOSS SPAWN ---
+                // --- 5. AUTOMATIC HOMING MISSILE SYSTEM ---
+                if (missileCount > 0 && (time - lastMissileFireTime > 2500)) {
+                    fireHomingMissiles();
+                    lastMissileFireTime = time;
+                }
+
+                // --- 6. UPDATE HOMING MISSILES ---
+                for (let i = activeMissiles.length - 1; i >= 0; i--) {
+                    const m = activeMissiles[i];
+                    let targetPos = null;
+
+                    if (currentBoss) targetPos = currentBoss.mesh.position;
+                    else if (enemies.length > 0) targetPos = enemies[0].mesh.position;
+
+                    if (targetPos) {
+                        const desiredDir = new THREE.Vector3().subVectors(targetPos, m.mesh.position).normalize();
+                        m.dir.lerp(desiredDir, 0.12).normalize();
+                    }
+
+                    m.mesh.position.addScaledVector(m.dir, 3.5);
+                    m.mesh.rotation.x += 0.1;
+
+                    for (let j = enemies.length - 1; j >= 0; j--) {
+                        const e = enemies[j];
+                        if (m.mesh.position.distanceTo(e.mesh.position) < 2.5) {
+                            createExplosion(e.mesh.position);
+                            if (Math.random() < 0.22) spawnPowerUpDrop(e.mesh.position);
+                            scene.remove(e.mesh); enemies.splice(j, 1);
+                            scene.remove(m.mesh); activeMissiles.splice(i, 1);
+                            score += 150; quotaDefeated++;
+                            sfx.playExplosion(); updateHUD();
+                            break;
+                        }
+                    }
+
+                    if (currentBoss && m.mesh && m.mesh.position.distanceTo(currentBoss.mesh.position) < 6.5) {
+                        createExplosion(m.mesh.position);
+                        scene.remove(m.mesh); activeMissiles.splice(i, 1);
+                        currentBoss.hp -= 3;
+                        score += 150;
+                        sfx.playExplosion();
+                        const pct = Math.max(0, (currentBoss.hp / currentBoss.maxHp) * 100);
+                        document.getElementById('boss-bar-fill').style.width = pct + '%';
+                    } else if (m.mesh && m.mesh.position.z < -240) {
+                        scene.remove(m.mesh); activeMissiles.splice(i, 1);
+                    }
+                }
+
+                // --- 7. UPDATE POWERUP DROPS & PLAYER PICKUP CHECK ---
+                for (let i = powerUps.length - 1; i >= 0; i--) {
+                    const p = powerUps[i];
+                    p.mesh.position.z += speed * 0.9;
+                    p.mesh.rotation.y += 0.04;
+                    p.mesh.rotation.x += 0.02;
+
+                    if (p.mesh.position.distanceTo(playerShip.position) < 2.8) {
+                        applyPowerUp(p.type);
+                        scene.remove(p.mesh); powerUps.splice(i, 1);
+                        continue;
+                    }
+
+                    if (p.mesh.position.z > 10) {
+                        scene.remove(p.mesh); powerUps.splice(i, 1);
+                    }
+                }
+
+                // --- 8. SPAWN MINIONS OR CHECK BOSS SPAWN ---
                 if (quotaDefeated >= currentBiome.quota && !currentBoss && !isTransitioning) {
                     currentBoss = createBossForLocation(currentBiomeIndex);
                     document.getElementById('boss-name').innerText = currentBiome.bossName;
@@ -930,7 +1130,7 @@
                     }
                 }
 
-                // --- 6. BOSS COMBAT LOOP & AI ---
+                // --- 9. BOSS COMBAT LOOP & AI ---
                 if (currentBoss) {
                     if (currentBoss.mesh.position.z < -50) {
                         currentBoss.mesh.position.z += 2.0;
@@ -972,7 +1172,7 @@
                     }
                 }
 
-                // --- 7. UPDATE PLAYER LASERS ---
+                // --- 10. UPDATE PLAYER LASERS ---
                 for (let i = playerLasers.length - 1; i >= 0; i--) {
                     const l = playerLasers[i];
                     l.mesh.position.addScaledVector(l.dir, 4.2);
@@ -981,7 +1181,7 @@
                     }
                 }
 
-                // --- 8. UPDATE ENEMY LASERS ---
+                // --- 11. UPDATE ENEMY LASERS ---
                 for (let i = enemyLasers.length - 1; i >= 0; i--) {
                     const el = enemyLasers[i];
                     el.mesh.position.addScaledVector(el.dir, el.speed);
@@ -997,7 +1197,7 @@
                     }
                 }
 
-                // --- 9. UPDATE MINION ENEMIES ---
+                // --- 12. UPDATE MINION ENEMIES ---
                 for (let i = enemies.length - 1; i >= 0; i--) {
                     const e = enemies[i];
                     e.mesh.position.z += speed * 0.65;
@@ -1012,6 +1212,7 @@
                         const l = playerLasers[j];
                         if (l.mesh.position.distanceTo(e.mesh.position) < 2.2) {
                             createExplosion(e.mesh.position);
+                            if (Math.random() < 0.22) spawnPowerUpDrop(e.mesh.position);
                             scene.remove(e.mesh); enemies.splice(i, 1);
                             scene.remove(l.mesh); playerLasers.splice(j, 1);
                             
@@ -1032,7 +1233,7 @@
                     }
                 }
 
-                // --- 10. UPDATE EXPLOSIONS ---
+                // --- 13. UPDATE EXPLOSIONS ---
                 for (let i = particleExplosions.length - 1; i >= 0; i--) {
                     const p = particleExplosions[i];
                     p.mesh.position.add(p.vel);
@@ -1046,25 +1247,91 @@
             renderer.render(scene, camera);
         }
 
+        function applyPowerUp(pType) {
+            sfx.playPowerup();
+            triggerPowerupPopup(pType.label);
+
+            switch(pType.id) {
+                case "HEALTH":
+                    health = Math.min(maxHealth, health + 25);
+                    break;
+                case "MAX_HP":
+                    maxHealth += 25;
+                    health += 25;
+                    break;
+                case "SPREAD":
+                    cannonSpreadLevel = Math.min(3, cannonSpreadLevel + 1);
+                    break;
+                case "TEMP_SHIELD":
+                    tempShieldTimer = 8.0;
+                    break;
+                case "WEAPON_SWAP":
+                    if (activeWeaponType === "PLASMA") activeWeaponType = "SPREAD";
+                    else if (activeWeaponType === "SPREAD") activeWeaponType = "BEAM";
+                    else activeWeaponType = "PLASMA";
+                    break;
+                case "HOMING_MISSILE":
+                    missileCount++;
+                    break;
+            }
+            updateHUD();
+        }
+
         function firePlayerLaser() {
             const geo = new THREE.CylinderGeometry(0.08, 0.08, 1.8);
-            const mat = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
+            const matColor = activeWeaponType === "BEAM" ? 0xffff00 : (activeWeaponType === "SPREAD" ? 0xff0055 : 0x00ffcc);
+            const mat = new THREE.MeshBasicMaterial({ color: matColor });
+
+            const startPosList = [];
             
-            const startL = new THREE.Vector3(playerShip.position.x - 2.2, playerShip.position.y, playerShip.position.z - 1);
-            const startR = new THREE.Vector3(playerShip.position.x + 2.2, playerShip.position.y, playerShip.position.z - 1);
-            
-            const dirL = new THREE.Vector3().subVectors(currentAimWorldPoint, startL).normalize();
-            const dirR = new THREE.Vector3().subVectors(currentAimWorldPoint, startR).normalize();
+            if (cannonSpreadLevel === 1) {
+                startPosList.push(new THREE.Vector3(playerShip.position.x - 2.2, playerShip.position.y, playerShip.position.z - 1));
+                startPosList.push(new THREE.Vector3(playerShip.position.x + 2.2, playerShip.position.y, playerShip.position.z - 1));
+            } else if (cannonSpreadLevel === 2) {
+                startPosList.push(new THREE.Vector3(playerShip.position.x - 2.4, playerShip.position.y, playerShip.position.z - 1));
+                startPosList.push(new THREE.Vector3(playerShip.position.x, playerShip.position.y + 0.4, playerShip.position.z - 1));
+                startPosList.push(new THREE.Vector3(playerShip.position.x + 2.4, playerShip.position.y, playerShip.position.z - 1));
+            } else {
+                startPosList.push(new THREE.Vector3(playerShip.position.x - 2.8, playerShip.position.y - 0.2, playerShip.position.z - 1));
+                startPosList.push(new THREE.Vector3(playerShip.position.x - 1.0, playerShip.position.y + 0.4, playerShip.position.z - 1));
+                startPosList.push(new THREE.Vector3(playerShip.position.x + 1.0, playerShip.position.y + 0.4, playerShip.position.z - 1));
+                startPosList.push(new THREE.Vector3(playerShip.position.x + 2.8, playerShip.position.y - 0.2, playerShip.position.z - 1));
+            }
 
-            const laserL = new THREE.Mesh(geo, mat); laserL.rotation.x = Math.PI / 2;
-            const laserR = laserL.clone();
+            startPosList.forEach((start, idx) => {
+                const aimOffset = currentAimWorldPoint.clone();
+                if (activeWeaponType === "SPREAD") {
+                    const offsetVal = (idx - (startPosList.length - 1) / 2) * 12.0;
+                    aimOffset.x += offsetVal;
+                }
 
-            laserL.position.copy(startL);
-            laserR.position.copy(startR);
+                const dir = new THREE.Vector3().subVectors(aimOffset, start).normalize();
+                const laser = new THREE.Mesh(geo, mat);
+                laser.rotation.x = Math.PI / 2;
+                laser.position.copy(start);
 
-            scene.add(laserL, laserR);
-            playerLasers.push({ mesh: laserL, dir: dirL }, { mesh: laserR, dir: dirR });
-            sfx.playLaser();
+                scene.add(laser);
+                playerLasers.push({ mesh: laser, dir: dir });
+            });
+
+            sfx.playLaser(activeWeaponType);
+        }
+
+        function fireHomingMissiles() {
+            sfx.playMissileLaunch();
+            for(let i=0; i<missileCount; i++) {
+                const geo = new THREE.ConeGeometry(0.3, 1.4, 5);
+                geo.rotateX(-Math.PI / 2);
+                const mat = new THREE.MeshLambertMaterial({ color: 0xbd00ff, flatShading: true });
+                const missile = new THREE.Mesh(geo, mat);
+
+                missile.position.copy(playerShip.position);
+                missile.position.x += (i - (missileCount - 1) / 2) * 1.5;
+
+                const dir = new THREE.Vector3(0, 0, -1);
+                scene.add(missile);
+                activeMissiles.push({ mesh: missile, dir: dir });
+            }
         }
 
         function fireEnemyLaser(enemy) {
@@ -1126,6 +1393,8 @@
         }
 
         function triggerPlayerDamage(amount) {
+            if (tempShieldTimer > 0) return;
+
             health -= amount;
             sfx.playPlayerHit();
             
@@ -1160,7 +1429,9 @@
 
         function updateHUD() {
             document.getElementById('score-display').innerText = score;
-            document.getElementById('health-bar-fill').style.width = Math.max(0, health) + '%';
+            document.getElementById('health-bar-fill').style.width = Math.max(0, (health / maxHealth) * 100) + '%';
+            document.getElementById('weapon-display').innerText = `WEAPON: ${activeWeaponType} (LVL ${cannonSpreadLevel})`;
+            document.getElementById('missile-display').innerText = `MISSILES: ${missileCount}`;
             
             const targetQuota = BIOMES[currentBiomeIndex].quota;
             const pct = Math.min(100, (quotaDefeated / targetQuota) * 100);
