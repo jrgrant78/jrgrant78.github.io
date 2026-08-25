@@ -1,0 +1,2972 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OVERRUN // parkour arena</title>
+<style>
+  :root{
+    --void:#0a0b12;
+    --void2:#0e1018;
+    --ink:#141726;
+    --ink2:#1b1f33;
+    --line:#2a2f4a;
+    --signal:#ff3864;
+    --signal-dim:#7a1f36;
+    --volt:#2de2c8;
+    --volt-dim:#16554d;
+    --warn:#ffd23f;
+    --paper:#eef1f7;
+    --paper-dim:#9aa0b8;
+    --mono: 'Consolas', 'SF Mono', 'Cascadia Code', 'Courier New', monospace;
+    --disp: 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{
+    margin:0; padding:0; width:100%; height:100%; overflow:hidden;
+    background:var(--void); color:var(--paper);
+    font-family:var(--mono);
+    user-select:none;
+  }
+  #gameCanvas{
+    position:fixed; inset:0; width:100%; height:100%; display:block;
+    background:var(--void);
+    cursor:crosshair;
+  }
+
+  /* ---------- shared angular panel system ---------- */
+  .notched{
+    clip-path: polygon(
+      14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%,
+      0 100%, 0 14px
+    );
+  }
+  .notched-sm{
+    clip-path: polygon(
+      8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%,
+      0 100%, 0 8px
+    );
+  }
+  .panel{
+    background:linear-gradient(160deg, var(--ink) 0%, var(--void2) 100%);
+    border:1px solid var(--line);
+    position:relative;
+  }
+  .panel::before{
+    content:''; position:absolute; inset:0; padding:1px;
+    background:linear-gradient(160deg, var(--volt) 0%, transparent 30%, transparent 70%, var(--signal) 100%);
+    opacity:.35; pointer-events:none;
+  }
+  .eyebrow{
+    font-family:var(--mono); font-size:11px; letter-spacing:.28em; text-transform:uppercase;
+    color:var(--volt); font-weight:700;
+  }
+  .btn{
+    font-family:var(--disp); font-weight:900; text-transform:uppercase; letter-spacing:.08em;
+    font-size:15px; color:var(--paper);
+    background:var(--ink2); border:1px solid var(--line);
+    padding:14px 22px; cursor:pointer; transition:transform .08s ease, background .12s ease, border-color .12s ease;
+  }
+  .btn:hover{ background:var(--signal-dim); border-color:var(--signal); transform:translateY(-1px); }
+  .btn:active{ transform:translateY(0px) scale(.98); }
+  .btn.alt:hover{ background:var(--volt-dim); border-color:var(--volt); }
+  .btn:disabled{ opacity:.35; cursor:not-allowed; transform:none; }
+  .btn:disabled:hover{ background:var(--ink2); border-color:var(--line); }
+
+  h1,h2,h3{ font-family:var(--disp); text-transform:uppercase; margin:0; }
+
+  /* ---------- overlay screens ---------- */
+  .screen{
+    position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(ellipse at 50% 20%, #1a1030 0%, var(--void) 65%);
+    z-index:20;
+  }
+  .hidden{ display:none !important; }
+
+  .title-block{ text-align:center; margin-bottom:28px; }
+  .title-block h1{
+    font-size:clamp(40px,7vw,84px); letter-spacing:.02em; line-height:.9;
+    color:var(--paper);
+    text-shadow: 0 0 24px rgba(255,56,100,.55), 0 0 60px rgba(45,226,200,.25);
+  }
+  .title-block h1 span{ color:var(--signal); }
+  .title-block .sub{ color:var(--paper-dim); letter-spacing:.35em; font-size:12px; margin-top:10px; text-transform:uppercase; }
+
+  .menu-card{
+    width:min(480px,92vw); padding:34px 30px; display:flex; flex-direction:column; gap:14px;
+  }
+
+  .field{ display:flex; flex-direction:column; gap:6px; }
+  .field label{ font-size:11px; letter-spacing:.2em; color:var(--paper-dim); text-transform:uppercase; }
+  .field input{
+    background:var(--void2); border:1px solid var(--line); color:var(--paper);
+    font-family:var(--mono); font-size:16px; padding:12px 14px; letter-spacing:.1em;
+  }
+  .field input:focus{ outline:none; border-color:var(--volt); }
+  .row{ display:flex; gap:10px; }
+  .row > *{ flex:1; }
+
+  .code-display{
+    font-family:var(--mono); font-size:34px; letter-spacing:.25em; color:var(--volt);
+    background:var(--void2); border:1px dashed var(--line); padding:14px; text-align:center;
+    cursor:pointer;
+  }
+
+  /* character select */
+  #charSelectScreen .menu-card{ width:min(920px,94vw); }
+  .char-grid{
+    display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin:6px 0 4px;
+  }
+  .char-card{
+    background:var(--void2); border:1px solid var(--line); padding:10px 6px 8px;
+    display:flex; flex-direction:column; align-items:center; gap:6px; cursor:pointer;
+    transition:border-color .1s, background .1s;
+  }
+  .char-card canvas{ width:56px; height:80px; }
+  .char-card .cn{ font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:var(--paper-dim); text-align:center; }
+  .char-card:hover{ border-color:var(--paper-dim); }
+  .char-card.selected{ border-color:var(--signal); background:var(--signal-dim); }
+  .char-card.selected .cn{ color:var(--paper); }
+  .char-card.taken{ opacity:.4; }
+
+  .stage-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:6px 0 4px; }
+  .stage-card{
+    background:var(--void2); border:1px solid var(--line); padding:10px; cursor:pointer;
+    transition:border-color .1s, background .1s; text-align:left;
+  }
+  .stage-card:hover{ border-color:var(--paper-dim); }
+  .stage-card.selected{ border-color:var(--volt); background:var(--volt-dim); }
+  .stage-card .sn{ font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; margin-bottom:6px; }
+  .stage-card.selected .sn{ color:var(--paper); }
+  .stage-card .swatches{ display:flex; height:22px; overflow:hidden; }
+  .stage-card .swatches span{ flex:1; height:100%; }
+  .stage-card .st{ font-size:9px; letter-spacing:.1em; color:var(--paper-dim); margin-top:6px; text-transform:uppercase; }
+  .stage-card:not(.interactive){ cursor:default; }
+
+  .lobby-list{ display:flex; flex-direction:column; gap:6px; margin:8px 0; }
+  .lobby-row{
+    display:flex; align-items:center; gap:10px; background:var(--void2);
+    border:1px solid var(--line); padding:8px 12px; font-size:13px;
+  }
+  .lobby-row .dot{ width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .lobby-row .rn{ flex:1; }
+  .lobby-row .tag{ font-size:10px; color:var(--volt); letter-spacing:.1em; }
+
+  .err{ color:var(--signal); font-size:12px; letter-spacing:.05em; min-height:14px; }
+  .hint{ color:var(--paper-dim); font-size:11px; letter-spacing:.03em; line-height:1.5; }
+
+  /* ---------- HUD ---------- */
+  #hud{ position:fixed; inset:0; pointer-events:none; z-index:10; }
+  #hud .cluster{ position:absolute; }
+
+  #healthCluster{ left:18px; bottom:18px; width:280px; }
+  .hp-label{ display:flex; justify-content:space-between; font-size:11px; letter-spacing:.15em; color:var(--paper-dim); margin-bottom:4px; }
+  .hp-bar-bg{ height:20px; background:var(--void2); border:1px solid var(--line); clip-path:polygon(10px 0,100% 0,100% 100%,0 100%,0 10px); }
+  .hp-bar-fill{ height:100%; background:linear-gradient(90deg,var(--signal-dim),var(--signal)); transition:width .12s ease; }
+
+  #weaponCluster{ right:18px; bottom:18px; display:flex; gap:8px; }
+  .wep-slot{
+    width:150px; background:var(--ink); border:1px solid var(--line); padding:8px 10px;
+    clip-path: polygon(10px 0,100% 0,100% 100%,0 100%,0 10px);
+  }
+  .wep-slot.active{ border-color:var(--volt); box-shadow:0 0 14px rgba(45,226,200,.35) inset; }
+  .wep-slot.ready{ border-color:var(--warn); box-shadow:0 0 14px rgba(255,210,63,.4) inset; }
+  .wep-slot.cooling{ opacity:.55; }
+  .wep-slot.cooling .wa{ color:var(--paper-dim) !important; }
+  .wep-slot .wn{ font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+  .wep-slot .wa{ font-size:18px; color:var(--volt); font-family:var(--mono); }
+  .wep-slot .wk{ font-size:9px; color:var(--paper-dim); letter-spacing:.1em; }
+
+  #scoreCluster{ top:16px; right:16px; display:flex; flex-direction:column; gap:4px; width:180px; }
+  .score-row{ display:flex; justify-content:space-between; font-size:11px; background:rgba(20,23,38,.7); padding:4px 8px; border-left:2px solid var(--line); }
+  .score-row .k{ color:var(--volt); }
+
+  #feed{ top:16px; left:16px; display:flex; flex-direction:column; gap:4px; width:280px; }
+  .feed-row{ font-size:11px; background:rgba(20,23,38,.75); padding:5px 9px; border-left:2px solid var(--signal); animation:feedin .2s ease; opacity:.95;}
+  @keyframes feedin{ from{ opacity:0; transform:translateX(-8px);} to{opacity:.95; transform:translateX(0);} }
+
+  #promptCluster{ left:50%; bottom:64px; transform:translateX(-50%); text-align:center; font-size:12px; color:var(--paper-dim); letter-spacing:.1em; }
+  #promptCluster .key{ color:var(--warn); }
+
+  #roomTag{ top:16px; left:50%; transform:translateX(-50%); font-size:11px; letter-spacing:.2em; color:var(--paper-dim); }
+  #roomTag b{ color:var(--volt); }
+
+  #flash{ position:fixed; inset:0; pointer-events:none; z-index:9; background:radial-gradient(ellipse at center, transparent 55%, rgba(255,56,100,.35) 100%); opacity:0; }
+
+  #deathOverlay{
+    position:fixed; inset:0; z-index:15; display:flex; align-items:center; justify-content:center;
+    background:rgba(10,11,18,.72); flex-direction:column; gap:8px;
+  }
+  #deathOverlay h2{ font-size:44px; color:var(--signal); letter-spacing:.1em; }
+  #deathOverlay .rt{ font-size:14px; color:var(--paper-dim); letter-spacing:.2em; }
+
+  ::-webkit-scrollbar{ width:8px; }
+  ::-webkit-scrollbar-thumb{ background:var(--line); }
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+<div id="flash"></div>
+
+<!-- ================= MAIN MENU ================= -->
+<div id="mainMenuScreen" class="screen">
+  <div class="menu-card panel notched">
+    <div class="title-block">
+      <h1>OVER<span>RUN</span></h1>
+      <div class="sub">2.5D parkour combat &middot; online &middot; 1&ndash;4 players</div>
+    </div>
+    <div class="field">
+      <label>Callsign</label>
+      <input id="nameInput" maxlength="14" placeholder="YOUR NAME" autocomplete="off">
+    </div>
+    <button class="btn" id="hostBtn">Host Match</button>
+    <button class="btn alt" id="joinShowBtn">Join Match</button>
+    <div id="joinFields" class="hidden" style="display:flex;flex-direction:column;gap:10px;">
+      <div class="field">
+        <label>Room Code</label>
+        <input id="joinCodeInput" maxlength="5" placeholder="XXXXX" style="text-transform:uppercase;letter-spacing:.3em;text-align:center;font-size:22px;" autocomplete="off">
+      </div>
+      <button class="btn alt" id="joinBtn">Connect</button>
+    </div>
+    <div class="err" id="menuErr"></div>
+    <div class="hint">Each player opens this page in their own browser. The host shares a 5-character room code; everyone else joins with it. Works over LAN or internet &mdash; strict corporate firewalls may block the peer-to-peer connection.</div>
+  </div>
+</div>
+
+<!-- ================= CHARACTER SELECT / LOBBY ================= -->
+<div id="charSelectScreen" class="screen hidden">
+  <div class="menu-card panel notched">
+    <div class="eyebrow" style="margin-bottom:6px;">Lobby</div>
+    <div id="roomCodeDisplay" class="code-display hidden"></div>
+    <h3 style="font-size:20px;letter-spacing:.08em;margin:10px 0 2px;">Stage</h3>
+    <div class="stage-grid" id="stageGrid"></div>
+    <h3 style="font-size:20px;letter-spacing:.08em;margin:14px 0 2px;">Select Operative</h3>
+    <div class="char-grid" id="charGrid"></div>
+    <div class="lobby-list" id="lobbyList"></div>
+    <div class="row">
+      <button class="btn" id="startMatchBtn">Start Match</button>
+      <button class="btn alt" id="leaveLobbyBtn">Leave</button>
+    </div>
+    <div class="err" id="lobbyErr"></div>
+    <div class="hint" id="lobbyHint">Waiting for host to start&hellip;</div>
+  </div>
+</div>
+
+<!-- ================= HUD ================= -->
+<div id="hud" class="hidden">
+  <div id="roomTag" class="cluster">ROOM <b id="roomTagCode">-----</b> &middot; <span id="roomTagStage">-----</span></div>
+
+  <div id="healthCluster" class="cluster">
+    <div class="hp-label"><span id="hpName">YOU</span><span id="hpNum">100</span></div>
+    <div class="hp-bar-bg"><div class="hp-bar-fill" id="hpFill" style="width:100%"></div></div>
+  </div>
+
+  <div id="weaponCluster" class="cluster">
+    <div class="wep-slot" id="specialSlot">
+      <div class="wk">SPECIAL // F</div>
+      <div class="wn" id="specialName">—</div>
+      <div class="wa" id="specialCD">READY</div>
+    </div>
+    <div class="wep-slot" id="meleeSlot">
+      <div class="wk">MELEE // 2</div>
+      <div class="wn" id="meleeName">KNIFE</div>
+    </div>
+    <div class="wep-slot active" id="rangedSlot">
+      <div class="wk">RANGED // 1</div>
+      <div class="wn" id="rangedName">HANDGUN</div>
+      <div class="wa" id="rangedAmmo">14</div>
+    </div>
+  </div>
+
+  <div id="scoreCluster" class="cluster"></div>
+  <div id="feed" class="cluster"></div>
+
+  <div id="promptCluster" class="cluster"></div>
+</div>
+
+<div id="deathOverlay" class="hidden">
+  <h2 id="deathTitle">ELIMINATED</h2>
+  <div class="rt" id="deathSub">by SOMETHING &middot; respawning in <span id="respawnT">3</span>s</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
+<script>
+/* ============================================================
+   OVERRUN — main game script
+   Sections are marked with banner comments; search for them.
+   ============================================================ */
+
+/* ============================================================
+   SECTION: CONFIG & PHYSICS CONSTANTS
+   ============================================================ */
+const CFG = {
+  GRAVITY: 2600,
+  MAX_FALL: 1700,
+  MOVE_ACCEL_GROUND: 4600,
+  MOVE_ACCEL_AIR: 2600,
+  MAX_RUN: 480,
+  GROUND_FRICTION: 4200,
+  AIR_FRICTION: 900,
+  JUMP_VEL: 940,
+  JUMP_CUT: 0.45,
+  COYOTE_TIME: 0.10,
+  JUMP_BUFFER: 0.12,
+  WALL_SLIDE_MAX_FALL: 260,
+  WALL_JUMP_VX: 640,
+  WALL_JUMP_VY: 900,
+  WALL_JUMP_LOCK: 0.16,
+  WALL_STICK_GRACE: 0.09,
+  SLIDE_SPEED: 780,
+  SLIDE_DURATION: 0.40,
+  SLIDE_FRICTION: 900,
+  SLIDE_H_MULT: 0.52,
+  SLIDE_TRIGGER_SPEED: 160,  // must be moving at least this fast for 'S' to slide instead of crouch
+  CROUCH_SPEED_MULT: 0.32,   // crouch-walk speed, kept well under SLIDE_TRIGGER_SPEED
+  SPRINT_MULT: 2.0,          // holding Shift while running
+  LEDGE_REACH_X: 26,
+  LEDGE_BAND: 20,
+  LEDGE_CLIMB_TIME: 0.26,
+  PLAYER_W: 40,
+  PLAYER_H: 76,
+  RESPAWN_TIME: 3.0,
+  MAX_HEALTH: 100,
+  TICK_RATE: 30,          // host snapshot broadcast rate
+  CARRY_SLOW: 0.72,       // movement multiplier while carrying env prop
+};
+
+/* ============================================================
+   SECTION: UTILITY — math, rect helpers
+   ============================================================ */
+function clamp(v, lo, hi){ return v < lo ? lo : (v > hi ? hi : v); }
+function lerp(a, b, t){ return a + (b - a) * t; }
+function dist(x1,y1,x2,y2){ return Math.hypot(x2-x1, y2-y1); }
+function rectsOverlap(a, b){
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+function pointInRect(px, py, r){ return px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h; }
+function uid(){ return Math.random().toString(36).slice(2, 10); }
+
+/* ============================================================
+   SECTION: DATA — characters (10 operatives)
+   Visuals are procedural (canvas-drawn) and fully rigged — each
+   entry defines its own body proportions (head shape, torso shape,
+   shoulder/hip width, limb length/thickness), not just a palette,
+   so the 10 silhouettes read as genuinely different body types.
+   ============================================================ */
+const CHARACTERS = [
+  { id:0, name:'VANTAGE',  primary:'#ff3864', secondary:'#1b0f18', accent:'#ffd23f', accessory:'mohawk',
+    headShape:'angular', torsoShape:'taper', shoulderW:1.10, hipW:0.90, torsoH:1.00, limbLen:1.00, armThick:1.00, legThick:1.00, speedMul:1.00, jumpMul:1.00,
+    special:{ id:'dash', name:'ROUSH DASH', cd:4.0, speed:1500, dur:0.16 } },
+  { id:1, name:'KESTREL',  primary:'#2de2c8', secondary:'#0e2622', accent:'#eef1f7', accessory:'hood',
+    headShape:'oval', torsoShape:'slim', shoulderW:0.90, hipW:0.85, torsoH:1.08, limbLen:1.18, armThick:0.85, legThick:0.85, speedMul:1.08, jumpMul:1.04,
+    special:{ id:'invisible', name:'VANISH', cd:14.0, dur:5.0 } },
+  { id:2, name:'BASTION',  primary:'#ffb020', secondary:'#2a1c08', accent:'#0a0b12', accessory:'helmet',
+    headShape:'square', torsoShape:'broad', shoulderW:1.35, hipW:1.15, torsoH:0.92, limbLen:0.85, armThick:1.35, legThick:1.25, speedMul:0.90, jumpMul:0.94,
+    special:{ id:'shield', name:'AEGIS BUBBLE', cd:14.0, dur:6.0, hp:60 } },
+  { id:3, name:'NULLIFY',  primary:'#9b5cff', secondary:'#160e2a', accent:'#2de2c8', accessory:'visor',
+    headShape:'faceted', torsoShape:'plate', shoulderW:1.05, hipW:0.95, torsoH:1.00, limbLen:1.00, armThick:1.05, legThick:1.00, speedMul:1.00, jumpMul:1.02,
+    special:{ id:'doppelganger', name:'MIRROR DECOY', cd:16.0, dur:8.0 } },
+  { id:4, name:'SABLE',    primary:'#3d3d46', secondary:'#0a0a0d', accent:'#ff3864', accessory:'ponytail',
+    headShape:'round', torsoShape:'taper', shoulderW:0.95, hipW:1.00, torsoH:0.98, limbLen:1.05, armThick:0.90, legThick:0.95, speedMul:1.06, jumpMul:1.02,
+    special:{ id:'grapple', name:'GRAPNEL', cd:6.0, range:760, speed:2100, dur:0.35 } },
+  { id:5, name:'CORVUS',   primary:'#0aa66e', secondary:'#082018', accent:'#eef1f7', accessory:'bandana',
+    headShape:'hooded', torsoShape:'rect', shoulderW:1.00, hipW:0.90, torsoH:1.02, limbLen:1.00, armThick:0.95, legThick:1.00, speedMul:1.02, jumpMul:1.00,
+    special:{ id:'ravens', name:'RAVEN SWARM', cd:10.0, count:5, dmg:9, speed:620 } },
+  { id:6, name:'HAVOC',    primary:'#ff6a2b', secondary:'#2a1206', accent:'#ffd23f', accessory:'spikes',
+    headShape:'small', torsoShape:'broad', shoulderW:1.40, hipW:1.10, torsoH:0.88, limbLen:0.80, armThick:1.40, legThick:1.20, speedMul:0.92, jumpMul:0.92,
+    special:{ id:'slam', name:'SEISMIC SLAM', cd:9.0, dmg:34, radius:150, kb:420 } },
+  { id:7, name:'ECHO',     primary:'#4fa8ff', secondary:'#0c1c30', accent:'#eef1f7', accessory:'antenna',
+    headShape:'oval', torsoShape:'slim', shoulderW:0.85, hipW:0.80, torsoH:1.05, limbLen:1.15, armThick:0.78, legThick:0.82, speedMul:1.05, jumpMul:1.06,
+    special:{ id:'echo', name:'PHASE ECHO', cd:14.0, dur:2.0 } },
+  { id:8, name:'RUIN',     primary:'#c91f3d', secondary:'#1a0508', accent:'#3d3d46', accessory:'scarf',
+    headShape:'square', torsoShape:'rect', shoulderW:1.15, hipW:1.00, torsoH:1.00, limbLen:0.98, armThick:1.10, legThick:1.05, speedMul:0.98, jumpMul:0.98,
+    special:{ id:'decay', name:'DECAY FIELD', cd:11.0, dmg:16, radius:80, kb:220, spikes:4, spacing:56, stagger:0.07 } },
+  { id:9, name:'PRISM',    primary:'#e8e8f0', secondary:'#22222e', accent:'#2de2c8', accessory:'crest',
+    headShape:'faceted', torsoShape:'plate', shoulderW:1.00, hipW:0.88, torsoH:1.00, limbLen:1.08, armThick:0.90, legThick:0.92, speedMul:1.04, jumpMul:1.03,
+    special:{ id:'teleport', name:'PRISM BEACON', cd:10.0 } },
+];
+
+/* ============================================================
+   SECTION: DATA — ranged weapons
+   ============================================================ */
+const RANGED_WEAPONS = {
+  pistol:  { id:'pistol',  name:'HANDGUN',        dmg:14, rate:0.26, spd:1500, spread:0.02, ammo:16, auto:false, kind:'bullet', color:'#eef1f7', kb:60 },
+  smg:     { id:'smg',     name:'MACHINE GUN',    dmg:7,  rate:0.075,spd:1550, spread:0.06, ammo:44, auto:true,  kind:'bullet', color:'#2de2c8', kb:40 },
+  rocket:  { id:'rocket',  name:'ROCKET LAUNCHER',dmg:52, rate:0.85, spd:900,  spread:0.0,  ammo:4,  auto:false, kind:'rocket', color:'#ff6a2b', kb:260, splash:120 },
+  railgun: { id:'railgun', name:'RAIL GUN',       dmg:70, rate:1.05, spd:4200, spread:0.0,  ammo:5,  auto:false, kind:'rail',   color:'#9b5cff', kb:180, pierce:true },
+  minigun: { id:'minigun', name:'MINIGUN',        dmg:6,  rate:0.045,spd:1600, spread:0.11, ammo:90, auto:true,  kind:'bullet', color:'#ffb020', kb:30, spinUp:0.55 },
+  laser:   { id:'laser',   name:'LASER BLASTER',  dmg:4,  rate:0.028,spd:2100, spread:0.015,ammo:120,auto:true,  kind:'laser',  color:'#ff3864', kb:14 },
+};
+const RANGED_KEYS = Object.keys(RANGED_WEAPONS);
+
+/* ============================================================
+   SECTION: DATA — melee weapons
+   range: reach in px, arc: swing degrees, windup/active/recover in seconds
+   ============================================================ */
+const MELEE_WEAPONS = {
+  knife:      { id:'knife',      name:'KNIFE',        dmg:16, range:52,  arc:70,  windup:0.05, active:0.06, recover:0.10, kb:80,  color:'#c7cbd6' },
+  machete:    { id:'machete',    name:'MACHETE',      dmg:24, range:64,  arc:90,  windup:0.07, active:0.08, recover:0.14, kb:120, color:'#8fd694' },
+  bat:        { id:'bat',        name:'BASEBALL BAT', dmg:22, range:60,  arc:110, windup:0.10, active:0.08, recover:0.18, kb:340, color:'#c9a066' },
+  chainsaw:   { id:'chainsaw',   name:'CHAINSAW',     dmg:9,  range:56,  arc:50,  windup:0.04, active:0.30, recover:0.12, kb:60,  color:'#ff6a2b', continuous:true },
+  mace:       { id:'mace',       name:'MACE',         dmg:34, range:66,  arc:130, windup:0.16, active:0.09, recover:0.24, kb:400, color:'#9aa0b8' },
+  lance:      { id:'lance',      name:'LANCE',        dmg:26, range:96,  arc:24,  windup:0.09, active:0.07, recover:0.16, kb:220, color:'#eef1f7', thrust:true },
+  katana:     { id:'katana',     name:'KATANA',       dmg:20, range:66,  arc:100, windup:0.05, active:0.07, recover:0.11, kb:110, color:'#eef1f7' },
+  scimitar:   { id:'scimitar',   name:'SCIMITAR',     dmg:18, range:62,  arc:120, windup:0.05, active:0.08, recover:0.10, kb:100, color:'#ffd23f' },
+  lightsaber: { id:'lightsaber', name:'LIGHTSABER',   dmg:30, range:70,  arc:95,  windup:0.06, active:0.08, recover:0.12, kb:160, color:'#2de2c8', glow:true },
+  frypan:     { id:'frypan',     name:'FRYING PAN',   dmg:12, range:58,  arc:100, windup:0.08, active:0.08, recover:0.15, kb:460, color:'#4a4a55' },
+};
+const MELEE_KEYS = Object.keys(MELEE_WEAPONS);
+// Unarmed fallback used whenever a player has no melee weapon in hand.
+const FISTS = { id:'fists', name:'FISTS', dmg:6, range:44, arc:80, windup:0.05, active:0.05, recover:0.10, kb:70, color:'#9aa0b8' };
+
+/* ============================================================
+   SECTION: DATA — environmental props
+   ============================================================ */
+const ENV_PROPS = {
+  crate:   { id:'crate',   name:'CRATE',           dmg:14, w:34, h:34, color:'#b98a4e', throwSpd:1100 },
+  barrel:  { id:'barrel',  name:'EXPLOSIVE BARREL',dmg:20, w:32, h:44, color:'#ff3864', throwSpd:1000, explosive:true, splash:130, splashDmg:46 },
+  boulder: { id:'boulder', name:'BOULDER',         dmg:36, w:46, h:46, color:'#6b6f80', throwSpd:820 },
+};
+const ENV_KEYS = Object.keys(ENV_PROPS);
+
+/* ============================================================
+   SECTION: STAGES — hand-authored, not procedurally generated.
+   Three fixed layouts, each built once at load time from small
+   composition helpers (a straight platform, a wall-jump shaft, a
+   staircase). The helpers just save re-typing proven geometry —
+   every call site below chooses its own position and size by
+   hand, so the overall shape of each stage is entirely authored,
+   not algorithmic. Every stage ships pre-verified: no overlapping
+   platforms, no floating disconnected pieces, every room reachable.
+   ============================================================ */
+const STAGE_PLATFORM_H = 40;
+
+function rect(x,y,w,h,oneWay){ return {x,y,w,h,oneWay:!!oneWay}; }
+
+// Wall-jump shaft between a known upper floor surface (topY) and lower floor
+// surface (bottomY) at horizontal position x, width shaftW: two facing walls
+// (always something to jump off of), split around a shared open gap partway
+// up so the shaft is never a sealed tube.
+function wallShaft(list, x, shaftW, topY, bottomY, gapT){
+  const openTop = topY + STAGE_PLATFORM_H;
+  const gapCenter = openTop + (bottomY - openTop) * (gapT===undefined?0.5:gapT);
+  const gapHalf = 55;
+  const gapTop = gapCenter - gapHalf, gapBottom = gapCenter + gapHalf;
+  list.push(rect(x, openTop, 24, gapTop-openTop));
+  list.push(rect(x, gapBottom, 24, bottomY-gapBottom));
+  list.push(rect(x+shaftW, openTop, 24, gapTop-openTop));
+  list.push(rect(x+shaftW, gapBottom, 24, bottomY-gapBottom));
+  list.push(rect(x-40, gapCenter-9, shaftW+80+40, 18, true)); // one-way mid ledge, the "open section"
+}
+
+// Staircase: 'steps' platforms climbing from bottomY up to topY, each
+// narrower than its own spacing so consecutive steps can never touch, with
+// the final hop onto the floor above always reserved a full standing-height gap.
+function staircase(list, x, footprintW, bottomY, topY, steps){
+  const span = bottomY - topY;
+  const finalGap = CFG.PLAYER_H * 1.3;
+  const stepH = Math.max(50, (span - finalGap) / steps);
+  const stepDX = footprintW / (steps+1);
+  const sw = Math.max(100, stepDX*0.75);
+  let cx = x + stepDX*0.5;
+  for (let i=1;i<=steps;i++){
+    cx += stepDX;
+    list.push(rect(cx-sw/2, bottomY-stepH*i, sw, 24));
+  }
+}
+
+// A "room" is a purely decorative cutaway background box (no collision) —
+// drawn behind the platforms to give the peek-inside-a-building look.
+function room(list, x, y, w, h, tint, glow, label){
+  list.push({x,y,w,h,tint,glow,label});
+}
+
+// ============ STAGE 1: DUST GULCH (western) ============
+function buildWestern(){
+  const platforms = [], rooms = [], pickupSpawns = [], envSpawns = [], playerSpawns = [];
+  const G = 1900, U = 1480, B = 2380, BR = 2460;
+
+  const gRooms = [
+    { x:0,    w:560, label:'GENERAL STORE' },
+    { x:740,  w:760, label:'SALOON' },
+    { x:1660, w:540, label:'JAIL' },
+    { x:2380, w:520, label:'BANK' },
+    { x:3100, w:600, label:'BLACKSMITH' },
+    { x:3870, w:730, label:'HOTEL' },
+    { x:4780, w:620, label:'TRADING POST' },
+    { x:5500, w:620, label:'MINE ENTRANCE' },
+  ];
+  for (const r of gRooms) platforms.push(rect(r.x, G, r.w, STAGE_PLATFORM_H));
+
+  room(rooms, 0,    G-420, 560, 420+STAGE_PLATFORM_H, '#5a4128', null, 'GENERAL STORE');
+  room(rooms, 740,  G-420, 760, 420+STAGE_PLATFORM_H, '#3a1015', '#ff6a2b', 'SALOON');
+  room(rooms, 1660, G-360, 540, 360+STAGE_PLATFORM_H, '#25303a', null, 'JAIL');
+  room(rooms, 2380, G-360, 520, 360+STAGE_PLATFORM_H, '#1c3826', '#2de2c8', 'BANK');
+  room(rooms, 3100, G-360, 600, 360+STAGE_PLATFORM_H, '#2a1f18', '#ff8a3d', 'BLACKSMITH');
+  room(rooms, 3870, G-420, 730, 420+STAGE_PLATFORM_H, '#4a3320', null, 'HOTEL');
+  room(rooms, 4780, G-340, 620, 340+STAGE_PLATFORM_H, '#4a3a26', null, 'TRADING POST');
+  room(rooms, 5500, G-340, 620, 340+STAGE_PLATFORM_H, '#3a2c1e', null, 'MINE ENTRANCE');
+
+  platforms.push(rect(740, U, 760, STAGE_PLATFORM_H));
+  platforms.push(rect(3870, U, 730, STAGE_PLATFORM_H));
+  room(rooms, 740, U-360, 760, 360+STAGE_PLATFORM_H, '#4a1218', '#ff3864', 'SALOON UPSTAIRS');
+  room(rooms, 3870, U-360, 730, 360+STAGE_PLATFORM_H, '#3a2818', null, 'HOTEL ROOMS');
+
+  staircase(platforms, 780, 660, G, U, 3);
+  staircase(platforms, 3910, 630, G, U, 3);
+
+  platforms.push(rect(2900, B, 800, STAGE_PLATFORM_H));
+  platforms.push(rect(3700, BR, 500, 16));
+  platforms.push(rect(4200, B, 1700, STAGE_PLATFORM_H));
+  room(rooms, 2900, B-320, 800, 320+STAGE_PLATFORM_H, '#241811', '#ffb020', 'MINE — WEST SHAFT');
+  room(rooms, 4200, B-320, 1700, 320+STAGE_PLATFORM_H, '#241811', '#ffb020', 'MINE — EAST SHAFT');
+
+  wallShaft(platforms, 3200, 170, G, B);
+  wallShaft(platforms, 5560, 170, G, B);
+
+  for (let i=0;i<4;i++) playerSpawns.push({ x: 70+i*100, y: G-150 });
+  pickupSpawns.push({x:280,y:G-26},{x:1080,y:G-26},{x:1900,y:G-26},{x:2620,y:G-26},
+    {x:3380,y:G-26},{x:4220,y:G-26},{x:5080,y:G-26},{x:5800,y:G-26},
+    {x:1080,y:U-26},{x:4220,y:U-26},{x:3280,y:B-26},{x:5000,y:B-26});
+  envSpawns.push({x:1900,y:G-30},{x:3380,y:B-30},{x:5000,y:B-30});
+
+  const killY = B + 500;
+  return { id:'western', name:'DUST GULCH', theme:'western', platforms, rooms, pickupSpawns, envSpawns, playerSpawns,
+    width: 6120, height: killY+200, killY };
+}
+
+// ============ STAGE 2: ASHFALL KEEP (castle) ============
+function buildCastle(){
+  const platforms = [], rooms = [], pickupSpawns = [], envSpawns = [], playerSpawns = [];
+  const T = 1120, M = 1540, L = 1960, D = 2380;
+
+  platforms.push(rect(0, L, 1000, STAGE_PLATFORM_H));
+  platforms.push(rect(1000, 2060, 1000, 16));
+  platforms.push(rect(2000, L, 800, STAGE_PLATFORM_H));
+  room(rooms, 0,    L-460, 1000, 460+STAGE_PLATFORM_H, '#3a1015', '#ff6a2b', 'GREAT HALL');
+  room(rooms, 2000, L-380, 800,  380+STAGE_PLATFORM_H, '#2a2f3a', null, 'STOREROOM');
+
+  platforms.push(rect(40,   M, 420, STAGE_PLATFORM_H));
+  platforms.push(rect(580,  M, 420, STAGE_PLATFORM_H));
+  platforms.push(rect(2040, M, 420, STAGE_PLATFORM_H));
+  platforms.push(rect(2600, M, 500, STAGE_PLATFORM_H));
+  room(rooms, 40,   M-380, 420, 380+STAGE_PLATFORM_H, '#2c3440', null, 'ARMORY');
+  room(rooms, 580,  M-380, 420, 380+STAGE_PLATFORM_H, '#242e3a', '#4fa8ff', 'CHAPEL');
+  room(rooms, 2040, M-380, 420, 380+STAGE_PLATFORM_H, '#2c3440', null, 'BARRACKS');
+  room(rooms, 2600, M-380, 500, 380+STAGE_PLATFORM_H, '#16261c', '#39ff9e', 'TROPHY ROOM');
+
+  platforms.push(rect(150,  T, 500, STAGE_PLATFORM_H));
+  platforms.push(rect(2350, T, 500, STAGE_PLATFORM_H));
+  room(rooms, 150,  T-320, 500, 320+STAGE_PLATFORM_H, '#232838', null, 'WEST TOWER');
+  room(rooms, 2350, T-320, 500, 320+STAGE_PLATFORM_H, '#232838', null, 'WATCHTOWER');
+
+  platforms.push(rect(100, D, 500, STAGE_PLATFORM_H));
+  room(rooms, 100, D-300, 500, 300+STAGE_PLATFORM_H, '#181a20', '#39ff9e', 'DUNGEON');
+
+  staircase(platforms, 100, 380, L, M, 3);
+  staircase(platforms, 2050, 380, L, M, 3);
+  wallShaft(platforms, 220, 170, T, M);
+  wallShaft(platforms, 2650, 170, T, M);
+  wallShaft(platforms, 300, 170, L, D);
+
+  for (let i=0;i<4;i++) playerSpawns.push({ x: 60+i*100, y: L-150 });
+  pickupSpawns.push({x:300,y:L-26},{x:2300,y:L-26},{x:220,y:M-26},{x:760,y:M-26},
+    {x:2220,y:M-26},{x:2820,y:M-26},{x:380,y:T-26},{x:2580,y:T-26},{x:320,y:D-26});
+  envSpawns.push({x:300,y:L-30},{x:2300,y:L-30},{x:320,y:D-30});
+
+  const killY = D + 480;
+  return { id:'castle', name:'ASHFALL KEEP', theme:'castle', platforms, rooms, pickupSpawns, envSpawns, playerSpawns,
+    width: 2800, height: killY+200, killY };
+}
+
+// ============ STAGE 3: NEON WARD (cyberpunk) ============
+function buildCyberpunk(){
+  const platforms = [], rooms = [], pickupSpawns = [], envSpawns = [], playerSpawns = [];
+  const R = 1080, H = 1500, S = 1920, U = 2340;
+
+  const buildingsS = [
+    { x:0,    w:560, label:'NOODLE BAR' },
+    { x:740,  w:520, label:'SERVER ROOM' },
+    { x:1440, w:600, label:'CLUB ENTRANCE' },
+    { x:2220, w:520, label:'CONVENIENCE STORE' },
+    { x:2920, w:560, label:'ARCADE' },
+  ];
+  for (const b of buildingsS) platforms.push(rect(b.x, S, b.w, STAGE_PLATFORM_H));
+  room(rooms, 0,    S-380, 560, 380+STAGE_PLATFORM_H, '#16202c', null, 'NOODLE BAR');
+  room(rooms, 740,  S-380, 520, 380+STAGE_PLATFORM_H, '#0d2830', '#2de2c8', 'SERVER ROOM');
+  room(rooms, 1440, S-380, 600, 380+STAGE_PLATFORM_H, '#2a0d20', '#ff3ec8', 'CLUB ENTRANCE');
+  room(rooms, 2220, S-380, 520, 380+STAGE_PLATFORM_H, '#16202c', null, 'CONVENIENCE STORE');
+  room(rooms, 2920, S-380, 560, 380+STAGE_PLATFORM_H, '#1a1622', '#9b5cff', 'ARCADE');
+
+  const buildingsH = [
+    { x:0,    w:540, label:'APARTMENT' },
+    { x:760,  w:480, label:'HACKER DEN' },
+    { x:1460, w:560, label:'VIP LOUNGE' },
+    { x:2240, w:480, label:'OFFICE' },
+    { x:2940, w:500, label:'ROOFTOP VENTS' },
+  ];
+  for (const b of buildingsH) platforms.push(rect(b.x, H, b.w, STAGE_PLATFORM_H));
+  room(rooms, 0,    H-360, 540, 360+STAGE_PLATFORM_H, '#1c1c28', null, 'APARTMENT');
+  room(rooms, 760,  H-360, 480, 360+STAGE_PLATFORM_H, '#181e2a', '#2de2c8', 'HACKER DEN');
+  room(rooms, 1460, H-360, 560, 360+STAGE_PLATFORM_H, '#2a0d20', '#ff3ec8', 'VIP LOUNGE');
+  room(rooms, 2240, H-360, 480, 360+STAGE_PLATFORM_H, '#20242c', '#ffd23f', 'OFFICE');
+  room(rooms, 2940, H-360, 500, 360+STAGE_PLATFORM_H, '#151a20', null, 'ROOFTOP VENTS');
+
+  platforms.push(rect(60,   R, 440, STAGE_PLATFORM_H));
+  platforms.push(rect(1500, R, 480, STAGE_PLATFORM_H));
+  platforms.push(rect(2980, R, 420, STAGE_PLATFORM_H));
+  room(rooms, 60,   R-300, 440, 300+STAGE_PLATFORM_H, '#0d2818', '#39ff9e', 'ROOFTOP GARDEN');
+  room(rooms, 1500, R-300, 480, 300+STAGE_PLATFORM_H, '#241830', '#ff3ec8', 'PENTHOUSE');
+  room(rooms, 2980, R-300, 420, 300+STAGE_PLATFORM_H, '#12161c', '#4fa8ff', 'ANTENNA ARRAY');
+
+  platforms.push(rect(740,  U, 700, STAGE_PLATFORM_H));
+  platforms.push(rect(1440, 2420, 700, 16));
+  platforms.push(rect(2140, U, 1050, STAGE_PLATFORM_H));
+  room(rooms, 740,  U-300, 700,  300+STAGE_PLATFORM_H, '#0d2830', '#2de2c8', 'SERVER VAULT');
+  room(rooms, 2140, U-300, 1050, 300+STAGE_PLATFORM_H, '#0d2830', '#2de2c8', 'SERVER VAULT');
+
+  staircase(platforms, 40,   420, S, H, 3);
+  staircase(platforms, 780,  440, S, H, 3);
+  staircase(platforms, 1480, 520, S, H, 3);
+  staircase(platforms, 2260, 440, S, H, 3);
+  staircase(platforms, 2960, 480, S, H, 3);
+
+  wallShaft(platforms, 150,  170, R, H);
+  wallShaft(platforms, 1600, 170, R, H);
+  wallShaft(platforms, 3080, 170, R, H);
+
+  wallShaft(platforms, 850,  170, S, U);
+  wallShaft(platforms, 2350, 170, S, U);
+  wallShaft(platforms, 2950, 170, S, U);
+
+  for (let i=0;i<4;i++) playerSpawns.push({ x: 60+i*100, y: S-150 });
+  pickupSpawns.push({x:280,y:S-26},{x:1000,y:S-26},{x:1740,y:S-26},{x:2480,y:S-26},{x:3200,y:S-26},
+    {x:270,y:H-26},{x:2480,y:H-26},{x:280,y:R-26},{x:1740,y:R-26},{x:3190,y:R-26},
+    {x:1090,y:U-26},{x:2670,y:U-26});
+  envSpawns.push({x:1790,y:S-30},{x:1090,y:U-30},{x:2670,y:U-30});
+
+  const killY = U + 480;
+  return { id:'cyberpunk', name:'NEON WARD', theme:'cyberpunk', platforms, rooms, pickupSpawns, envSpawns, playerSpawns,
+    width: 3600, height: killY+200, killY };
+}
+
+const LEVELS = { western: buildWestern(), castle: buildCastle(), cyberpunk: buildCyberpunk() };
+const STAGE_ORDER = ['western','castle','cyberpunk'];
+
+// Fresh, independent copy each match so runtime spawner timers never leak
+// between matches or clients.
+function loadLevel(stageId){
+  const src = LEVELS[stageId] || LEVELS.western;
+  return {
+    id: src.id, name: src.name, theme: src.theme, width: src.width, height: src.height, killY: src.killY,
+    platforms: src.platforms.map(p => ({...p})),
+    rooms: src.rooms.map(r => ({...r})),
+    pickupSpawns: src.pickupSpawns.map(s => ({...s})),
+    envSpawns: src.envSpawns.map(s => ({...s})),
+    playerSpawns: src.playerSpawns.map(s => ({...s})),
+  };
+}
+
+/* ============================================================
+   SECTION: PLAYER FACTORY
+   ============================================================ */
+function makePlayer(id, name, charId, spawn){
+  const ch = CHARACTERS[charId] || CHARACTERS[0];
+  return {
+    id, name: (name || 'PLAYER').slice(0,14).toUpperCase(), charId,
+    x: spawn ? spawn.x : 100, y: spawn ? spawn.y : 100,
+    vx:0, vy:0, w: CFG.PLAYER_W, h: CFG.PLAYER_H,
+    facing: 1,
+    speedMul: ch.speedMul, jumpMul: ch.jumpMul,
+    grounded:false, onWall:0, wallSliding:false, wallStickT:0, wallLockT:0,
+    sliding:false, slideT:0, crouching:false,
+    ledgeHang:false, climbing:false, climbT:0, ledgeCooldown:0,
+    dropThroughT:0, dropThroughPlat:null, groundedPlat:null, headBumpT:0, headBumpPlat:null,
+    climbFromX:0, climbFromY:0, climbToX:0, climbToY:0,
+    coyoteT:0, jumpBufferT:0, jumpCutApplied:false,
+    health: CFG.MAX_HEALTH, maxHealth: CFG.MAX_HEALTH, alive:true, respawnT:0,
+    rangedId:'pistol', rangedAmmo: RANGED_WEAPONS.pistol.ammo,
+    meleeId:'knife',
+    activeSlot:'ranged',
+    carry:null,
+    atk:{ active:false, weaponIsRanged:false, wid:null, phase:null, t:0, hitDone:false },
+    fireT:0, spinUp:0, chargeT:0,
+    kills:0, deaths:0,
+    // special abilities — one shared cooldown, plus per-ability state (only
+    // the fields relevant to this character's own ability are ever touched)
+    specialCD:0, dashT:0, invulnT:0, invisibleT:0, shieldHP:0, shieldT:0,
+    grappleT:0, grappleTX:0, grappleTY:0, slamState:null, padId:null,
+    posHistory: [], posHistAccum:0,
+    animT: Math.random()*10,
+    prevInput:{ left:false,right:false,up:false,down:false,jump:false,slide:false,run:false,special:false,firePrimary:false,fireSecondary:false,throwWep:false,throwMelee:false,pickup:false,switchWep:false },
+    // render-only trail history, populated client-side
+    trail: [],
+  };
+}
+
+function emptyInput(){
+  return { left:false,right:false,up:false,down:false,jump:false,slide:false,run:false,special:false,
+           firePrimary:false,fireSecondary:false,throwWep:false,throwMelee:false,pickup:false,switchWep:false,
+           aimAngle:0 };
+}
+
+/* ============================================================
+   SECTION: PHYSICS — parkour movement (run/jump/slide/
+   wall-jump/wall-slide/ledge-grab). One function drives every
+   player, local or remote — the host runs it for everyone
+   authoritatively, and each client also runs it for its own
+   local player as a responsive prediction.
+   ============================================================ */
+function resolveHorizontal(p, dt, solids){
+  p.x += p.vx * dt;
+  for (const s of solids){
+    if (s.oneWay) continue;
+    if (rectsOverlap(p, s)){
+      if (p.vx > 0) p.x = s.x - p.w;
+      else if (p.vx < 0) p.x = s.x + s.w;
+      p.vx = 0;
+    }
+  }
+  if (p.x < 0){ p.x = 0; if (p.vx < 0) p.vx = 0; }
+}
+
+function resolveVertical(p, dt, solids){
+  const prevBottom = p.y + p.h;
+  p.y += p.vy * dt;
+  p.grounded = false;
+  p.groundedOneWay = false;
+  for (const s of solids){
+    if (p.dropThroughPlat === s) continue; // actively phasing through this specific platform until fully clear of it
+    if (!rectsOverlap(p, s)) continue;
+    if (s.oneWay){
+      if (p.vy >= 0 && prevBottom <= s.y + 1){
+        p.y = s.y - p.h; p.vy = 0; p.grounded = true; p.groundedOneWay = true; p.groundedPlat = s;
+      }
+      continue;
+    }
+    if (p.vy > 0){ p.y = s.y - p.h; p.vy = 0; p.grounded = true; p.groundedOneWay = false; p.groundedPlat = s; }
+    else if (p.vy < 0){ p.y = s.y + s.h; p.vy = 0; p.headBumpPlat = s; p.headBumpT = 0.18; }
+  }
+  if (p.dropThroughPlat && !rectsOverlap(p, p.dropThroughPlat)) p.dropThroughPlat = null;
+}
+
+function detectWall(p, solids){
+  const probeL = { x: p.x - 3, y: p.y + 4, w: 3, h: p.h - 8 };
+  const probeR = { x: p.x + p.w, y: p.y + 4, w: 3, h: p.h - 8 };
+  let side = 0;
+  for (const s of solids){
+    if (s.oneWay) continue;
+    if (rectsOverlap(probeL, s)) { side = -1; break; }
+  }
+  if (side === 0){
+    for (const s of solids){
+      if (s.oneWay) continue;
+      if (rectsOverlap(probeR, s)) { side = 1; break; }
+    }
+  }
+  if (side !== 0){
+    p.onWall = side;
+    p.wallStickT = CFG.WALL_STICK_GRACE;
+    if (p.vy > 0) p.wallSliding = true;
+  } else if (p.wallStickT <= 0){
+    p.onWall = 0; p.wallSliding = false;
+  }
+}
+
+function tryLedgeGrab(p, solids){
+  if (p.ledgeCooldown > 0) return;
+  const fx = p.facing;
+  const handY = p.y + p.h * 0.30;
+  const reach = CFG.LEDGE_REACH_X;
+  const probeFront = { x: fx > 0 ? p.x + p.w : p.x - reach, y: handY - 8, w: reach, h: 16 };
+  for (const s of solids){ if (!s.oneWay && rectsOverlap(probeFront, s)) return; }
+  const probeBelow = { x: probeFront.x, y: handY + 6, w: reach, h: CFG.LEDGE_BAND };
+  for (const s of solids){
+    if (s.oneWay) continue;
+    if (rectsOverlap(probeBelow, s)){
+      p.ledgeHang = true; p.vx = 0; p.vy = 0;
+      p.x = fx > 0 ? s.x - p.w : s.x + s.w;
+      p.y = s.y - p.h * 0.70 - 2;
+      return;
+    }
+  }
+}
+
+function doJump(p){
+  p.vy = -CFG.JUMP_VEL * p.jumpMul;
+  p.grounded = false; p.coyoteT = 0; p.jumpBufferT = 0; p.jumpCutApplied = false;
+}
+
+function startSlide(p){
+  const oldH = p.h;
+  p.sliding = true; p.crouching = false; p.slideT = CFG.SLIDE_DURATION;
+  const dir = p.vx !== 0 ? Math.sign(p.vx) : p.facing;
+  p.vx = dir * Math.max(Math.abs(p.vx), CFG.SLIDE_SPEED);
+  p.h = CFG.PLAYER_H * CFG.SLIDE_H_MULT;
+  p.y += oldH - p.h;
+}
+
+function enterCrouch(p){
+  if (p.crouching || p.sliding) return;
+  const oldH = p.h;
+  p.crouching = true;
+  p.h = CFG.PLAYER_H * CFG.SLIDE_H_MULT;
+  p.y += oldH - p.h;
+}
+
+// Shared by both slide-end and crouch-release: only stand up if there's
+// headroom, otherwise stay low until the obstruction clears.
+function tryStandUp(p, solids){
+  if (!p.sliding && !p.crouching) return true;
+  const standH = CFG.PLAYER_H;
+  const test = { x:p.x, y:p.y + p.h - standH, w:p.w, h:standH };
+  for (const s of solids){ if (!s.oneWay && rectsOverlap(test, s)) return false; }
+  p.y = p.y + p.h - standH;
+  p.h = standH;
+  p.sliding = false;
+  p.crouching = false;
+  return true;
+}
+
+function updatePlayerPhysics(p, input, dt, solids){
+  if (!p.alive){ return; }
+  const jumpPressed = input.jump && !p.prevInput.jump;
+  const slidePressed = input.slide && !p.prevInput.slide;
+
+  if (p.coyoteT > 0) p.coyoteT -= dt;
+  if (p.jumpBufferT > 0) p.jumpBufferT -= dt;
+  if (p.wallLockT > 0) p.wallLockT -= dt;
+  if (p.wallStickT > 0) p.wallStickT -= dt;
+  if (p.ledgeCooldown > 0) p.ledgeCooldown -= dt;
+  if (p.dropThroughT > 0){ p.dropThroughT -= dt; if (p.dropThroughT <= 0) p.dropThroughPlat = null; }
+  if (p.headBumpT > 0) p.headBumpT -= dt; else p.headBumpPlat = null;
+  if (p.specialCD > 0) p.specialCD -= dt;
+  if (p.dashT > 0) p.dashT -= dt;
+  if (p.invulnT > 0) p.invulnT -= dt;
+  if (p.invisibleT > 0) p.invisibleT -= dt;
+  if (p.grappleT > 0) p.grappleT -= dt;
+  if (p.shieldT > 0){ p.shieldT -= dt; if (p.shieldT <= 0){ p.shieldT = 0; p.shieldHP = 0; } }
+  if (jumpPressed) p.jumpBufferT = CFG.JUMP_BUFFER;
+
+  if (p.ledgeHang){
+    p.vx = 0; p.vy = 0;
+    if (jumpPressed || input.up){
+      p.ledgeHang = false; p.climbing = true; p.climbT = CFG.LEDGE_CLIMB_TIME;
+      p.climbFromX = p.x; p.climbFromY = p.y;
+      p.climbToX = p.x + p.facing*16; p.climbToY = p.y - p.h - 4;
+    } else if (input.down){
+      p.ledgeHang = false; p.vy = 60; p.vx = -p.facing*90; p.ledgeCooldown = 0.15;
+    }
+    p.prevInput = { left:input.left,right:input.right,up:input.up,down:input.down,jump:input.jump,slide:input.slide,run:input.run,special:input.special,
+      firePrimary:input.firePrimary,fireSecondary:input.fireSecondary,throwWep:input.throwWep,throwMelee:input.throwMelee,pickup:input.pickup,switchWep:input.switchWep };
+    return;
+  }
+  if (p.climbing){
+    p.climbT -= dt;
+    const t = clamp(1 - p.climbT / CFG.LEDGE_CLIMB_TIME, 0, 1);
+    p.x = lerp(p.climbFromX, p.climbToX, t);
+    p.y = lerp(p.climbFromY, p.climbToY, t);
+    if (p.climbT <= 0){ p.climbing = false; p.grounded = true; p.ledgeCooldown = 0.2; p.vx=0; p.vy=0; }
+    p.prevInput = { left:input.left,right:input.right,up:input.up,down:input.down,jump:input.jump,slide:input.slide,run:input.run,special:input.special,
+      firePrimary:input.firePrimary,fireSecondary:input.fireSecondary,throwWep:input.throwWep,throwMelee:input.throwMelee,pickup:input.pickup,switchWep:input.switchWep };
+    return;
+  }
+  // mantle: bumped your head on a solid ceiling recently, and pressing Up
+  // pulls you up to stand on top of whatever you hit instead of just falling back.
+  if (p.headBumpT > 0 && input.up && p.headBumpPlat){
+    const s = p.headBumpPlat;
+    p.climbing = true; p.climbT = CFG.LEDGE_CLIMB_TIME;
+    p.climbFromX = p.x; p.climbFromY = p.y;
+    p.climbToX = p.x; p.climbToY = s.y - p.h;
+    p.headBumpT = 0; p.headBumpPlat = null;
+    p.vx = 0; p.vy = 0;
+    p.prevInput = { left:input.left,right:input.right,up:input.up,down:input.down,jump:input.jump,slide:input.slide,run:input.run,special:input.special,
+      firePrimary:input.firePrimary,fireSecondary:input.fireSecondary,throwWep:input.throwWep,throwMelee:input.throwMelee,pickup:input.pickup,switchWep:input.switchWep };
+    return;
+  }
+
+  // drop-through: crouching + jump press falls through the floor you're
+  // standing on (solid or one-way). We keep ignoring collision with that
+  // SPECIFIC platform until fully clear of it, not just for a fixed time —
+  // a timer alone isn't enough for solid floors, which snap you back on
+  // top the instant collision resumes if you haven't fully passed through.
+  if (jumpPressed && p.crouching && p.grounded){
+    p.dropThroughPlat = p.groundedPlat || null;
+    p.dropThroughT = 1.0; // safety cap only, in case the overlap check never naturally clears
+    p.crouching = false;
+    p.y -= (CFG.PLAYER_H - p.h);
+    p.h = CFG.PLAYER_H;
+    p.y += 8;
+    p.grounded = false; p.groundedOneWay = false;
+    p.jumpBufferT = 0;
+  }
+
+  const wantDir = (input.right?1:0) - (input.left?1:0);
+  const sprinting = input.run && !p.carry && !p.crouching;
+  const sprintMul = sprinting ? CFG.SPRINT_MULT : 1;
+  const maxRun = CFG.MAX_RUN * p.speedMul * (p.carry ? CFG.CARRY_SLOW : 1) * sprintMul;
+  const accel = (p.grounded ? CFG.MOVE_ACCEL_GROUND : CFG.MOVE_ACCEL_AIR) * (p.carry ? CFG.CARRY_SLOW : 1) * sprintMul;
+
+  if (p.sliding){
+    const fr = CFG.SLIDE_FRICTION;
+    if (p.vx > 0) p.vx = Math.max(0, p.vx - fr*dt);
+    else if (p.vx < 0) p.vx = Math.min(0, p.vx + fr*dt);
+    p.slideT -= dt;
+    if (p.slideT <= 0 || Math.abs(p.vx) < 40 || jumpPressed){
+      const wasSliding = p.sliding;
+      const ended = tryStandUp(p, solids);
+      if (ended && jumpPressed && wasSliding) doJump(p);
+    }
+  } else if (p.wallLockT > 0){
+    if (wantDir !== 0){ p.vx += wantDir * accel * 0.35 * dt; p.facing = wantDir; }
+  } else if (p.dashT > 0){
+    p.vx *= 0.985; // dash holds its burst speed with only light decay
+  } else if (p.grappleT > 0){
+    const gdx = p.grappleTX - (p.x+p.w/2), gdy = p.grappleTY - (p.y+p.h/2);
+    const gd = Math.hypot(gdx,gdy) || 1;
+    const spd = p.grappleSpeed || 2000;
+    p.vx = gdx/gd*spd; p.vy = gdy/gd*spd;
+    if (gd < 40) p.grappleT = 0; // arrived early, end the pull cleanly
+  } else {
+    const crouchCap = maxRun * CFG.CROUCH_SPEED_MULT;
+    if (wantDir !== 0){
+      p.vx += wantDir * accel * dt;
+      p.vx = p.crouching ? clamp(p.vx, -crouchCap, crouchCap) : clamp(p.vx, -maxRun, maxRun);
+      p.facing = wantDir;
+    } else {
+      const fr = p.grounded ? CFG.GROUND_FRICTION : CFG.AIR_FRICTION;
+      if (p.vx > 0) p.vx = Math.max(0, p.vx - fr*dt);
+      else if (p.vx < 0) p.vx = Math.min(0, p.vx + fr*dt);
+    }
+
+    // 'S' is dual-purpose: a fresh press while running fast triggers a slide;
+    // holding it while stationary/slow holds a crouch instead.
+    if (slidePressed && p.grounded && Math.abs(p.vx) > CFG.SLIDE_TRIGGER_SPEED && !p.carry){
+      startSlide(p);
+    } else if (p.grounded && input.slide && !p.carry && Math.abs(p.vx) <= CFG.SLIDE_TRIGGER_SPEED){
+      enterCrouch(p);
+    } else if (p.crouching && (!input.slide || !p.grounded)){
+      tryStandUp(p, solids);
+    }
+  }
+
+  p.vy = Math.min(p.vy + CFG.GRAVITY*dt, p.wallSliding ? CFG.WALL_SLIDE_MAX_FALL : CFG.MAX_FALL);
+
+  const canCoyoteJump = p.grounded || p.coyoteT > 0;
+  if (p.jumpBufferT > 0 && !p.sliding){
+    if (p.wallStickT > 0 && !p.grounded){
+      p.vx = -p.onWall * CFG.WALL_JUMP_VX;
+      p.vy = -CFG.WALL_JUMP_VY;
+      p.wallLockT = CFG.WALL_JUMP_LOCK;
+      p.facing = -p.onWall;
+      p.wallSliding = false; p.onWall = 0; p.wallStickT = 0;
+      p.jumpBufferT = 0; p.coyoteT = 0;
+    } else if (canCoyoteJump){
+      doJump(p);
+    }
+  }
+  if (!input.jump && p.vy < 0 && !p.jumpCutApplied){ p.vy *= CFG.JUMP_CUT; p.jumpCutApplied = true; }
+
+  const wasGrounded = p.grounded;
+  resolveHorizontal(p, dt, solids);
+  resolveVertical(p, dt, solids);
+  if (wasGrounded && !p.grounded && p.vy >= 0) p.coyoteT = CFG.COYOTE_TIME;
+  if (p.grounded){ p.jumpCutApplied = false; p.onWall = 0; p.wallSliding = false; p.wallStickT = 0; }
+
+  if (!p.grounded){
+    detectWall(p, solids);
+    if (!p.wallSliding) tryLedgeGrab(p, solids);
+  }
+
+  if (p.y > 20000) p.y = 20000; // absolute safety clamp
+
+  p.animT += dt;
+  p.prevInput = { left:input.left,right:input.right,up:input.up,down:input.down,jump:input.jump,slide:input.slide,run:input.run,special:input.special,
+    firePrimary:input.firePrimary,fireSecondary:input.fireSecondary,throwWep:input.throwWep,throwMelee:input.throwMelee,pickup:input.pickup,switchWep:input.switchWep };
+}
+
+/* ============================================================
+   SECTION: COMBAT — ranged fire, melee swings, throwing,
+   pickups, environmental props, damage & respawn.
+   Authority model: only the HOST ever calls these functions.
+   Clients receive the results through network snapshots and
+   only render them (see NETWORKING + MAIN LOOP sections).
+   ============================================================ */
+function pickRandom(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
+function raySegmentHitDist(ox,oy,dx,dy,rect){
+  let tmin = 0, tmax = Infinity;
+  if (Math.abs(dx) < 1e-8){
+    if (ox < rect.x || ox > rect.x+rect.w) return null;
+  } else {
+    let t1 = (rect.x-ox)/dx, t2 = (rect.x+rect.w-ox)/dx;
+    if (t1>t2){ const tmp=t1; t1=t2; t2=tmp; }
+    tmin = Math.max(tmin,t1); tmax = Math.min(tmax,t2);
+    if (tmin>tmax) return null;
+  }
+  if (Math.abs(dy) < 1e-8){
+    if (oy < rect.y || oy > rect.y+rect.h) return null;
+  } else {
+    let t1 = (rect.y-oy)/dy, t2 = (rect.y+rect.h-oy)/dy;
+    if (t1>t2){ const tmp=t1; t1=t2; t2=tmp; }
+    tmin = Math.max(tmin,t1); tmax = Math.min(tmax,t2);
+    if (tmin>tmax) return null;
+  }
+  return tmin >= 0 ? tmin : null;
+}
+function segmentIntersectsRect(x1,y1,x2,y2,rect){
+  for (let i=0;i<=10;i++){
+    const t = i/10;
+    const px = lerp(x1,x2,t), py = lerp(y1,y2,t);
+    if (px >= rect.x && px <= rect.x+rect.w && py >= rect.y && py <= rect.y+rect.h) return true;
+  }
+  return false;
+}
+
+/* ---------- particle spawning (shared by host emit + client sfx replay) ---------- */
+function mkParticle(x,y,color,speed,ang,life,size){
+  return { type:'spark', x, y, vx:Math.cos(ang)*speed, vy:Math.sin(ang)*speed, color, life, maxLife:life, size, grav:true };
+}
+function spawnParticlesFor(game, evt){
+  const P = game.particles;
+  switch(evt.t){
+    case 'muzzle':
+      for (let i=0;i<5;i++) P.push(mkParticle(evt.x,evt.y, evt.color, 220, evt.ang+(Math.random()-0.5)*0.6, 0.10+Math.random()*0.06, 3+Math.random()*3));
+      break;
+    case 'swing':
+      for (let i=0;i<3;i++) P.push(mkParticle(evt.x,evt.y, evt.color, 90, Math.random()*Math.PI*2, 0.12, 2));
+      break;
+    case 'hitspark':
+      for (let i=0;i<8;i++) P.push(mkParticle(evt.x,evt.y, evt.color||'#eef1f7', 260, Math.random()*Math.PI*2, 0.18+Math.random()*0.12, 2+Math.random()*3));
+      break;
+    case 'impact':
+      for (let i=0;i<6;i++) P.push(mkParticle(evt.x,evt.y, evt.color||'#eef1f7', 180, Math.random()*Math.PI*2, 0.22, 2+Math.random()*2));
+      break;
+    case 'rail':
+      P.push({ type:'beam', x1:evt.x1,y1:evt.y1,x2:evt.x2,y2:evt.y2, color:evt.color, life:0.16, maxLife:0.16 });
+      break;
+    case 'explosion':
+      for (let i=0;i<24;i++) P.push(mkParticle(evt.x,evt.y, i%3===0?'#ffd23f':'#ff6a2b', 420, Math.random()*Math.PI*2, 0.35+Math.random()*0.25, 3+Math.random()*4));
+      P.push({ type:'ring', x:evt.x, y:evt.y, life:0.35, maxLife:0.35, color:'#ff6a2b' });
+      game.screenShake = Math.max(game.screenShake||0, 20);
+      break;
+    case 'death':
+      for (let i=0;i<16;i++) P.push(mkParticle(evt.x,evt.y, evt.color, 300, Math.random()*Math.PI*2, 0.45, 3+Math.random()*3));
+      break;
+    case 'pickup':
+      for (let i=0;i<8;i++) P.push(mkParticle(evt.x,evt.y, '#2de2c8', 150, Math.random()*Math.PI*2, 0.28, 2+Math.random()*2));
+      break;
+    case 'dash':
+      for (let i=0;i<12;i++){
+        const off = i*6;
+        P.push(mkParticle(evt.x - evt.facing*off, evt.y + (Math.random()-0.5)*22, evt.color, 20, Math.random()*Math.PI*2, 0.16+Math.random()*0.1, 3+Math.random()*2));
+      }
+      break;
+  }
+}
+function emitFx(game, evt){
+  spawnParticlesFor(game, evt);
+  game.outgoingFx.push(evt);
+}
+
+/* ---------- damage / death / respawn ---------- */
+function applyDamage(target, amount, source, game, weaponName){
+  if (!target.alive || amount <= 0) return;
+  if (target.invulnT > 0) return; // dash i-frames
+  if (target.shieldHP > 0){
+    const absorbed = Math.min(target.shieldHP, amount);
+    target.shieldHP -= absorbed;
+    amount -= absorbed;
+    emitFx(game, { t:'hitspark', x:target.x+target.w/2, y:target.y+target.h*0.4, color:'#8fd0ff' });
+    if (amount <= 0) return; // fully absorbed by the shield
+  }
+  target.health -= amount;
+  if (target.health <= 0){
+    target.health = 0;
+    killPlayer(target, source, game, weaponName);
+  }
+}
+function killPlayer(target, source, game, weaponName){
+  target.alive = false;
+  target.deaths++;
+  target.respawnT = CFG.RESPAWN_TIME;
+  if (source && source.id !== target.id) source.kills++;
+  if (target.rangedId) spawnPickupDrop(game,'ranged',target.rangedId, target.x, target.y, (Math.random()-0.5)*260, -220);
+  if (target.meleeId) spawnPickupDrop(game,'melee',target.meleeId, target.x, target.y, (Math.random()-0.5)*260, -220);
+  if (target.carry) spawnPickupDrop(game,'env',target.carry.propId, target.x, target.y, (Math.random()-0.5)*200,-180);
+  target.rangedId = null; target.meleeId = null; target.rangedAmmo = 0; target.carry = null;
+  if (target.padId){
+    const pIdx = game.pads.findIndex(pd => pd.id === target.padId);
+    if (pIdx >= 0) game.pads.splice(pIdx, 1);
+    target.padId = null;
+  }
+  target.shieldHP = 0; target.shieldT = 0; target.invisibleT = 0; target.slamState = null;
+  game.killFeed.push({ id:uid(), killer: source ? source.name : 'THE ARENA', victim: target.name, weapon: weaponName || '' });
+  if (game.killFeed.length > 6) game.killFeed.shift();
+  emitFx(game, { t:'death', x: target.x+target.w/2, y: target.y+target.h*0.5, color: CHARACTERS[target.charId].primary });
+}
+function respawnPlayer(p, game){
+  const spawns = game.level.playerSpawns;
+  const sp = spawns[Math.floor(Math.random()*spawns.length)];
+  p.x = sp.x; p.y = sp.y - 220; p.vx = 0; p.vy = 0;
+  p.health = CFG.MAX_HEALTH; p.alive = true;
+  p.rangedId = 'pistol'; p.rangedAmmo = RANGED_WEAPONS.pistol.ammo;
+  p.meleeId = 'knife'; p.carry = null;
+  p.grounded=false; p.sliding=false; p.crouching=false; p.wallSliding=false; p.ledgeHang=false; p.climbing=false;
+  p.dropThroughT=0; p.dropThroughPlat=null; p.groundedPlat=null; p.headBumpT=0; p.headBumpPlat=null;
+  p.dashT=0; p.invulnT=0; p.grappleT=0; p.slamState=null;
+  p.h = CFG.PLAYER_H;
+}
+
+/* ---------- pickups & env props (live world objects) ---------- */
+function spawnPickupDrop(game, kind, wid, x, y, vx=0, vy=0, resting=false){
+  if (kind === 'env') game.envProps.push({ id:uid(), propId:wid, x, y, vx, vy, resting });
+  else game.pickups.push({ id:uid(), kind, wid, x, y, vx, vy, resting });
+}
+function updateLoosePickups(dt, game){
+  const solids = game.level.platforms;
+  for (const list of [game.pickups, game.envProps]){
+    for (const it of list){
+      if (it.resting) continue;
+      it.vy = Math.min(it.vy + CFG.GRAVITY*dt, CFG.MAX_FALL);
+      it.x += it.vx*dt; it.y += it.vy*dt;
+      it.vx *= (1 - Math.min(1, 2.2*dt));
+      for (const s of solids){
+        const r = { x:it.x-10, y:it.y-10, w:20, h:20 };
+        if (rectsOverlap(r, s) && it.vy >= 0){
+          it.y = s.y - 10; it.vy = 0; it.vx = 0; it.resting = true; break;
+        }
+      }
+      if (it.y > game.level.killY) it.resting = true; // stop simulating lost items
+    }
+  }
+}
+function updateSpawners(dt, game){
+  for (const sp of game.level.pickupSpawns){
+    if (sp.timer===undefined) sp.timer = Math.random()*6;
+    sp.timer -= dt;
+    if (sp.timer <= 0){
+      const occupied = game.pickups.some(pk => dist(pk.x,pk.y,sp.x,sp.y) < 50);
+      if (!occupied){
+        const kind = Math.random() < 0.5 ? 'ranged' : 'melee';
+        const wid = kind === 'ranged' ? pickRandom(RANGED_KEYS) : pickRandom(MELEE_KEYS);
+        game.pickups.push({ id:uid(), kind, wid, x:sp.x, y:sp.y, vx:0, vy:0, resting:true });
+      }
+      sp.timer = 16 + Math.random()*14;
+    }
+  }
+  for (const sp of game.level.envSpawns){
+    if (sp.timer===undefined) sp.timer = Math.random()*6;
+    sp.timer -= dt;
+    if (sp.timer <= 0){
+      const occupied = game.envProps.some(ep => dist(ep.x,ep.y,sp.x,sp.y) < 50);
+      if (!occupied) game.envProps.push({ id:uid(), propId:pickRandom(ENV_KEYS), x:sp.x, y:sp.y, vx:0, vy:0, resting:true });
+      sp.timer = 20 + Math.random()*16;
+    }
+  }
+}
+function tryPickup(p, game){
+  if (p.carry){ spawnPickupDrop(game,'env',p.carry.propId, p.x+p.facing*30, p.y, p.facing*140, -100); p.carry = null; return; }
+  const reach = 64;
+  const cx = p.x+p.w/2, cy = p.y+p.h/2;
+  let best = null, bestKind = null, bestD = reach;
+  for (const pk of game.pickups){
+    const d = dist(cx,cy,pk.x,pk.y);
+    if (d < bestD){ bestD = d; best = pk; bestKind = 'weapon'; }
+  }
+  for (const ep of game.envProps){
+    const d = dist(cx,cy,ep.x,ep.y);
+    if (d < bestD){ bestD = d; best = ep; bestKind = 'env'; }
+  }
+  if (!best) return;
+  if (bestKind === 'env'){
+    game.envProps.splice(game.envProps.indexOf(best),1);
+    p.carry = { propId: best.propId };
+  } else {
+    if (best.kind === 'ranged'){
+      if (p.rangedId) spawnPickupDrop(game,'ranged',p.rangedId,p.x,p.y,(Math.random()-0.5)*200,-160);
+      p.rangedId = best.wid; p.rangedAmmo = RANGED_WEAPONS[best.wid].ammo;
+    } else {
+      if (p.meleeId) spawnPickupDrop(game,'melee',p.meleeId,p.x,p.y,(Math.random()-0.5)*200,-160);
+      p.meleeId = best.wid;
+    }
+    game.pickups.splice(game.pickups.indexOf(best),1);
+  }
+  emitFx(game, { t:'pickup', x:cx, y:cy });
+}
+
+/* ---------- ranged weapons ---------- */
+function fireRanged(p, w, game, aimAngle){
+  const mx = p.x + p.w/2 + Math.cos(aimAngle)*p.w*0.6;
+  const my = p.y + p.h*0.38 + Math.sin(aimAngle)*8;
+  if (w.kind === 'rail'){
+    hitscanLine(p, mx, my, aimAngle, 4200, w, game);
+  } else {
+    const spread = (Math.random()-0.5) * w.spread * 2;
+    const ang = aimAngle + spread;
+    game.projectiles.push({
+      id:uid(), ownerId:p.id, kind:w.kind, wid:w.id,
+      x:mx, y:my, vx:Math.cos(ang)*w.spd, vy:Math.sin(ang)*w.spd,
+      dmg:w.dmg, kb:w.kb, splash:w.splash||0, pierce:!!w.pierce,
+      life: 2.4, r: w.kind==='rocket'?9:4, gravity:false,
+    });
+  }
+  emitFx(game, { t:'muzzle', x:mx, y:my, ang:aimAngle, color:w.color });
+}
+function hitscanLine(p, x, y, ang, maxDist, w, game){
+  const dx = Math.cos(ang), dy = Math.sin(ang);
+  const solids = game.level.platforms.filter(s=>!s.oneWay);
+  let wallDist = maxDist;
+  for (const s of solids){ const t = raySegmentHitDist(x,y,dx,dy,s); if (t!==null && t<wallDist) wallDist = t; }
+  const targets = [];
+  for (const id in game.players){
+    const pl = game.players[id];
+    if (!pl.alive || pl.id === p.id) continue;
+    const t = raySegmentHitDist(x,y,dx,dy,pl);
+    if (t !== null && t < wallDist) targets.push({ pl, t });
+  }
+  targets.sort((a,b)=>a.t-b.t);
+  for (const tg of targets){
+    applyDamage(tg.pl, w.dmg, p, game, w.name);
+    tg.pl.vx += dx*w.kb; tg.pl.vy += dy*w.kb*0.4 - 40;
+  }
+  const finalDist = Math.min(wallDist, maxDist);
+  emitFx(game, { t:'rail', x1:x, y1:y, x2:x+dx*finalDist, y2:y+dy*finalDist, color:w.color });
+}
+function doSplashDamage(pr, game, excludeId){
+  for (const id in game.players){
+    if (id === excludeId) continue;
+    const pl = game.players[id];
+    if (!pl.alive) continue;
+    const d = dist(pr.x, pr.y, pl.x+pl.w/2, pl.y+pl.h/2);
+    const rad = pr.splash;
+    if (d < rad){
+      const falloff = 1 - d/rad;
+      applyDamage(pl, (pr.splashDmg || pr.dmg*0.7) * falloff, game.players[pr.ownerId], game, 'Splash');
+      const ang = Math.atan2((pl.y+pl.h/2)-pr.y, (pl.x+pl.w/2)-pr.x);
+      pl.vx += Math.cos(ang) * 480 * falloff;
+      pl.vy += Math.sin(ang) * 480 * falloff - 100*falloff;
+    }
+  }
+}
+function resolveProjectileImpact(pr, hit, game){
+  const w = RANGED_WEAPONS[pr.wid];
+  const directId = (hit && hit.type==='player') ? hit.obj.id : null;
+  const impactColor = w ? w.color : (pr.kind==='raven' ? '#0aa66e' : '#ffb020');
+  const impactName = w ? w.name : (pr.kind==='raven' ? 'Raven Swarm' : (pr.kind==='thrownMelee'?'thrown weapon':'impact'));
+  if (directId){
+    applyDamage(hit.obj, pr.dmg, game.players[pr.ownerId], game, impactName);
+    hit.obj.vx += (pr.vx>=0?1:-1) * pr.kb; hit.obj.vy -= 40;
+  }
+  if (pr.splash || pr.explosive) doSplashDamage(pr, game, directId);
+  emitFx(game, { t: (pr.kind==='rocket'||pr.explosive) ? 'explosion' : 'impact', x:pr.x, y:pr.y, color: impactColor });
+  if (pr.settleAsPickup){
+    if (pr.slotKind === 'env') spawnPickupDrop(game,'env',pr.wid,pr.x,pr.y,0,0,false);
+    else spawnPickupDrop(game, pr.slotKind, pr.wid, pr.x, pr.y, 0, 0, false);
+  }
+}
+function updateProjectiles(dt, game){
+  const solids = game.level.platforms.filter(s=>!s.oneWay);
+  for (let i = game.projectiles.length-1; i>=0; i--){
+    const pr = game.projectiles[i];
+    pr.life -= dt;
+    if (pr.gravity) pr.vy += CFG.GRAVITY*0.55*dt;
+    if (pr.homing && pr.targetId){
+      const tgt = game.players[pr.targetId];
+      if (tgt && tgt.alive){
+        const desiredAngle = Math.atan2((tgt.y+tgt.h*0.5)-pr.y, (tgt.x+tgt.w*0.5)-pr.x);
+        const curAngle = Math.atan2(pr.vy, pr.vx);
+        let diff = desiredAngle - curAngle;
+        while (diff > Math.PI) diff -= Math.PI*2;
+        while (diff < -Math.PI) diff += Math.PI*2;
+        const maxTurn = (pr.turnRate||5) * dt;
+        const newAngle = curAngle + clamp(diff, -maxTurn, maxTurn);
+        const spd = Math.hypot(pr.vx,pr.vy);
+        pr.vx = Math.cos(newAngle)*spd; pr.vy = Math.sin(newAngle)*spd;
+      } else {
+        pr.targetId = null; // target gone — fly straight from here
+      }
+    }
+    const nx = pr.x + pr.vx*dt, ny = pr.y + pr.vy*dt;
+    let hit = null;
+    for (const id in game.players){
+      const pl = game.players[id];
+      if (!pl.alive || pl.id === pr.ownerId) continue;
+      if (segmentIntersectsRect(pr.x,pr.y,nx,ny,pl)){ hit = {type:'player', obj:pl}; break; }
+    }
+    if (!hit){
+      for (const s of solids){
+        if (segmentIntersectsRect(pr.x,pr.y,nx,ny,s)){ hit = {type:'wall', obj:s}; break; }
+      }
+    }
+    pr.x = nx; pr.y = ny;
+    let remove = false;
+    if (hit){
+      resolveProjectileImpact(pr, hit, game);
+      remove = !(pr.pierce && hit.type==='player');
+    } else if (pr.life <= 0){
+      if (pr.gravity) resolveProjectileImpact(pr, null, game); // thrown items still become pickups on timeout
+      remove = true;
+    } else if (pr.y > game.level.killY + 400){
+      remove = true;
+    }
+    if (remove) game.projectiles.splice(i,1);
+  }
+}
+
+/* ---------- melee ---------- */
+function startMeleeAttack(p){
+  const w = p.meleeId ? MELEE_WEAPONS[p.meleeId] : FISTS;
+  p.atk = { active:true, wid: w.id, phase:'windup', t:0, hitDone:false };
+}
+function doMeleeHitCheck(p, w, game){
+  const reach = w.range;
+  const cx = p.x + p.w/2 + p.facing * reach*0.5;
+  const cy = p.y + p.h*0.45;
+  const hitbox = { x: cx-reach*0.5, y: cy-reach*0.5, w: reach, h: reach };
+  let hitAny = false;
+  for (const id in game.players){
+    const other = game.players[id];
+    if (other === p || !other.alive) continue;
+    if (rectsOverlap(hitbox, other)){
+      const dmg = w.continuous ? w.dmg*0.16 : w.dmg;
+      applyDamage(other, dmg, p, game, w.name);
+      other.vx += p.facing * w.kb * (w.continuous?0.2:1);
+      other.vy -= w.continuous ? 10 : 70;
+      emitFx(game, { t:'hitspark', x:other.x+other.w/2, y:other.y+other.h*0.4, color:w.color });
+      hitAny = true;
+    }
+  }
+  // Any melee weapon can deflect incoming fire caught in its swing arc — but
+  // only while the swing is in its brief "active" frames, so it takes real
+  // timing against the shot rather than just holding a weapon out.
+  for (const pr of game.projectiles){
+    if (pr.ownerId === p.id) continue;
+    if (dist(pr.x,pr.y,cx,cy) < reach*0.7){
+      pr.vx *= -1; pr.vy = -Math.abs(pr.vy) - 100; pr.ownerId = p.id;
+      emitFx(game, { t:'hitspark', x:pr.x, y:pr.y, color: w.glow ? '#2de2c8' : w.color });
+    }
+  }
+  return hitAny;
+}
+function resolveAttackPhase(p, game){
+  const w = p.atk.wid === 'fists' ? FISTS : MELEE_WEAPONS[p.atk.wid];
+  if (!w){ p.atk.active = false; return; }
+  if (p.atk.phase === 'windup'){
+    if (p.atk.t >= w.windup){
+      p.atk.phase = 'active'; p.atk.t = 0; p.atk.hitDone = false;
+      emitFx(game, { t:'swing', x:p.x+p.w/2, y:p.y+p.h*0.4, facing:p.facing, color:w.color });
+    }
+  } else if (p.atk.phase === 'active'){
+    if (!p.atk.hitDone){
+      const hitAny = doMeleeHitCheck(p, w, game);
+      if (hitAny && !w.continuous) p.atk.hitDone = true;
+    }
+    if (p.atk.t >= w.active){ p.atk.phase = 'recover'; p.atk.t = 0; }
+  } else if (p.atk.phase === 'recover'){
+    if (p.atk.t >= w.recover) p.atk.active = false;
+  }
+}
+
+/* ---------- throwing ---------- */
+function dropOrThrowWeapon(p, game, slot, aimAngle){
+  const wid = slot === 'ranged' ? p.rangedId : p.meleeId;
+  if (!wid) return;
+  const speed = 980;
+  const x = p.x + p.w/2 + Math.cos(aimAngle)*p.w*0.6;
+  const y = p.y + p.h*0.4;
+  const meleeDef = MELEE_WEAPONS[wid];
+  game.projectiles.push({
+    id:uid(), ownerId:p.id, kind: slot==='ranged' ? 'thrownGun' : 'thrownMelee', wid,
+    x, y, vx: Math.cos(aimAngle)*speed + p.vx*0.4, vy: Math.sin(aimAngle)*speed - 90,
+    dmg: slot==='ranged' ? 10 : (meleeDef ? meleeDef.dmg*0.85 : 10),
+    kb: 150, gravity:true, life:3, r:14, settleAsPickup:true, slotKind: slot,
+  });
+  if (slot === 'ranged'){ p.rangedId = null; p.rangedAmmo = 0; }
+  else { p.meleeId = null; }
+}
+function throwCarriedProp(p, game, aimAngle){
+  const propId = p.carry.propId;
+  const def = ENV_PROPS[propId];
+  const speed = def.throwSpd;
+  game.projectiles.push({
+    id:uid(), ownerId:p.id, kind:'thrownEnv', wid:propId,
+    x: p.x+p.w/2+Math.cos(aimAngle)*p.w*0.6, y: p.y+p.h*0.4,
+    vx: Math.cos(aimAngle)*speed + p.vx*0.4, vy: Math.sin(aimAngle)*speed - 110,
+    dmg: def.dmg, kb: 240, gravity:true, life:3, r: def.w*0.5,
+    settleAsPickup: !def.explosive, explosive: !!def.explosive,
+    splash: def.splash||0, splashDmg: def.splashDmg||0, slotKind:'env',
+  });
+  p.carry = null;
+}
+
+/* ---------- per-player combat tick (host only) ---------- */
+function updateCombat(p, input, dt, game){
+  if (!p.alive) return;
+  const firePrimaryPressed = input.firePrimary && !p.prevInput.firePrimary;
+  const meleePressed = input.fireSecondary && !p.prevInput.fireSecondary;
+  const throwRangedPressed = input.throwWep && !p.prevInput.throwWep;
+  const throwMeleePressed = input.throwMelee && !p.prevInput.throwMelee;
+  const pickupPressed = input.pickup && !p.prevInput.pickup;
+
+  if (p.fireT > 0) p.fireT -= dt;
+  if (p.atk.active){ p.atk.t += dt; resolveAttackPhase(p, game); }
+
+  if (p.carry){
+    if (throwMeleePressed || throwRangedPressed || firePrimaryPressed) throwCarriedProp(p, game, input.aimAngle);
+    if (pickupPressed) tryPickup(p, game);
+    return;
+  }
+
+  if (p.rangedId && p.fireT <= 0 && !p.sliding && !p.ledgeHang && !p.climbing){
+    const w = RANGED_WEAPONS[p.rangedId];
+    const wantFire = w.auto ? input.firePrimary : firePrimaryPressed;
+    if (wantFire && p.rangedAmmo > 0){
+      fireRanged(p, w, game, input.aimAngle);
+      p.rangedAmmo--; p.fireT = w.rate;
+      if (p.rangedAmmo <= 0) p.rangedId = null;
+    }
+  }
+  if (!p.atk.active && meleePressed && !p.ledgeHang && !p.climbing) startMeleeAttack(p);
+  if (throwRangedPressed && p.rangedId) dropOrThrowWeapon(p, game, 'ranged', input.aimAngle);
+  if (throwMeleePressed && p.meleeId) dropOrThrowWeapon(p, game, 'melee', input.aimAngle);
+  if (pickupPressed) tryPickup(p, game);
+}
+
+
+/* ============================================================
+   SECTION: SPECIAL ABILITIES — one unique ability per character,
+   bound to F, gated by a per-character cooldown. Triggering is
+   host-only (like weapon fire): a client's press is sent as input,
+   the host resolves it authoritatively and the result flows back
+   through the normal snapshot, so there's a small confirm delay
+   the same way shooting already has.
+   ============================================================ */
+function findNearestEnemy(p, game, maxRange){
+  let best = null, bestD = maxRange || Infinity;
+  for (const id in game.players){
+    const other = game.players[id];
+    if (other === p || !other.alive) continue;
+    const d = dist(p.x+p.w/2, p.y+p.h/2, other.x+other.w/2, other.y+other.h/2);
+    if (d < bestD){ bestD = d; best = other; }
+  }
+  return best;
+}
+function raycastSolid(ox, oy, angle, maxDist, solids){
+  const dx = Math.cos(angle), dy = Math.sin(angle);
+  let bestT = maxDist;
+  for (const s of solids){
+    if (s.oneWay) continue;
+    const t = raySegmentHitDist(ox, oy, dx, dy, s);
+    if (t !== null && t < bestT) bestT = t;
+  }
+  return { x: ox+dx*bestT, y: oy+dy*bestT, dist: bestT, hit: bestT < maxDist };
+}
+
+function specialDash(p, sp, game){
+  const dir = Math.abs(p.vx) > 20 ? Math.sign(p.vx) : p.facing;
+  p.sliding = false; p.crouching = false;
+  p.vx = dir * sp.speed;
+  p.vy *= 0.25;
+  p.dashT = sp.dur;
+  p.invulnT = sp.dur;
+  p.facing = dir;
+  emitFx(game, { t:'dash', x:p.x+p.w/2, y:p.y+p.h*0.6, facing:dir, color: CHARACTERS[p.charId].primary });
+}
+function specialInvisible(p, sp, game){
+  p.invisibleT = sp.dur;
+  emitFx(game, { t:'pickup', x:p.x+p.w/2, y:p.y+p.h/2 });
+}
+function specialShield(p, sp, game){
+  p.shieldHP = sp.hp;
+  p.shieldT = sp.dur;
+}
+function specialDoppelganger(p, sp, game){
+  game.doppelgangers.push({
+    id: uid(), ownerId: p.id, charId: p.charId, name: p.name,
+    x: p.x, y: p.y, vx: (Math.random()-0.5)*160, vy: 0, facing: p.facing,
+    grounded: false, life: sp.dur, wanderT: 0, animT: Math.random()*10,
+  });
+  emitFx(game, { t:'pickup', x:p.x+p.w/2, y:p.y+p.h/2 });
+}
+function specialGrapple(p, sp, game){
+  const aim = p.aimAngle || 0;
+  const originX = p.x+p.w/2, originY = p.y+p.h*0.4;
+  const solids = game.level.platforms.filter(s=>!s.oneWay);
+  const hit = raycastSolid(originX, originY, aim, sp.range, solids);
+  const targetDist = hit.hit ? Math.max(40, hit.dist-30) : sp.range*0.6;
+  p.sliding = false; p.crouching = false;
+  p.grappleTX = originX + Math.cos(aim)*targetDist;
+  p.grappleTY = originY + Math.sin(aim)*targetDist;
+  p.grappleT = sp.dur;
+  p.grappleSpeed = sp.speed;
+  emitFx(game, { t:'rail', x1:originX, y1:originY, x2:p.grappleTX, y2:p.grappleTY, color: CHARACTERS[p.charId].primary });
+}
+function specialRavens(p, sp, game){
+  const target = findNearestEnemy(p, game, 2200);
+  for (let i=0;i<sp.count;i++){
+    const spreadAngle = (p.aimAngle||0) + (i - (sp.count-1)/2) * 0.16;
+    game.projectiles.push({
+      id: uid(), ownerId: p.id, kind:'raven', wid:null,
+      x: p.x+p.w/2, y: p.y+p.h*0.3,
+      vx: Math.cos(spreadAngle)*sp.speed, vy: Math.sin(spreadAngle)*sp.speed,
+      dmg: sp.dmg, kb: 90, life: 2.4, r: 6,
+      homing: !!target, targetId: target ? target.id : null, turnRate: 5.5,
+    });
+  }
+  emitFx(game, { t:'muzzle', x:p.x+p.w/2, y:p.y+p.h*0.3, ang:p.aimAngle||0, color:'#0aa66e' });
+}
+function doSlamImpact(p, sp, game){
+  emitFx(game, { t:'explosion', x:p.x+p.w/2, y:p.y+p.h, color: CHARACTERS[p.charId].primary });
+  for (const id in game.players){
+    const other = game.players[id];
+    if (other===p || !other.alive) continue;
+    const d = dist(p.x+p.w/2, p.y+p.h, other.x+other.w/2, other.y+other.h/2);
+    if (d < sp.radius){
+      const falloff = 1-d/sp.radius;
+      applyDamage(other, sp.dmg*falloff, p, game, 'Seismic Slam');
+      const ang = Math.atan2((other.y+other.h/2)-(p.y+p.h), (other.x+other.w/2)-(p.x+p.w/2));
+      other.vx += Math.cos(ang)*sp.kb*falloff;
+      other.vy += Math.sin(ang)*sp.kb*falloff - 100*falloff;
+    }
+  }
+}
+function specialSlam(p, sp, game){
+  p.vy = -680;
+  p.grounded = false;
+  p.slamState = 'rising';
+}
+function updateSlamState(p, game){
+  if (!p.slamState) return;
+  if (p.slamState === 'rising' && p.vy >= 0) p.slamState = 'falling';
+  if (p.slamState === 'falling' && p.grounded){
+    const sp = CHARACTERS[p.charId].special;
+    doSlamImpact(p, sp, game);
+    p.slamState = null;
+  }
+}
+function specialEcho(p, sp, game){
+  if (p.posHistory.length < 2) return;
+  game.echoes.push({
+    id: uid(), ownerId: p.id, charId: p.charId, name: p.name,
+    path: p.posHistory.map(pt=>({...pt})),
+    startTime: game.simTime||0, dur: sp.dur, x:p.x, y:p.y, facing:p.facing,
+  });
+}
+function updatePosHistory(p, dt, game){
+  p.posHistAccum += dt;
+  if (p.posHistAccum >= 0.05){
+    p.posHistAccum = 0;
+    p.posHistory.push({ x:p.x, y:p.y, facing:p.facing, t: game.simTime||0 });
+    const maxAge = 2.2;
+    while (p.posHistory.length > 1 && (game.simTime - p.posHistory[0].t) > maxAge) p.posHistory.shift();
+  }
+}
+function updateEchoes(dt, game){
+  for (let i=game.echoes.length-1;i>=0;i--){
+    const e = game.echoes[i];
+    const elapsed = (game.simTime||0) - e.startTime;
+    if (elapsed >= e.dur || e.path.length===0){ game.echoes.splice(i,1); continue; }
+    const pathDur = e.path[e.path.length-1].t - e.path[0].t || 0.001;
+    const targetT = e.path[0].t + Math.min(1, elapsed/e.dur) * pathDur;
+    let idx = 0;
+    while (idx < e.path.length-1 && e.path[idx+1].t <= targetT) idx++;
+    const a = e.path[idx], b = e.path[Math.min(idx+1, e.path.length-1)];
+    const span = (b.t-a.t) || 0.001;
+    const localT = clamp((targetT-a.t)/span, 0, 1);
+    e.x = lerp(a.x, b.x, localT);
+    e.y = lerp(a.y, b.y, localT);
+    e.facing = localT < 0.5 ? a.facing : b.facing;
+  }
+}
+function specialDecay(p, sp, game){
+  const dir = p.facing;
+  const originX = p.x+p.w/2, originY = p.y+p.h*0.7;
+  for (let i=0;i<sp.spikes;i++){
+    game.hazards.push({
+      id: uid(), ownerId: p.id, x: originX + dir*sp.spacing*(i+1), y: originY,
+      radius: sp.radius, dmg: sp.dmg, kb: sp.kb,
+      triggerAt: (game.simTime||0) + sp.stagger*i, triggered:false, life: 1.4,
+    });
+  }
+}
+function updateHazards(dt, game){
+  for (let i=game.hazards.length-1;i>=0;i--){
+    const h = game.hazards[i];
+    h.life -= dt;
+    if (!h.triggered && (game.simTime||0) >= h.triggerAt){
+      h.triggered = true;
+      const owner = game.players[h.ownerId];
+      for (const id in game.players){
+        const other = game.players[id];
+        if (!other.alive || id===h.ownerId) continue;
+        const d = dist(h.x,h.y, other.x+other.w/2, other.y+other.h/2);
+        if (d < h.radius){
+          const falloff = 1-d/h.radius;
+          applyDamage(other, h.dmg*falloff, owner, game, 'Decay Field');
+          other.vx += (other.x+other.w/2 > h.x ? 1:-1)*h.kb*falloff;
+          other.vy -= 80*falloff;
+        }
+      }
+      emitFx(game, { t:'impact', x:h.x, y:h.y, color:'#c91f3d' });
+    }
+    if (h.life <= 0) game.hazards.splice(i,1);
+  }
+}
+function specialTeleportPlace(p, sp, game){
+  const pad = { id: uid(), ownerId: p.id, x: p.x, y: p.y };
+  game.pads.push(pad);
+  p.padId = pad.id;
+  emitFx(game, { t:'pickup', x:p.x+p.w/2, y:p.y+p.h/2 });
+}
+function specialTeleportExecute(p, game){
+  const idx = game.pads.findIndex(pd => pd.id === p.padId);
+  if (idx < 0){ p.padId = null; return; }
+  const pad = game.pads[idx];
+  emitFx(game, { t:'pickup', x:p.x+p.w/2, y:p.y+p.h/2 });
+  p.x = pad.x; p.y = pad.y; p.vx = 0; p.vy = 0;
+  emitFx(game, { t:'pickup', x:p.x+p.w/2, y:p.y+p.h/2 });
+  game.pads.splice(idx,1);
+  p.padId = null;
+}
+
+function useSpecial(p, input, game){
+  const ch = CHARACTERS[p.charId];
+  const sp = ch.special;
+  if (!sp) return;
+  switch(sp.id){
+    case 'dash': specialDash(p, sp, game); break;
+    case 'invisible': specialInvisible(p, sp, game); break;
+    case 'shield': specialShield(p, sp, game); break;
+    case 'doppelganger': specialDoppelganger(p, sp, game); break;
+    case 'grapple': specialGrapple(p, sp, game); break;
+    case 'ravens': specialRavens(p, sp, game); break;
+    case 'slam': specialSlam(p, sp, game); break;
+    case 'echo': specialEcho(p, sp, game); break;
+    case 'decay': specialDecay(p, sp, game); break;
+    case 'teleport': specialTeleportPlace(p, sp, game); break;
+  }
+}
+// Host-only: called once per player per tick. Teleport's second press
+// (while a pad already exists) bypasses the cooldown gate entirely, since
+// placing and teleporting are two halves of one action, not two separate uses.
+function updateSpecialTrigger(p, input, game){
+  if (!p.alive) return;
+  const specialPressed = input.special && !p.prevInput.special;
+  if (!specialPressed) return;
+  const ch = CHARACTERS[p.charId];
+  if (!ch.special) return;
+  if (ch.special.id === 'teleport' && p.padId){
+    specialTeleportExecute(p, game);
+    return;
+  }
+  if (p.specialCD <= 0){
+    useSpecial(p, input, game);
+    p.specialCD = ch.special.cd;
+  }
+}
+function updateDoppelgangers(dt, game){
+  const solids = game.level.platforms;
+  for (let i=game.doppelgangers.length-1;i>=0;i--){
+    const d = game.doppelgangers[i];
+    d.life -= dt; d.animT += dt;
+    if (d.life <= 0){ game.doppelgangers.splice(i,1); continue; }
+    d.wanderT -= dt;
+    if (d.wanderT <= 0){ d.wanderT = 0.6 + Math.random()*1.2; d.wanderDir = (Math.random()<0.5?-1:1); }
+    d.vx = d.wanderDir * 160;
+    d.facing = d.wanderDir;
+    d.vy = Math.min((d.vy||0) + CFG.GRAVITY*dt, CFG.MAX_FALL);
+    const box = { x:d.x, y:d.y, w:CFG.PLAYER_W, h:CFG.PLAYER_H };
+    box.x += d.vx*dt;
+    for (const s of solids){ if (!s.oneWay && rectsOverlap(box, s)){ box.x = d.x; d.wanderDir *= -1; break; } }
+    d.x = box.x;
+    const prevBottom = d.y + CFG.PLAYER_H;
+    box.y = d.y + d.vy*dt;
+    d.grounded = false;
+    for (const s of solids){
+      if (!rectsOverlap(box, s)) continue;
+      if (s.oneWay){ if (d.vy>=0 && prevBottom<=s.y+1){ box.y = s.y-CFG.PLAYER_H; d.vy=0; d.grounded=true; } continue; }
+      if (d.vy>0){ box.y = s.y-CFG.PLAYER_H; d.vy=0; d.grounded=true; }
+      else if (d.vy<0){ box.y = s.y+s.h; d.vy=0; }
+    }
+    d.y = box.y;
+  }
+}
+/* ============================================================
+   SECTION: PARTICLES — generic sim, spawned by combat events
+   ============================================================ */
+function updateParticles(dt, game){
+  const P = game.particles;
+  for (let i=P.length-1;i>=0;i--){
+    const pt = P[i];
+    pt.life -= dt;
+    if (pt.life <= 0){ P.splice(i,1); continue; }
+    if (pt.type === 'spark'){
+      if (pt.grav) pt.vy += CFG.GRAVITY*0.5*dt;
+      pt.x += pt.vx*dt; pt.y += pt.vy*dt;
+      pt.vx *= (1 - Math.min(1, 1.6*dt));
+    }
+  }
+  if (game.screenShake) game.screenShake = Math.max(0, game.screenShake - 70*dt);
+}
+
+/* ============================================================
+   SECTION: CAMERA
+   ============================================================ */
+function updateCamera(game, canvas, dt){
+  const local = game.players[game.localId];
+  if (!local) return;
+  const tx = local.x + local.w/2 + local.facing*36 + clamp(local.vx*0.05,-70,70);
+  const ty = local.y + local.h/2 + clamp(local.vy*0.03,-60,60);
+  if (game.camera.x === null){ game.camera.x = tx; game.camera.y = ty; }
+  const s = 1 - Math.pow(0.0005, dt);
+  game.camera.x = lerp(game.camera.x, tx, s);
+  game.camera.y = lerp(game.camera.y, ty, s);
+  const halfW = canvas.width/2, halfH = canvas.height/2;
+  game.camera.x = clamp(game.camera.x, halfW, Math.max(halfW, game.level.width - halfW));
+  game.camera.y = clamp(game.camera.y, halfH, Math.max(halfH, game.level.height - halfH));
+}
+
+/* ============================================================
+   SECTION: RENDERING
+   ============================================================ */
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+function shade(hex, pct){
+  const n = parseInt(hex.slice(1),16);
+  let r=(n>>16)&255, g=(n>>8)&255, b=n&255;
+  r = clamp(Math.round(r*(1+pct/100)),0,255);
+  g = clamp(Math.round(g*(1+pct/100)),0,255);
+  b = clamp(Math.round(b*(1+pct/100)),0,255);
+  return `rgb(${r},${g},${b})`;
+}
+
+function drawAccessory(ctx, ch, r, hy){
+  ctx.fillStyle = ch.accent;
+  switch(ch.accessory){
+    case 'mohawk':
+      ctx.beginPath(); ctx.moveTo(-2,hy-r*0.9); ctx.lineTo(2,hy-r*0.9);
+      for(let i=-2;i<=2;i++) ctx.lineTo(i*3, hy-r*1.6-Math.abs(i)*2);
+      ctx.closePath(); ctx.fill();
+      break;
+    case 'hood':
+      ctx.fillStyle = ch.secondary;
+      ctx.beginPath(); ctx.arc(0,hy,r*1.15,Math.PI*1.05,Math.PI*1.95); ctx.fill();
+      break;
+    case 'helmet':
+      ctx.beginPath(); ctx.arc(0,hy,r*1.05,Math.PI,Math.PI*2); ctx.fill();
+      ctx.fillRect(-r*1.05,hy-2,r*2.1,4);
+      break;
+    case 'visor':
+      ctx.fillRect(-r*0.8,hy-r*0.15,r*1.6,r*0.32);
+      break;
+    case 'ponytail':
+      ctx.beginPath(); ctx.moveTo(r*0.7,hy-r*0.3);
+      ctx.quadraticCurveTo(r*1.8,hy+r*0.6,r*1.2,hy+r*1.6);
+      ctx.quadraticCurveTo(r*1.0,hy+r*0.6,r*0.5,hy+r*0.1);
+      ctx.closePath(); ctx.fill();
+      break;
+    case 'bandana':
+      ctx.fillRect(-r,hy-r*0.55,r*2,r*0.45);
+      break;
+    case 'spikes':
+      for(let i=-2;i<=2;i++){ ctx.beginPath(); ctx.moveTo(i*r*0.4,hy-r*0.7); ctx.lineTo(i*r*0.4-4,hy-r*1.5); ctx.lineTo(i*r*0.4+4,hy-r*1.5); ctx.closePath(); ctx.fill(); }
+      break;
+    case 'antenna':
+      ctx.strokeStyle = ch.accent; ctx.lineWidth=2.5;
+      ctx.beginPath(); ctx.moveTo(0,hy-r*0.8); ctx.lineTo(r*0.6,hy-r*1.8); ctx.stroke();
+      ctx.beginPath(); ctx.arc(r*0.6,hy-r*1.9,3,0,Math.PI*2); ctx.fill();
+      break;
+    case 'scarf':
+      ctx.fillRect(-r*0.9,hy+r*0.55,r*1.8,r*0.5);
+      break;
+    case 'crest':
+      ctx.beginPath(); ctx.moveTo(0,hy-r*1.5); ctx.lineTo(r*0.5,hy-r*0.6); ctx.lineTo(-r*0.5,hy-r*0.6); ctx.closePath(); ctx.fill();
+      break;
+  }
+}
+
+// Structural head silhouette — this is the main lever (alongside torso shape
+// and limb proportions below) that makes each character read as a genuinely
+// different body type rather than a recolored copy of the same base shape.
+function drawHead(ctx, ch, r, hy){
+  ctx.fillStyle = ch.primary;
+  switch(ch.headShape){
+    case 'square':
+      roundRect(ctx, -r*0.95, hy-r*0.95, r*1.9, r*1.9, r*0.28); ctx.fill();
+      break;
+    case 'angular':
+      ctx.beginPath();
+      ctx.moveTo(0,hy-r*1.05); ctx.lineTo(r*0.9,hy-r*0.3); ctx.lineTo(r*0.75,hy+r*0.9);
+      ctx.lineTo(-r*0.75,hy+r*0.9); ctx.lineTo(-r*0.9,hy-r*0.3); ctx.closePath(); ctx.fill();
+      break;
+    case 'oval':
+      ctx.save(); ctx.translate(0,hy); ctx.scale(0.80,1.20);
+      ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.fill(); ctx.restore();
+      break;
+    case 'faceted':
+      ctx.beginPath();
+      for (let i=0;i<6;i++){ const a=-Math.PI/2+i*Math.PI/3; const px=Math.cos(a)*r, py=hy+Math.sin(a)*r; if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py); }
+      ctx.closePath(); ctx.fill();
+      break;
+    case 'hooded':
+      ctx.beginPath(); ctx.arc(0,hy,r,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = ch.secondary;
+      ctx.beginPath(); ctx.arc(0,hy,r*1.22,Math.PI*1.02,Math.PI*1.98); ctx.fill();
+      break;
+    case 'small':
+      ctx.beginPath(); ctx.arc(0,hy,r*0.76,0,Math.PI*2); ctx.fill();
+      break;
+    case 'round':
+    default:
+      ctx.beginPath(); ctx.arc(0,hy,r,0,Math.PI*2); ctx.fill();
+  }
+}
+
+function drawTorsoShape(ctx, ch, topW, botW, H){
+  const grad = ctx.createLinearGradient(0,-H,0,0);
+  grad.addColorStop(0, ch.primary); grad.addColorStop(1, shade(ch.primary,-30));
+  ctx.fillStyle = grad;
+  if (ch.torsoShape === 'taper'){
+    ctx.beginPath();
+    ctx.moveTo(-topW/2, -H); ctx.lineTo(topW/2, -H);
+    ctx.lineTo(botW*0.42, 0); ctx.lineTo(-botW*0.42, 0);
+    ctx.closePath(); ctx.fill();
+  } else if (ch.torsoShape === 'barrel'){
+    ctx.beginPath();
+    ctx.moveTo(-topW*0.4, -H);
+    ctx.quadraticCurveTo(-topW*0.62, -H*0.5, -topW*0.42, 0);
+    ctx.lineTo(topW*0.42, 0);
+    ctx.quadraticCurveTo(topW*0.62, -H*0.5, topW*0.4, -H);
+    ctx.closePath(); ctx.fill();
+  } else if (ch.torsoShape === 'plate'){
+    const bevel = topW*0.16;
+    ctx.beginPath();
+    ctx.moveTo(-topW/2+bevel, -H); ctx.lineTo(topW/2-bevel, -H);
+    ctx.lineTo(topW/2, -H*0.78); ctx.lineTo(botW/2, 0); ctx.lineTo(-botW/2,0); ctx.lineTo(-topW/2,-H*0.78);
+    ctx.closePath(); ctx.fill();
+  } else {
+    const w = Math.max(topW, botW);
+    roundRect(ctx, -w/2, -H, w, H, 6);
+    ctx.fill();
+  }
+  ctx.strokeStyle='rgba(0,0,0,.35)'; ctx.lineWidth=1.5; ctx.stroke();
+}
+
+// Classic 2-bone IK: given a shoulder/hip root S and a target T, solves the
+// elbow/knee position E so a two-segment limb (lengths L1,L2) reaches T (or
+// as close as it can if T is out of reach). bendSign picks which way the
+// joint bends. This is what makes the arms and legs genuinely "rigged"
+// rather than single straight lines.
+function solveIK2Bone(sx, sy, tx, ty, L1, L2, bendSign){
+  const dx = tx-sx, dy = ty-sy;
+  const rawD = Math.hypot(dx,dy) || 0.001;
+  const maxReach = L1+L2-0.5, minReach = Math.max(0.5, Math.abs(L1-L2)+0.5);
+  const d = clamp(rawD, minReach, maxReach);
+  const baseAngle = Math.atan2(dy,dx);
+  let cosA1 = (L1*L1 + d*d - L2*L2) / (2*L1*d);
+  cosA1 = clamp(cosA1, -1, 1);
+  const a1 = Math.acos(cosA1);
+  const elbowAngle = baseAngle + bendSign*a1;
+  const ex = sx + Math.cos(elbowAngle)*L1;
+  const ey = sy + Math.sin(elbowAngle)*L1;
+  const hx = sx + Math.cos(baseAngle)*d;
+  const hy = sy + Math.sin(baseAngle)*d;
+  return { ex, ey, hx, hy };
+}
+// Draws a two-segment rigged limb (thigh+shin or upper-arm+forearm) via IK
+// and returns the solved joint positions so the caller can attach a weapon
+// or foot detail at the end effector.
+function drawRiggedLimb(ctx, sx, sy, tx, ty, L1, L2, th1, th2, color, bendSign){
+  const ik = solveIK2Bone(sx, sy, tx, ty, L1, L2, bendSign);
+  ctx.strokeStyle = color; ctx.lineCap = 'round';
+  ctx.lineWidth = th1;
+  ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(ik.ex,ik.ey); ctx.stroke();
+  ctx.lineWidth = th2;
+  ctx.beginPath(); ctx.moveTo(ik.ex,ik.ey); ctx.lineTo(ik.hx,ik.hy); ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(ik.ex, ik.ey, th1*0.4, 0, Math.PI*2); ctx.fill();
+  return ik;
+}
+
+// Foot targets for both legs, in the same local space as the hip — one
+// function per pose family (grounded/running, airborne, sliding, etc.)
+// so the walk cycle and every special-state pose are genuine IK targets.
+function computeLegTargets(p, hipX, hipY, legLen, W){
+  const runPhase = p.animT * 12;
+  const moving = Math.abs(p.vx) > 20 && p.grounded && !p.sliding && !p.crouching;
+  const spread = W*0.34;
+  let lx,ly,rx,ry;
+  if (p.ledgeHang){
+    lx = hipX-spread*0.5; ly = hipY+legLen*0.92;
+    rx = hipX+spread*0.5; ry = hipY+legLen*0.92;
+  } else if (p.climbing){
+    lx = hipX-spread*0.3; ly = hipY+legLen*0.55;
+    rx = hipX+spread*0.6; ry = hipY+legLen*0.78;
+  } else if (p.sliding){
+    lx = hipX - legLen*0.85; ly = hipY+legLen*0.30;
+    rx = hipX + legLen*0.55; ry = hipY+legLen*0.46;
+  } else if (p.wallSliding){
+    lx = hipX + p.onWall*legLen*0.5; ly = hipY+legLen*0.70;
+    rx = hipX + p.onWall*legLen*0.65; ry = hipY+legLen*0.86;
+  } else if (!p.grounded){
+    lx = hipX-spread*0.35; ly = hipY+legLen*0.62;
+    rx = hipX+spread*0.50; ry = hipY+legLen*0.72;
+  } else if (p.crouching){
+    lx = hipX-spread*0.55; ly = hipY+legLen*0.80;
+    rx = hipX+spread*0.55; ry = hipY+legLen*0.80;
+  } else if (moving){
+    const cycle = (ph)=>{
+      const xoff = Math.sin(ph)*legLen*0.42;
+      const lift = Math.max(0,-Math.sin(ph))*legLen*0.26;
+      return { x: hipX+xoff, y: hipY+legLen*0.94-lift };
+    };
+    const L = cycle(runPhase), R = cycle(runPhase+Math.PI);
+    lx=L.x; ly=L.y; rx=R.x; ry=R.y;
+  } else {
+    const idleSway = Math.sin(p.animT*1.6)*legLen*0.03;
+    lx = hipX-spread*0.4+idleSway; ly = hipY+legLen*0.96;
+    rx = hipX+spread*0.4-idleSway; ry = hipY+legLen*0.96;
+  }
+  return {lx,ly,rx,ry};
+}
+
+// Weapon silhouettes — drawn in local space with the grip at the origin and
+// the weapon pointing along +x; the caller translates/rotates into place.
+function drawWeaponShape(ctx, wid, isMelee, color, glow){
+  ctx.save();
+  ctx.fillStyle = color; ctx.strokeStyle = color;
+  if (glow){ ctx.shadowColor = color; ctx.shadowBlur = 14; }
+  if (!isMelee){
+    switch(wid){
+      case 'pistol':
+        ctx.fillRect(0,-3,16,6); ctx.fillRect(2,3,6,10);
+        break;
+      case 'smg':
+        ctx.fillRect(-6,-3,30,6); ctx.fillRect(-2,3,5,9); ctx.fillRect(4,-6,4,4);
+        break;
+      case 'rocket':
+        ctx.beginPath(); ctx.moveTo(0,-6); ctx.lineTo(22,-9); ctx.lineTo(30,0); ctx.lineTo(22,9); ctx.lineTo(0,6); ctx.closePath(); ctx.fill();
+        ctx.fillRect(-6,-4,8,8);
+        break;
+      case 'railgun':
+        ctx.fillRect(-4,-2,36,4); ctx.lineWidth=2;
+        for (let i=0;i<3;i++){ ctx.beginPath(); ctx.moveTo(10+i*8,-6); ctx.lineTo(10+i*8,6); ctx.stroke(); }
+        ctx.beginPath(); ctx.arc(34,0,3,0,Math.PI*2); ctx.fill();
+        break;
+      case 'minigun':
+        for (let i=-1;i<=1;i++) ctx.fillRect(0,-2+i*4,26,2.4);
+        ctx.fillRect(-8,-6,10,12);
+        break;
+      case 'laser':
+        ctx.beginPath(); ctx.moveTo(-4,-4); ctx.lineTo(20,-2); ctx.lineTo(26,0); ctx.lineTo(20,2); ctx.lineTo(-4,4); ctx.closePath(); ctx.fill();
+        break;
+      default:
+        ctx.fillRect(0,-3,20,6);
+    }
+  } else {
+    switch(wid){
+      case 'knife':
+        ctx.beginPath(); ctx.moveTo(0,-3); ctx.lineTo(16,0); ctx.lineTo(0,3); ctx.closePath(); ctx.fill();
+        break;
+      case 'machete':
+        ctx.beginPath(); ctx.moveTo(0,-5); ctx.lineTo(24,-3); ctx.lineTo(26,1); ctx.lineTo(0,4); ctx.closePath(); ctx.fill();
+        break;
+      case 'bat':
+        ctx.beginPath(); ctx.moveTo(0,-2); ctx.lineTo(20,-6); ctx.lineTo(28,0); ctx.lineTo(20,6); ctx.lineTo(0,2); ctx.closePath(); ctx.fill();
+        break;
+      case 'chainsaw':
+        ctx.fillRect(-4,-6,12,12); ctx.fillRect(8,-3,22,6);
+        ctx.fillStyle = 'rgba(0,0,0,.5)';
+        for (let i=0;i<6;i++){ ctx.fillRect(9+i*3.5,-3,1.6,2); ctx.fillRect(9+i*3.5,1,1.6,2); }
+        break;
+      case 'mace':
+        ctx.fillRect(0,-2,18,4);
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(24,0,7,0,Math.PI*2); ctx.fill();
+        ctx.lineWidth = 2;
+        for (let a=0;a<8;a++){ const ang=a/8*Math.PI*2; ctx.beginPath(); ctx.moveTo(24+Math.cos(ang)*7,Math.sin(ang)*7); ctx.lineTo(24+Math.cos(ang)*12,Math.sin(ang)*12); ctx.stroke(); }
+        break;
+      case 'lance':
+        ctx.beginPath(); ctx.moveTo(0,-2.5); ctx.lineTo(30,-1); ctx.lineTo(36,0); ctx.lineTo(30,1); ctx.lineTo(0,2.5); ctx.closePath(); ctx.fill();
+        break;
+      case 'katana':
+        ctx.beginPath(); ctx.moveTo(0,-3);
+        ctx.quadraticCurveTo(16,-6,28,-1); ctx.lineTo(28,1); ctx.quadraticCurveTo(16,-1,0,2);
+        ctx.closePath(); ctx.fill();
+        break;
+      case 'scimitar':
+        ctx.beginPath(); ctx.moveTo(0,-3);
+        ctx.quadraticCurveTo(12,-12,22,-2); ctx.lineTo(20,2); ctx.quadraticCurveTo(11,-4,0,2);
+        ctx.closePath(); ctx.fill();
+        break;
+      case 'lightsaber':
+        ctx.fillStyle = '#8a8a94'; ctx.fillRect(0,-2.5,6,5);
+        ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 18;
+        ctx.fillRect(6,-1.6,26,3.2);
+        break;
+      case 'frypan':
+        ctx.fillRect(0,-2,14,4);
+        ctx.beginPath(); ctx.arc(22,0,8,0,Math.PI*2); ctx.fill();
+        ctx.strokeStyle='rgba(0,0,0,.3)'; ctx.lineWidth=1.5; ctx.stroke();
+        break;
+      case 'fists':
+      default:
+        ctx.beginPath(); ctx.arc(4,0,6,0,Math.PI*2); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawCarriedProp(ctx, p, x, y){
+  const def = ENV_PROPS[p.carry.propId];
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.fillStyle = def.color;
+  ctx.fillRect(-def.w/2,-def.h/2,def.w,def.h);
+  ctx.restore();
+}
+function drawNameTag(ctx, p){
+  const cx = p.x+p.w/2, topY = p.y - 14;
+  ctx.font = '11px Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(238,241,247,.85)';
+  ctx.fillText(p.name, cx, topY-6);
+  const barW = 40;
+  ctx.fillStyle = 'rgba(20,23,38,.8)';
+  ctx.fillRect(cx-barW/2, topY, barW, 4);
+  ctx.fillStyle = p.health > 40 ? '#2de2c8' : '#ff3864';
+  ctx.fillRect(cx-barW/2, topY, barW*(p.health/p.maxHealth), 4);
+}
+
+function drawPlayer(ctx, p, game){
+  if (!p.alive) return;
+  const isLocal = game && p.id === game.localId;
+  if (p.invisibleT > 0 && !isLocal) return; // fully hidden from other players
+  const ch = CHARACTERS[p.charId];
+  const H = p.h, W = p.w;
+  ctx.save();
+  if (p.invisibleT > 0 && isLocal) ctx.globalAlpha = 0.38; // faded to yourself only
+  ctx.translate(p.x + W/2, p.y + H);
+
+  const hipY = -H*0.40;
+  const legLen = H*0.50*ch.limbLen;
+  const thighL = legLen*0.52, shinL = legLen*0.50;
+  const legTh1 = Math.max(5, W*0.20*ch.legThick), legTh2 = Math.max(4, W*0.15*ch.legThick);
+  const legs = computeLegTargets(p, 0, hipY, legLen, W);
+
+  drawRiggedLimb(ctx, 0, hipY, legs.lx, legs.ly, thighL, shinL, legTh1, legTh2, shade(ch.secondary, 10), 1);
+  drawRiggedLimb(ctx, 0, hipY, legs.rx, legs.ry, thighL, shinL, legTh1, legTh2, ch.secondary, 1);
+
+  const torsoH = H*0.44*ch.torsoH;
+  const torsoWTop = W*0.92*ch.shoulderW, torsoWBot = W*0.92*ch.hipW;
+  const shoulderX = 0, shoulderY = hipY - torsoH*0.78;
+  const armReach = H*0.60*ch.limbLen;
+  const upperArmL = armReach*0.50, forearmL = armReach*0.50;
+  const armTh1 = Math.max(5, W*0.17*ch.armThick), armTh2 = Math.max(4, W*0.13*ch.armThick);
+  const aim = (p.aimAngle||0);
+
+  // resolve where each hand is reaching toward
+  let offTarget, offSweepAngle = null;
+  if (p.carry){
+    offTarget = { x: shoulderX + p.facing*W*0.55, y: shoulderY + H*0.06 };
+  } else if (p.atk && p.atk.active && p.atk.wid){
+    const w = p.atk.wid === 'fists' ? FISTS : MELEE_WEAPONS[p.atk.wid];
+    let t;
+    if (p.atk.phase === 'windup') t = -0.4*(1 - p.atk.t/Math.max(0.001,w.windup));
+    else if (p.atk.phase === 'active') t = p.atk.t/Math.max(0.001,w.active);
+    else t = 1;
+    const arcRad = w.arc*Math.PI/180;
+    offSweepAngle = aim + (t-0.5)*arcRad*p.facing;
+    offTarget = { x: shoulderX+Math.cos(offSweepAngle)*armReach*0.85, y: shoulderY+Math.sin(offSweepAngle)*armReach*0.85 };
+  } else {
+    const guardAngle = p.facing>0 ? 0.30 : Math.PI-0.30;
+    offTarget = { x: shoulderX+Math.cos(guardAngle)*armReach*0.62, y: shoulderY+Math.sin(guardAngle)*armReach*0.62 + H*0.06 };
+  }
+  const aimTarget = p.carry
+    ? { x: shoulderX + p.facing*W*0.55 + 14, y: shoulderY + H*0.06 }
+    : { x: shoulderX+Math.cos(aim)*armReach*0.95, y: shoulderY+Math.sin(aim)*armReach*0.95 };
+
+  // off arm (melee/support hand) — behind the torso
+  const offIK = drawRiggedLimb(ctx, shoulderX, shoulderY, offTarget.x, offTarget.y, upperArmL, forearmL, armTh1, armTh2, ch.secondary, -1);
+  if (!p.carry){
+    const meleeId = p.meleeId || 'fists';
+    const mdef = meleeId === 'fists' ? FISTS : MELEE_WEAPONS[meleeId];
+    const wAngle = offSweepAngle !== null ? offSweepAngle : Math.atan2(offIK.hy-offIK.ey, offIK.hx-offIK.ex);
+    ctx.save(); ctx.translate(offIK.hx, offIK.hy); ctx.rotate(wAngle);
+    drawWeaponShape(ctx, meleeId, true, mdef.color, !!mdef.glow);
+    ctx.restore();
+  }
+
+  // torso + head (these lean together for run/slide/wall-slide flavor)
+  const lean = p.facing*(Math.abs(p.vx)>20&&p.grounded&&!p.sliding?0.08:0) + (p.wallSliding? -p.onWall*0.25:0) + (p.sliding? p.facing*0.4:0);
+  ctx.save();
+  ctx.translate(0, hipY);
+  ctx.rotate(lean);
+  drawTorsoShape(ctx, ch, torsoWTop, torsoWBot, torsoH);
+  const headR = W*0.34;
+  const headY = -torsoH-headR*0.7;
+  drawHead(ctx, ch, headR, headY);
+  drawAccessory(ctx, ch, headR, headY);
+  ctx.restore();
+
+  // aim arm (ranged weapon / gun hand) — drawn last, on top
+  const aimIK = drawRiggedLimb(ctx, shoulderX, shoulderY, aimTarget.x, aimTarget.y, upperArmL, forearmL, armTh1, armTh2, shade(ch.secondary, 8), 1);
+  if (p.carry){
+    drawCarriedProp(ctx, p, (offIK.hx+aimIK.hx)/2, (offIK.hy+aimIK.hy)/2);
+  } else if (p.rangedId){
+    const rdef = RANGED_WEAPONS[p.rangedId];
+    ctx.save(); ctx.translate(aimIK.hx, aimIK.hy); ctx.rotate(aim);
+    drawWeaponShape(ctx, p.rangedId, false, rdef.color, false);
+    ctx.restore();
+  }
+
+  ctx.restore();
+  if (p.shieldHP > 0){
+    ctx.save();
+    const cx = p.x+W/2, cy = p.y+H*0.5, r = Math.max(W,H)*0.62;
+    const pulse = 0.85 + Math.sin(performance.now()/1000*5)*0.15;
+    ctx.strokeStyle = 'rgba(143,208,255,.75)'; ctx.lineWidth = 2.5;
+    ctx.shadowColor = '#8fd0ff'; ctx.shadowBlur = 12;
+    ctx.beginPath(); ctx.arc(cx, cy, r*pulse, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = 'rgba(143,208,255,.10)';
+    ctx.beginPath(); ctx.arc(cx, cy, r*pulse, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+  drawNameTag(ctx, p);
+}
+
+function drawPlatforms(ctx, game, cam){
+  for (const s of game.level.platforms){
+    if (s.x+s.w < cam.left || s.x > cam.right || s.y+s.h < cam.top || s.y > cam.bottom) continue;
+    const grad = ctx.createLinearGradient(0,s.y,0,s.y+s.h);
+    if (s.oneWay){ grad.addColorStop(0,'#2a2f4a'); grad.addColorStop(1,'#1b1f33'); }
+    else { grad.addColorStop(0,'#232840'); grad.addColorStop(1,'#12141f'); }
+    ctx.fillStyle = grad;
+    ctx.fillRect(s.x, s.y, s.w, s.h);
+    ctx.fillStyle = s.oneWay ? 'rgba(45,226,200,.5)' : 'rgba(45,226,200,.28)';
+    ctx.fillRect(s.x, s.y, s.w, 3);
+    ctx.strokeStyle = 'rgba(0,0,0,.4)';
+    ctx.strokeRect(s.x+0.5, s.y+0.5, s.w-1, s.h-1);
+  }
+}
+function drawRooms(ctx, game, cam){
+  for (const r of game.level.rooms){
+    if (r.x+r.w < cam.left || r.x > cam.right || r.y+r.h < cam.top || r.y > cam.bottom) continue;
+    const grad = ctx.createLinearGradient(0, r.y, 0, r.y+r.h);
+    grad.addColorStop(0, shade(r.tint, 14));
+    grad.addColorStop(1, shade(r.tint, -24));
+    ctx.fillStyle = grad;
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    if (r.glow){
+      const g = ctx.createRadialGradient(r.x+r.w*0.5, r.y+r.h*0.22, 0, r.x+r.w*0.5, r.y+r.h*0.22, r.w*0.65);
+      g.addColorStop(0, r.glow+'30'); g.addColorStop(1, r.glow+'00');
+      ctx.fillStyle = g; ctx.fillRect(r.x, r.y, r.w, r.h);
+    }
+    ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 3;
+    ctx.strokeRect(r.x+1.5, r.y+1.5, Math.max(0,r.w-3), Math.max(0,r.h-3));
+    if (r.label){
+      ctx.font = '10px Consolas, monospace'; ctx.textAlign = 'left';
+      ctx.fillStyle = 'rgba(255,255,255,.32)';
+      ctx.fillText(r.label, r.x+10, r.y+18);
+    }
+  }
+}
+function drawPickups(ctx, game, t){
+  for (const pk of game.pickups){
+    const def = pk.kind==='ranged' ? RANGED_WEAPONS[pk.wid] : MELEE_WEAPONS[pk.wid];
+    if (!def) continue;
+    const bob = pk.resting ? Math.sin(t*2.4 + pk.x*0.01)*4 : 0;
+    ctx.save();
+    ctx.translate(pk.x, pk.y+bob);
+    ctx.shadowColor = def.color; ctx.shadowBlur = 12;
+    ctx.fillStyle = def.color;
+    if (pk.kind==='ranged') ctx.fillRect(-14,-4,28,8);
+    else { ctx.beginPath(); ctx.moveTo(-12,6); ctx.lineTo(12,-6); ctx.lineTo(8,-9); ctx.lineTo(-12,3); ctx.closePath(); ctx.fill(); }
+    ctx.shadowBlur = 0;
+    ctx.font = '9px Consolas,monospace'; ctx.fillStyle = 'rgba(238,241,247,.8)'; ctx.textAlign = 'center';
+    ctx.fillText(def.name, 0, 22);
+    ctx.restore();
+  }
+}
+function drawEnvProps(ctx, game){
+  for (const ep of game.envProps){
+    const def = ENV_PROPS[ep.propId];
+    ctx.save();
+    ctx.translate(ep.x, ep.y);
+    ctx.fillStyle = def.color;
+    ctx.fillRect(-def.w/2,-def.h/2,def.w,def.h);
+    ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.strokeRect(-def.w/2,-def.h/2,def.w,def.h);
+    if (def.explosive){ ctx.fillStyle='#ffd23f'; ctx.font='bold 12px Consolas'; ctx.textAlign='center'; ctx.fillText('!',0,4); }
+    ctx.restore();
+  }
+}
+function drawPads(ctx, game){
+  const t = performance.now()/1000;
+  for (const pad of game.pads){
+    ctx.save();
+    ctx.translate(pad.x + CFG.PLAYER_W/2, pad.y + CFG.PLAYER_H*0.9);
+    const pulse = 0.7 + Math.sin(t*4)*0.3;
+    ctx.shadowColor = '#2de2c8'; ctx.shadowBlur = 16*pulse;
+    ctx.strokeStyle = '#2de2c8'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(0,0,16,0,Math.PI*2); ctx.stroke();
+    ctx.fillStyle = 'rgba(45,226,200,.5)';
+    ctx.beginPath(); ctx.arc(0,0,8*pulse,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+}
+function drawHazards(ctx, game){
+  const t = game.simTime||0;
+  for (const h of game.hazards){
+    if (h.triggered) continue; // the eruption itself renders via particles at trigger time
+    const remain = h.triggerAt - t;
+    if (remain > 0.5 || remain < 0) continue; // only telegraph in the final half-second before it erupts
+    const prog = 1 - clamp(remain/0.5, 0, 1);
+    ctx.save();
+    ctx.globalAlpha = 0.3 + prog*0.5;
+    ctx.strokeStyle = '#ff3864'; ctx.lineWidth = 2 + prog*2;
+    ctx.beginPath(); ctx.arc(h.x, h.y, h.radius*(0.3+prog*0.7), 0, Math.PI*2); ctx.stroke();
+    ctx.restore();
+  }
+}
+function makeDecoyPlayer(src, charId, animT){
+  return {
+    x:src.x, y:src.y, w:CFG.PLAYER_W, h:CFG.PLAYER_H, facing:src.facing, vx:0, vy:0,
+    grounded:true, sliding:false, crouching:false, wallSliding:false, onWall:0,
+    ledgeHang:false, climbing:false, carry:null, atk:{active:false,wid:null},
+    rangedId:null, meleeId:null, charId, animT, aimAngle: src.facing>0?0:Math.PI,
+    name:'', health:100, maxHealth:100, alive:true,
+  };
+}
+function drawDoppelgangers(ctx, game){
+  for (const d of game.doppelgangers){
+    ctx.save(); ctx.globalAlpha = 0.86;
+    drawPlayer(ctx, makeDecoyPlayer(d, d.charId, d.animT), null);
+    ctx.restore();
+  }
+}
+function drawEchoes(ctx, game){
+  for (const e of game.echoes){
+    ctx.save(); ctx.globalAlpha = 0.5;
+    drawPlayer(ctx, makeDecoyPlayer(e, e.charId, (game.simTime||0)*3), null);
+    ctx.restore();
+  }
+}
+function drawProjectiles(ctx, game){
+  for (const pr of game.projectiles){
+    const w = RANGED_WEAPONS[pr.wid];
+    const color = w ? w.color : (pr.kind==='raven' ? '#0aa66e' : '#ffb020');
+    ctx.save();
+    if (pr.kind === 'rocket'){
+      ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 14;
+      ctx.beginPath(); ctx.arc(pr.x,pr.y,7,0,Math.PI*2); ctx.fill();
+    } else if (pr.kind === 'laser'){
+      const ang = Math.atan2(pr.vy,pr.vx);
+      ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.shadowColor = color; ctx.shadowBlur = 10;
+      ctx.beginPath(); ctx.moveTo(pr.x-Math.cos(ang)*14, pr.y-Math.sin(ang)*14); ctx.lineTo(pr.x,pr.y); ctx.stroke();
+    } else if (pr.kind === 'raven'){
+      const ang = Math.atan2(pr.vy,pr.vx);
+      const flap = Math.sin(performance.now()/1000*22 + pr.x*0.1)*0.5;
+      ctx.translate(pr.x,pr.y); ctx.rotate(ang);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(7,0); ctx.lineTo(-6,-8-flap*6); ctx.lineTo(-2,0); ctx.lineTo(-6,8+flap*6);
+      ctx.closePath(); ctx.fill();
+    } else if (pr.kind==='thrownMelee' || pr.kind==='thrownGun' || pr.kind==='thrownEnv'){
+      const angle = Math.atan2(pr.vy,pr.vx);
+      ctx.translate(pr.x,pr.y); ctx.rotate(angle);
+      ctx.fillStyle = pr.kind==='thrownEnv' ? (ENV_PROPS[pr.wid]?ENV_PROPS[pr.wid].color:'#888')
+                     : (MELEE_WEAPONS[pr.wid]?MELEE_WEAPONS[pr.wid].color:'#eee');
+      ctx.fillRect(-10,-3,20,6);
+    } else {
+      ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 8;
+      ctx.beginPath(); ctx.arc(pr.x,pr.y,3.5,0,Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+function drawParticles(ctx, game){
+  for (const pt of game.particles){
+    const a = clamp(pt.life/pt.maxLife,0,1);
+    ctx.save();
+    ctx.globalAlpha = a;
+    if (pt.type === 'spark'){
+      ctx.fillStyle = pt.color;
+      ctx.beginPath(); ctx.arc(pt.x,pt.y,pt.size*a+0.5,0,Math.PI*2); ctx.fill();
+    } else if (pt.type === 'ring'){
+      ctx.strokeStyle = pt.color; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(pt.x,pt.y,(1-a)*90,0,Math.PI*2); ctx.stroke();
+    } else if (pt.type === 'beam'){
+      ctx.strokeStyle = pt.color; ctx.lineWidth = 4*a+1; ctx.shadowColor = pt.color; ctx.shadowBlur = 14;
+      ctx.beginPath(); ctx.moveTo(pt.x1,pt.y1); ctx.lineTo(pt.x2,pt.y2); ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+/* ---- themed parallax backgrounds — one per stage ---- */
+function drawBlockLayer(ctx, offset, W, H, baseY, color, minH, maxH, blockW, gapW, freq){
+  ctx.fillStyle = color;
+  const step = blockW+gapW;
+  const start = Math.floor((offset-W)/step)*step;
+  for (let x=start; x<offset+W*2; x+=step){
+    const h = minH + Math.abs(Math.sin(x*freq)) * (maxH-minH);
+    ctx.fillRect(x-offset, baseY-h, blockW, h+(H-baseY));
+  }
+}
+function drawMesaLayer(ctx, offset, W, H, baseY, color, minH, maxH, freq){
+  ctx.fillStyle = color;
+  const blockW = 240;
+  const start = Math.floor((offset-W)/blockW)*blockW;
+  for (let x=start; x<offset+W*2; x+=blockW){
+    const h = minH + Math.abs(Math.sin(x*freq)) * (maxH-minH);
+    const sx = x-offset, topY = baseY-h;
+    ctx.beginPath();
+    ctx.moveTo(sx, baseY);
+    ctx.lineTo(sx, topY+22);
+    ctx.quadraticCurveTo(sx+blockW*0.5, topY-14, sx+blockW-30, topY+22);
+    ctx.lineTo(sx+blockW-30, baseY);
+    ctx.closePath(); ctx.fill();
+  }
+}
+function drawWindmill(ctx, x, y, t){
+  ctx.save(); ctx.translate(x,y);
+  ctx.strokeStyle = 'rgba(15,10,8,.6)'; ctx.lineWidth = 4; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-16,96); ctx.moveTo(0,0); ctx.lineTo(16,96);
+  ctx.moveTo(-11,44); ctx.lineTo(11,44); ctx.stroke();
+  ctx.rotate(t*0.35);
+  ctx.fillStyle = 'rgba(15,10,8,.6)';
+  for (let i=0;i<4;i++){
+    ctx.rotate(Math.PI/2);
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-7,-42); ctx.lineTo(7,-42); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawWaterTower(ctx, x, y){
+  ctx.save(); ctx.translate(x,y);
+  ctx.fillStyle = 'rgba(15,10,8,.6)';
+  ctx.beginPath(); ctx.moveTo(-32,-30); ctx.lineTo(32,-30); ctx.lineTo(0,-52); ctx.closePath(); ctx.fill();
+  ctx.fillRect(-26,-30,52,32);
+  ctx.fillRect(-4,2,8,86); ctx.fillRect(-20,2,4,86); ctx.fillRect(16,2,4,86);
+  ctx.restore();
+}
+function drawBgWestern(ctx, game, W, H){
+  const cam = game.camera, t = performance.now()/1000;
+  const sky = ctx.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,'#f4e2b0'); sky.addColorStop(0.45,'#e8a85c'); sky.addColorStop(0.8,'#c96a3e'); sky.addColorStop(1,'#8a4230');
+  ctx.fillStyle = sky; ctx.fillRect(0,0,W,H);
+  drawMesaLayer(ctx, cam.x*0.10, W, H, H*0.60, 'rgba(150,80,60,.45)', 90, 220, 0.006);
+  drawMesaLayer(ctx, cam.x*0.22, W, H, H*0.72, 'rgba(120,58,46,.6)', 60, 150, 0.009);
+  const wobX = ((cam.x*0.16) % (W+600)) ;
+  drawWaterTower(ctx, 220 - cam.x*0.30 + Math.floor(cam.x*0.30/2400)*2400, H*0.62);
+  drawWindmill(ctx, 90 - cam.x*0.30 + Math.floor(cam.x*0.30/2400)*2400, H*0.66, t);
+  const glow = ctx.createRadialGradient(W*0.5,H*0.78,0,W*0.5,H*0.78,W*0.65);
+  glow.addColorStop(0,'rgba(255,170,90,.20)'); glow.addColorStop(1,'rgba(255,170,90,0)');
+  ctx.fillStyle = glow; ctx.fillRect(0,0,W,H);
+}
+function drawBgCastle(ctx, game, W, H){
+  const cam = game.camera;
+  const sky = ctx.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,'#8a97a8'); sky.addColorStop(0.5,'#5c6779'); sky.addColorStop(1,'#3a414f');
+  ctx.fillStyle = sky; ctx.fillRect(0,0,W,H);
+  drawMesaLayer(ctx, cam.x*0.09, W, H, H*0.58, 'rgba(80,90,105,.35)', 100, 260, 0.005);
+  drawMesaLayer(ctx, cam.x*0.20, W, H, H*0.70, 'rgba(60,68,80,.55)', 70, 170, 0.008);
+  const mist = ctx.createLinearGradient(0,H*0.55,0,H);
+  mist.addColorStop(0,'rgba(200,210,220,0)'); mist.addColorStop(1,'rgba(200,210,220,.22)');
+  ctx.fillStyle = mist; ctx.fillRect(0,0,W,H);
+}
+function drawMoon(ctx, x, y, r){
+  ctx.save();
+  const g = ctx.createRadialGradient(x,y,0,x,y,r*3);
+  g.addColorStop(0,'rgba(150,190,255,.25)'); g.addColorStop(1,'rgba(150,190,255,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x,y,r*3,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#cfe0ff';
+  ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+function drawBgCyberpunk(ctx, game, W, H){
+  const cam = game.camera;
+  const sky = ctx.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,'#0a0a1c'); sky.addColorStop(0.5,'#120f24'); sky.addColorStop(1,'#0a0b12');
+  ctx.fillStyle = sky; ctx.fillRect(0,0,W,H);
+  drawMoon(ctx, W*0.66 - (cam.x*0.03)%80, H*0.16, 34);
+  drawBlockLayer(ctx, cam.x*0.12, W, H, H*0.62, '#181a2e', 160, 380, 90, 22, 0.011);
+  drawBlockLayer(ctx, cam.x*0.26, W, H, H*0.74, '#20223a', 100, 240, 70, 16, 0.015);
+  ctx.save();
+  for (let i=0;i<4;i++){
+    const bx = ((i*260 - cam.x*0.20) % (W+300) + (W+300)) % (W+300) - 150;
+    const beam = ctx.createLinearGradient(bx,0,bx,H*0.6);
+    beam.addColorStop(0,'rgba(255,40,80,0)'); beam.addColorStop(1,'rgba(255,40,80,.16)');
+    ctx.fillStyle = beam; ctx.fillRect(bx-3,0,6,H*0.6);
+  }
+  ctx.restore();
+  const glow = ctx.createRadialGradient(W*0.7,H*0.75,0,W*0.7,H*0.75,W*0.6);
+  glow.addColorStop(0,'rgba(255,62,200,.12)'); glow.addColorStop(1,'rgba(255,62,200,0)');
+  ctx.fillStyle = glow; ctx.fillRect(0,0,W,H);
+}
+function drawParallaxBackground(ctx, game, W, H){
+  const theme = game.level && game.level.theme;
+  if (theme === 'castle') drawBgCastle(ctx, game, W, H);
+  else if (theme === 'cyberpunk') drawBgCyberpunk(ctx, game, W, H);
+  else drawBgWestern(ctx, game, W, H);
+}
+
+function render(ctx, game, canvas){
+  const W = canvas.width, H = canvas.height;
+  drawParallaxBackground(ctx, game, W, H);
+  const shake = game.screenShake || 0;
+  const shx = (Math.random()-0.5)*shake, shy = (Math.random()-0.5)*shake;
+  ctx.save();
+  ctx.translate(Math.round(W/2 - game.camera.x + shx), Math.round(H/2 - game.camera.y + shy));
+  const cam = { left: game.camera.x-W/2-60, right: game.camera.x+W/2+60, top: game.camera.y-H/2-60, bottom: game.camera.y+H/2+60 };
+  drawRooms(ctx, game, cam);
+  drawPlatforms(ctx, game, cam);
+  drawEnvProps(ctx, game);
+  drawPads(ctx, game);
+  drawHazards(ctx, game);
+  drawPickups(ctx, game, performance.now()/1000);
+  drawParticles(ctx, game);
+  drawDoppelgangers(ctx, game);
+  drawEchoes(ctx, game);
+  const order = Object.values(game.players).sort((a,b)=>a.y-b.y);
+  for (const p of order) drawPlayer(ctx, p, game);
+  drawProjectiles(ctx, game);
+  ctx.restore();
+}
+
+/* ============================================================
+   SECTION: INPUT — keyboard + mouse aim
+   ============================================================ */
+const InputState = { keys:{}, mouseX:0, mouseY:0, mouseDown:false, rightDown:false };
+function setupInput(canvas){
+  window.addEventListener('keydown', e => {
+    InputState.keys[e.code] = true;
+    if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+  });
+  window.addEventListener('keyup', e => { InputState.keys[e.code] = false; });
+  canvas.addEventListener('mousemove', e => { InputState.mouseX = e.clientX; InputState.mouseY = e.clientY; });
+  canvas.addEventListener('mousedown', e => { if (e.button===0) InputState.mouseDown = true; if (e.button===2) InputState.rightDown = true; });
+  window.addEventListener('mouseup', e => { if (e.button===0) InputState.mouseDown = false; if (e.button===2) InputState.rightDown = false; });
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+  window.addEventListener('blur', () => { InputState.keys = {}; InputState.mouseDown = false; InputState.rightDown = false; });
+}
+function readLocalInput(game, canvas){
+  const k = InputState.keys;
+  const inp = emptyInput();
+  inp.left = !!(k['KeyA']||k['ArrowLeft']);
+  inp.right = !!(k['KeyD']||k['ArrowRight']);
+  inp.up = !!(k['KeyW']||k['ArrowUp']);
+  inp.down = !!(k['KeyS']||k['ArrowDown']);
+  inp.jump = !!k['Space'];
+  inp.slide = !!k['KeyS'];
+  inp.run = !!(k['ShiftLeft']||k['ShiftRight']);
+  inp.firePrimary = InputState.mouseDown;
+  inp.fireSecondary = InputState.rightDown;
+  inp.throwWep = !!k['KeyQ'];
+  inp.throwMelee = !!k['KeyE'];
+  inp.pickup = !!k['KeyR'];
+  inp.special = !!k['KeyF'];
+  const local = game.players[game.localId];
+  if (local){
+    const originX = local.x + local.w/2, originY = local.y + local.h*0.26;
+    const worldMouseX = InputState.mouseX - canvas.width/2 + game.camera.x;
+    const worldMouseY = InputState.mouseY - canvas.height/2 + game.camera.y;
+    inp.aimAngle = Math.atan2(worldMouseY-originY, worldMouseX-originX);
+  }
+  return inp;
+}
+
+/* ============================================================
+   SECTION: NETWORKING — PeerJS host-relay (star topology).
+   Host = single source of truth. Clients predict their own
+   movement locally and otherwise just render host snapshots.
+   ============================================================ */
+const ICE_CONFIG = { iceServers: [
+  { urls:'stun:stun.l.google.com:19302' },
+  { urls:'stun:global.stun.twilio.com:3478' },
+]};
+const ROOM_PREFIX = 'overrun-arena-';
+const Net = { peer:null, isHost:false, roomCode:null, conns:{}, hostConn:null, localId:null };
+const Lobby = { players:{}, stageId:'western' };
+
+function genRoomCode(){
+  const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i=0;i<5;i++) s += alphabet[Math.floor(Math.random()*alphabet.length)];
+  return s;
+}
+
+function hostGame(){
+  const code = genRoomCode();
+  Net.isHost = true; Game.isHost = true; Net.roomCode = code;
+  Net.peer = new Peer(ROOM_PREFIX + code, { config: ICE_CONFIG });
+  Net.peer.on('open', () => {
+    Game.localId = 'p_host'; Net.localId = 'p_host';
+    Lobby.players['p_host'] = { name: Game.myName || 'PLAYER 1', charId: 0 };
+    enterCharSelect();
+  });
+  Net.peer.on('connection', conn => setupHostConnection(conn));
+  Net.peer.on('error', err => {
+    document.getElementById('menuErr').textContent = 'Could not start hosting (' + (err && err.type || 'network error') + '). Check your connection and try again.';
+  });
+  Net.peer.on('disconnected', () => { document.getElementById('menuErr').textContent = 'Lost connection to the signaling server.'; });
+}
+function setupHostConnection(conn){
+  conn.on('open', () => { Net.conns[conn.peer] = conn; });
+  conn.on('data', data => onHostReceiveData(conn.peer, data));
+  conn.on('close', () => {
+    delete Net.conns[conn.peer]; delete Lobby.players[conn.peer];
+    delete Game.players[conn.peer]; delete Game.inputs[conn.peer];
+    broadcastLobby();
+  });
+  conn.on('error', () => {});
+}
+function onHostReceiveData(fromId, data){
+  if (data.t === 'join'){
+    if (Object.keys(Lobby.players).length >= 4){
+      if (Net.conns[fromId]) Net.conns[fromId].send({ t:'full' });
+      return;
+    }
+    const position = Object.keys(Lobby.players).length + 1; // 1-indexed, host already counted
+    const provided = (data.name || '').trim();
+    Lobby.players[fromId] = { name: provided ? provided.slice(0,14) : ('PLAYER ' + position), charId: data.charId || 0 };
+    broadcastLobby();
+  } else if (data.t === 'char'){
+    if (Lobby.players[fromId]){ Lobby.players[fromId].charId = data.charId; if (data.name) Lobby.players[fromId].name = data.name.slice(0,14); }
+    broadcastLobby();
+  } else if (data.t === 'input'){
+    Game.inputs[fromId] = data.input;
+  }
+}
+function broadcastLobby(){
+  const payload = { t:'lobby', players: Lobby.players, roomCode: Net.roomCode, stageId: Lobby.stageId };
+  for (const id in Net.conns){ try { Net.conns[id].send(payload); } catch(e){} }
+  renderLobbyList();
+}
+function hostStartMatch(){
+  Game.level = loadLevel(Lobby.stageId);
+  const ids = Object.keys(Lobby.players);
+  Game.players = {}; Game.inputs = {};
+  Game.doppelgangers = []; Game.echoes = []; Game.pads = []; Game.hazards = []; Game.simTime = 0;
+  ids.forEach((id, i) => {
+    const info = Lobby.players[id];
+    const spawn = Game.level.playerSpawns[i % Game.level.playerSpawns.length];
+    Game.players[id] = makePlayer(id, info.name, info.charId, spawn);
+    Game.inputs[id] = emptyInput();
+  });
+  const roster = ids.map(id => ({ id, name: Lobby.players[id].name, charId: Lobby.players[id].charId }));
+  for (const id in Net.conns){ try { Net.conns[id].send({ t:'start', stageId: Lobby.stageId, roster }); } catch(e){} }
+  enterMatchScreen();
+  Game.running = true;
+}
+
+function joinGame(code){
+  Net.isHost = false; Game.isHost = false;
+  Net.peer = new Peer(undefined, { config: ICE_CONFIG });
+  Net.peer.on('open', myId => {
+    Game.localId = myId; Net.localId = myId;
+    const conn = Net.peer.connect(ROOM_PREFIX + code.toUpperCase(), { reliable:true });
+    Net.hostConn = conn;
+    conn.on('open', () => {
+      conn.send({ t:'join', name: Game.myName, charId: 0 });
+      Lobby.players[myId] = { name: Game.myName, charId: 0 };
+      enterCharSelect();
+    });
+    conn.on('data', d => onClientReceiveData(d));
+    conn.on('close', () => { if (Game.running){ alert('Disconnected from host.'); } location.reload(); });
+    conn.on('error', () => { document.getElementById('menuErr').textContent = 'Could not connect. Double check the room code.'; });
+  });
+  Net.peer.on('error', err => {
+    document.getElementById('menuErr').textContent = (err && err.type === 'peer-unavailable')
+      ? 'No match found with that room code.' : 'Connection error — check the code and your network.';
+  });
+}
+function onClientReceiveData(data){
+  if (data.t === 'lobby'){
+    Lobby.players = data.players; Net.roomCode = data.roomCode; Lobby.stageId = data.stageId || 'western'; renderLobbyList();
+  } else if (data.t === 'start'){
+    beginMatch(data.stageId, data.roster);
+  } else if (data.t === 'snap'){
+    applySnapshot(data);
+  } else if (data.t === 'full'){
+    alert('That match is already full (4 players).'); location.reload();
+  }
+}
+function beginMatch(stageId, roster){
+  Game.level = loadLevel(stageId);
+  Game.players = {};
+  Game.doppelgangers = []; Game.echoes = []; Game.pads = []; Game.hazards = []; Game.simTime = 0;
+  roster.forEach((r,i) => {
+    const spawn = Game.level.playerSpawns[i % Game.level.playerSpawns.length];
+    Game.players[r.id] = makePlayer(r.id, r.name, r.charId, spawn);
+  });
+  enterMatchScreen();
+  Game.running = true;
+}
+
+function buildSnapshot(game){
+  return {
+    t:'snap',
+    players: Object.values(game.players).map(p => ({
+      id:p.id, name:p.name, charId:p.charId, x:p.x, y:p.y, vx:p.vx, vy:p.vy,
+      facing:p.facing, grounded:p.grounded, sliding:p.sliding, crouching:p.crouching, wallSliding:p.wallSliding,
+      ledgeHang:p.ledgeHang, climbing:p.climbing, h:p.h,
+      health:p.health, maxHealth:p.maxHealth, alive:p.alive,
+      rangedId:p.rangedId, rangedAmmo:p.rangedAmmo, meleeId:p.meleeId,
+      carry:p.carry, atk:p.atk, aimAngle:p.aimAngle, kills:p.kills, deaths:p.deaths,
+      specialCD:p.specialCD, dashT:p.dashT, invulnT:p.invulnT, invisibleT:p.invisibleT,
+      shieldHP:p.shieldHP, shieldT:p.shieldT, grappleT:p.grappleT, grappleTX:p.grappleTX, grappleTY:p.grappleTY,
+      grappleSpeed:p.grappleSpeed, slamState:p.slamState, padId:p.padId,
+    })),
+    projectiles: game.projectiles.map(pr => ({ id:pr.id, ownerId:pr.ownerId, kind:pr.kind, wid:pr.wid, x:pr.x, y:pr.y, vx:pr.vx, vy:pr.vy })),
+    pickups: game.pickups.map(pk => ({ id:pk.id, kind:pk.kind, wid:pk.wid, x:pk.x, y:pk.y, resting:pk.resting })),
+    envProps: game.envProps.map(ep => ({ id:ep.id, propId:ep.propId, x:ep.x, y:ep.y, resting:ep.resting })),
+    doppelgangers: game.doppelgangers.map(d => ({ id:d.id, charId:d.charId, x:d.x, y:d.y, facing:d.facing, animT:d.animT })),
+    echoes: game.echoes.map(e => ({ id:e.id, charId:e.charId, x:e.x, y:e.y, facing:e.facing })),
+    pads: game.pads.map(pd => ({ id:pd.id, ownerId:pd.ownerId, x:pd.x, y:pd.y })),
+    hazards: game.hazards.map(h => ({ id:h.id, x:h.x, y:h.y, radius:h.radius, triggerAt:h.triggerAt, triggered:h.triggered })),
+    simTime: game.simTime||0,
+    sfx: game.outgoingFx,
+    feed: game.killFeed,
+  };
+}
+function broadcastSnapshot(game){
+  const snap = buildSnapshot(game);
+  for (const id in Net.conns){ try { Net.conns[id].send(snap); } catch(e){} }
+  game.outgoingFx = [];
+}
+function applySnapshot(data){
+  const seenIds = new Set();
+  for (const ps of data.players){
+    seenIds.add(ps.id);
+    let p = Game.players[ps.id];
+    if (!p) p = Game.players[ps.id] = makePlayer(ps.id, ps.name, ps.charId, { x:ps.x, y:ps.y });
+    if (ps.id === Game.localId){
+      const errX = ps.x - p.x, errY = ps.y - p.y;
+      if (Math.hypot(errX,errY) > 140){ p.x = ps.x; p.y = ps.y; p.vx = ps.vx; p.vy = ps.vy; }
+      else { p.x += errX*0.18; p.y += errY*0.18; }
+    } else {
+      p.targetX = ps.x; p.targetY = ps.y; p.vx = ps.vx; p.vy = ps.vy;
+    }
+    p.name = ps.name; p.charId = ps.charId; p.facing = ps.facing;
+    p.grounded = ps.grounded; p.sliding = ps.sliding; p.crouching = ps.crouching; p.wallSliding = ps.wallSliding;
+    p.ledgeHang = ps.ledgeHang; p.climbing = ps.climbing; p.h = ps.h;
+    p.health = ps.health; p.maxHealth = ps.maxHealth; p.alive = ps.alive;
+    p.rangedId = ps.rangedId; p.rangedAmmo = ps.rangedAmmo; p.meleeId = ps.meleeId;
+    p.carry = ps.carry; p.atk = ps.atk; p.aimAngle = ps.aimAngle;
+    p.kills = ps.kills; p.deaths = ps.deaths;
+    p.specialCD = ps.specialCD; p.dashT = ps.dashT; p.invulnT = ps.invulnT; p.invisibleT = ps.invisibleT;
+    p.shieldHP = ps.shieldHP; p.shieldT = ps.shieldT; p.grappleT = ps.grappleT;
+    p.grappleTX = ps.grappleTX; p.grappleTY = ps.grappleTY; p.grappleSpeed = ps.grappleSpeed;
+    p.slamState = ps.slamState; p.padId = ps.padId;
+  }
+  for (const id in Game.players){ if (!seenIds.has(id)) delete Game.players[id]; }
+  Game.projectiles = data.projectiles;
+  Game.pickups = data.pickups;
+  Game.envProps = data.envProps;
+  Game.doppelgangers = data.doppelgangers || [];
+  Game.echoes = data.echoes || [];
+  Game.pads = data.pads || [];
+  Game.hazards = data.hazards || [];
+  Game.simTime = data.simTime || 0;
+  for (const evt of data.sfx) spawnParticlesFor(Game, evt);
+  Game.killFeedRaw = data.feed;
+}
+function interpolateRemotes(dt, game){
+  for (const id in game.players){
+    if (id === game.localId) continue;
+    const p = game.players[id];
+    if (p.targetX === undefined) continue;
+    const s = 1 - Math.pow(0.00001, dt);
+    p.x = lerp(p.x, p.targetX, s);
+    p.y = lerp(p.y, p.targetY, s);
+  }
+}
+
+/* ============================================================
+   SECTION: GAME STATE (global)
+   ============================================================ */
+const Game = {
+  isHost:false, localId:null, myName:'', myCharId:0,
+  level:null, players:{}, projectiles:[], pickups:[], envProps:[], particles:[],
+  killFeed:[], killFeedRaw:[], seenFeed:new Set(), inputs:{},
+  camera:{ x:null, y:null }, screenShake:0, outgoingFx:[], snapAccum:0, running:false,
+  doppelgangers:[], echoes:[], pads:[], hazards:[],
+};
+
+/* ============================================================
+   SECTION: UI — menus, lobby, HUD
+   ============================================================ */
+function buildCharGrid(){
+  const grid = document.getElementById('charGrid');
+  grid.innerHTML = '';
+  CHARACTERS.forEach(ch => {
+    const card = document.createElement('div');
+    card.className = 'char-card';
+    card.dataset.charId = ch.id;
+    const cv = document.createElement('canvas');
+    cv.width = 56; cv.height = 80;
+    drawCharPreview(cv.getContext('2d'), ch);
+    const label = document.createElement('div');
+    label.className = 'cn'; label.textContent = ch.name;
+    card.appendChild(cv); card.appendChild(label);
+    card.addEventListener('click', () => selectCharacter(ch.id));
+    grid.appendChild(card);
+  });
+}
+function drawCharPreview(ctx, ch){
+  ctx.clearRect(0,0,56,80);
+  const fakeP = {
+    x:8, y:6, w:40, h:70, facing:1, grounded:true, vx:0, vy:0, sliding:false, crouching:false, wallSliding:false,
+    ledgeHang:false, climbing:false, atk:{active:false,wid:null}, carry:null, rangedId:'pistol', meleeId:'knife',
+    charId: ch.id, animT: 1.2, aimAngle:-0.35, name:'', health:100, maxHealth:100,
+  };
+  drawPlayer(ctx, fakeP, null);
+}
+const STAGE_BLURB = { western:'DESERT TOWN', castle:'STONE FORTRESS', cyberpunk:'NIGHT CITY' };
+function buildStageGrid(){
+  const grid = document.getElementById('stageGrid');
+  grid.innerHTML = '';
+  STAGE_ORDER.forEach(stageId => {
+    const lvl = LEVELS[stageId];
+    const card = document.createElement('div');
+    card.className = 'stage-card';
+    card.dataset.stageId = stageId;
+    const sn = document.createElement('div'); sn.className = 'sn'; sn.textContent = lvl.name;
+    const sw = document.createElement('div'); sw.className = 'swatches';
+    const step = Math.max(1, Math.floor(lvl.rooms.length / 5));
+    for (let i=0; i<lvl.rooms.length && sw.children.length<5; i+=step){
+      const s = document.createElement('span'); s.style.background = lvl.rooms[i].tint; sw.appendChild(s);
+    }
+    const st = document.createElement('div'); st.className = 'st'; st.textContent = STAGE_BLURB[stageId] || '';
+    card.appendChild(sn); card.appendChild(sw); card.appendChild(st);
+    card.addEventListener('click', () => { if (Net.isHost) selectStage(stageId); });
+    grid.appendChild(card);
+  });
+  renderStageSelection();
+}
+function selectStage(stageId){
+  Lobby.stageId = stageId;
+  renderStageSelection();
+  if (Net.isHost) broadcastLobby();
+}
+function renderStageSelection(){
+  document.querySelectorAll('.stage-card').forEach(c => {
+    c.classList.toggle('selected', c.dataset.stageId === Lobby.stageId);
+    c.classList.toggle('interactive', Net.isHost);
+  });
+}
+function selectCharacter(id){
+  Game.myCharId = id;
+  const myId = Game.localId;
+  if (!Lobby.players[myId]) Lobby.players[myId] = { name: Game.myName, charId:id };
+  else Lobby.players[myId].charId = id;
+  document.querySelectorAll('.char-card').forEach(c => c.classList.toggle('selected', +c.dataset.charId === id));
+  if (Net.isHost) broadcastLobby();
+  else if (Net.hostConn && Net.hostConn.open) Net.hostConn.send({ t:'char', charId:id, name:Game.myName });
+  renderLobbyList();
+}
+function renderLobbyList(){
+  const list = document.getElementById('lobbyList');
+  list.innerHTML = '';
+  Object.keys(Lobby.players).forEach(id => {
+    const info = Lobby.players[id];
+    const row = document.createElement('div'); row.className = 'lobby-row';
+    const dot = document.createElement('div'); dot.className = 'dot';
+    dot.style.background = CHARACTERS[info.charId !== undefined ? info.charId : 0].primary;
+    const rn = document.createElement('div'); rn.className = 'rn';
+    rn.textContent = info.name + (id === 'p_host' ? '  · HOST' : '') + (id === Game.localId ? '  · YOU' : '');
+    row.appendChild(dot); row.appendChild(rn);
+    list.appendChild(row);
+  });
+  document.getElementById('startMatchBtn').classList.toggle('hidden', !Net.isHost);
+  document.getElementById('lobbyHint').textContent = Net.isHost
+    ? 'Share the room code above. Start whenever your crew is ready (1–4 players).'
+    : 'Waiting for the host to start the match…';
+  renderStageSelection();
+}
+function enterCharSelect(){
+  document.getElementById('mainMenuScreen').classList.add('hidden');
+  document.getElementById('charSelectScreen').classList.remove('hidden');
+  const rc = document.getElementById('roomCodeDisplay');
+  rc.classList.toggle('hidden', !Net.isHost);
+  if (Net.isHost) rc.textContent = Net.roomCode;
+  buildStageGrid();
+  buildCharGrid();
+  selectCharacter(Game.myCharId || 0);
+}
+function enterMatchScreen(){
+  document.getElementById('charSelectScreen').classList.add('hidden');
+  document.getElementById('mainMenuScreen').classList.add('hidden');
+  document.getElementById('hud').classList.remove('hidden');
+  document.getElementById('roomTagCode').textContent = Net.roomCode || '-----';
+  document.getElementById('roomTagStage').textContent = (Game.level && Game.level.name) || '-----';
+  Game.camera.x = null; Game.camera.y = null;
+}
+
+function updateHUD(game){
+  const p = game.players[game.localId];
+  if (!p) return;
+  document.getElementById('hpNum').textContent = Math.max(0, Math.round(p.health));
+  document.getElementById('hpFill').style.width = Math.max(0, p.health/p.maxHealth*100) + '%';
+  document.getElementById('hpName').textContent = p.name;
+
+  const rw = p.rangedId ? RANGED_WEAPONS[p.rangedId] : null;
+  document.getElementById('rangedName').textContent = rw ? rw.name : 'EMPTY';
+  document.getElementById('rangedAmmo').textContent = rw ? p.rangedAmmo : '–';
+  const mw = p.meleeId ? MELEE_WEAPONS[p.meleeId] : FISTS;
+  document.getElementById('meleeName').textContent = mw.name;
+
+  const ch = CHARACTERS[p.charId];
+  const specialSlot = document.getElementById('specialSlot');
+  const specialCDEl = document.getElementById('specialCD');
+  document.getElementById('specialName').textContent = ch.special ? ch.special.name : '—';
+  if (ch.special && ch.special.id === 'teleport' && p.padId){
+    specialCDEl.textContent = 'TELEPORT';
+    specialSlot.classList.add('ready'); specialSlot.classList.remove('cooling');
+  } else if (ch.special && p.specialCD > 0){
+    specialCDEl.textContent = Math.ceil(p.specialCD) + 's';
+    specialSlot.classList.remove('ready'); specialSlot.classList.add('cooling');
+  } else {
+    specialCDEl.textContent = 'READY';
+    specialSlot.classList.add('ready'); specialSlot.classList.remove('cooling');
+  }
+
+  const sc = document.getElementById('scoreCluster');
+  sc.innerHTML = '';
+  Object.values(game.players).sort((a,b)=>b.kills-a.kills).forEach(pl => {
+    const row = document.createElement('div'); row.className = 'score-row';
+    const nm = pl.name + (pl.id === game.localId ? ' (you)' : '');
+    row.innerHTML = '<span>' + nm + '</span><span class="k">' + pl.kills + '</span>';
+    sc.appendChild(row);
+  });
+
+  document.getElementById('deathOverlay').classList.toggle('hidden', p.alive);
+  if (!p.alive) document.getElementById('respawnT').textContent = Math.max(0, Math.ceil(p.respawnT));
+
+  document.getElementById('promptCluster').textContent =
+    (p.carry ? 'Carrying ' + ENV_PROPS[p.carry.propId].name + ' — LMB/Q/E throw it, R drop it   ·   ' : '') +
+    'LMB fire · RMB melee · Q/E throw · R pickup · SHIFT sprint · S slide/crouch (+SPACE drop through) · SPACE jump/climb (+UP mantle) · F special';
+}
+function pushFeedUI(kf){
+  const feed = document.getElementById('feed');
+  const row = document.createElement('div'); row.className = 'feed-row';
+  row.textContent = kf.killer === 'THE ARENA' ? (kf.victim + ' ' + (kf.weapon || 'was eliminated')) : (kf.killer + '  \u2694  ' + kf.victim + '  [' + kf.weapon + ']');
+  feed.appendChild(row);
+  setTimeout(() => { row.style.transition = 'opacity .4s'; row.style.opacity = '0'; setTimeout(()=>row.remove(), 450); }, 4200);
+  while (feed.children.length > 6) feed.removeChild(feed.firstChild);
+}
+function processFeedEntries(list){
+  for (const kf of list){ if (!Game.seenFeed.has(kf.id)){ Game.seenFeed.add(kf.id); pushFeedUI(kf); } }
+}
+
+/* ---------- menu button wiring ---------- */
+document.getElementById('hostBtn').addEventListener('click', () => {
+  const name = (document.getElementById('nameInput').value || '').trim();
+  Game.myName = name.toUpperCase().slice(0,14);
+  document.getElementById('menuErr').textContent = '';
+  hostGame();
+});
+document.getElementById('joinShowBtn').addEventListener('click', () => {
+  document.getElementById('joinFields').classList.toggle('hidden');
+});
+document.getElementById('joinBtn').addEventListener('click', () => {
+  const name = (document.getElementById('nameInput').value || '').trim();
+  const code = (document.getElementById('joinCodeInput').value || '').trim();
+  if (code.length < 4){ document.getElementById('menuErr').textContent = 'Enter the 5-character room code.'; return; }
+  Game.myName = name.toUpperCase().slice(0,14);
+  document.getElementById('menuErr').textContent = '';
+  joinGame(code);
+});
+document.getElementById('leaveLobbyBtn').addEventListener('click', () => location.reload());
+document.getElementById('startMatchBtn').addEventListener('click', () => { if (Net.isHost) hostStartMatch(); });
+
+/* ============================================================
+   SECTION: MAIN LOOP
+   ============================================================ */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+function resizeCanvas(){
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+setupInput(canvas);
+
+function hostTick(dt){
+  Game.simTime = (Game.simTime||0) + dt;
+  Game.inputs['p_host'] = readLocalInput(Game, canvas);
+  for (const id in Game.players){
+    const p = Game.players[id];
+    const inp = Game.inputs[id] || emptyInput();
+    p.aimAngle = inp.aimAngle;
+    if (!p.alive){
+      p.respawnT -= dt;
+      if (p.respawnT <= 0) respawnPlayer(p, Game);
+      continue;
+    }
+    updateCombat(p, inp, dt, Game);
+    updateSpecialTrigger(p, inp, Game);
+    updatePlayerPhysics(p, inp, dt, Game.level.platforms);
+    updateSlamState(p, Game);
+    updatePosHistory(p, dt, Game);
+    if (p.alive && p.y > Game.level.killY) killPlayer(p, null, Game, 'fell into the void');
+  }
+  updateProjectiles(dt, Game);
+  updateLoosePickups(dt, Game);
+  updateSpawners(dt, Game);
+  updateParticles(dt, Game);
+  updateDoppelgangers(dt, Game);
+  updateEchoes(dt, Game);
+  updateHazards(dt, Game);
+  updateCamera(Game, canvas, dt);
+
+  Game.snapAccum += dt;
+  const interval = 1/CFG.TICK_RATE;
+  if (Game.snapAccum >= interval){
+    Game.snapAccum -= interval;
+    broadcastSnapshot(Game);
+  }
+  processFeedEntries(Game.killFeed);
+}
+function clientTick(dt){
+  const localInput = readLocalInput(Game, canvas);
+  const local = Game.players[Game.localId];
+  if (local){
+    local.aimAngle = localInput.aimAngle;
+    if (local.alive) updatePlayerPhysics(local, localInput, dt, Game.level.platforms);
+  }
+  if (Net.hostConn && Net.hostConn.open){
+    try { Net.hostConn.send({ t:'input', input: localInput }); } catch(e){}
+  }
+  interpolateRemotes(dt, Game);
+  updateParticles(dt, Game);
+  updateCamera(Game, canvas, dt);
+  processFeedEntries(Game.killFeedRaw);
+}
+
+let lastT = performance.now();
+function frame(now){
+  let dt = (now - lastT) / 1000;
+  lastT = now;
+  dt = Math.min(dt, 0.05);
+  if (Game.running){
+    if (Net.isHost) hostTick(dt); else clientTick(dt);
+    updateHUD(Game);
+    render(ctx, Game, canvas);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
