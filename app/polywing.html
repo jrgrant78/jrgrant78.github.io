@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>POLYWING: COMPACT POWERUPS</title>
+    <title>POLYWING: FULL-SCREEN EDGE AIMING</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; color: #00ffcc; }
@@ -116,7 +116,7 @@
     <!-- TITLE SCREEN -->
     <div id="title-screen" class="overlay-screen">
         <h1 class="game-title">POLYWING</h1>
-        <div class="subtitle">// HIGH-VISIBILITY NEON ARSENAL</div>
+        <div class="subtitle">// EDGE-TO-EDGE AIMING ENGINE</div>
         <button class="btn" onclick="startRun()">BEGIN RUN</button>
         <button class="btn" onclick="showHighScores()">HIGH SCORES</button>
         <div class="pulse" style="margin-top: 25px; font-size: min(3vw, 12px); color: #888;">HOLD RIGHT SCREEN TO FIRE CANNONS</div>
@@ -288,7 +288,7 @@
             { name: "BELLY OF THE BEAST", fog: 0x240110, light: 0xff0055, bg: 0x240110, quota: 45, speed: 1.7, type: "belly", wallX: 13.5, wallY: 6.2, hasFloor: true, bossName: "BIO-ORGANIC APEX CORE" }
         ];
 
-        // POWERUP TYPES DEFINITION (HIGH VISIBILITY NEON PALETTE)
+        // POWERUP TYPES DEFINITION
         const POWERUP_TYPES = [
             { id: "HEALTH", label: "+25 HEALTH", color: 0x00ff66 },
             { id: "MAX_HP", label: "MAX SHIELD +25", color: 0xffff00 },
@@ -326,9 +326,8 @@
 
         const currentAimWorldPoint = new THREE.Vector3(0, 0, -80);
 
-        // FREE AIM & STEERING GYRO / TOUCH STATE
+        // FULL SCREEN NDC AIMING & STEERING GYRO / TOUCH STATE
         let gyroPitch = 0, gyroRoll = 0, initialPitch = null, initialRoll = null;
-        let reticleAimX = 0, reticleAimY = 0;
         let pointerTargetX = 0, pointerTargetY = 0, isTouchDragging = false;
         let previousPointerX = 0, previousPointerY = 0;
 
@@ -777,22 +776,18 @@
             };
         }
 
-        // --- HIGH-VISIBILITY COMPACT 50% SCALED NEON POWERUP SPAWNER ---
         function spawnPowerUpDrop(position) {
             const pType = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
             const group = new THREE.Group();
 
-            // 1. Inner Glowing Solid Core (Reduced to 50% size: radius 0.75)
             const coreGeo = new THREE.IcosahedronGeometry(0.75, 1);
             const coreMat = new THREE.MeshBasicMaterial({ color: pType.color });
             const coreMesh = new THREE.Mesh(coreGeo, coreMat);
 
-            // 2. Outer Rotating Wireframe Neon Cage (Reduced to 50% size: radius 1.15)
             const cageGeo = new THREE.OctahedronGeometry(1.15);
             const cageMat = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true });
             const cageMesh = new THREE.Mesh(cageGeo, cageMat);
 
-            // 3. Bright Glowing Orbital Ring (Reduced to 50% size: radius 1.4, tube 0.11)
             const ringGeo = new THREE.TorusGeometry(1.4, 0.11, 8, 16);
             const ringMat = new THREE.MeshBasicMaterial({ color: pType.color });
             const ringMesh = new THREE.Mesh(ringGeo, ringMat);
@@ -850,11 +845,12 @@
                 if (dRoll > 180) dRoll -= 360;
                 if (dRoll < -180) dRoll += 360;
 
+                // Calibrated tilt angle sensitivity scale
                 dPitch = Math.max(-45, Math.min(45, dPitch));
                 dRoll = Math.max(-45, Math.min(45, dRoll));
 
-                gyroPitch = dPitch * 0.055;
-                gyroRoll = dRoll * 0.055;
+                gyroPitch = (dPitch / 45.0); // Normalized tilt [-1, 1]
+                gyroRoll = (dRoll / 45.0);
             }
 
             if ('ondeviceorientationabsolute' in window) window.addEventListener('deviceorientationabsolute', handleOrientation, true);
@@ -881,8 +877,12 @@
                 const deltaY = e.clientY - previousPointerY;
                 previousPointerX = e.clientX; previousPointerY = e.clientY;
                 
-                pointerTargetX += deltaX * 0.045;
-                pointerTargetY -= deltaY * 0.045;
+                // Touch drag directly updates NDC offset
+                pointerTargetX += (deltaX / window.innerWidth) * 2.2;
+                pointerTargetY -= (deltaY / window.innerHeight) * 2.2;
+
+                pointerTargetX = Math.max(-1.0, Math.min(1.0, pointerTargetX));
+                pointerTargetY = Math.max(-1.0, Math.min(1.0, pointerTargetY));
             });
 
             const stopTouch = (e) => {
@@ -1003,18 +1003,46 @@
                     planetMeshSystem.rotation.y += 0.002;
                 }
 
-                // --- 1. FREE-AIM RETICLE & CENTERING SHIP CHASE LOGIC ---
-                const aimLimitX = currentBiome.wallX * 1.35;
-                const aimLimitY = currentBiome.wallY * 1.25;
+                // --- 1. FULL SCREEN EDGE-TO-EDGE RETICLE AIMING ENGINE ---
+                // Combines touch drag and gyro tilt directly into Normalized Device Coordinates [-1, 1]
+                let rawNDC_X = pointerTargetX + gyroRoll * 1.25;
+                let rawNDC_Y = pointerTargetY - gyroPitch * 1.25;
 
-                reticleAimX = pointerTargetX + gyroRoll * 8.5;
-                reticleAimY = pointerTargetY - gyroPitch * 6.0;
+                // Clamps NDC so reticle can comfortably sweep to the EXACT edges of the screen [-0.95, 0.95]
+                const aimNDC_X = Math.max(-0.95, Math.min(0.95, rawNDC_X));
+                const aimNDC_Y = Math.max(-0.95, Math.min(0.95, rawNDC_Y));
 
-                reticleAimX = Math.max(-aimLimitX, Math.min(aimLimitX, reticleAimX));
-                reticleAimY = Math.max(-aimLimitY, Math.min(aimLimitY, reticleAimY));
+                // Convert NDC directly to Screen Pixel Coordinates for instant HUD placement
+                const reticleScreenX = (aimNDC_X * 0.5 + 0.5) * window.innerWidth;
+                const reticleScreenY = (-aimNDC_Y * 0.5 + 0.5) * window.innerHeight;
 
-                let desiredDx = (reticleAimX * 0.85 - playerShip.position.x) * 0.12;
-                let desiredDy = (reticleAimY * 0.82 - playerShip.position.y) * 0.12;
+                const reticleEl = document.getElementById('reticle');
+                if (reticleEl) {
+                    reticleEl.style.left = `${reticleScreenX}px`;
+                    reticleEl.style.top = `${reticleScreenY}px`;
+                }
+
+                // Unproject 2D screen reticle into 3D World Aim Point at far depth (80 units ahead)
+                const aimDistance = 80;
+                const fovRad = THREE.MathUtils.degToRad(camera.fov);
+                const halfFovTan = Math.tan(fovRad / 2);
+                
+                const aimWorldY = camera.position.y + (aimNDC_Y * aimDistance * halfFovTan);
+                const aimWorldX = camera.position.x + (aimNDC_X * aimDistance * halfFovTan * camera.aspect);
+                
+                currentAimWorldPoint.set(aimWorldX, aimWorldY, camera.position.z - aimDistance);
+
+                // Ship smoothly follows aim trajectory while remaining constrained to trench corridor bounds
+                let desiredShipX = aimWorldX * 0.55;
+                let desiredShipY = aimWorldY * 0.55;
+
+                const limitX = currentBiome.wallX - 1.5;
+                const limitY = currentBiome.wallY - 1.2;
+                desiredShipX = Math.max(-limitX, Math.min(limitX, desiredShipX));
+                desiredShipY = Math.max(-limitY, Math.min(limitY, desiredShipY));
+
+                let desiredDx = (desiredShipX - playerShip.position.x) * 0.14;
+                let desiredDy = (desiredShipY - playerShip.position.y) * 0.14;
 
                 const MAX_FRAME_SPEED = 0.85;
                 desiredDx = Math.max(-MAX_FRAME_SPEED, Math.min(MAX_FRAME_SPEED, desiredDx));
@@ -1023,12 +1051,12 @@
                 playerShip.position.x += desiredDx;
                 playerShip.position.y += desiredDy;
                 
-                playerShip.rotation.z = -(reticleAimX - playerShip.position.x) * 0.28;
-                playerShip.rotation.x = (reticleAimY - playerShip.position.y) * 0.18;
+                playerShip.rotation.z = -(desiredShipX - playerShip.position.x) * 0.28;
+                playerShip.rotation.x = (desiredShipY - playerShip.position.y) * 0.18;
 
                 // --- 2. CAMERA TRACKING & SCREEN SHIFT ---
-                const targetCamX = playerShip.position.x * 0.88;
-                const targetCamY = playerShip.position.y * 0.82;
+                const targetCamX = playerShip.position.x * 0.85;
+                const targetCamY = playerShip.position.y * 0.80;
                 
                 camera.position.x += (targetCamX - camera.position.x) * 0.12;
                 camera.position.y += (targetCamY - camera.position.y) * 0.12;
@@ -1036,33 +1064,20 @@
                 camera.rotation.z = THREE.MathUtils.lerp(camera.rotation.z, -(playerShip.position.x - camera.position.x) * 0.04, 0.08);
                 camera.rotation.x = THREE.MathUtils.lerp(camera.rotation.x, -(playerShip.position.y - camera.position.y) * 0.04, 0.08);
 
-                // --- 3. DYNAMIC RETICLE PROJECTED ONTO 2D HUD ---
-                currentAimWorldPoint.set(reticleAimX, reticleAimY, -80);
-                
-                const aimProj = currentAimWorldPoint.clone().project(camera);
-                const reticleScreenX = (aimProj.x * 0.5 + 0.5) * window.innerWidth;
-                const reticleScreenY = (-aimProj.y * 0.5 + 0.5) * window.innerHeight;
-
-                const reticleEl = document.getElementById('reticle');
-                if (reticleEl) {
-                    reticleEl.style.left = `${reticleScreenX}px`;
-                    reticleEl.style.top = `${reticleScreenY}px`;
-                }
-
-                // --- 4. MANUAL CANNON FIRING ---
+                // --- 3. MANUAL CANNON FIRING ---
                 const fireInterval = activeWeaponType === "BEAM" ? 75 : (activeWeaponType === "SPREAD" ? 180 : 130);
                 if (isRightSideFiring && (time - lastShotTime > fireInterval)) {
                     firePlayerLaser();
                     lastShotTime = time;
                 }
 
-                // --- 5. AUTOMATIC HOMING MISSILE SYSTEM ---
+                // --- 4. AUTOMATIC HOMING MISSILE SYSTEM ---
                 if (missileCount > 0 && (time - lastMissileFireTime > 2500)) {
                     fireHomingMissiles();
                     lastMissileFireTime = time;
                 }
 
-                // --- 6. UPDATE HOMING MISSILES ---
+                // --- 5. UPDATE HOMING MISSILES ---
                 for (let i = activeMissiles.length - 1; i >= 0; i--) {
                     const m = activeMissiles[i];
                     let targetPos = null;
@@ -1104,7 +1119,7 @@
                     }
                 }
 
-                // --- 7. UPDATE SLOW-DRIFTING COMPACT 50% NEON POWERUP DROPS ---
+                // --- 6. UPDATE POWERUPS ---
                 for (let i = powerUps.length - 1; i >= 0; i--) {
                     const p = powerUps[i];
                     
@@ -1117,7 +1132,6 @@
                     const pulse = 1.0 + Math.sin(time * 0.008) * 0.18;
                     p.core.scale.setScalar(pulse);
 
-                    // Adjusted collection radius (2.2 units) to fit 50% scaled mesh
                     if (p.mesh.position.distanceTo(playerShip.position) < 2.2) {
                         applyPowerUp(p.type);
                         scene.remove(p.mesh); powerUps.splice(i, 1);
@@ -1129,7 +1143,7 @@
                     }
                 }
 
-                // --- 8. SPAWN MINIONS OR CHECK BOSS SPAWN ---
+                // --- 7. SPAWN MINIONS OR CHECK BOSS SPAWN ---
                 if (quotaDefeated >= currentBiome.quota && !currentBoss && !isTransitioning) {
                     currentBoss = createBossForLocation(currentBiomeIndex);
                     document.getElementById('boss-name').innerText = currentBiome.bossName;
@@ -1149,7 +1163,7 @@
                     }
                 }
 
-                // --- 9. BOSS COMBAT LOOP & AI ---
+                // --- 8. BOSS COMBAT LOOP & AI ---
                 if (currentBoss) {
                     if (currentBoss.mesh.position.z < -50) {
                         currentBoss.mesh.position.z += 2.0;
@@ -1191,7 +1205,7 @@
                     }
                 }
 
-                // --- 10. UPDATE PLAYER LASERS ---
+                // --- 9. UPDATE PLAYER LASERS ---
                 for (let i = playerLasers.length - 1; i >= 0; i--) {
                     const l = playerLasers[i];
                     l.mesh.position.addScaledVector(l.dir, 4.2);
@@ -1200,7 +1214,7 @@
                     }
                 }
 
-                // --- 11. UPDATE ENEMY LASERS ---
+                // --- 10. UPDATE ENEMY LASERS ---
                 for (let i = enemyLasers.length - 1; i >= 0; i--) {
                     const el = enemyLasers[i];
                     el.mesh.position.addScaledVector(el.dir, el.speed);
@@ -1216,7 +1230,7 @@
                     }
                 }
 
-                // --- 12. UPDATE MINION ENEMIES ---
+                // --- 11. UPDATE MINION ENEMIES ---
                 for (let i = enemies.length - 1; i >= 0; i--) {
                     const e = enemies[i];
                     e.mesh.position.z += speed * 0.65;
@@ -1252,7 +1266,7 @@
                     }
                 }
 
-                // --- 13. UPDATE EXPLOSIONS ---
+                // --- 12. UPDATE EXPLOSIONS ---
                 for (let i = particleExplosions.length - 1; i >= 0; i--) {
                     const p = particleExplosions[i];
                     p.mesh.position.add(p.vel);
