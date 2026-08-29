@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>POLYWING: ADVANCED UPGRADES</title>
+    <title>POLYWING: MAGNETIC POWERUPS & UPGRADES</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; color: #00ffcc; }
@@ -46,8 +46,8 @@
 
         #powerup-popup {
             position: absolute; bottom: 22%; left: 50%; transform: translateX(-50%);
-            font-size: min(5vw, 22px); font-weight: 900; letter-spacing: 2px; color: #00ffff;
-            text-shadow: 0 0 16px #00ffff, 0 0 30px #00ffff; text-align: center; opacity: 0; transition: opacity 0.3s ease;
+            font-size: min(5.5vw, 24px); font-weight: 900; letter-spacing: 2px; color: #00ffff;
+            text-shadow: 0 0 18px #00ffff, 0 0 32px #00ffff; text-align: center; opacity: 0; transition: opacity 0.2s ease;
         }
 
         #boss-hud-container {
@@ -77,7 +77,7 @@
 
         #damage-overlay {
             position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 4;
-            pointer-events: none; background: rgba(255, 0, 85, 0); transition: background 0.12s ease;
+            pointer-events: none; background: rgba(255, 0, 85, 0); transition: background 0.15s ease;
         }
 
         #reticle {
@@ -269,7 +269,7 @@
         ];
 
         const POWERUP_TYPES = [
-            { id: "HEALTH", label: "+25 SHIELD REPAIR", color: 0x00ff66 },
+            { id: "HEALTH", label: "+35 SHIELD REPAIR", color: 0x00ff66 },
             { id: "MAX_HP", label: "MAX SHIELD +25", color: 0xffff00 },
             { id: "SPREAD", label: "CANNON SPREAD UP", color: 0x00ffff },
             { id: "TEMP_SHIELD", label: "TEMPORARY SHIELD ACTIVATED", color: 0x0088ff },
@@ -499,7 +499,6 @@
             finR.rotation.z = 0.3;
             ship.add(finL, finR);
 
-            // Primary Cannons
             const cannonGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.4, 6);
             cannonGeo.rotateX(Math.PI / 2);
             const cannonR = new THREE.Mesh(cannonGeo, accentMat);
@@ -508,7 +507,6 @@
             cannonL.position.x = -2.4;
             ship.add(cannonR, cannonL);
 
-            // DYNAMIC EXTRA CANNONS GROUP (VISUALLY DOCKS ON LEVEL-UP)
             extraCannonsGroup = new THREE.Group();
             const extCannonR = new THREE.Mesh(cannonGeo, new THREE.MeshBasicMaterial({ color: 0x00ffff }));
             extCannonR.position.set(1.2, 0.3, -0.1);
@@ -518,7 +516,6 @@
             extraCannonsGroup.visible = false;
             ship.add(extraCannonsGroup);
 
-            // DYNAMIC MISSILE PODS GROUP (VISUALLY DOCKS ON MISSILE PICKUP)
             missilePodsGroup = new THREE.Group();
             const podGeo = new THREE.BoxGeometry(0.5, 0.3, 1.0);
             const podMat = new THREE.MeshBasicMaterial({ color: 0xbd00ff, wireframe: true });
@@ -968,25 +965,34 @@
                     }
                 }
 
-                // --- 6. UPDATE POWERUPS ---
+                // --- 6. UPDATE POWERUPS WITH MAGNETIC ATTRACTION ---
                 for (let i = powerUps.length - 1; i >= 0; i--) {
                     const p = powerUps[i];
+                    
                     p.mesh.position.z += speed * 0.18;
 
-                    p.cage.rotation.y += 0.05;
-                    p.cage.rotation.x += 0.03;
-                    p.ring.rotation.z -= 0.04;
+                    // MAGNETIC PULL TOWARDS SHIP WHEN CLOSE
+                    const distToShip = p.mesh.position.distanceTo(playerShip.position);
+                    if (distToShip < 28.0) {
+                        p.mesh.position.x += (playerShip.position.x - p.mesh.position.x) * 0.12;
+                        p.mesh.position.y += (playerShip.position.y - p.mesh.position.y) * 0.12;
+                        p.mesh.position.z += (playerShip.position.z - p.mesh.position.z) * 0.08;
+                    }
+
+                    p.cage.rotation.y += 0.06;
+                    p.cage.rotation.x += 0.04;
+                    p.ring.rotation.z -= 0.05;
                     
-                    const pulse = 1.0 + Math.sin(time * 0.008) * 0.18;
+                    const pulse = 1.0 + Math.sin(time * 0.01) * 0.22;
                     p.core.scale.setScalar(pulse);
 
-                    if (p.mesh.position.distanceTo(playerShip.position) < 2.2) {
+                    if (distToShip < 3.8) {
                         applyPowerUp(p.type);
                         scene.remove(p.mesh); powerUps.splice(i, 1);
                         continue;
                     }
 
-                    if (p.mesh.position.z > 12) {
+                    if (p.mesh.position.z > 15) {
                         scene.remove(p.mesh); powerUps.splice(i, 1);
                     }
                 }
@@ -1242,9 +1248,13 @@
             sfx.playPowerup();
             triggerPowerupPopup(pType.label);
 
+            const overlay = document.getElementById('damage-overlay');
+            overlay.style.background = '#' + pType.color.toString(16).padStart(6, '0') + '44';
+            setTimeout(() => overlay.style.background = 'rgba(255, 0, 85, 0)', 160);
+
             switch(pType.id) {
                 case "HEALTH":
-                    health = Math.min(maxHealth, health + 25);
+                    health = Math.min(maxHealth, health + 35);
                     break;
                 case "MAX_HP":
                     maxHealth += 25;
@@ -1254,7 +1264,7 @@
                     cannonSpreadLevel = Math.min(3, cannonSpreadLevel + 1);
                     break;
                 case "TEMP_SHIELD":
-                    tempShieldTimer = 8.0;
+                    tempShieldTimer = 10.0;
                     break;
                 case "WEAPON_SWAP":
                     if (activeWeaponType === "PLASMA") activeWeaponType = "SPREAD";
@@ -1266,7 +1276,6 @@
                     break;
             }
 
-            // VISUAL SHIP MODEL UPGRADES DYNAMIC UPDATE
             if (extraCannonsGroup) {
                 extraCannonsGroup.visible = (cannonSpreadLevel > 1);
             }
@@ -1301,7 +1310,7 @@
             startPosList.forEach((start, idx) => {
                 const aimOffset = currentAimWorldPoint.clone();
                 if (activeWeaponType === "SPREAD") {
-                    const offsetVal = (idx - (startPosList.length - 1) / 2) * 12.0;
+                    const offsetVal = (idx - (startPosList.length - 1) / 2) * 14.0;
                     aimOffset.x += offsetVal;
                 }
 
