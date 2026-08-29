@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>POLYWING: TRENCH COMBAT ENHANCED</title>
+    <title>POLYWING: MAGNETIZED POWERUPS</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; color: #00ffcc; }
@@ -201,7 +201,7 @@
                 osc.frequency.setValueAtTime(440, this.ctx.currentTime);
                 osc.frequency.setValueAtTime(880, this.ctx.currentTime + 0.08);
                 osc.frequency.setValueAtTime(1320, this.ctx.currentTime + 0.16);
-                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.setValueAtTime(0.25, this.ctx.currentTime);
                 gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.25);
                 osc.connect(gain); gain.connect(this.ctx.destination);
                 osc.start(); osc.stop(this.ctx.currentTime + 0.25);
@@ -549,10 +549,9 @@
             return group;
         }
 
-        // --- LOWER PEDESTAL HEIGHT TURRET ---
         function createGroundTurret() {
             const group = new THREE.Group();
-            const pedestalHeight = 4.8; // Lowered height so it fits proportionately
+            const pedestalHeight = 4.8;
             const pedestalMat = new THREE.MeshStandardMaterial({ color: 0x182436, roughness: 0.5, flatShading: true });
             const gunMat = new THREE.MeshStandardMaterial({ color: 0xff0055, roughness: 0.3, flatShading: true });
             const barrelMat = new THREE.MeshStandardMaterial({ color: 0xffff00, flatShading: true });
@@ -833,7 +832,7 @@
 
                 if (planetMeshSystem) planetMeshSystem.rotation.y += 0.001;
 
-                // --- 1. FULL SCREEN RETICLE AIMING & BOUNDED SHIP MOVEMENT ---
+                // --- 1. RETICLE AIMING & SLOW BOUNDED SHIP MOVEMENT ---
                 let rawNDC_X = pointerTargetX + gyroRoll * 1.25;
                 let rawNDC_Y = pointerTargetY - gyroPitch * 1.25;
 
@@ -943,10 +942,17 @@
                     }
                 }
 
-                // --- 6. UPDATE POWERUPS ---
+                // --- 6. UPDATE MAGNETIZED POWERUPS (MAGNETIC TRACTOR PULL) ---
                 for (let i = powerUps.length - 1; i >= 0; i--) {
                     const p = powerUps[i];
+                    
                     p.mesh.position.z += speed * 0.18;
+
+                    // TRACTOR PULL MAGNETISM: When powerup is within 32 units, smoothly fly towards player ship!
+                    const distToPlayer = p.mesh.position.distanceTo(playerShip.position);
+                    if (distToPlayer < 32.0) {
+                        p.mesh.position.lerp(playerShip.position, 0.08);
+                    }
 
                     p.cage.rotation.y += 0.05;
                     p.cage.rotation.x += 0.03;
@@ -955,7 +961,8 @@
                     const pulse = 1.0 + Math.sin(time * 0.008) * 0.18;
                     p.core.scale.setScalar(pulse);
 
-                    if (p.mesh.position.distanceTo(playerShip.position) < 2.2) {
+                    // Reliable expanded collection radius
+                    if (distToPlayer < 3.2) {
                         applyPowerUp(p.type);
                         scene.remove(p.mesh); powerUps.splice(i, 1);
                         continue;
@@ -984,41 +991,63 @@
                     }
                 }
 
-                // --- 8. RELIABLE GROUND TURRET COLLISION & DAMAGE DETECTION ---
+                // --- 8. UPDATE PEDESTAL TURRETS & DESTRUCTIBLE SIDE GUNS ---
                 for (let i = groundTurrets.length - 1; i >= 0; i--) {
                     const t = groundTurrets[i];
                     t.group.position.z += speed * 1.4;
 
-                    // Guns track player ship position
+                    const turretCenterPos = t.group.position.clone();
+                    turretCenterPos.y += t.pedestalHeight / 2;
+
+                    // Update side guns
+                    let activeGunsCount = 0;
                     t.guns.forEach(g => {
-                        if (g.active) g.mesh.lookAt(playerShip.position);
+                        if (!g.active) return;
+                        activeGunsCount++;
+
+                        const gunWorldPos = new THREE.Vector3();
+                        g.mesh.getWorldPosition(gunWorldPos);
+                        g.mesh.lookAt(playerShip.position);
+
+                        // Fire laser from gun position
+                        if (time - t.lastFireTime > t.fireInterval && t.group.position.z < -10) {
+                            fireEnemyLaserFromPoint(gunWorldPos);
+                        }
+
+                        // Check direct hit on this specific side gun
+                        for (let j = playerLasers.length - 1; j >= 0; j--) {
+                            const l = playerLasers[j];
+                            if (l.mesh.position.distanceTo(gunWorldPos) < 2.0) {
+                                createExplosion(gunWorldPos);
+                                scene.remove(l.mesh); playerLasers.splice(j, 1);
+                                g.active = false;
+                                g.mesh.visible = false;
+                                score += 200;
+                                sfx.playExplosion();
+                                updateHUD();
+                                break;
+                            }
+                        }
                     });
 
-                    // Turret fires laser at player
-                    if (time - t.lastFireTime > t.fireInterval && t.group.position.z < -10) {
-                        const topPos = t.group.position.clone();
-                        topPos.y += t.pedestalHeight;
-                        fireEnemyLaserFromPoint(topPos);
+                    if (activeGunsCount > 0 && time - t.lastFireTime > t.fireInterval && t.group.position.z < -10) {
                         t.lastFireTime = time;
                     }
 
-                    // CLEAR RELIABLE HITBOX: Player blaster vs entire turret structure
+                    // Check player laser hits main pedestal turret body
                     for (let j = playerLasers.length - 1; j >= 0; j--) {
                         const l = playerLasers[j];
-                        const turretCenter = t.group.position.clone();
-                        turretCenter.y += t.pedestalHeight / 2;
-
-                        if (l.mesh.position.distanceTo(turretCenter) < 3.2) {
+                        if (l.mesh.position.distanceTo(turretCenterPos) < 3.2) {
                             createExplosion(l.mesh.position);
                             scene.remove(l.mesh); playerLasers.splice(j, 1);
 
                             t.hp--;
                             if (t.hp <= 0) {
-                                createExplosion(turretCenter);
-                                if (Math.random() < 0.35) spawnPowerUpDrop(turretCenter);
+                                createExplosion(turretCenterPos);
+                                if (Math.random() < 0.35) spawnPowerUpDrop(turretCenterPos);
                                 scene.remove(t.group);
                                 groundTurrets.splice(i, 1);
-                                score += 300;
+                                score += 350;
                                 quotaDefeated++;
                                 sfx.playExplosion();
                                 updateHUD();
@@ -1129,12 +1158,11 @@
                     }
                 }
 
-                // --- 13. TIE FIGHTERS: FLY INTO VIEW, ENGAGE/STRAFE IN FRONT OF PLAYER, THEN LEAVE ---
+                // --- 13. TIE FIGHTERS: FLY INTO VIEW, ENGAGE & WEAVE IN FRONT OF PLAYER ---
                 for (let i = enemies.length - 1; i >= 0; i--) {
                     const e = enemies[i];
 
                     if (e.state === 'ENTERING') {
-                        // Fly in rapidly from Z = -180 to Z = -50 (in front of player)
                         e.mesh.position.z += speed * 2.2;
                         if (e.mesh.position.z >= -50) {
                             e.state = 'ENGAGING';
@@ -1142,28 +1170,25 @@
                         }
                     } 
                     else if (e.state === 'ENGAGING') {
-                        // REMAIN IN FRONT OF PLAYER: Hover & strafe left, right, up, down in clear view!
                         e.engageTimer += 0.016;
 
+                        // WEAVE IN FRONT OF PLAYER IN FULL VIEW
                         e.mesh.position.x = e.baseX + Math.sin(time * e.sineFreqX + e.seed) * 8.0;
                         e.mesh.position.y = Math.max(MIN_SHIP_Y, e.baseY + Math.cos(time * e.sineFreqY + e.seed) * 4.0);
                         e.mesh.position.z = -50 + Math.sin(time * 0.002 + e.seed) * 5.0;
 
                         e.mesh.rotation.z = Math.sin(time * 0.003 + e.seed) * 0.2;
 
-                        // Fire laser at player while engaging in view
                         if (time - e.lastFireTime > e.fireInterval) {
                             fireEnemyLaser(e);
                             e.lastFireTime = time;
                         }
 
-                        // Remain in front of player for 7 seconds before leaving
                         if (e.engageTimer > 7.0) {
                             e.state = 'EXITING';
                         }
                     }
                     else if (e.state === 'EXITING') {
-                        // Fly past player and exit view
                         e.mesh.position.z += speed * 2.5;
                         e.mesh.position.y += 0.08;
 
@@ -1174,7 +1199,6 @@
                         }
                     }
 
-                    // Check player laser hits TIE
                     for (let j = playerLasers.length - 1; j >= 0; j--) {
                         const l = playerLasers[j];
                         if (l.mesh.position.distanceTo(e.mesh.position) < 2.2) {
@@ -1191,7 +1215,6 @@
                         }
                     }
 
-                    // Player collision
                     if (e && e.mesh.position.distanceTo(playerShip.position) < 1.8) {
                         createExplosion(e.mesh.position);
                         scene.remove(e.mesh); enemies.splice(i, 1);
@@ -1335,7 +1358,6 @@
             sfx.playEnemyLaser();
         }
 
-        // --- TIE SQUADRON SPAWNING WITH WEAVING ENCOUNTER STATE ---
         function spawnTieSquadron() {
             const formationType = Math.floor(Math.random() * 2);
             const leaderX = (Math.random() - 0.5) * 24;
@@ -1379,7 +1401,7 @@
                 group: turretObj.mesh,
                 guns: turretObj.guns,
                 pedestalHeight: turretObj.pedestalHeight,
-                hp: 4, // Pedestal HP
+                hp: 4,
                 lastFireTime: performance.now(),
                 fireInterval: fireInterval
             });
