@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>POLYWING: MAGNETIZED POWERUPS</title>
+    <title>POLYWING: ADVANCED UPGRADES</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; color: #00ffcc; }
@@ -45,9 +45,9 @@
         }
 
         #powerup-popup {
-            position: absolute; bottom: 20%; left: 50%; transform: translateX(-50%);
+            position: absolute; bottom: 22%; left: 50%; transform: translateX(-50%);
             font-size: min(5vw, 22px); font-weight: 900; letter-spacing: 2px; color: #00ffff;
-            text-shadow: 0 0 16px #00ffff; text-align: center; opacity: 0; transition: opacity 0.3s ease;
+            text-shadow: 0 0 16px #00ffff, 0 0 30px #00ffff; text-align: center; opacity: 0; transition: opacity 0.3s ease;
         }
 
         #boss-hud-container {
@@ -107,7 +107,7 @@
 
     <div id="title-screen" class="overlay-screen">
         <h1 class="game-title">POLYWING</h1>
-        <div class="subtitle">// MAGNETIZED POWERUPS EDITION</div>
+        <div class="subtitle">// STAR DESTROYER TRENCH RUN</div>
         <button class="btn" onclick="startRun()">BEGIN RUN</button>
         <button class="btn" onclick="showHighScores()">HIGH SCORES</button>
         <div class="pulse" style="margin-top: 25px; font-size: min(3vw, 12px); color: #888;">HOLD RIGHT SCREEN TO FIRE CANNONS</div>
@@ -140,7 +140,7 @@
             <div>SCORE: <span id="score-display">0</span></div>
             <div style="font-size: 11px; margin-top: 4px; color: #aaa;" id="location-display">TRENCH SECTOR 01</div>
             <div id="quota-bar-container"><div id="quota-bar-fill"></div></div>
-            <div style="font-size: 11px; margin-top: 6px; color: #00ffcc;" id="weapon-display">WEAPON: PLASMA</div>
+            <div style="font-size: 11px; margin-top: 6px; color: #00ffcc;" id="weapon-display">WEAPON: PLASMA [LVL 1]</div>
             <div style="font-size: 11px; margin-top: 2px; color: #bd00ff;" id="missile-display">MISSILES: 0</div>
         </div>
         <div id="hud-top-right" class="hud-panel">
@@ -253,7 +253,7 @@
                 osc.type = 'triangle';
                 osc.frequency.setValueAtTime(180, this.ctx.currentTime);
                 osc.frequency.exponentialRampToValueAtTime(1100, this.ctx.currentTime + 0.6);
-                gain.gain.setValueAtTime(0.25, this.ctx.currentTime);
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
                 gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.6);
                 osc.connect(gain); gain.connect(this.ctx.destination);
                 osc.start(); osc.stop(this.ctx.currentTime + 0.6);
@@ -269,20 +269,22 @@
         ];
 
         const POWERUP_TYPES = [
-            { id: "HEALTH", label: "+25 HEALTH", color: 0x00ff66 },
+            { id: "HEALTH", label: "+25 SHIELD REPAIR", color: 0x00ff66 },
             { id: "MAX_HP", label: "MAX SHIELD +25", color: 0xffff00 },
             { id: "SPREAD", label: "CANNON SPREAD UP", color: 0x00ffff },
-            { id: "TEMP_SHIELD", label: "TEMPORARY SHIELD", color: 0x0088ff },
+            { id: "TEMP_SHIELD", label: "TEMPORARY SHIELD ACTIVATED", color: 0x0088ff },
             { id: "WEAPON_SWAP", label: "WEAPON UPGRADED", color: 0xff00ff },
-            { id: "HOMING_MISSILE", label: "+1 HOMING MISSILE", color: 0xbd00ff }
+            { id: "HOMING_MISSILE", label: "+1 HOMING MISSILE POD", color: 0xbd00ff }
         ];
 
         // --- GLOBAL ENGINE & GAME STATE ---
         let scene, camera, renderer, playerShip, starParticlesSystem, planetMeshSystem, warpTunnelSystem, shieldBubbleMesh;
+        let extraCannonsGroup = null, missilePodsGroup = null;
         let gameState = "TITLE";
         let score = 0, health = 100, maxHealth = 100, quotaDefeated = 0, targetQuota = 35;
         let sectorLevel = 1, isTransitioning = false, elapsedTime = 0, difficultyLevel = 0.5;
 
+        // PLAYER ARSENAL & POWERUP STATES
         let activeWeaponType = "PLASMA";
         let cannonSpreadLevel = 1;
         let tempShieldTimer = 0;
@@ -497,6 +499,7 @@
             finR.rotation.z = 0.3;
             ship.add(finL, finR);
 
+            // Primary Cannons
             const cannonGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.4, 6);
             cannonGeo.rotateX(Math.PI / 2);
             const cannonR = new THREE.Mesh(cannonGeo, accentMat);
@@ -504,6 +507,28 @@
             const cannonL = cannonR.clone();
             cannonL.position.x = -2.4;
             ship.add(cannonR, cannonL);
+
+            // DYNAMIC EXTRA CANNONS GROUP (VISUALLY DOCKS ON LEVEL-UP)
+            extraCannonsGroup = new THREE.Group();
+            const extCannonR = new THREE.Mesh(cannonGeo, new THREE.MeshBasicMaterial({ color: 0x00ffff }));
+            extCannonR.position.set(1.2, 0.3, -0.1);
+            const extCannonL = extCannonR.clone();
+            extCannonL.position.x = -1.2;
+            extraCannonsGroup.add(extCannonR, extCannonL);
+            extraCannonsGroup.visible = false;
+            ship.add(extraCannonsGroup);
+
+            // DYNAMIC MISSILE PODS GROUP (VISUALLY DOCKS ON MISSILE PICKUP)
+            missilePodsGroup = new THREE.Group();
+            const podGeo = new THREE.BoxGeometry(0.5, 0.3, 1.0);
+            const podMat = new THREE.MeshBasicMaterial({ color: 0xbd00ff, wireframe: true });
+            const podR = new THREE.Mesh(podGeo, podMat);
+            podR.position.set(1.8, 0.4, 0.8);
+            const podL = podR.clone();
+            podL.position.x = -1.8;
+            missilePodsGroup.add(podR, podL);
+            missilePodsGroup.visible = false;
+            ship.add(missilePodsGroup);
 
             const engineGeo = new THREE.CylinderGeometry(0.22, 0.12, 0.9, 8);
             engineGeo.rotateX(Math.PI / 2);
@@ -833,7 +858,7 @@
 
                 if (planetMeshSystem) planetMeshSystem.rotation.y += 0.001;
 
-                // --- 1. FULL SCREEN RETICLE AIMING & SLOW BOUNDED SHIP MOVEMENT ---
+                // --- 1. FULL SCREEN RETICLE AIMING & BOUNDED SHIP MOVEMENT ---
                 let rawNDC_X = pointerTargetX + gyroRoll * 1.25;
                 let rawNDC_Y = pointerTargetY - gyroPitch * 1.25;
 
@@ -943,10 +968,9 @@
                     }
                 }
 
-                // --- 6. UPDATE MAGNETIZED POWERUPS (POWERUP BEHAVIOR UNCHANGED) ---
+                // --- 6. UPDATE POWERUPS ---
                 for (let i = powerUps.length - 1; i >= 0; i--) {
                     const p = powerUps[i];
-                    
                     p.mesh.position.z += speed * 0.18;
 
                     p.cage.rotation.y += 0.05;
@@ -1008,7 +1032,7 @@
                         // Player blasters hit specific side gun pod
                         for (let j = playerLasers.length - 1; j >= 0; j--) {
                             const l = playerLasers[j];
-                            if (l.mesh.position.distanceTo(gunWorldPos) < 2.4) {
+                            if (l.mesh.position.distanceTo(gunWorldPos) < 2.0) {
                                 createExplosion(gunWorldPos);
                                 scene.remove(l.mesh); playerLasers.splice(j, 1);
 
@@ -1149,7 +1173,6 @@
                         }
                     } 
                     else if (e.state === 'ENGAGING') {
-                        // REMAIN IN FRONT OF PLAYER VIEW: WEAVE LEFT, RIGHT, UP, DOWN
                         e.engageTimer += 0.016;
 
                         e.mesh.position.x = e.baseX + Math.sin(time * e.sineFreqX + e.seed) * 9.0;
@@ -1178,7 +1201,6 @@
                         }
                     }
 
-                    // Check player laser hits TIE
                     for (let j = playerLasers.length - 1; j >= 0; j--) {
                         const l = playerLasers[j];
                         if (l.mesh.position.distanceTo(e.mesh.position) < 2.2) {
@@ -1195,7 +1217,6 @@
                         }
                     }
 
-                    // Player collision
                     if (e && e.mesh.position.distanceTo(playerShip.position) < 1.8) {
                         createExplosion(e.mesh.position);
                         scene.remove(e.mesh); enemies.splice(i, 1);
@@ -1244,6 +1265,15 @@
                     missileCount++;
                     break;
             }
+
+            // VISUAL SHIP MODEL UPGRADES DYNAMIC UPDATE
+            if (extraCannonsGroup) {
+                extraCannonsGroup.visible = (cannonSpreadLevel > 1);
+            }
+            if (missilePodsGroup) {
+                missilePodsGroup.visible = (missileCount > 0);
+            }
+
             updateHUD();
         }
 
@@ -1413,6 +1443,10 @@
                 health -= amount;
             }
 
+            if (extraCannonsGroup) {
+                extraCannonsGroup.visible = (cannonSpreadLevel > 1);
+            }
+
             const overlay = document.getElementById('damage-overlay');
             overlay.style.background = 'rgba(255, 0, 85, 0.45)';
             setTimeout(() => overlay.style.background = 'rgba(255, 0, 85, 0)', 120);
@@ -1447,7 +1481,7 @@
         function updateHUD() {
             document.getElementById('score-display').innerText = score;
             document.getElementById('health-bar-fill').style.width = Math.max(0, (health / maxHealth) * 100) + '%';
-            document.getElementById('weapon-display').innerText = `WEAPON: ${activeWeaponType} (LVL ${cannonSpreadLevel})`;
+            document.getElementById('weapon-display').innerText = `WEAPON: ${activeWeaponType} [LVL ${cannonSpreadLevel}]`;
             document.getElementById('missile-display').innerText = `MISSILES: ${missileCount}`;
             
             const pct = Math.min(100, (quotaDefeated / targetQuota) * 100);
