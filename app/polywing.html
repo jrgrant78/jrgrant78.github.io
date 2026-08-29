@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>POLYWING: MAGNETIC POWERUPS & UPGRADES</title>
+    <title>POLYWING: MAGNET POWERUPS & UPGRADES</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; color: #00ffcc; }
@@ -46,8 +46,8 @@
 
         #powerup-popup {
             position: absolute; bottom: 22%; left: 50%; transform: translateX(-50%);
-            font-size: min(5.5vw, 24px); font-weight: 900; letter-spacing: 2px; color: #00ffff;
-            text-shadow: 0 0 18px #00ffff, 0 0 32px #00ffff; text-align: center; opacity: 0; transition: opacity 0.2s ease;
+            font-size: min(5vw, 22px); font-weight: 900; letter-spacing: 2px; color: #00ffff;
+            text-shadow: 0 0 16px #00ffff, 0 0 30px #00ffff; text-align: center; opacity: 0; transition: opacity 0.3s ease;
         }
 
         #boss-hud-container {
@@ -77,7 +77,7 @@
 
         #damage-overlay {
             position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 4;
-            pointer-events: none; background: rgba(255, 0, 85, 0); transition: background 0.15s ease;
+            pointer-events: none; background: rgba(255, 0, 85, 0); transition: background 0.12s ease;
         }
 
         #reticle {
@@ -269,11 +269,11 @@
         ];
 
         const POWERUP_TYPES = [
-            { id: "HEALTH", label: "+35 SHIELD REPAIR", color: 0x00ff66 },
+            { id: "HEALTH", label: "+25 SHIELD REPAIR", color: 0x00ff66 },
             { id: "MAX_HP", label: "MAX SHIELD +25", color: 0xffff00 },
-            { id: "SPREAD", label: "CANNON SPREAD UP", color: 0x00ffff },
-            { id: "TEMP_SHIELD", label: "TEMPORARY SHIELD ACTIVATED", color: 0x0088ff },
-            { id: "WEAPON_SWAP", label: "WEAPON UPGRADED", color: 0xff00ff },
+            { id: "SPREAD", label: "CANNON SPREAD UPGRADED", color: 0x00ffff },
+            { id: "TEMP_SHIELD", label: "INVULNERABLE SHIELD ACTIVATED", color: 0x0088ff },
+            { id: "WEAPON_SWAP", label: "WEAPON SYSTEM UPGRADED", color: 0xff00ff },
             { id: "HOMING_MISSILE", label: "+1 HOMING MISSILE POD", color: 0xbd00ff }
         ];
 
@@ -285,7 +285,7 @@
         let sectorLevel = 1, isTransitioning = false, elapsedTime = 0, difficultyLevel = 0.5;
 
         // PLAYER ARSENAL & POWERUP STATES
-        let activeWeaponType = "PLASMA";
+        let activeWeaponType = "PLASMA"; // PLASMA -> BEAM -> SPREAD
         let cannonSpreadLevel = 1;
         let tempShieldTimer = 0;
         let missileCount = 0;
@@ -499,6 +499,7 @@
             finR.rotation.z = 0.3;
             ship.add(finL, finR);
 
+            // Primary Cannons
             const cannonGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.4, 6);
             cannonGeo.rotateX(Math.PI / 2);
             const cannonR = new THREE.Mesh(cannonGeo, accentMat);
@@ -507,6 +508,7 @@
             cannonL.position.x = -2.4;
             ship.add(cannonR, cannonL);
 
+            // DYNAMIC EXTRA CANNONS GROUP (ATTACHED ON SPREAD UPGRADE)
             extraCannonsGroup = new THREE.Group();
             const extCannonR = new THREE.Mesh(cannonGeo, new THREE.MeshBasicMaterial({ color: 0x00ffff }));
             extCannonR.position.set(1.2, 0.3, -0.1);
@@ -516,6 +518,7 @@
             extraCannonsGroup.visible = false;
             ship.add(extraCannonsGroup);
 
+            // DYNAMIC MISSILE PODS GROUP (ATTACHED ON MISSILE PICKUP)
             missilePodsGroup = new THREE.Group();
             const podGeo = new THREE.BoxGeometry(0.5, 0.3, 1.0);
             const podMat = new THREE.MeshBasicMaterial({ color: 0xbd00ff, wireframe: true });
@@ -666,19 +669,20 @@
             };
         }
 
+        // --- COMPACT 50% SCALED POWERUP SPAWNER ---
         function spawnPowerUpDrop(position) {
             const pType = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
             const group = new THREE.Group();
 
-            const coreGeo = new THREE.IcosahedronGeometry(0.75, 1);
+            const coreGeo = new THREE.IcosahedronGeometry(0.38, 1);
             const coreMat = new THREE.MeshBasicMaterial({ color: pType.color });
             const coreMesh = new THREE.Mesh(coreGeo, coreMat);
 
-            const cageGeo = new THREE.OctahedronGeometry(1.15);
+            const cageGeo = new THREE.OctahedronGeometry(0.58);
             const cageMat = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true });
             const cageMesh = new THREE.Mesh(cageGeo, cageMat);
 
-            const ringGeo = new THREE.TorusGeometry(1.4, 0.11, 8, 16);
+            const ringGeo = new THREE.TorusGeometry(0.7, 0.06, 8, 16);
             const ringMat = new THREE.MeshBasicMaterial({ color: pType.color });
             const ringMesh = new THREE.Mesh(ringGeo, ringMat);
             ringMesh.rotation.x = Math.PI / 3;
@@ -804,6 +808,9 @@
             powerUps.forEach(p => scene.remove(p.mesh)); powerUps.length = 0;
             activeMissiles.forEach(m => scene.remove(m.mesh)); activeMissiles.length = 0;
 
+            if (extraCannonsGroup) extraCannonsGroup.visible = false;
+            if (missilePodsGroup) missilePodsGroup.visible = false;
+
             document.getElementById('title-screen').style.display = 'none';
             document.getElementById('game-over-screen').style.display = 'none';
             document.getElementById('high-scores-modal').style.display = 'none';
@@ -855,7 +862,7 @@
 
                 if (planetMeshSystem) planetMeshSystem.rotation.y += 0.001;
 
-                // --- 1. FULL SCREEN RETICLE AIMING & BOUNDED SHIP MOVEMENT ---
+                // --- 1. FULL SCREEN RETICLE AIMING & SLOW BOUNDED SHIP MOVEMENT ---
                 let rawNDC_X = pointerTargetX + gyroRoll * 1.25;
                 let rawNDC_Y = pointerTargetY - gyroPitch * 1.25;
 
@@ -965,34 +972,34 @@
                     }
                 }
 
-                // --- 6. UPDATE POWERUPS WITH MAGNETIC ATTRACTION ---
+                // --- 6. UPDATE POWERUPS (MAGNETIC ATTRACTION & PICKUP) ---
                 for (let i = powerUps.length - 1; i >= 0; i--) {
                     const p = powerUps[i];
                     
-                    p.mesh.position.z += speed * 0.18;
-
-                    // MAGNETIC PULL TOWARDS SHIP WHEN CLOSE
-                    const distToShip = p.mesh.position.distanceTo(playerShip.position);
-                    if (distToShip < 28.0) {
-                        p.mesh.position.x += (playerShip.position.x - p.mesh.position.x) * 0.12;
-                        p.mesh.position.y += (playerShip.position.y - p.mesh.position.y) * 0.12;
-                        p.mesh.position.z += (playerShip.position.z - p.mesh.position.z) * 0.08;
+                    // MAGNETIC ATTRACTION: Pull towards player when near
+                    const distToPlayer = p.mesh.position.distanceTo(playerShip.position);
+                    if (distToPlayer < 24.0) {
+                        const pullDir = new THREE.Vector3().subVectors(playerShip.position, p.mesh.position).normalize();
+                        const pullFactor = (1.0 - distToPlayer / 24.0) * 0.45;
+                        p.mesh.position.addScaledVector(pullDir, pullFactor);
+                    } else {
+                        p.mesh.position.z += speed * 0.18;
                     }
 
-                    p.cage.rotation.y += 0.06;
-                    p.cage.rotation.x += 0.04;
-                    p.ring.rotation.z -= 0.05;
+                    p.cage.rotation.y += 0.05;
+                    p.cage.rotation.x += 0.03;
+                    p.ring.rotation.z -= 0.04;
                     
-                    const pulse = 1.0 + Math.sin(time * 0.01) * 0.22;
+                    const pulse = 1.0 + Math.sin(time * 0.008) * 0.18;
                     p.core.scale.setScalar(pulse);
 
-                    if (distToShip < 3.8) {
+                    if (p.mesh.position.distanceTo(playerShip.position) < 2.2) {
                         applyPowerUp(p.type);
                         scene.remove(p.mesh); powerUps.splice(i, 1);
                         continue;
                     }
 
-                    if (p.mesh.position.z > 15) {
+                    if (p.mesh.position.z > 12) {
                         scene.remove(p.mesh); powerUps.splice(i, 1);
                     }
                 }
@@ -1035,7 +1042,6 @@
                             fireEnemyLaserFromPoint(gunWorldPos);
                         }
 
-                        // Player blasters hit specific side gun pod
                         for (let j = playerLasers.length - 1; j >= 0; j--) {
                             const l = playerLasers[j];
                             if (l.mesh.position.distanceTo(gunWorldPos) < 2.0) {
@@ -1244,17 +1250,14 @@
             renderer.render(scene, camera);
         }
 
+        // --- UPGRADE APPLICATION & NOTIFICATION ENGINE ---
         function applyPowerUp(pType) {
             sfx.playPowerup();
             triggerPowerupPopup(pType.label);
 
-            const overlay = document.getElementById('damage-overlay');
-            overlay.style.background = '#' + pType.color.toString(16).padStart(6, '0') + '44';
-            setTimeout(() => overlay.style.background = 'rgba(255, 0, 85, 0)', 160);
-
             switch(pType.id) {
                 case "HEALTH":
-                    health = Math.min(maxHealth, health + 35);
+                    health = Math.min(maxHealth, health + 25);
                     break;
                 case "MAX_HP":
                     maxHealth += 25;
@@ -1276,6 +1279,7 @@
                     break;
             }
 
+            // DYNAMICALLY DOCK SHIP UPGRADE MODELS
             if (extraCannonsGroup) {
                 extraCannonsGroup.visible = (cannonSpreadLevel > 1);
             }
@@ -1310,7 +1314,7 @@
             startPosList.forEach((start, idx) => {
                 const aimOffset = currentAimWorldPoint.clone();
                 if (activeWeaponType === "SPREAD") {
-                    const offsetVal = (idx - (startPosList.length - 1) / 2) * 14.0;
+                    const offsetVal = (idx - (startPosList.length - 1) / 2) * 12.0;
                     aimOffset.x += offsetVal;
                 }
 
