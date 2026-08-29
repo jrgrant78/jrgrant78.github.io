@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>POLYWING: TRENCH ASSAULT</title>
+    <title>POLYWING: TRENCH SWARM & PEDESTAL TURRETS</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; color: #00ffcc; }
@@ -280,7 +280,7 @@
         // --- GLOBAL ENGINE & GAME STATE ---
         let scene, camera, renderer, playerShip, starParticlesSystem, planetMeshSystem, warpTunnelSystem, shieldBubbleMesh;
         let gameState = "TITLE";
-        let score = 0, health = 100, maxHealth = 100, quotaDefeated = 0, targetQuota = 30;
+        let score = 0, health = 100, maxHealth = 100, quotaDefeated = 0, targetQuota = 35;
         let sectorLevel = 1, isTransitioning = false, elapsedTime = 0, difficultyLevel = 0.5;
 
         // PLAYER ARSENAL & POWERUP STATES
@@ -330,23 +330,19 @@
             sun.position.set(10, 40, 20);
             scene.add(sun);
 
-            // Persistent Background Starfield & Distant Planet
             buildStarfieldSystem();
             buildApproachingPlanet();
             buildWarpTunnel();
 
-            // Player Ship
             playerShip = buildDetailedPlayerShip();
             playerShip.position.set(0, -1.0, -5);
             scene.add(playerShip);
 
-            // Player Shield Bubble
             const shieldGeo = new THREE.IcosahedronGeometry(3.2, 2);
             const shieldMat = new THREE.MeshBasicMaterial({ color: 0x00aaff, wireframe: true, transparent: true, opacity: 0 });
             shieldBubbleMesh = new THREE.Mesh(shieldGeo, shieldMat);
             playerShip.add(shieldBubbleMesh);
 
-            // Construct Scrolling Floor ONLY (NO SIDE WALLS, NO CEILING)
             buildContinuousFloorSegments();
 
             setupControls();
@@ -355,7 +351,6 @@
             requestAnimationFrame(animate);
         }
 
-        // --- GREEBLE TRENCH FLOOR SURFACE BUILDER ---
         function createGreebleFloorSurfaceGroup(panelWidth, panelThickness, length) {
             const group = new THREE.Group();
             
@@ -367,7 +362,6 @@
             const base = new THREE.Mesh(new THREE.BoxGeometry(panelWidth, panelThickness, length), baseMat);
             group.add(base);
 
-            // Detailed kitbashed surface panels
             for (let i = 0; i < 28; i++) {
                 const type = Math.floor(Math.random() * 4);
                 const px = (Math.random() - 0.5) * (panelWidth * 0.88);
@@ -402,7 +396,6 @@
             return group;
         }
 
-        // --- CONTINUOUS SCROLLING TRENCH FLOOR (NO WALLS, NO CEILING) ---
         function buildContinuousFloorSegments() {
             for (let i = 0; i < NUM_CORRIDOR_SEGMENTS; i++) {
                 const zPos = -i * SEGMENT_LENGTH;
@@ -422,7 +415,7 @@
             const positions = new Float32Array(count * 3);
             for (let i = 0; i < count * 3; i += 3) {
                 positions[i] = (Math.random() - 0.5) * 500;
-                positions[i+1] = Math.random() * 250 + 5; // Stars in upper sky
+                positions[i+1] = Math.random() * 250 + 5;
                 positions[i+2] = -Math.random() * 550;
             }
             starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -534,20 +527,17 @@
             return ship;
         }
 
-        // --- ENEMY BUILDERS (TIE FIGHTERS & GROUND TURRETS) ---
         function createTieFighter() {
             const group = new THREE.Group();
             const podMat = new THREE.MeshStandardMaterial({ color: 0x222b38, roughness: 0.4, flatShading: true });
             const panelMat = new THREE.MeshLambertMaterial({ color: 0x05070a, flatShading: true });
             const windowMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true });
 
-            // Cockpit Sphere
             const cockpit = new THREE.Mesh(new THREE.SphereGeometry(0.75, 8, 8), podMat);
             const windowMesh = new THREE.Mesh(new THREE.SphereGeometry(0.45, 6, 6), windowMat);
             windowMesh.position.z = -0.45;
             group.add(cockpit, windowMesh);
 
-            // Wing Pylons & Hex Panels
             const pylonGeo = new THREE.CylinderGeometry(0.1, 0.1, 3.2, 6);
             pylonGeo.rotateZ(Math.PI / 2);
             const pylon = new THREE.Mesh(pylonGeo, podMat);
@@ -563,36 +553,48 @@
             return group;
         }
 
+        // --- NEW TALL PEDESTAL TURRET WITH INDIVIDUALLY DESTRUCTIBLE SIDE GUNS ---
         function createGroundTurret() {
             const group = new THREE.Group();
-            const baseMat = new THREE.MeshStandardMaterial({ color: 0x1a2436, flatShading: true });
-            const turretMat = new THREE.MeshStandardMaterial({ color: 0xff0055, flatShading: true });
+            const pedestalHeight = 9.5;
+            const pedestalMat = new THREE.MeshStandardMaterial({ color: 0x182436, roughness: 0.5, flatShading: true });
+            const gunMat = new THREE.MeshStandardMaterial({ color: 0xff0055, roughness: 0.3, flatShading: true });
+            const barrelMat = new THREE.MeshStandardMaterial({ color: 0xffff00, flatShading: true });
 
-            // Base Platform
-            const base = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.8, 1.0, 8), baseMat);
-            base.position.y = 0.5;
+            // Tall Pedestal Pillar
+            const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 2.0, pedestalHeight, 8), pedestalMat);
+            pedestal.position.y = pedestalHeight / 2;
+            group.add(pedestal);
 
-            // Rotating Swivel Dome
-            const dome = new THREE.Mesh(new THREE.SphereGeometry(0.85, 8, 8), turretMat);
-            dome.position.y = 1.2;
+            // Left and Right Guns mounted on sides near top
+            const guns = [];
+            [-1.6, 1.6].forEach((sideX, idx) => {
+                const gunGroup = new THREE.Group();
+                gunGroup.position.set(sideX, pedestalHeight - 0.6, 0);
 
-            // Twin Cannon Barrels
-            const barrelGeo = new THREE.CylinderGeometry(0.12, 0.12, 1.6, 6);
-            barrelGeo.rotateX(Math.PI / 2);
-            const barrelL = new THREE.Mesh(barrelGeo, turretMat);
-            barrelL.position.set(-0.35, 1.3, -0.7);
-            const barrelR = barrelL.clone();
-            barrelR.position.x = 0.35;
+                const pod = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.0, 1.4), gunMat);
+                const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 1.8, 6), barrelMat);
+                barrel.rotation.x = Math.PI / 2;
+                barrel.position.z = -0.9;
+                gunGroup.add(pod, barrel);
 
-            group.add(base, dome, barrelL, barrelR);
-            return { mesh: group, dome: dome };
+                group.add(gunGroup);
+
+                guns.push({
+                    mesh: gunGroup,
+                    hp: 2,
+                    active: true,
+                    side: idx === 0 ? 'left' : 'right'
+                });
+            });
+
+            return { mesh: group, guns: guns, pedestalHeight: pedestalHeight };
         }
 
-        // --- TALL BUILDING/TOWER STRUCTURE SPAWNER ---
         function spawnTallBuildingStructure(zPos) {
-            const width = 3.0 + Math.random() * 5.0;
-            const height = 10.0 + Math.random() * 16.0; // Tall obstruction
-            const depth = 3.0 + Math.random() * 5.0;
+            const width = 3.5 + Math.random() * 5.0;
+            const height = 11.0 + Math.random() * 16.0;
+            const depth = 3.5 + Math.random() * 5.0;
 
             const mat = new THREE.MeshStandardMaterial({ color: 0x162336, roughness: 0.5, flatShading: true });
             const edgeMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true });
@@ -620,16 +622,16 @@
             const bInfo = BOSS_TYPES[biomeIdx % BOSS_TYPES.length];
             let hp = bInfo.hp + sectorLevel * 15;
 
-            if (bInfo.bossType === 0) { // Executioner TIE
+            if (bInfo.bossType === 0) {
                 const tieCore = createTieFighter();
                 tieCore.scale.set(3.5, 3.5, 3.5);
                 group.add(tieCore);
-            } else if (bInfo.bossType === 1) { // Ground Fortress Turret Array
+            } else if (bInfo.bossType === 1) {
                 const base = new THREE.Mesh(new THREE.BoxGeometry(14, 6, 10), matA);
                 const turret1 = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 4), matB); turret1.position.set(-4, 3, 0);
                 const turret2 = turret1.clone(); turret2.position.x = 4;
                 group.add(base, turret1, turret2);
-            } else { // Command Core
+            } else {
                 const hull = new THREE.Mesh(new THREE.ConeGeometry(8, 16, 4), matA);
                 hull.rotation.x = Math.PI / 2;
                 const bridge = new THREE.Mesh(new THREE.BoxGeometry(5, 4, 5), matC);
@@ -749,8 +751,11 @@
                 const deltaY = e.clientY - previousPointerY;
                 previousPointerX = e.clientX; previousPointerY = e.clientY;
                 
-                pointerTargetX += deltaX * 0.045;
-                pointerTargetY -= deltaY * 0.045;
+                pointerTargetX += (deltaX / window.innerWidth) * 2.2;
+                pointerTargetY -= (deltaY / window.innerHeight) * 2.2;
+
+                pointerTargetX = Math.max(-1.0, Math.min(1.0, pointerTargetX));
+                pointerTargetY = Math.max(-1.0, Math.min(1.0, pointerTargetY));
             });
 
             const stopTouch = (e) => {
@@ -774,12 +779,12 @@
                 DeviceOrientationEvent.requestPermission();
             }
 
-            score = 0; health = 100; maxHealth = 100; quotaDefeated = 0; targetQuota = 30; sectorLevel = 1; elapsedTime = 0; difficultyLevel = 0.5;
+            score = 0; health = 100; maxHealth = 100; quotaDefeated = 0; targetQuota = 35; sectorLevel = 1; elapsedTime = 0; difficultyLevel = 0.5;
             activeWeaponType = "PLASMA"; cannonSpreadLevel = 1; tempShieldTimer = 0; missileCount = 0;
             
             if (currentBoss) { scene.remove(currentBoss.mesh); currentBoss = null; }
             enemies.forEach(e => scene.remove(e.mesh)); enemies.length = 0;
-            groundTurrets.forEach(t => scene.remove(t.mesh.mesh)); groundTurrets.length = 0;
+            groundTurrets.forEach(t => scene.remove(t.group)); groundTurrets.length = 0;
             tallBuildings.forEach(b => scene.remove(b.mesh)); tallBuildings.length = 0;
             playerLasers.forEach(l => scene.remove(l.mesh)); playerLasers.length = 0;
             enemyLasers.forEach(el => scene.remove(el.mesh)); enemyLasers.length = 0;
@@ -795,19 +800,12 @@
             updateHUD();
         }
 
-        function triggerPowerupPopup(text) {
-            const pop = document.getElementById('powerup-popup');
-            pop.innerText = text;
-            pop.style.opacity = '1';
-            setTimeout(() => pop.style.opacity = '0', 1600);
-        }
-
         function animate(time) {
             requestAnimationFrame(animate);
 
             if (gameState === "PLAYING") {
                 elapsedTime += 0.016;
-                difficultyLevel = 0.5 + (elapsedTime / 45) + (sectorLevel * 0.25);
+                difficultyLevel = 0.5 + (elapsedTime / 45) + (sectorLevel * 0.22);
                 
                 const threatLabel = difficultyLevel < 1.2 ? "EASY" : (difficultyLevel < 2.0 ? "MEDIUM" : (difficultyLevel < 3.0 ? "HARD" : "EXTREME"));
                 document.getElementById('threat-level-display').innerText = "THREAT: " + threatLabel;
@@ -843,11 +841,9 @@
                     }
                 }
 
-                // Slowly rotate planet in background
                 if (planetMeshSystem) planetMeshSystem.rotation.y += 0.001;
 
-                // --- 1. FULL SCREEN RETICLE AIMING & SLOW SHIP MOVEMENT WITH STRICT BOUNDARIES ---
-                // Reticle moves freely across full NDC [-1, 1] screen space
+                // --- 1. FULL SCREEN RETICLE AIMING & SLOW BOUNDED SHIP MOVEMENT ---
                 let rawNDC_X = pointerTargetX + gyroRoll * 1.25;
                 let rawNDC_Y = pointerTargetY - gyroPitch * 1.25;
 
@@ -863,7 +859,6 @@
                     reticleEl.style.top = `${reticleScreenY}px`;
                 }
 
-                // Project reticle into 3D world aiming point
                 const aimDistance = 80;
                 const fovRad = THREE.MathUtils.degToRad(camera.fov);
                 const halfFovTan = Math.tan(fovRad / 2);
@@ -873,23 +868,20 @@
                 
                 currentAimWorldPoint.set(aimWorldX, aimWorldY, camera.position.z - aimDistance);
 
-                // SLOW SHIP MOVEMENT: Player ship moves slowly across screen
                 let desiredShipX = aimWorldX * 0.45;
                 let desiredShipY = aimWorldY * 0.45;
 
                 // STRICT SCREEN & TRENCH BOUNDARIES
-                const MAX_SHIP_X = 22.0;  // Lateral Screen Boundary
-                const MAX_SHIP_Y = 14.0;  // Upper Sky Screen Boundary
+                const MAX_SHIP_X = 22.0;
+                const MAX_SHIP_Y = 14.0;
                 const MIN_SHIP_Y = TRENCH_FLOOR_Y + 1.2; // FLOOR BOUNDARY: Cannot pass below floor!
 
                 desiredShipX = Math.max(-MAX_SHIP_X, Math.min(MAX_SHIP_X, desiredShipX));
                 desiredShipY = Math.max(MIN_SHIP_Y, Math.min(MAX_SHIP_Y, desiredShipY));
 
-                // Slow velocity lerp speed (0.05 factor)
                 playerShip.position.x += (desiredShipX - playerShip.position.x) * 0.05;
                 playerShip.position.y += (desiredShipY - playerShip.position.y) * 0.05;
                 
-                // HARD BOUNDARY CLAMP FOR ABSOLUTE SAFETY
                 playerShip.position.x = Math.max(-MAX_SHIP_X, Math.min(MAX_SHIP_X, playerShip.position.x));
                 playerShip.position.y = Math.max(MIN_SHIP_Y, Math.min(MAX_SHIP_Y, playerShip.position.y));
 
@@ -926,7 +918,7 @@
 
                     if (currentBoss) targetPos = currentBoss.mesh.position;
                     else if (enemies.length > 0) targetPos = enemies[0].mesh.position;
-                    else if (groundTurrets.length > 0) targetPos = groundTurrets[0].mesh.mesh.position;
+                    else if (groundTurrets.length > 0) targetPos = groundTurrets[0].group.position;
 
                     if (targetPos) {
                         const desiredDir = new THREE.Vector3().subVectors(targetPos, m.mesh.position).normalize();
@@ -936,7 +928,6 @@
                     m.mesh.position.addScaledVector(m.dir, 3.5);
                     m.mesh.rotation.x += 0.1;
 
-                    // Missile vs Minion
                     for (let j = enemies.length - 1; j >= 0; j--) {
                         const e = enemies[j];
                         if (m.mesh.position.distanceTo(e.mesh.position) < 2.5) {
@@ -950,7 +941,6 @@
                         }
                     }
 
-                    // Missile vs Boss
                     if (currentBoss && m.mesh && m.mesh.position.distanceTo(currentBoss.mesh.position) < 6.5) {
                         createExplosion(m.mesh.position);
                         scene.remove(m.mesh); activeMissiles.splice(i, 1);
@@ -987,13 +977,12 @@
                     }
                 }
 
-                // --- 7. UPDATE TALL BUILDINGS & COLLISION CHECK ---
+                // --- 7. UPDATE TALL BUILDINGS ---
                 for (let i = tallBuildings.length - 1; i >= 0; i--) {
                     const b = tallBuildings[i];
                     b.mesh.position.z += speed * 1.4;
                     b.bbox.setFromObject(b.mesh);
 
-                    // Collision check with player
                     if (b.bbox.containsPoint(playerShip.position)) {
                         createExplosion(playerShip.position);
                         scene.remove(b.mesh); tallBuildings.splice(i, 1);
@@ -1006,39 +995,62 @@
                     }
                 }
 
-                // --- 8. UPDATE GROUND TURRETS & FIRING ---
+                // --- 8. UPDATE TALL PEDESTAL GROUND TURRETS (DESTRUCTIBLE SIDE GUNS) ---
                 for (let i = groundTurrets.length - 1; i >= 0; i--) {
                     const t = groundTurrets[i];
-                    t.mesh.mesh.position.z += speed * 1.4;
+                    t.group.position.z += speed * 1.4;
 
-                    // Turret tracks player ship position
-                    t.mesh.dome.lookAt(playerShip.position);
+                    let activeGunsCount = 0;
 
-                    if (time - t.lastFireTime > t.fireInterval) {
-                        fireEnemyLaser({ mesh: t.mesh.mesh });
+                    t.guns.forEach(g => {
+                        if (!g.active) return;
+                        activeGunsCount++;
+
+                        const gunWorldPos = new THREE.Vector3();
+                        g.mesh.getWorldPosition(gunWorldPos);
+
+                        // Gun aims directly at player
+                        g.mesh.lookAt(playerShip.position);
+
+                        // Gun fires laser at player
+                        if (time - t.lastFireTime > t.fireInterval && t.group.position.z < -10) {
+                            fireEnemyLaserFromPoint(gunWorldPos);
+                        }
+
+                        // Check player laser hits THIS specific gun
+                        for (let j = playerLasers.length - 1; j >= 0; j--) {
+                            const l = playerLasers[j];
+                            if (l.mesh.position.distanceTo(gunWorldPos) < 2.0) {
+                                createExplosion(gunWorldPos);
+                                scene.remove(l.mesh); playerLasers.splice(j, 1);
+                                
+                                g.hp--;
+                                if (g.hp <= 0) {
+                                    g.active = false;
+                                    g.mesh.visible = false;
+                                    createExplosion(gunWorldPos);
+                                    if (Math.random() < 0.3) spawnPowerUpDrop(gunWorldPos);
+                                    score += 250;
+                                    quotaDefeated++;
+                                    sfx.playExplosion();
+                                    updateHUD();
+                                }
+                                break;
+                            }
+                        }
+                    });
+
+                    if (activeGunsCount > 0 && time - t.lastFireTime > t.fireInterval) {
                         t.lastFireTime = time;
                     }
 
-                    // Check player lasers hit turret
-                    for (let j = playerLasers.length - 1; j >= 0; j--) {
-                        const l = playerLasers[j];
-                        if (l.mesh.position.distanceTo(t.mesh.mesh.position) < 2.4) {
-                            createExplosion(t.mesh.mesh.position);
-                            if (Math.random() < 0.25) spawnPowerUpDrop(t.mesh.mesh.position);
-                            scene.remove(t.mesh.mesh); groundTurrets.splice(i, 1);
-                            scene.remove(l.mesh); playerLasers.splice(j, 1);
-                            score += 200; quotaDefeated++;
-                            sfx.playExplosion(); updateHUD();
-                            break;
-                        }
-                    }
-
-                    if (t.mesh.mesh.position.z > 20) {
-                        scene.remove(t.mesh.mesh); groundTurrets.splice(i, 1);
+                    if (t.group.position.z > 20) {
+                        scene.remove(t.group);
+                        groundTurrets.splice(i, 1);
                     }
                 }
 
-                // --- 9. SPAWN ENEMIES / TURRETS / BUILDINGS OR CHECK BOSS ---
+                // --- 9. SPAWN TIE SQUADRONS / TURRETS / BUILDINGS OR CHECK BOSS ---
                 if (quotaDefeated >= targetQuota && !currentBoss && !isTransitioning) {
                     currentBoss = createBossForLocation(sectorLevel - 1);
                     document.getElementById('boss-name').innerText = BOSS_TYPES[(sectorLevel - 1) % BOSS_TYPES.length].name;
@@ -1051,20 +1063,18 @@
                 } 
                 else if (!currentBoss && !isTransitioning) {
                     spawnTimer++;
-                    const maxEnemies = Math.min(8, Math.floor(3 + difficultyLevel * 2));
-                    const spawnInterval = Math.max(28, Math.floor(70 - difficultyLevel * 8));
+                    const maxEnemies = Math.min(12, Math.floor(4 + difficultyLevel * 2));
+                    const spawnInterval = Math.max(30, Math.floor(75 - difficultyLevel * 8));
 
                     if (spawnTimer % spawnInterval === 0 && enemies.length < maxEnemies) {
-                        spawnEnemyTieFighter();
+                        spawnTieSquadron();
                     }
 
-                    // Spawn Ground Turrets
-                    if (spawnTimer % 90 === 0 && groundTurrets.length < 4) {
+                    if (spawnTimer % 95 === 0 && groundTurrets.length < 4) {
                         spawnGroundTurret();
                     }
 
-                    // Spawn Tall Obstacle Buildings
-                    if (spawnTimer % 110 === 0 && tallBuildings.length < 3) {
+                    if (spawnTimer % 115 === 0 && tallBuildings.length < 3) {
                         spawnTallBuildingStructure(-180);
                     }
                 }
@@ -1136,17 +1146,45 @@
                     }
                 }
 
-                // --- 13. UPDATE TIE FIGHTERS ---
+                // --- 13. UPDATE TIE FIGHTERS (APPROACH, FLY PAST & LOOP BACK AROUND IN FORMATION) ---
                 for (let i = enemies.length - 1; i >= 0; i--) {
                     const e = enemies[i];
-                    e.mesh.position.z += speed * 0.65;
-                    e.mesh.rotation.z += 0.01;
 
-                    if (time - e.lastFireTime > e.fireInterval) {
-                        fireEnemyLaser(e);
-                        e.lastFireTime = time;
+                    if (e.state === 'APPROACH') {
+                        e.mesh.position.z += speed * 0.75;
+                        e.mesh.rotation.z += 0.01;
+
+                        if (time - e.lastFireTime > e.fireInterval && e.mesh.position.z < -10) {
+                            fireEnemyLaser(e);
+                            e.lastFireTime = time;
+                        }
+
+                        // When TIE flies past player behind screen (z > 15), trigger looping swooping maneuver!
+                        if (e.mesh.position.z > 15) {
+                            e.state = 'LOOPING';
+                            e.loopProgress = 0;
+                            e.loopStartX = e.mesh.position.x;
+                            e.loopStartY = e.mesh.position.y;
+                        }
+                    } 
+                    else if (e.state === 'LOOPING') {
+                        // Swoop arc: Flies high into sky, curves wide, and loops back in front to -180
+                        e.loopProgress += 0.012;
+                        const t = e.loopProgress;
+
+                        e.mesh.position.z = THREE.MathUtils.lerp(15, -180, t);
+                        e.mesh.position.y = e.loopStartY + Math.sin(t * Math.PI) * 18.0;
+                        e.mesh.position.x = e.loopStartX + Math.sin(t * Math.PI * 2) * 8.0;
+
+                        e.mesh.rotation.x = Math.sin(t * Math.PI) * Math.PI;
+
+                        if (e.loopProgress >= 1.0) {
+                            e.state = 'APPROACH';
+                            e.mesh.rotation.set(0, 0, 0);
+                        }
                     }
 
+                    // Check player laser hits TIE
                     for (let j = playerLasers.length - 1; j >= 0; j--) {
                         const l = playerLasers[j];
                         if (l.mesh.position.distanceTo(e.mesh.position) < 2.2) {
@@ -1163,12 +1201,11 @@
                         }
                     }
 
+                    // Player collision
                     if (e && e.mesh.position.distanceTo(playerShip.position) < 1.8) {
                         createExplosion(e.mesh.position);
                         scene.remove(e.mesh); enemies.splice(i, 1);
                         triggerPlayerDamage(15);
-                    } else if (e && e.mesh.position.z > 5) {
-                        scene.remove(e.mesh); enemies.splice(i, 1);
                     }
                 }
 
@@ -1274,13 +1311,17 @@
         }
 
         function fireEnemyLaser(enemy) {
+            fireEnemyLaserFromPoint(enemy.mesh.position);
+        }
+
+        function fireEnemyLaserFromPoint(originPos) {
             const geo = new THREE.CylinderGeometry(0.12, 0.12, 2.2, 6);
             geo.rotateX(Math.PI / 2);
             const mat = new THREE.MeshBasicMaterial({ color: 0xff0055 });
             const laser = new THREE.Mesh(geo, mat);
-            laser.position.copy(enemy.mesh.position);
+            laser.position.copy(originPos);
 
-            const dir = new THREE.Vector3().subVectors(playerShip.position, enemy.mesh.position).normalize();
+            const dir = new THREE.Vector3().subVectors(playerShip.position, originPos).normalize();
             const shotSpeed = 1.1 + difficultyLevel * 0.25;
 
             scene.add(laser);
@@ -1304,27 +1345,49 @@
             sfx.playEnemyLaser();
         }
 
-        function spawnEnemyTieFighter() {
-            const enemyMesh = createTieFighter();
-            enemyMesh.position.set(
-                (Math.random() - 0.5) * 32,
-                (Math.random() - 0.5) * 14,
-                -180
-            );
+        // --- TIE SQUADRON SPAWNING (FORMATIONS) ---
+        function spawnTieSquadron() {
+            const formationType = Math.floor(Math.random() * 2);
+            const leaderX = (Math.random() - 0.5) * 28;
+            const leaderY = Math.random() * 8.0;
+            const startZ = -180;
 
-            const fireInterval = Math.max(1200, 4500 - difficultyLevel * 450 + Math.random() * 600);
-            scene.add(enemyMesh);
-            enemies.push({ mesh: enemyMesh, lastFireTime: performance.now(), fireInterval: fireInterval });
+            const offsets = formationType === 0 ? 
+                [{x:0, y:0, z:0}, {x:-3.5, y:1.5, z:4}, {x:3.5, y:1.5, z:4}] : // V-Formation
+                [{x:-4.5, y:0, z:0}, {x:0, y:0, z:0}, {x:4.5, y:0, z:0}];      // Line Formation
+
+            offsets.forEach(off => {
+                const tieMesh = createTieFighter();
+                tieMesh.position.set(leaderX + off.x, leaderY + off.y, startZ + off.z);
+                
+                const fireInterval = Math.max(1200, 4500 - difficultyLevel * 450 + Math.random() * 600);
+                scene.add(tieMesh);
+
+                enemies.push({
+                    mesh: tieMesh,
+                    state: 'APPROACH',
+                    loopProgress: 0,
+                    loopStartX: leaderX + off.x,
+                    loopStartY: leaderY + off.y,
+                    lastFireTime: performance.now() + Math.random() * 800,
+                    fireInterval: fireInterval
+                });
+            });
         }
 
         function spawnGroundTurret() {
             const turretObj = createGroundTurret();
             const posX = (Math.random() - 0.5) * 34;
-            turretObj.mesh.position.set(posX, TRENCH_FLOOR_Y + 0.4, -180);
+            turretObj.mesh.position.set(posX, TRENCH_FLOOR_Y, -180);
 
-            const fireInterval = Math.max(1400, 4000 - difficultyLevel * 400);
+            const fireInterval = Math.max(1200, 3800 - difficultyLevel * 400);
             scene.add(turretObj.mesh);
-            groundTurrets.push({ mesh: turretObj, lastFireTime: performance.now(), fireInterval: fireInterval });
+            groundTurrets.push({
+                group: turretObj.mesh,
+                guns: turretObj.guns,
+                lastFireTime: performance.now(),
+                fireInterval: fireInterval
+            });
         }
 
         function createExplosion(pos) {
