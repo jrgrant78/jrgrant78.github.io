@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>POLYWING: TRENCH SWARM & PEDESTAL TURRETS</title>
+    <title>POLYWING: TRENCH COMBAT ENHANCED</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; color: #00ffcc; }
@@ -283,7 +283,6 @@
         let score = 0, health = 100, maxHealth = 100, quotaDefeated = 0, targetQuota = 35;
         let sectorLevel = 1, isTransitioning = false, elapsedTime = 0, difficultyLevel = 0.5;
 
-        // PLAYER ARSENAL & POWERUP STATES
         let activeWeaponType = "PLASMA";
         let cannonSpreadLevel = 1;
         let tempShieldTimer = 0;
@@ -293,7 +292,6 @@
 
         let currentBoss = null;
 
-        // Continuous Floor Corridor Segments
         const corridorSegments = [];
         const NUM_CORRIDOR_SEGMENTS = 12;
         const SEGMENT_LENGTH = 22;
@@ -304,13 +302,11 @@
 
         const currentAimWorldPoint = new THREE.Vector3(0, 0, -80);
 
-        // STEERING GYRO / TOUCH STATE
         let gyroPitch = 0, gyroRoll = 0, initialPitch = null, initialRoll = null;
         let reticleAimX = 0, reticleAimY = 0;
         let pointerTargetX = 0, pointerTargetY = 0, isTouchDragging = false;
         let previousPointerX = 0, previousPointerY = 0;
 
-        // --- INITIALIZATION ---
         function initEngine() {
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -553,36 +549,33 @@
             return group;
         }
 
-        // --- NEW TALL PEDESTAL TURRET WITH INDIVIDUALLY DESTRUCTIBLE SIDE GUNS ---
+        // --- LOWER PEDESTAL HEIGHT TURRET ---
         function createGroundTurret() {
             const group = new THREE.Group();
-            const pedestalHeight = 9.5;
+            const pedestalHeight = 4.8; // Lowered height so it fits proportionately
             const pedestalMat = new THREE.MeshStandardMaterial({ color: 0x182436, roughness: 0.5, flatShading: true });
             const gunMat = new THREE.MeshStandardMaterial({ color: 0xff0055, roughness: 0.3, flatShading: true });
             const barrelMat = new THREE.MeshStandardMaterial({ color: 0xffff00, flatShading: true });
 
-            // Tall Pedestal Pillar
-            const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 2.0, pedestalHeight, 8), pedestalMat);
+            const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.8, pedestalHeight, 8), pedestalMat);
             pedestal.position.y = pedestalHeight / 2;
             group.add(pedestal);
 
-            // Left and Right Guns mounted on sides near top
             const guns = [];
-            [-1.6, 1.6].forEach((sideX, idx) => {
+            [-1.4, 1.4].forEach((sideX, idx) => {
                 const gunGroup = new THREE.Group();
-                gunGroup.position.set(sideX, pedestalHeight - 0.6, 0);
+                gunGroup.position.set(sideX, pedestalHeight - 0.5, 0);
 
-                const pod = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.0, 1.4), gunMat);
-                const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 1.8, 6), barrelMat);
+                const pod = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 1.3), gunMat);
+                const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 1.6, 6), barrelMat);
                 barrel.rotation.x = Math.PI / 2;
-                barrel.position.z = -0.9;
+                barrel.position.z = -0.8;
                 gunGroup.add(pod, barrel);
 
                 group.add(gunGroup);
 
                 guns.push({
                     mesh: gunGroup,
-                    hp: 2,
                     active: true,
                     side: idx === 0 ? 'left' : 'right'
                 });
@@ -681,7 +674,6 @@
             });
         }
 
-        // --- CONTROLS SETUP ---
         function setupControls() {
             function handleOrientation(e) {
                 if (e.beta === null || e.gamma === null) return;
@@ -769,7 +761,6 @@
             window.addEventListener('pointercancel', stopTouch);
         }
 
-        // --- GAME STATE & LOOP ---
         function startRun() {
             sfx.init();
             if (document.documentElement.requestFullscreen) {
@@ -832,7 +823,6 @@
                     warpTunnelSystem.material.opacity = Math.max(0, warpTunnelSystem.material.opacity - 0.04);
                 }
 
-                // Recycle Continuous Trench Floor
                 for (let i = 0; i < corridorSegments.length; i++) {
                     const seg = corridorSegments[i];
                     seg.group.position.z += speed * 1.4;
@@ -843,7 +833,7 @@
 
                 if (planetMeshSystem) planetMeshSystem.rotation.y += 0.001;
 
-                // --- 1. FULL SCREEN RETICLE AIMING & SLOW BOUNDED SHIP MOVEMENT ---
+                // --- 1. FULL SCREEN RETICLE AIMING & BOUNDED SHIP MOVEMENT ---
                 let rawNDC_X = pointerTargetX + gyroRoll * 1.25;
                 let rawNDC_Y = pointerTargetY - gyroPitch * 1.25;
 
@@ -871,10 +861,9 @@
                 let desiredShipX = aimWorldX * 0.45;
                 let desiredShipY = aimWorldY * 0.45;
 
-                // STRICT SCREEN & TRENCH BOUNDARIES
                 const MAX_SHIP_X = 22.0;
                 const MAX_SHIP_Y = 14.0;
-                const MIN_SHIP_Y = TRENCH_FLOOR_Y + 1.2; // FLOOR BOUNDARY: Cannot pass below floor!
+                const MIN_SHIP_Y = TRENCH_FLOOR_Y + 1.2;
 
                 desiredShipX = Math.max(-MAX_SHIP_X, Math.min(MAX_SHIP_X, desiredShipX));
                 desiredShipY = Math.max(MIN_SHIP_Y, Math.min(MAX_SHIP_Y, desiredShipY));
@@ -995,56 +984,50 @@
                     }
                 }
 
-                // --- 8. UPDATE TALL PEDESTAL GROUND TURRETS (DESTRUCTIBLE SIDE GUNS) ---
+                // --- 8. RELIABLE GROUND TURRET COLLISION & DAMAGE DETECTION ---
                 for (let i = groundTurrets.length - 1; i >= 0; i--) {
                     const t = groundTurrets[i];
                     t.group.position.z += speed * 1.4;
 
-                    let activeGunsCount = 0;
-
+                    // Guns track player ship position
                     t.guns.forEach(g => {
-                        if (!g.active) return;
-                        activeGunsCount++;
-
-                        const gunWorldPos = new THREE.Vector3();
-                        g.mesh.getWorldPosition(gunWorldPos);
-
-                        // Gun aims directly at player
-                        g.mesh.lookAt(playerShip.position);
-
-                        // Gun fires laser at player
-                        if (time - t.lastFireTime > t.fireInterval && t.group.position.z < -10) {
-                            fireEnemyLaserFromPoint(gunWorldPos);
-                        }
-
-                        // Check player laser hits THIS specific gun
-                        for (let j = playerLasers.length - 1; j >= 0; j--) {
-                            const l = playerLasers[j];
-                            if (l.mesh.position.distanceTo(gunWorldPos) < 2.0) {
-                                createExplosion(gunWorldPos);
-                                scene.remove(l.mesh); playerLasers.splice(j, 1);
-                                
-                                g.hp--;
-                                if (g.hp <= 0) {
-                                    g.active = false;
-                                    g.mesh.visible = false;
-                                    createExplosion(gunWorldPos);
-                                    if (Math.random() < 0.3) spawnPowerUpDrop(gunWorldPos);
-                                    score += 250;
-                                    quotaDefeated++;
-                                    sfx.playExplosion();
-                                    updateHUD();
-                                }
-                                break;
-                            }
-                        }
+                        if (g.active) g.mesh.lookAt(playerShip.position);
                     });
 
-                    if (activeGunsCount > 0 && time - t.lastFireTime > t.fireInterval) {
+                    // Turret fires laser at player
+                    if (time - t.lastFireTime > t.fireInterval && t.group.position.z < -10) {
+                        const topPos = t.group.position.clone();
+                        topPos.y += t.pedestalHeight;
+                        fireEnemyLaserFromPoint(topPos);
                         t.lastFireTime = time;
                     }
 
-                    if (t.group.position.z > 20) {
+                    // CLEAR RELIABLE HITBOX: Player blaster vs entire turret structure
+                    for (let j = playerLasers.length - 1; j >= 0; j--) {
+                        const l = playerLasers[j];
+                        const turretCenter = t.group.position.clone();
+                        turretCenter.y += t.pedestalHeight / 2;
+
+                        if (l.mesh.position.distanceTo(turretCenter) < 3.2) {
+                            createExplosion(l.mesh.position);
+                            scene.remove(l.mesh); playerLasers.splice(j, 1);
+
+                            t.hp--;
+                            if (t.hp <= 0) {
+                                createExplosion(turretCenter);
+                                if (Math.random() < 0.35) spawnPowerUpDrop(turretCenter);
+                                scene.remove(t.group);
+                                groundTurrets.splice(i, 1);
+                                score += 300;
+                                quotaDefeated++;
+                                sfx.playExplosion();
+                                updateHUD();
+                            }
+                            break;
+                        }
+                    }
+
+                    if (t && t.group.position.z > 20) {
                         scene.remove(t.group);
                         groundTurrets.splice(i, 1);
                     }
@@ -1146,41 +1129,48 @@
                     }
                 }
 
-                // --- 13. UPDATE TIE FIGHTERS (APPROACH, FLY PAST & LOOP BACK AROUND IN FORMATION) ---
+                // --- 13. TIE FIGHTERS: FLY INTO VIEW, ENGAGE/STRAFE IN FRONT OF PLAYER, THEN LEAVE ---
                 for (let i = enemies.length - 1; i >= 0; i--) {
                     const e = enemies[i];
 
-                    if (e.state === 'APPROACH') {
-                        e.mesh.position.z += speed * 0.75;
-                        e.mesh.rotation.z += 0.01;
+                    if (e.state === 'ENTERING') {
+                        // Fly in rapidly from Z = -180 to Z = -50 (in front of player)
+                        e.mesh.position.z += speed * 2.2;
+                        if (e.mesh.position.z >= -50) {
+                            e.state = 'ENGAGING';
+                            e.engageTimer = 0;
+                        }
+                    } 
+                    else if (e.state === 'ENGAGING') {
+                        // REMAIN IN FRONT OF PLAYER: Hover & strafe left, right, up, down in clear view!
+                        e.engageTimer += 0.016;
 
-                        if (time - e.lastFireTime > e.fireInterval && e.mesh.position.z < -10) {
+                        e.mesh.position.x = e.baseX + Math.sin(time * e.sineFreqX + e.seed) * 8.0;
+                        e.mesh.position.y = Math.max(MIN_SHIP_Y, e.baseY + Math.cos(time * e.sineFreqY + e.seed) * 4.0);
+                        e.mesh.position.z = -50 + Math.sin(time * 0.002 + e.seed) * 5.0;
+
+                        e.mesh.rotation.z = Math.sin(time * 0.003 + e.seed) * 0.2;
+
+                        // Fire laser at player while engaging in view
+                        if (time - e.lastFireTime > e.fireInterval) {
                             fireEnemyLaser(e);
                             e.lastFireTime = time;
                         }
 
-                        // When TIE flies past player behind screen (z > 15), trigger looping swooping maneuver!
-                        if (e.mesh.position.z > 15) {
-                            e.state = 'LOOPING';
-                            e.loopProgress = 0;
-                            e.loopStartX = e.mesh.position.x;
-                            e.loopStartY = e.mesh.position.y;
+                        // Remain in front of player for 7 seconds before leaving
+                        if (e.engageTimer > 7.0) {
+                            e.state = 'EXITING';
                         }
-                    } 
-                    else if (e.state === 'LOOPING') {
-                        // Swoop arc: Flies high into sky, curves wide, and loops back in front to -180
-                        e.loopProgress += 0.012;
-                        const t = e.loopProgress;
+                    }
+                    else if (e.state === 'EXITING') {
+                        // Fly past player and exit view
+                        e.mesh.position.z += speed * 2.5;
+                        e.mesh.position.y += 0.08;
 
-                        e.mesh.position.z = THREE.MathUtils.lerp(15, -180, t);
-                        e.mesh.position.y = e.loopStartY + Math.sin(t * Math.PI) * 18.0;
-                        e.mesh.position.x = e.loopStartX + Math.sin(t * Math.PI * 2) * 8.0;
-
-                        e.mesh.rotation.x = Math.sin(t * Math.PI) * Math.PI;
-
-                        if (e.loopProgress >= 1.0) {
-                            e.state = 'APPROACH';
-                            e.mesh.rotation.set(0, 0, 0);
+                        if (e.mesh.position.z > 20) {
+                            scene.remove(e.mesh);
+                            enemies.splice(i, 1);
+                            continue;
                         }
                     }
 
@@ -1345,30 +1335,33 @@
             sfx.playEnemyLaser();
         }
 
-        // --- TIE SQUADRON SPAWNING (FORMATIONS) ---
+        // --- TIE SQUADRON SPAWNING WITH WEAVING ENCOUNTER STATE ---
         function spawnTieSquadron() {
             const formationType = Math.floor(Math.random() * 2);
-            const leaderX = (Math.random() - 0.5) * 28;
-            const leaderY = Math.random() * 8.0;
+            const leaderX = (Math.random() - 0.5) * 24;
+            const leaderY = Math.random() * 6.0;
             const startZ = -180;
 
             const offsets = formationType === 0 ? 
-                [{x:0, y:0, z:0}, {x:-3.5, y:1.5, z:4}, {x:3.5, y:1.5, z:4}] : // V-Formation
-                [{x:-4.5, y:0, z:0}, {x:0, y:0, z:0}, {x:4.5, y:0, z:0}];      // Line Formation
+                [{x:0, y:0, z:0}, {x:-3.5, y:1.5, z:4}, {x:3.5, y:1.5, z:4}] : 
+                [{x:-4.5, y:0, z:0}, {x:0, y:0, z:0}, {x:4.5, y:0, z:0}];
 
             offsets.forEach(off => {
                 const tieMesh = createTieFighter();
                 tieMesh.position.set(leaderX + off.x, leaderY + off.y, startZ + off.z);
                 
-                const fireInterval = Math.max(1200, 4500 - difficultyLevel * 450 + Math.random() * 600);
+                const fireInterval = Math.max(1200, 4200 - difficultyLevel * 400 + Math.random() * 500);
                 scene.add(tieMesh);
 
                 enemies.push({
                     mesh: tieMesh,
-                    state: 'APPROACH',
-                    loopProgress: 0,
-                    loopStartX: leaderX + off.x,
-                    loopStartY: leaderY + off.y,
+                    state: 'ENTERING',
+                    engageTimer: 0,
+                    baseX: leaderX + off.x,
+                    baseY: leaderY + off.y,
+                    seed: Math.random() * 100,
+                    sineFreqX: 0.002 + Math.random() * 0.001,
+                    sineFreqY: 0.003 + Math.random() * 0.001,
                     lastFireTime: performance.now() + Math.random() * 800,
                     fireInterval: fireInterval
                 });
@@ -1377,14 +1370,16 @@
 
         function spawnGroundTurret() {
             const turretObj = createGroundTurret();
-            const posX = (Math.random() - 0.5) * 34;
+            const posX = (Math.random() - 0.5) * 32;
             turretObj.mesh.position.set(posX, TRENCH_FLOOR_Y, -180);
 
-            const fireInterval = Math.max(1200, 3800 - difficultyLevel * 400);
+            const fireInterval = Math.max(1200, 3600 - difficultyLevel * 350);
             scene.add(turretObj.mesh);
             groundTurrets.push({
                 group: turretObj.mesh,
                 guns: turretObj.guns,
+                pedestalHeight: turretObj.pedestalHeight,
+                hp: 4, // Pedestal HP
                 lastFireTime: performance.now(),
                 fireInterval: fireInterval
             });
