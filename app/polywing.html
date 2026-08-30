@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>POLYWING: DELIBERATE FLIGHT PATHS</title>
+    <title>POLYWING: TRENCH ASSAULT</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; color: #00ffcc; }
@@ -310,7 +310,6 @@
             { id: "HOMING_MISSILE", label: "+1 HOMING MISSILE POD", color: 0xbd00ff }
         ];
 
-        // --- GLOBAL ENGINE & GAME STATE ---
         let scene, camera, renderer, playerShip, starParticlesSystem, planetMeshSystem, warpTunnelSystem, shieldBubbleMesh;
         let extraCannonsGroup = null, missilePodsGroup = null;
         let popupTimer = null;
@@ -318,7 +317,6 @@
         let score = 0, health = 100, maxHealth = 100, quotaDefeated = 0, targetQuota = 35;
         let sectorLevel = 1, isTransitioning = false, elapsedTime = 0, difficultyLevel = 0.5;
 
-        // PLAYER ARSENAL & POWERUP STATES
         let activeWeaponType = "PLASMA";
         let cannonSpreadLevel = 1;
         let tempShieldTimer = 0;
@@ -1166,10 +1164,16 @@
                     if (currentBoss.mesh.position.z < -50) {
                         currentBoss.mesh.position.z += 2.0;
                     } else {
-                        currentBoss.mesh.position.x = Math.sin(time * 0.002) * 12.0;
-                        currentBoss.mesh.position.y = Math.max(1.0, 3.0 + Math.cos(time * 0.0025) * 4.0);
+                        // Smooth deliberate movement in front of player
+                        currentBoss.mesh.position.x = Math.sin(time * 0.0012) * 10.0;
+                        currentBoss.mesh.position.y = Math.max(1.0, 3.0 + Math.cos(time * 0.0015) * 2.5);
                     }
-                    currentBoss.mesh.rotation.y += 0.01;
+
+                    // DELIBERATE BANKING ROTATION ONLY (NO 360 SPINNING)
+                    const bossVelX = Math.cos(time * 0.0012) * 0.012 * 10.0;
+                    currentBoss.mesh.rotation.z = -bossVelX * 1.2;
+                    currentBoss.mesh.rotation.y = bossVelX * 0.6;
+                    currentBoss.mesh.rotation.x = Math.sin(time * 0.0015) * 0.1;
 
                     keepAboveTerrain(currentBoss.mesh, 2.0);
 
@@ -1231,12 +1235,14 @@
                     }
                 }
 
-                // --- 13. TIE FIGHTERS & TERRAIN COLLISION BOUNDS ---
+                // --- 13. TIE FIGHTERS: DELIBERATE FLIGHT PATTERNS (NO 360 ROTATIONS, NO TERRAIN CLIPPING) ---
                 for (let i = enemies.length - 1; i >= 0; i--) {
                     const e = enemies[i];
 
                     if (e.state === 'ENTERING') {
                         e.mesh.position.z += speed * 2.2;
+                        e.mesh.rotation.set(0, 0, 0); // Steady orientation entering
+
                         if (e.mesh.position.z >= -50) {
                             e.state = 'ENGAGING';
                             e.engageTimer = 0;
@@ -1245,11 +1251,24 @@
                     else if (e.state === 'ENGAGING') {
                         e.engageTimer += 0.016;
 
-                        e.mesh.position.x = e.baseX + Math.sin(time * e.sineFreqX + e.seed) * 9.0;
-                        e.mesh.position.y = Math.max(MIN_SHIP_Y, e.baseY + Math.cos(time * e.sineFreqY + e.seed) * 4.5);
-                        e.mesh.position.z = -50 + Math.sin(time * 0.002 + e.seed) * 5.0;
+                        const prevX = e.mesh.position.x;
+                        const prevY = e.mesh.position.y;
 
-                        e.mesh.rotation.z = Math.sin(time * 0.003 + e.seed) * 0.25;
+                        // DELIBERATE STRAFING PATTERN IN FRONT OF PLAYER
+                        const targetX = e.baseX + Math.sin(time * e.sineFreqX + e.seed) * 7.5;
+                        const targetY = Math.max(MIN_SHIP_Y + 1.0, e.baseY + Math.sin(time * e.sineFreqY + e.seed) * 1.5);
+                        
+                        e.mesh.position.x += (targetX - e.mesh.position.x) * 0.08;
+                        e.mesh.position.y += (targetY - e.mesh.position.y) * 0.08;
+                        e.mesh.position.z = -50 + Math.sin(time * 0.001 + e.seed) * 2.0;
+
+                        // ORIENTATION REFLECTS MOVEMENT DIRECTION ONLY (NO 360 SPINNING)
+                        const velX = e.mesh.position.x - prevX;
+                        const velY = e.mesh.position.y - prevY;
+
+                        e.mesh.rotation.z = -velX * 0.6; // Subtle bank into turns
+                        e.mesh.rotation.y = velX * 0.3;  // Slight yaw
+                        e.mesh.rotation.x = velY * 0.3;  // Slight pitch
 
                         if (time - e.lastFireTime > e.fireInterval) {
                             fireEnemyLaser(e);
@@ -1263,6 +1282,8 @@
                     else if (e.state === 'EXITING') {
                         e.mesh.position.z += speed * 2.5;
                         e.mesh.position.y += 0.08;
+                        e.mesh.rotation.z *= 0.9;
+                        e.mesh.rotation.x = -0.1;
 
                         if (e.mesh.position.z > 20) {
                             scene.remove(e.mesh);
@@ -1483,8 +1504,8 @@
                     baseX: leaderX + off.x,
                     baseY: leaderY + off.y,
                     seed: Math.random() * 100,
-                    sineFreqX: 0.002 + Math.random() * 0.001,
-                    sineFreqY: 0.003 + Math.random() * 0.001,
+                    sineFreqX: 0.001 + Math.random() * 0.0008,
+                    sineFreqY: 0.001 + Math.random() * 0.0008,
                     lastFireTime: performance.now() + Math.random() * 800,
                     fireInterval: fireInterval
                 });
