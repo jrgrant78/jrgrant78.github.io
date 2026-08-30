@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>POLYWING: MAGNETIC NEON ARSENAL</title>
+    <title>POLYWING: TRENCH ASSAULT</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; color: #00ffcc; }
@@ -46,8 +46,8 @@
 
         #powerup-popup {
             position: absolute; bottom: 22%; left: 50%; transform: translateX(-50%);
-            font-size: min(5vw, 20px); font-weight: 900; letter-spacing: 2px; color: #00ffff;
-            text-shadow: 0 0 16px #00ffff, 0 0 28px #00ffff; text-align: center; opacity: 0; transition: opacity 0.25s ease;
+            font-size: min(5vw, 22px); font-weight: 900; letter-spacing: 2px; color: #00ffff;
+            text-shadow: 0 0 16px #00ffff; text-align: center; opacity: 0; transition: opacity 0.3s ease;
             white-space: nowrap; pointer-events: none;
         }
 
@@ -108,7 +108,7 @@
 
     <div id="title-screen" class="overlay-screen">
         <h1 class="game-title">POLYWING</h1>
-        <div class="subtitle">// MAGNETIC ARSENAL TRENCH RUN</div>
+        <div class="subtitle">// STAR DESTROYER TRENCH RUN</div>
         <button class="btn" onclick="startRun()">BEGIN RUN</button>
         <button class="btn" onclick="showHighScores()">HIGH SCORES</button>
         <div class="pulse" style="margin-top: 25px; font-size: min(3vw, 12px); color: #888;">HOLD RIGHT SCREEN TO FIRE CANNONS</div>
@@ -130,7 +130,7 @@
     <div id="hud">
         <div id="reticle"></div>
         <div id="right-touch-zone"></div>
-        <div id="powerup-popup">UPGRADE APPLIED</div>
+        <div id="powerup-popup">MAX SHIELDS +25</div>
         
         <div id="boss-hud-container">
             <div id="boss-name">IMPERIAL DREADNOUGHT</div>
@@ -263,15 +263,15 @@
 
         const sfx = new SoundSynth();
 
+        // INCREASED BOSS DIFFICULTY SCALING
         const BOSS_TYPES = [
-            { name: "IMPERIAL EXECUTIONER TIE", hp: 45, bossType: 0 },
-            { name: "GROUND FORTRESS TURRET ARRAY", hp: 65, bossType: 1 },
-            { name: "STAR DESTROYER COMMAND CORE", hp: 90, bossType: 2 }
+            { name: "IMPERIAL EXECUTIONER TIE", hp: 80, bossType: 0 },
+            { name: "GROUND FORTRESS TURRET ARRAY", hp: 130, bossType: 1 },
+            { name: "STAR DESTROYER COMMAND CORE", hp: 190, bossType: 2 }
         ];
 
-        // POWERUP DEFINITIONS WITH DISTINCT ENHANCEMENTS
         const POWERUP_TYPES = [
-            { id: "HEALTH", label: "REPAIRED +30 SHIELD", color: 0x00ff66 },
+            { id: "HEALTH", label: "+30 SHIELD REPAIR", color: 0x00ff66 },
             { id: "MAX_HP", label: "MAX SHIELD EXPANDED (+25)", color: 0xffff00 },
             { id: "SPREAD", label: "CANNON SPREAD UPGRADED", color: 0x00ffff },
             { id: "TEMP_SHIELD", label: "INVULNERABLE SHIELD ACTIVATED", color: 0x0088ff },
@@ -288,8 +288,8 @@
         let sectorLevel = 1, isTransitioning = false, elapsedTime = 0, difficultyLevel = 0.5;
 
         // PLAYER ARSENAL & POWERUP STATES
-        let activeWeaponType = "PLASMA"; // PLASMA, SPREAD, BEAM
-        let cannonSpreadLevel = 1; // 1 to 3
+        let activeWeaponType = "PLASMA";
+        let cannonSpreadLevel = 1;
         let tempShieldTimer = 0;
         let missileCount = 0;
         let lastMissileFireTime = 0;
@@ -311,6 +311,21 @@
         let reticleAimX = 0, reticleAimY = 0;
         let pointerTargetX = 0, pointerTargetY = 0, isTouchDragging = false;
         let previousPointerX = 0, previousPointerY = 0;
+
+        // HELPER TO PREVENT ENEMIES AND BOSSES FROM PASSING THROUGH FLOOR AND BUILDINGS
+        function keepAboveTerrain(object3D, minY = -2.5) {
+            let safeY = minY;
+            for (let i = 0; i < tallBuildings.length; i++) {
+                const bbox = tallBuildings[i].bbox;
+                if (object3D.position.x >= bbox.min.x - 1.8 && object3D.position.x <= bbox.max.x + 1.8 &&
+                    object3D.position.z >= bbox.min.z - 2.5 && object3D.position.z <= bbox.max.z + 2.5) {
+                    safeY = Math.max(safeY, bbox.max.y + 1.8);
+                }
+            }
+            if (object3D.position.y < safeY) {
+                object3D.position.y = safeY;
+            }
+        }
 
         function initEngine() {
             scene = new THREE.Scene();
@@ -502,7 +517,6 @@
             finR.rotation.z = 0.3;
             ship.add(finL, finR);
 
-            // Primary Cannons
             const cannonGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.4, 6);
             cannonGeo.rotateX(Math.PI / 2);
             const cannonR = new THREE.Mesh(cannonGeo, accentMat);
@@ -511,7 +525,6 @@
             cannonL.position.x = -2.4;
             ship.add(cannonR, cannonL);
 
-            // DYNAMIC EXTRA CANNONS GROUP (VISUALLY DOCKS ON SPREAD UPGRADE)
             extraCannonsGroup = new THREE.Group();
             const extCannonR = new THREE.Mesh(cannonGeo, new THREE.MeshBasicMaterial({ color: 0x00ffff }));
             extCannonR.position.set(1.2, 0.3, -0.1);
@@ -521,7 +534,6 @@
             extraCannonsGroup.visible = false;
             ship.add(extraCannonsGroup);
 
-            // DYNAMIC MISSILE PODS GROUP (VISUALLY DOCKS ON MISSILE PICKUP)
             missilePodsGroup = new THREE.Group();
             const podGeo = new THREE.BoxGeometry(0.5, 0.3, 1.0);
             const podMat = new THREE.MeshBasicMaterial({ color: 0xbd00ff, wireframe: true });
@@ -634,6 +646,7 @@
             });
         }
 
+        // BOSS CREATION WITH INCREASED DIFFICULTY & ATTACK POWER
         function createBossForLocation(biomeIdx) {
             const group = new THREE.Group();
             const matA = new THREE.MeshStandardMaterial({ color: 0xff0055, roughness: 0.3, flatShading: true });
@@ -641,7 +654,8 @@
             const matC = new THREE.MeshStandardMaterial({ color: 0x00ffcc, roughness: 0.4, flatShading: true });
 
             const bInfo = BOSS_TYPES[biomeIdx % BOSS_TYPES.length];
-            let hp = bInfo.hp + sectorLevel * 15;
+            // Scale HP progressively higher per sector level
+            let hp = (bInfo.hp * 1.5) + sectorLevel * 30;
 
             if (bInfo.bossType === 0) {
                 const tieCore = createTieFighter();
@@ -668,24 +682,24 @@
                 hp: hp,
                 maxHp: hp,
                 lastFireTime: performance.now(),
-                fireInterval: 1000 - Math.min(600, sectorLevel * 50)
+                fireInterval: Math.max(300, 850 - sectorLevel * 90) // Progressively faster salvo attacks
             };
         }
 
-        // --- COMPACT 50% SCALED POWERUP SPAWNER ---
+        // SLIGHTLY SMALLER POWERUPS (SCALE REDUCED BY ~25-30%)
         function spawnPowerUpDrop(position) {
             const pType = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
             const group = new THREE.Group();
 
-            const coreGeo = new THREE.IcosahedronGeometry(0.38, 1);
+            const coreGeo = new THREE.IcosahedronGeometry(0.26, 1);
             const coreMat = new THREE.MeshBasicMaterial({ color: pType.color });
             const coreMesh = new THREE.Mesh(coreGeo, coreMat);
 
-            const cageGeo = new THREE.OctahedronGeometry(0.65);
+            const cageGeo = new THREE.OctahedronGeometry(0.45);
             const cageMat = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true });
             const cageMesh = new THREE.Mesh(cageGeo, cageMat);
 
-            const ringGeo = new THREE.TorusGeometry(0.85, 0.08, 8, 16);
+            const ringGeo = new THREE.TorusGeometry(0.60, 0.07, 8, 16);
             const ringMat = new THREE.MeshBasicMaterial({ color: pType.color });
             const ringMesh = new THREE.Mesh(ringGeo, ringMat);
             ringMesh.rotation.x = Math.PI / 3;
@@ -981,18 +995,17 @@
                     }
                 }
 
-                // --- 6. UPDATE POWERUPS (WITH MAGNETIC ATTRACTION TO PLAYER) ---
+                // --- 6. UPDATE POWERUPS (MAGNETIC & COLLISION PREVENTED) ---
                 for (let i = powerUps.length - 1; i >= 0; i--) {
                     const p = powerUps[i];
                     
                     const distToPlayer = p.mesh.position.distanceTo(playerShip.position);
 
-                    // MAGNETIC PULL: Attracted to player ship when within 18.0 units!
                     if (distToPlayer < 18.0) {
                         const magnetPullStrength = 0.14 * (1.0 - distToPlayer / 18.0) + 0.04;
                         p.mesh.position.lerp(playerShip.position, magnetPullStrength);
                     } else {
-                        p.mesh.position.z += speed * 0.15; // Slow ambient forward drift
+                        p.mesh.position.z += speed * 0.15;
                     }
 
                     p.cage.rotation.y += 0.05;
@@ -1002,7 +1015,6 @@
                     const pulse = 1.0 + Math.sin(time * 0.008) * 0.18;
                     p.core.scale.setScalar(pulse);
 
-                    // COLLECTION PICKUP
                     if (distToPlayer < 2.0) {
                         applyPowerUp(p.type);
                         scene.remove(p.mesh);
@@ -1054,7 +1066,6 @@
                             fireEnemyLaserFromPoint(gunWorldPos);
                         }
 
-                        // Player blasters hit specific side gun pod
                         for (let j = playerLasers.length - 1; j >= 0; j--) {
                             const l = playerLasers[j];
                             if (l.mesh.position.distanceTo(gunWorldPos) < 2.0) {
@@ -1119,15 +1130,18 @@
                     }
                 }
 
-                // --- 10. BOSS COMBAT LOOP & AI ---
+                // --- 10. BOSS COMBAT LOOP, PROGRESSIVE DIFFICULTY & TERRAIN COLLISION BOUNDS ---
                 if (currentBoss) {
                     if (currentBoss.mesh.position.z < -50) {
                         currentBoss.mesh.position.z += 2.0;
                     } else {
                         currentBoss.mesh.position.x = Math.sin(time * 0.002) * 12.0;
-                        currentBoss.mesh.position.y = Math.cos(time * 0.0025) * 4.0;
+                        currentBoss.mesh.position.y = Math.max(1.0, 3.0 + Math.cos(time * 0.0025) * 4.0);
                     }
                     currentBoss.mesh.rotation.y += 0.01;
+
+                    // Ensure boss remains safely above terrain/buildings
+                    keepAboveTerrain(currentBoss.mesh, 2.0);
 
                     if (time - currentBoss.lastFireTime > currentBoss.fireInterval) {
                         fireBossSalvo(currentBoss);
@@ -1186,7 +1200,7 @@
                     }
                 }
 
-                // --- 13. TIE FIGHTERS: FLY INTO VIEW & REMAIN ENGAGING IN FRONT OF PLAYER ---
+                // --- 13. TIE FIGHTERS & TERRAIN COLLISION BOUNDS ---
                 for (let i = enemies.length - 1; i >= 0; i--) {
                     const e = enemies[i];
 
@@ -1226,6 +1240,9 @@
                         }
                     }
 
+                    // Enforce that TIE fighters never clip into floor or buildings
+                    keepAboveTerrain(e.mesh, -2.2);
+
                     for (let j = playerLasers.length - 1; j >= 0; j--) {
                         const l = playerLasers[j];
                         if (l.mesh.position.distanceTo(e.mesh.position) < 2.2) {
@@ -1263,7 +1280,6 @@
             renderer.render(scene, camera);
         }
 
-        // --- RELIABLE POWERUP ENHANCEMENT LOGIC ---
         function applyPowerUp(pType) {
             if (!pType) return;
             sfx.playPowerup();
@@ -1385,17 +1401,19 @@
         }
 
         function fireBossSalvo(boss) {
-            for(let i = -1; i <= 1; i += 2) {
+            const laserCount = sectorLevel > 1 ? 4 : 2;
+            for(let i = 0; i < laserCount; i++) {
                 const geo = new THREE.CylinderGeometry(0.18, 0.18, 2.8, 6);
                 geo.rotateX(Math.PI / 2);
                 const mat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
                 const laser = new THREE.Mesh(geo, mat);
                 laser.position.copy(boss.mesh.position);
-                laser.position.x += i * 2.5;
+                const xOffset = (i - (laserCount - 1) / 2) * 2.2;
+                laser.position.x += xOffset;
 
                 const dir = new THREE.Vector3().subVectors(playerShip.position, laser.position).normalize();
                 scene.add(laser);
-                enemyLasers.push({ mesh: laser, dir: dir, speed: 1.5 + difficultyLevel * 0.2 });
+                enemyLasers.push({ mesh: laser, dir: dir, speed: 1.8 + difficultyLevel * 0.35 });
             }
             sfx.playEnemyLaser();
         }
@@ -1403,7 +1421,7 @@
         function spawnTieSquadron() {
             const formationType = Math.floor(Math.random() * 2);
             const leaderX = (Math.random() - 0.5) * 24;
-            const leaderY = Math.random() * 6.0;
+            const leaderY = Math.random() * 5.0 + 1.0;
             const startZ = -180;
 
             const offsets = formationType === 0 ? 
